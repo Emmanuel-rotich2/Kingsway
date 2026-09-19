@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\website\WebsiteManager;
 use App\Database\Database;
 use App\API\Services\payments\UniformCatalogService;
+use DomainException;
 
 /**
  * PublicController - Unauthenticated write endpoints for the public website
@@ -146,6 +147,73 @@ class PublicController extends BaseAPI
             return $this->errorResponse('Please enter a valid email address.', 422);
         }
         return $this->manager->createSubscriber($email, trim($data['name'] ?? ''));
+    }
+
+    /** POST /api/public/ai-faq */
+    public function postAiFaq($id = null, $data = [], $segments = [])
+    {
+        try {
+            $content = $this->manager->getContent();
+            $payload = is_array($content['data'] ?? null) ? $content['data'] : (is_array($content) ? $content : []);
+            $corpus = [];
+            foreach ($payload as $key => $value) {
+                $sourceKey = preg_replace('/[^a-z0-9_]+/i', '_', (string) $key);
+                if (is_scalar($value) && trim((string) $value) !== '') {
+                    $corpus[] = ['id' => 'public_' . $sourceKey, 'title' => (string) $key, 'content' => (string) $value];
+                    continue;
+                }
+                if (!is_array($value)) continue;
+                foreach (array_slice($value, 0, 40) as $index => $item) {
+                    if (!is_array($item)) continue;
+                    // WebsiteManager exposes published blocks as content_key /
+                    // content_value, while normalized public sections use
+                    // description/name/title. Include only public prose fields;
+                    // never send IDs, ordering, flags, or internal metadata.
+                    $parts = [];
+                    foreach (['content_value', 'content', 'description', 'level_range', 'event_title', 'bio', 'setting_value'] as $field) {
+                        $text = trim((string) ($item[$field] ?? ''));
+                        if ($text !== '') $parts[] = $text;
+                    }
+                    if ($parts === []) continue;
+                    $title = (string) ($item['title'] ?? $item['content_key'] ?? $item['name'] ?? $item['event_title'] ?? $key);
+                    $corpus[] = [
+                        'id' => 'public_' . $sourceKey . '_' . (int) $index,
+                        'title' => $title,
+                        'content' => implode("\n", array_unique($parts)),
+                    ];
+                }
+            }
+            // This is a public fact already displayed in the shared website
+            // footer/login pages. Keep it explicit so a technology question
+            // cannot be answered with the unrelated school-founder record.
+            $corpus[] = [
+                'id' => 'public_system_maintainer',
+                'title' => 'School system maintenance',
+                'content' => 'The Kingsway school management system is maintained by AngiSoft Technologies. Public company information is available at https://www.angisoft.co.ke. The published school information does not claim that the founders developed the software.',
+            ];
+            $corpus[] = [
+                'id' => 'public_system_maintainer_contact',
+                'title' => 'AngiSoft Technologies contact',
+                'content' => 'To contact AngiSoft Technologies, visit https://www.angisoft.co.ke/contact, call or send SMS/WhatsApp to +254710398690, or email info@angisoft.co.ke. AngiSoft Technologies is based in Nairobi, Kenya.',
+            ];
+            $result = $this->contract('App\\API\\Services\\PublicAiAssistantService')->ask(
+                (string) ($data['question'] ?? ''),
+                $corpus,
+                is_array($data['conversation'] ?? null) ? $data['conversation'] : []
+            );
+            return $this->successResponse($result, 'Public assistant response prepared');
+        } catch (DomainException $e) {
+            return $this->errorResponse($e->getMessage(), (int) ($e->getCode() ?: 422));
+        } catch (\Throwable $e) {
+            // Keep the public response generic, but preserve the actionable
+            // provider/normalization failure in structured logs for diagnosis.
+            \App\API\Services\Logger::error('ai_generation', 'Public FAQ request failed', [
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'request_id' => $_SERVER['REQUEST_ID'] ?? null,
+            ]);
+            return $this->errorResponse('The public assistant is temporarily unavailable.', 503);
+        }
     }
 
     /** GET /api/public/uniform-catalog OR /api/public/uniform-catalog/{id} */

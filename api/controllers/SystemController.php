@@ -6,11 +6,16 @@ use App\API\Modules\system\SystemAdminManager;
 use App\API\Modules\system\DashboardRegistryManager;
 use App\API\Services\AuthSessionService;
 use App\API\Services\IpAccessControlService;
+use App\API\Services\SystemCommsConfigService;
+use App\API\Services\AnnouncementBulletinService;
+use App\API\Services\EmailProfileService;
+use App\API\Services\EmailInboxService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\OperatingModeService;
 use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\TestDataManagementService;
 use App\API\Services\Logger;
+use DomainException;
 use Exception;
 
 class SystemController extends BaseController
@@ -20,7 +25,11 @@ class SystemController extends BaseController
     private $dashboardRegistryManager;
     private $authSessionService;
     private $ipAccessControlService;
+    private $systemCommsConfig;
+    private $announcementBulletin;
     private $systemAdminAnalytics;
+    private $emailProfileService;
+    private $emailInboxService;
 
     public function __construct()
     {
@@ -34,7 +43,20 @@ class SystemController extends BaseController
         $this->ipAccessControlService = $this->contract('App\API\Services\IpAccessControlService', 
             $this->db->getConnection()
         );
+        $this->systemCommsConfig = $this->contract('App\API\Services\SystemCommsConfigService',
+            $this->db->getConnection()
+        );
+        $this->announcementBulletin = $this->contract('App\API\Services\AnnouncementBulletinService',
+            $this->db->getConnection()
+        );
         $this->systemAdminAnalytics = $this->contract('App\API\Services\SystemAdminAnalyticsService');
+        $this->emailProfileService = $this->contract('App\API\Services\EmailProfileService',
+            $this->db->getConnection()
+        );
+        $this->emailInboxService = $this->contract('App\API\Services\EmailInboxService',
+            $this->db->getConnection(),
+            $this->emailProfileService
+        );
     }
 
     public function index()
@@ -230,6 +252,161 @@ class SystemController extends BaseController
     public function getJobInspector($id = null, $data = [], $segments = [])
     {
         return $this->getBackgroundJobs($id, $data, $segments);
+    }
+
+    // ========================================================================
+    // OPERATIONS & OBSERVABILITY (deterministic-first, system.operations_brief)
+    // ========================================================================
+
+    // GET /api/system/operations-summary
+    public function getOperationsSummary($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        try {
+            $service = $this->contract('App\API\Services\SystemOperationsReviewService');
+            $summary = $service->summary($this->db->getConnection());
+            return $this->success($summary, 'Operations summary retrieved');
+        } catch (\Throwable $e) {
+            return $this->serverError('Operations summary is temporarily unavailable');
+        }
+    }
+
+    // GET /api/system/security-signals
+    public function getSecuritySignals($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            return $this->success($this->contract('App\\API\\Services\\SystemSecuritySignalsService')->summary(), 'Security signals retrieved');
+        } catch (\Throwable $e) { return $this->serverError('Security signals are temporarily unavailable'); }
+    }
+
+    // POST /api/system/ai-security-review-queue
+    public function postAiSecurityReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        if (!$this->canUseAiOperations()) return $this->forbidden('Security AI assistance is not available for your account');
+        try {
+            $signals = $this->contract('App\\API\\Services\\SystemSecuritySignalsService');
+            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(self::SECURITY_WORKFLOW, $this->aiOperationsContext(), $signals->aiPayload($signals->summary()), ['subject_type' => 'system_security_review', 'scope' => 'identity_free_security_aggregates']);
+            return $this->accepted($queued, 'Security review queued for review');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (\Throwable $e) { return $this->serverError('Security assistance is temporarily unavailable'); }
+    }
+
+    private const SECURITY_WORKFLOW = 'system.security_brief';
+
+    // GET /api/system/ai-capability-matrix
+    public function getAiCapabilityMatrix($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            $matrix = $this->contract('App\\API\\Services\\AiCapabilityMatrix');
+            return $this->success(['summary' => $matrix->summary(), 'capabilities' => $matrix->all()], 'AI capability matrix retrieved');
+        } catch (\Throwable $e) {
+            return $this->serverError('AI capability matrix is temporarily unavailable');
+        }
+    }
+
+    // GET /api/system/ai-readiness
+    public function getAiReadiness($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try { return $this->success($this->contract('App\\API\\Services\\AiReadinessReportService')->report(), 'AI readiness report retrieved'); }
+        catch (\Throwable $e) { return $this->serverError('AI readiness report is temporarily unavailable'); }
+    }
+
+    // GET /api/system/ai-provider-health
+    public function getAiProviderHealth($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            return $this->success($this->contract('App\\API\\Services\\AiProviderGateway')->health(), 'AI provider health retrieved');
+        } catch (\Throwable $e) { return $this->serverError('AI provider health is temporarily unavailable'); }
+    }
+
+    // POST /api/system/ai-operations-review-queue
+    public function postAiOperationsReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        if (!$this->canUseAiOperations()) {
+            return $this->forbidden('Operations AI assistance is not available for your account');
+        }
+        try {
+            $service = $this->contract('App\API\Services\SystemOperationsReviewService');
+            $input = $service->aiPayload($service->summary($this->db->getConnection()));
+            $queued = $this->contract('App\API\Services\AiDraftService')->queue(
+                'system.operations_brief', $this->aiOperationsContext(), $input,
+                ['subject_type' => 'system_operations_review', 'scope' => 'authorized_system_aggregates']
+            );
+            return $this->accepted($queued, 'Operations review queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->serverError('Operations assistance is temporarily unavailable');
+        }
+    }
+
+    public function getAiOperationsReviews($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiOperations()) {
+            return $this->forbidden('Operations review permission is required');
+        }
+        return $this->success([
+            'drafts' => $this->contract('App\API\Services\AiDraftService')->listForReview($this->db->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'system'),
+            'scope' => $review ? 'review' : 'own',
+        ], 'Operations reviews retrieved');
+    }
+
+    public function postAiOperationsReviewApprove($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        if (!$this->canApproveAiOperations()) {
+            return $this->forbidden('Operations review permission is required');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) {
+            return $this->badRequest('draft_id is required');
+        }
+        try {
+            $approved = $this->contract('App\API\Services\AiDraftService')->approve($this->db->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'system.operations_brief');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Operations review approved for staff guidance');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        }
+    }
+
+    private function aiOperationsContext(): array
+    {
+        return [
+            'user_id' => (int) ($this->getUserId() ?? 0),
+            'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId,
+        ];
+    }
+
+    private function canUseAiOperations(): bool
+    {
+        try {
+            $this->contract('App\API\Services\AiWorkflowService')->authorize('system.operations_brief', $this->aiOperationsContext());
+            return true;
+        } catch (DomainException $e) {
+            return false;
+        }
+    }
+
+    private function canApproveAiOperations(): bool
+    {
+        return $this->userHasAny(['system_view', 'system_manage'], [], ['system administrator', 'admin']);
     }
 
     // GET /api/system/security-incidents
@@ -1187,6 +1364,512 @@ class SystemController extends BaseController
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('IP rule deletion failed: ' . $e->getMessage());
             return $this->serverError('The IP access rule could not be deleted');
+        }
+    }
+
+    // ========================================================================
+    // COMMUNICATION CONFIGS (SMS, Email, WhatsApp provider settings)
+    // ========================================================================
+
+    // GET /api/system/communication-configs
+    public function getCommunicationConfigs($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            return $this->success(
+                $this->systemCommsConfig->getAll(),
+                'Communication configurations retrieved'
+            );
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Communication config retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Communication configurations could not be retrieved');
+        }
+    }
+
+    // PUT /api/system/communication-configs
+    public function putCommunicationConfigs($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $group = trim((string) ($data['group'] ?? ''));
+        $fields = $data['fields'] ?? [];
+
+        if (!in_array($group, ['sms', 'email', 'whatsapp'], true)) {
+            return $this->badRequest('A valid group (sms, email, whatsapp) is required');
+        }
+        if (!is_array($fields) || empty($fields)) {
+            return $this->badRequest('At least one field is required');
+        }
+
+        try {
+            $result = $this->systemCommsConfig->saveGroup($group, $fields);
+            return $this->success($result, ucfirst($group) . ' configuration saved');
+        } catch (\InvalidArgumentException $e) {
+            Logger::legacyError('[SystemController] ' . $e->getMessage());
+            return $this->badRequest('An internal error occurred.');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Communication config save failed: ' . $e->getMessage());
+            return $this->serverError('Communication configuration could not be saved');
+        }
+    }
+
+    // POST /api/system/communication-configs/test
+    public function postCommunicationConfigTest($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $type = trim((string) ($data['type'] ?? ''));
+        $testPhone = trim((string) ($data['phone'] ?? ''));
+
+        try {
+            switch ($type) {
+                case 'sms':
+                    if (empty($testPhone)) {
+                        return $this->badRequest('A phone number is required for SMS test');
+                    }
+                    $result = $this->systemCommsConfig->testSms($testPhone);
+                    break;
+                case 'email':
+                    $result = $this->systemCommsConfig->testEmail();
+                    break;
+                case 'whatsapp':
+                    $result = $this->systemCommsConfig->testWhatsApp();
+                    break;
+                default:
+                    return $this->badRequest('A valid type (sms, email, whatsapp) is required');
+            }
+            return $this->success($result, 'Test completed');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Communication test failed: ' . $e->getMessage());
+            return $this->serverError('Connection test failed');
+        }
+    }
+
+    // ========================================================================
+    // SYSTEM ANNOUNCEMENTS (announcements_bulletin)
+    // ========================================================================
+
+    // GET /api/system/system-announcements
+    public function getSystemAnnouncements($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $filters = array_merge($_GET, is_array($data) ? $data : []);
+            if ($id !== null) {
+                $result = $this->announcementBulletin->getById((int) $id);
+                if (!$result) {
+                    return $this->notFound('Announcement not found');
+                }
+                return $this->success($result, 'Announcement retrieved');
+            }
+            return $this->success(
+                $this->announcementBulletin->list($filters),
+                'System announcements retrieved'
+            );
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] System announcement retrieval failed: ' . $e->getMessage());
+            return $this->serverError('System announcements could not be retrieved');
+        }
+    }
+
+    // POST /api/system/system-announcements
+    public function postSystemAnnouncements($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $result = $this->announcementBulletin->create(
+                is_array($data) ? $data : [],
+                (int) $this->getUserId()
+            );
+            return $this->created($result, 'System announcement created');
+        } catch (\InvalidArgumentException $e) {
+            Logger::legacyError('[SystemController] ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] System announcement creation failed: ' . $e->getMessage());
+            return $this->serverError('System announcement could not be created');
+        }
+    }
+
+    // PUT /api/system/system-announcements
+    public function putSystemAnnouncements($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $announcementId = filter_var($id ?? $data['id'] ?? null, FILTER_VALIDATE_INT);
+        if ($announcementId === false || $announcementId <= 0) {
+            return $this->badRequest('A valid announcement ID is required');
+        }
+
+        try {
+            $result = $this->announcementBulletin->update(
+                (int) $announcementId,
+                is_array($data) ? $data : [],
+                (int) $this->getUserId()
+            );
+            return $this->success($result, 'System announcement updated');
+        } catch (\OutOfBoundsException $e) {
+            Logger::legacyError('[SystemController] ' . $e->getMessage());
+            return $this->notFound('An internal error occurred.');
+        } catch (\InvalidArgumentException $e) {
+            Logger::legacyError('[SystemController] ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] System announcement update failed: ' . $e->getMessage());
+            return $this->serverError('System announcement could not be updated');
+        }
+    }
+
+    // DELETE /api/system/system-announcements
+    public function deleteSystemAnnouncements($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $announcementId = filter_var($id ?? $data['id'] ?? null, FILTER_VALIDATE_INT);
+        if ($announcementId === false || $announcementId <= 0) {
+            return $this->badRequest('A valid announcement ID is required');
+        }
+
+        try {
+            $result = $this->announcementBulletin->delete((int) $announcementId);
+            return $this->success($result, 'System announcement deleted');
+        } catch (\OutOfBoundsException $e) {
+            Logger::legacyError('[SystemController] ' . $e->getMessage());
+            return $this->notFound('An internal error occurred.');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] System announcement deletion failed: ' . $e->getMessage());
+            return $this->serverError('System announcement could not be deleted');
+        }
+    }
+
+    // ========================================================================
+    // EMAIL PROFILES (multi-mailbox management)
+    // ========================================================================
+
+    // GET /api/system/email-profiles (list) | GET /api/system/email-profiles/{id}
+    public function getEmailProfiles($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $profileId = filter_var($id, FILTER_VALIDATE_INT);
+            if ($profileId !== false && $profileId > 0) {
+                $profile = $this->emailProfileService->getProfile((int) $profileId);
+                if ($profile === null) {
+                    return $this->notFound('Email profile not found');
+                }
+                return $this->success($profile, 'Email profile retrieved');
+            }
+
+            $filters = [];
+            if (!empty($data['role_id'])) {
+                $filters['role_id'] = (int) $data['role_id'];
+            }
+            $profiles = $this->emailProfileService->listProfiles($filters);
+            $auditBcc = $this->emailProfileService->getAuditBcc();
+            return $this->success(['profiles' => $profiles, 'audit_bcc' => $auditBcc], 'Email profiles retrieved');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Email profiles retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Email profiles could not be retrieved');
+        }
+    }
+
+    // GET /api/system/email-profiles/{id}
+    public function getEmailProfile($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $profile = $this->emailProfileService->getProfile((int) $profileId);
+            if ($profile === null) {
+                return $this->notFound('Email profile not found');
+            }
+            return $this->success($profile, 'Email profile retrieved');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Email profile retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Email profile could not be retrieved');
+        }
+    }
+
+    // POST /api/system/email-profiles
+    public function postEmailProfiles($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $required = ['label', 'email_address', 'display_name', 'smtp_username', 'smtp_password'];
+        foreach ($required as $field) {
+            if (empty($data[$field])) {
+                return $this->badRequest("Field '$field' is required");
+            }
+        }
+
+        try {
+            $profile = $this->emailProfileService->createProfile($data);
+            return $this->success($profile, 'Email profile created');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Email profile creation failed: ' . $e->getMessage());
+            return $this->serverError('Email profile could not be created');
+        }
+    }
+
+    // PUT /api/system/email-profiles/{id}
+    public function putEmailProfiles($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $profile = $this->emailProfileService->updateProfile((int) $profileId, $data);
+            return $this->success($profile, 'Email profile updated');
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound('Email profile not found');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Email profile update failed: ' . $e->getMessage());
+            return $this->serverError('Email profile could not be updated');
+        }
+    }
+
+    // DELETE /api/system/email-profiles/{id}
+    public function deleteEmailProfiles($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $this->emailProfileService->deleteProfile((int) $profileId);
+            return $this->success(['deleted' => true], 'Email profile deleted');
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound('Email profile not found');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Email profile deletion failed: ' . $e->getMessage());
+            return $this->serverError('Email profile could not be deleted');
+        }
+    }
+
+    // PUT /api/system/email-profiles/{id}/default
+    public function putEmailProfilesDefault($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $this->emailProfileService->setDefault((int) $profileId);
+            return $this->success(['set_default' => true], 'Default email profile updated');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Set default email profile failed: ' . $e->getMessage());
+            return $this->serverError('Default email profile could not be set');
+        }
+    }
+
+    // POST /api/system/email-profiles/{id}/test-smtp
+    public function postEmailProfilesTestSmtp($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $result = $this->emailProfileService->testSmtp((int) $profileId);
+            return $this->success($result, 'SMTP test completed');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] SMTP test failed: ' . $e->getMessage());
+            return $this->serverError('SMTP test failed');
+        }
+    }
+
+    // POST /api/system/email-profiles/{id}/test-imap
+    public function postEmailProfilesTestImap($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $result = $this->emailProfileService->testImap((int) $profileId);
+            return $this->success($result, 'IMAP test completed');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] IMAP test failed: ' . $e->getMessage());
+            return $this->serverError('IMAP test failed');
+        }
+    }
+
+    // ========================================================================
+    // EMAIL INBOX (IMAP inbox viewer)
+    // ========================================================================
+
+    // GET /api/system/email-inbox/{profileId}/folders
+    public function getEmailInboxFolders($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        try {
+            $result = $this->emailInboxService->listMailboxes((int) $profileId);
+            return $this->success($result, 'Mailbox folders retrieved');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Inbox folders failed: ' . $e->getMessage());
+            return $this->serverError('Inbox folders could not be retrieved');
+        }
+    }
+
+    // GET /api/system/email-inbox/{profileId}/messages
+    public function getEmailInboxMessages($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $profileId = filter_var($id, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        $folder = $data['folder'] ?? 'INBOX';
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $limit = min(100, max(1, (int) ($data['limit'] ?? 25)));
+
+        try {
+            $result = $this->emailInboxService->listMessages((int) $profileId, $folder, $page, $limit);
+            return $this->success($result, 'Inbox messages retrieved');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Inbox messages failed: ' . $e->getMessage());
+            return $this->serverError('Inbox messages could not be retrieved');
+        }
+    }
+
+    // GET /api/system/email-inbox/{profileId}/message/{messageId}
+    public function getEmailInboxMessage($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        // The router extracts only ONE numeric ID from the path; for the nested
+        // message route the conveyed id is the message id. The profile is
+        // resolved from the query so both stay available.
+        $profileId = filter_var($data['profile_id'] ?? $segments[0] ?? null, FILTER_VALIDATE_INT);
+        if ($profileId === false || $profileId <= 0) {
+            return $this->badRequest('A valid profile ID is required');
+        }
+
+        $folder = $data['folder'] ?? 'INBOX';
+        $messageId = (string) ($data['message_id'] ?? $id ?? '');
+        if ($messageId === '') {
+            return $this->badRequest('A message ID is required');
+        }
+
+        try {
+            $message = $this->emailInboxService->getMessage((int) $profileId, $folder, $messageId);
+            if ($message === null) {
+                return $this->notFound('Message not found');
+            }
+            return $this->success($message, 'Message retrieved');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Inbox message failed: ' . $e->getMessage());
+            return $this->serverError('Message could not be retrieved');
+        }
+    }
+
+    // ========================================================================
+    // AUDIT BCC (configurable global BCC for all outbound email)
+    // ========================================================================
+
+    // GET /api/system/audit-bcc
+    public function getAuditBcc($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            return $this->success($this->emailProfileService->getAuditBcc(), 'Audit BCC retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Audit BCC could not be retrieved');
+        }
+    }
+
+    // PUT /api/system/audit-bcc
+    public function putAuditBcc($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $email = trim((string) ($data['email'] ?? ''));
+        $enabled = ($data['enabled'] ?? '1') === '1' || filter_var($data['enabled'] ?? true, FILTER_VALIDATE_BOOLEAN);
+
+        try {
+            $result = $this->emailProfileService->saveAuditBcc($email, $enabled);
+            return $this->success($result, 'Audit BCC updated');
+        } catch (Exception $e) {
+            Logger::legacyError('[SystemController] Audit BCC save failed: ' . $e->getMessage());
+            return $this->serverError('Audit BCC could not be saved');
         }
     }
 

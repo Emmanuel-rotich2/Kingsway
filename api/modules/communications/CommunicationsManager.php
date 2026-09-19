@@ -339,7 +339,7 @@ class CommunicationsManager extends FileLifecycleBase
             $content = $body;
         }
 
-        $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature)";
+        $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature, audit_bcc) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature, :audit_bcc)";
         $stmt = $this->db->prepare($sql);
         $requestedStatus = $this->normalizeStatus($data['status'] ?? 'draft');
         $recordOnly = !empty($data['record_only']);
@@ -361,6 +361,7 @@ class CommunicationsManager extends FileLifecycleBase
             ':scheduled_at' => $data['scheduled_at'] ?? null,
             ':reminder_at' => $data['reminder_at'] ?? null,
             ':sender_signature' => $data['sender_signature'] ?? $data['signature'] ?? null,
+            ':audit_bcc' => !empty($data['audit_bcc']) ? 1 : 0,
         ]);
         $communicationId = (int) $this->db->lastInsertId();
         if (!empty($data['recipients'])) {

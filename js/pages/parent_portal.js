@@ -68,10 +68,10 @@ const parentPortalController = {
     },
 
     apiFetch(path, method, body) {
-        // Parent tokens are independent from internal staff JWT/refresh cookies.
-        // A parent 401 must return to the parent login, never trigger staff refresh.
+        // Thin pass-through: the unified api.js transport owns token attach,
+        // parent 401 redirects and CSRF. Parent sessions never trigger the
+        // staff refresh flow (no staff refresh cookie exists for them).
         var opts = { noRedirect: true, skipAuthRefresh: !window.FAMILY_STAFF_MODE };
-        if (this.state.token) opts.headers = { Authorization: 'Bearer ' + this.state.token };
         var base = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
         return Promise.resolve(apiCall(base + path, method || 'GET', body, null, opts))
             .then(function (data) { return data; });
@@ -110,6 +110,7 @@ const parentPortalController = {
             backToDashboard.addEventListener('click', function () { self.showView('dashboard'); });
         }
         this.on('btnApplyAdmission', 'click', function () { self.openApplyAdmissionModal(); });
+        this.on('parent-ai-assistant-form', 'submit', function (e) { e.preventDefault(); self.askAiAssistant(); });
         this.on('portalMenuToggle', 'click', function () { document.getElementById('portalSidebar')?.classList.toggle('open'); });
         this.on('childSwitcher', 'change', function () { var child = self.state.children.find(function (c) { return String(c.id) === String(document.getElementById('childSwitcher').value); }); if (child) self.openStudent(child.id, child.first_name + ' ' + child.last_name, child.class_name || '', self.state.activeDetailTab); });
         document.querySelectorAll('[data-portal-section]').forEach(function (link) {
@@ -159,6 +160,19 @@ const parentPortalController = {
         }
     },
 
+    askAiAssistant() {
+        var self = this, input = document.getElementById('parent-ai-question'), answer = document.getElementById('parent-ai-answer');
+        if (!input || !answer || !input.value.trim()) return;
+        answer.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Preparing a family-safe answer…</div>';
+        this.apiFetch('/ai-assistant', 'POST', { question: input.value.trim() }).then(function (resp) {
+            var d = resp.data || resp;
+            var steps = Array.isArray(d.next_steps) && d.next_steps.length ? '<ul class="small">' + d.next_steps.map(function (s) { return '<li>' + self.escapeHtml(s) + '</li>'; }).join('') + '</ul>' : '';
+            answer.innerHTML = '<div class="alert alert-success small"><strong>' + self.escapeHtml(d.title || 'Assistant answer') + '</strong><p class="mb-2 mt-2">' + self.escapeHtml(d.body || '') + '</p>' + steps + '</div>';
+        }).catch(function (e) { answer.innerHTML = '<div class="alert alert-warning small">' + self.escapeHtml(e.message || 'The assistant is temporarily unavailable.') + '</div>'; });
+    },
+
+    escapeHtml(value) { var div = document.createElement('div'); div.textContent = String(value == null ? '' : value); return div.innerHTML; },
+
     submitEmailLogin() {
         var email = this.val('loginEmail');
         var password = this.val('loginPassword');
@@ -184,7 +198,7 @@ const parentPortalController = {
                     self.setView('otp-step-2', true);
                     return;
                 }
-                self.storeAuth(d.token, d.expires_at, d.parent);
+                self.storeAuth(d.token, d.expires_at, d.parent, d.csrf_token);
                 return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Login failed'); })
@@ -217,7 +231,7 @@ const parentPortalController = {
         this.apiFetch('/login-otp-verify', 'POST', { otp_session_id: this.state.otpSessionId, otp_code: code })
             .then(function (resp) {
                 var d = resp.data || resp;
-                self.storeAuth(d.token, d.expires_at, d.parent);
+                self.storeAuth(d.token, d.expires_at, d.parent, d.csrf_token);
                 return self.loadDashboard(true);
             })
             .catch(function (err) { self.showErr(errEl, err.message || 'Invalid OTP'); });
@@ -1018,10 +1032,16 @@ const parentPortalController = {
         this.setView('mpesaWaiting', false);
     },
 
-    storeAuth(token, expiresAt, parent) {
+    storeAuth(token, expiresAt, parent, csrfToken) {
         this.state.token = token;
         sessionStorage.setItem('pp_token', obfuscate(token));
         sessionStorage.setItem('pp_expires', expiresAt || '');
+        if (csrfToken) {
+            sessionStorage.setItem('pp_csrf', csrfToken);
+            if (window.AuthContext && typeof window.AuthContext.setCsrfToken === 'function') {
+                window.AuthContext.setCsrfToken(csrfToken);
+            }
+        }
         if (parent) {
             var nameEl = document.getElementById('parentName');
             if (nameEl) nameEl.textContent = parent.first_name || 'Parent';
@@ -1135,6 +1155,7 @@ const parentPortalController = {
         this.state.initialRouteApplied = false;
         sessionStorage.removeItem('pp_token');
         sessionStorage.removeItem('pp_expires');
+        sessionStorage.removeItem('pp_csrf');
         sessionStorage.removeItem('kw_admissions_guardian');
     },
 

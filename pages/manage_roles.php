@@ -89,11 +89,33 @@ if (!isset($appBase)) {
                 </div>
             </div>
         </div>
+        <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateBtn">
+                    <i class="bi bi-check2-circle me-1"></i> Activate
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-warning" id="bulkDeactivateBtn">
+                    <i class="bi bi-x-circle me-1"></i> Deactivate
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead id="roleDefinitionsTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching roles"
+                            >
+                        </th>
                         <th scope="col">Role</th>
                         <th scope="col">Description</th>
                         <th scope="col">Scope</th>

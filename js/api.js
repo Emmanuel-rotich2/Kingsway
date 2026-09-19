@@ -398,7 +398,10 @@ const AuthContext = (() => {
   }
 
   function getToken() {
-    return _accessToken;
+    if (_accessToken) return _accessToken;
+    // Parent portal JWT sessions (sessionStorage pp_token) authenticate
+    // through this same bearer path — one token abstraction for every user.
+    return getPortalToken();
   }
 
   function getRefreshToken() {
@@ -833,6 +836,47 @@ const AuthContext = (() => {
   }
 
   /**
+   * Decide where a just-authenticated user lands after login.
+   *
+   * Order of precedence:
+   *   1. An explicit "next" pointing at a parent page (/parents/*.php).
+   *   2. Staff-family mode → the my_family workspace.
+   *   3. A parent-only account (account_type "parent" or exactly one Parent
+   *      role) → the parent portal dashboard.
+   *   4. Staff → their dashboard route, falling back to plain home.php.
+   */
+  function getAfterLoginUrl(next) {
+    const base = window.APP_BASE || "";
+
+    if (next && /^\/parents\/[\w\-./]+\.php/.test(next)) {
+      return base + next;
+    }
+
+    if (window.FAMILY_STAFF_MODE === true) {
+      return base + "/my_family.php";
+    }
+
+    const user = getUser();
+    const roleIds = user?.role_ids || [];
+    const roleNames = user?.role_names || [];
+    const isParentOnly =
+      !!user &&
+      (user.account_type === "parent" ||
+        (roleIds.length === 1 && Number(roleIds[0]) === 73) ||
+        (roleNames.length === 1 &&
+          String(roleNames[0]).toLowerCase() === "parent"));
+
+    if (isParentOnly) {
+      return base + "/parents/dashboard.php";
+    }
+
+    const info = getDashboardInfo();
+    return info?.key
+      ? base + "/home.php?route=" + encodeURIComponent(info.key)
+      : base + "/home.php";
+  }
+
+  /**
    * Get unique permission count
    */
   function getPermissionCount() {
@@ -963,6 +1007,7 @@ const AuthContext = (() => {
     getTeacherScope,
     getSidebarItems,
     getDashboardInfo,
+    getAfterLoginUrl,
     getPermissionCount,
     hasSession,
     isAuthenticated,
@@ -982,6 +1027,13 @@ const AuthContext = (() => {
     // Expose boot promise so apiCall() can wait for bootstrapFromRefreshCookie
     // before treating a null in-memory token as session expiry.
     getBootPromise: () => _bootPromise,
+    // CSRF setter + parent portal session bridge (see module-scope helpers).
+    setCsrfToken,
+    getPortalToken,
+    hasPortalSession,
+    isParentSourceSession,
+    clearPortalAuth,
+    renewPortalExpiry,
   };
 })();
 
@@ -1556,6 +1608,27 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "academic_update",
     DELETE: "academic_update",
   },
+  "/academic/ai-scheme-draft-queue": { POST: "academic_view" },
+  "/academic/ai-scheme-drafts": { GET: "academic_view" },
+  "/academic/ai-scheme-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
+  "/academic/ai-lesson-plan-draft-queue": { POST: "academic_view" },
+  "/academic/ai-lesson-plan-drafts": { GET: "academic_view" },
+  "/academic/ai-lesson-plan-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
+  "/academic/ai-assessment-draft-queue": { POST: "academic_view" },
+  "/academic/ai-coverage-review-queue": { POST: "academic_view" },
+  "/academic/ai-rubric-draft-queue": { POST: "academic_view" },
+  "/academic/ai-learning-gap-review-queue": { POST: "academic_view" },
+  "/admission/ai-interview-preparation-queue": { POST: "admission_view" },
+  "/admission/ai-placement-review-queue": { POST: "admission_view" },
+  "/attendance/ai-lateness-pattern-queue": { POST: "attendance_view" },
+  "/academic/ai-rubric-draft-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
+  "/academic/ai-coverage-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
+  "/academic/ai-learning-gap-review-approve": { POST: ["academic_approve", "academic_manage", "curriculum_approve"] },
+  "/students/ai-support-planning-queue": { POST: "student_view" },
+  "/students/ai-support-planning-reviews": { GET: "student_view" },
+  "/students/ai-support-planning-approve": { POST: ["students_edit", "students_view_all"] },
+  "/academic/ai-assessment-drafts": { GET: "academic_view" },
+  "/academic/ai-assessment-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
   "/academic/scheme-of-work-get": "academic_view",
   "/academic/lesson-planning-context": "lesson_plans_view",
   "/academic/lesson-plans-list": "lesson_plans_view",
@@ -1598,6 +1671,31 @@ const ENDPOINT_PERMISSIONS = {
 
   // Attendance
   "/attendance/index": "attendance_view",
+  "/reports/ai-research": "ai_research",
+  "/public/ai-faq": null,
+  "/system/security-signals": "system_view",
+  "/system/ai-readiness": "system_view",
+  "/system/ai-provider-health": "system_view",
+  "/dashboard/ai-assistant-catalog": null,
+  "/system/ai-security-review-queue": "system_view",
+  "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
+  "/attendance/ai-exception-summaries": { GET: "attendance_view" },
+  "/attendance/ai-exception-summary-approve": { POST: ["attendance_manage", "attendance_approve", "attendance_update"] },
+  "/boarding/ai-exception-summary-queue": { POST: "attendance_boarding_view" },
+  "/boarding/ai-exception-summaries": { GET: "attendance_boarding_view" },
+  "/boarding/ai-exception-summary-approve": { POST: ["attendance_boarding_approve", "attendance_boarding_edit"] },
+  "/transport/ai-operations-summary-queue": { POST: "transport_view" },
+  "/transport/ai-operations-summaries": { GET: "transport_view" },
+  "/transport/ai-operations-summary-approve": { POST: ["transport_manage", "transport_edit", "transport_assign"] },
+  "/inventory/ai-replenishment-review-queue": { POST: "inventory_view" },
+  "/inventory/ai-replenishment-reviews": { GET: "inventory_view" },
+  "/inventory/ai-replenishment-review-approve": { POST: ["inventory_manage", "inventory_approve", "inventory_restock"] },
+  "/catering/ai-consumption-review-queue": { POST: "inventory_view" },
+  "/catering/ai-consumption-reviews": { GET: "inventory_view" },
+  "/catering/ai-consumption-review-approve": { POST: ["inventory_manage", "inventory_approve", "catering_manage"] },
+  "/maintenance/ai-facilities-review-queue": { POST: "maintenance_view" },
+  "/maintenance/ai-facilities-reviews": { GET: "maintenance_view" },
+  "/maintenance/ai-facilities-review-approve": { POST: ["maintenance_manage", "maintenance_approve", "maintenance_view"] },
   "/attendance/student": {
     GET: "attendance_view",
     POST: "attendance_create",
@@ -1624,6 +1722,9 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
   "/finance/payment-references": { POST: "finance_create" },
   "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
+  "/finance/ai-reconciliation-review-queue": { POST: "finance_view" },
+  "/finance/ai-reconciliation-drafts": { GET: "finance_view" },
+  "/finance/ai-reconciliation-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
   "/finance/kcb-disbursements": {
     GET: "finance_view",
     POST: ["finance_reconcile", "finance_approve", "finance_manage"],
@@ -1670,6 +1771,20 @@ const ENDPOINT_PERMISSIONS = {
   // blocks valid oversight roles before the request reaches PHP.
   "/staff/index": null,
   "/staff/teacher-scope": null,
+  // These endpoints use canonical StaffAccess checks in StaffController.
+  // Do not add a narrower legacy client gate: it can hide valid leadership
+  // users before the server evaluates their staff-domain permissions.
+  "/staff/teacher-specialization-candidates": null,
+  "/staff/teacher-specializations": {
+    GET: null,
+    POST: "staff_view",
+  },
+  "/staff/teacher-level-authorizations": {
+    GET: null,
+    POST: "staff_view",
+  },
+  "/staff/teacher-specializations/approve": { POST: "staff_view" },
+  "/staff/teacher-level-authorizations/approve": { POST: "staff_view" },
   "/staff/staff": {
     GET: "staff_view",
     POST: "staff_create",
@@ -1777,6 +1892,12 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "admission_applications_edit",
   },
   "/admission/advance-workflow-stage": "admission_manage",
+  "/admission/ai-followup-draft-queue": "admission_view",
+  "/admission/ai-drafts": "admission_view",
+  "/admission/ai-draft-approve": "admission_manage",
+  "/admission/ai-followup-draft-approve": "admission_manage",
+  "/admission/ai-interview-preparation-approve": "admission_manage",
+  "/admission/ai-placement-review-approve": "admission_manage",
 
   // Communications
   "/communications/index": "communications_view",
@@ -1791,6 +1912,9 @@ const ENDPOINT_PERMISSIONS = {
     POST: "communications_create",
   },
   "/communications/audience-options": "communications_view",
+  "/communications/ai-message-draft-queue": "communications_view",
+  "/communications/ai-drafts": "communications_view",
+  "/communications/ai-draft-approve": "communications_view",
 
   // Transport
   "/transport/index": "transport_view",
@@ -1848,6 +1972,8 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-report-conflict": "schedules_create",
   "/schedules/timetable-time-slots": "schedules_view",
   "/schedules/timetable-drafts": "schedules_view",
+  "/schedules/ai-timetable-planning-queue": "schedules_view",
+  "/schedules/ai-timetable-planning-session": "schedules_view",
   "/schedules/timetable-streams": "schedules_view",
   // The controller applies scope-aware authorization: class teachers may
   // save lower-primary drafts while leadership may save upper/whole-school
@@ -1895,6 +2021,9 @@ const ENDPOINT_PERMISSIONS = {
   "/reports/metrics": "analytics_catalogue_view",
   "/reports/execute": "analytics_report_execute",
   "/reports/run-status": "analytics_catalogue_view",
+  "/reports/ai-kpi-brief-queue": { POST: "analytics_report_execute" },
+  "/reports/ai-kpi-briefs": { GET: "analytics_catalogue_view" },
+  "/reports/ai-kpi-brief-approve": { POST: "analytics_catalogue_view" },
 
   // System
   "/system/index": "system_view",
@@ -2121,12 +2250,93 @@ if (document.readyState === "loading") {
 let _sessionExpiredEmitted = false;
 let _csrfToken = null;
 
+// ---------------------------------------------------------------------------
+// Parent portal session bridge
+// ---------------------------------------------------------------------------
+// Parent sessions are JWTs stored (obfuscated) in sessionStorage pp_token.
+// They authenticate through this exact apiCall pipeline, so the handful of
+// helpers below let the unified client read/clear the parent session and renew
+// its sliding expiry from the X-Parent-Session-Expires header the server now
+// emits for parent JWTs.
+
+function _ppDeobfuscate(str) {
+  try {
+    return atob(String(str))
+      .split("")
+      .map(function (c, i) {
+        return String.fromCharCode(c.charCodeAt(0) - ((i % 7) + 1));
+      })
+      .join("");
+  } catch (_) {
+    return null;
+  }
+}
+
+function getPortalToken() {
+  try {
+    return _ppDeobfuscate(sessionStorage.getItem("pp_token") || "");
+  } catch (_) {
+    return null;
+  }
+}
+
+function hasPortalSession() {
+  try {
+    return Boolean(sessionStorage.getItem("pp_token"));
+  } catch (_) {
+    return false;
+  }
+}
+
+function isParentSourceSession() {
+  // Staff pages (localStorage token) keep the staff refresh flow. A parent
+  // session is when we have a portal token but no staff session (parent pages
+  // never set the staff currentUser, so AuthContext.hasSession() is false).
+  const hasStaffSession =
+    typeof AuthContext !== "undefined" &&
+    typeof AuthContext.hasSession === "function" &&
+    AuthContext.hasSession();
+  return Boolean(getPortalToken()) && !hasStaffSession;
+}
+
+function clearPortalAuth() {
+  try {
+    sessionStorage.removeItem("pp_token");
+    sessionStorage.removeItem("pp_expires");
+    sessionStorage.removeItem("pp_csrf");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** Renew the parent portal sliding expiry from the server header. */
+function renewPortalExpiry(headers) {
+  if (!(headers && typeof headers.get === "function")) return;
+  const value = headers.get("X-Parent-Session-Expires");
+  if (value && hasPortalSession()) {
+    try {
+      sessionStorage.setItem("pp_expires", new Date(value).toISOString());
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+}
+
 /**
  * Public setter so other modules (login page, session bootstrap, etc.)
  * can persist the server-issued CSRF token.
  */
 function setCsrfToken(token) {
   _csrfToken = token;
+  // Parent sessions persist their CSRF token in sessionStorage so a page
+  // reload (which resets the in-memory copy) can restore it per session.
+  if (isParentSourceSession()) {
+    try {
+      sessionStorage.setItem("pp_csrf", token || "");
+    } catch (_) {
+      /* ignore */
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2203,8 +2413,16 @@ function handleSessionExpired(reason = "refresh_rejected") {
 
   console.warn("[API] Session expired", reason);
 
+  const parentSource = isParentSourceSession();
+
   if (typeof AuthContext !== "undefined" && AuthContext.clearUser) {
     AuthContext.clearUser();
+  }
+
+  // Parent-portal sessions have no staff refresh cookie; clear the portal
+  // session and land the user back on the parent login page.
+  if (parentSource) {
+    clearPortalAuth();
   }
 
   if (
@@ -2225,9 +2443,10 @@ function handleSessionExpired(reason = "refresh_rejected") {
 
   if (sessionStorage.getItem("_session_expired_redirect")) return;
   sessionStorage.setItem("_session_expired_redirect", "1");
+  const expiryTarget = parentSource ? "/parent_portal.php" : "/index.php";
   window.setTimeout(() => {
     sessionStorage.removeItem("_session_expired_redirect");
-    window.location.replace(`${window.APP_BASE || ""}/index.php`);
+    window.location.replace(`${window.APP_BASE || ""}${expiryTarget}`);
   }, 250);
 }
 
@@ -2662,10 +2881,11 @@ async function apiCallDirect(
       // Public admissions form; multipart submission is handled by the same
       // API client without requiring an internal-user JWT.
       "/public/applications",
+      // Public FAQ is source-grounded and deliberately anonymous; the backend
+      // still validates input, provider output, and source citations.
+      "/public/ai-faq",
     ]);
-    isProtectedRequest =
-      !authFreeEndpoints.has(normalizedEndpoint) &&
-      !normalizedEndpoint.startsWith("/parent-portal/");
+    isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
 
     if (isProtectedRequest && AuthContext.hasSession?.()) {
       if (isSessionIdleExpired()) {
@@ -2713,6 +2933,21 @@ async function apiCallDirect(
     // This must remain mutable: a request can begin while the boot-time cookie
     // refresh is still restoring the in-memory access token.
     let token = isProtectedRequest ? AuthContext.getToken() : null;
+
+    // Parent-portal pages keep the CSRF token in sessionStorage (pp_csrf) so a
+    // reload — which resets the in-memory copy — still authenticates mutating
+    // routes. Restore it the first time a request needs it.
+    if (!_csrfToken && hasPortalSession()) {
+      try {
+        const storedCsrf = sessionStorage.getItem("pp_csrf");
+        if (storedCsrf) {
+          _csrfToken = storedCsrf;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
     if (!token && isProtectedRequest) {
       // If a boot refresh is in-flight, wait for it instead of immediately
       // treating a null in-memory token as session expiry. The token may
@@ -2759,19 +2994,21 @@ async function apiCallDirect(
           Authorization: "Bearer " + token,
         }),
         ...(_csrfToken &&
-          !authFreeEndpoints.has(normalizedEndpoint) &&
-          !normalizedEndpoint.startsWith("/parent-portal/") && {
+          !authFreeEndpoints.has(normalizedEndpoint) && {
           "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
       },
     };
 
-    // Add body for POST/PUT requests
+    // Add body for mutating requests. DELETE payloads (role/permission
+    // revokes, bulk revokes) must reach the server; excluding DELETE was
+    // silently dropping those bodies and causing 400 "empty body" responses
+    // on every system-admin revoke surface.
     if (data) {
       if (options.isFile) {
         fetchOptions.body = data;
-      } else if (["POST", "PUT", "PATCH"].includes(method)) {
+      } else if (method !== "GET" && method !== "HEAD") {
         fetchOptions.body = JSON.stringify(data);
       }
     }
@@ -2785,7 +3022,35 @@ async function apiCallDirect(
       setCurrentRequestId(echoedId);
     }
 
+    // Central sliding-expiry renewal: the server emits X-Parent-Session-Expires
+    // on every authenticated parent-portal response; persist it so parent pages
+    // keep the session alive while the user is active.
+    renewPortalExpiry(response.headers);
+
+    // Give callers (parent-portal pp_expires renewal, download tracking) a
+    // chance to observe response headers exactly once for the response that
+    // actually satisfies the request.
+    if (typeof options.onResponseHeaders === "function") {
+      try {
+        options.onResponseHeaders(response.headers);
+      } catch (e) {
+        console.warn("onResponseHeaders handler failed:", e);
+      }
+    }
+
     // Handle 401 Unauthorized - token may have expired, try to refresh
+    // Parent sessions have no staff refresh cookie; clear the portal session
+    // and let handleSessionExpired redirect to the parent login page.
+    if (
+      response.status === 401 &&
+      isParentSourceSession()
+    ) {
+      handleSessionExpired("parent_session_expired");
+      throw createSessionExpiredError(
+        "Your session has expired. Please sign in again.",
+      );
+    }
+
     if (
       response.status === 401 &&
       !options.isRefreshAttempt &&
@@ -4223,6 +4488,36 @@ window.API = {
     approveSchemeWorkbook: async (id, data = {}) => apiCall(`/academic/scheme-workbook-approve/${id}`, "POST", data),
     getTeacherPlanningContext: async () =>
       apiCall("/academic/teacher-planning-context", "GET"),
+    queueAiSchemeDraft: async (data) =>
+      apiCall("/academic/ai-scheme-draft-queue", "POST", data),
+    getAiSchemeDrafts: async (scope = "own") =>
+      apiCall(`/academic/ai-scheme-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiSchemeDraft: async (id) =>
+      apiCall(`/academic/ai-scheme-draft-approve/${Number(id)}`, "POST", {}),
+    queueAiLessonPlanDraft: async (data) =>
+      apiCall("/academic/ai-lesson-plan-draft-queue", "POST", data),
+    getAiLessonPlanDrafts: async (scope = "own") =>
+      apiCall(`/academic/ai-lesson-plan-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiLessonPlanDraft: async (id) =>
+      apiCall(`/academic/ai-lesson-plan-draft-approve/${Number(id)}`, "POST", {}),
+    queueAiAssessmentDraft: async (data) =>
+      apiCall("/academic/ai-assessment-draft-queue", "POST", data),
+    getAiAssessmentDrafts: async (scope = "own") =>
+      apiCall(`/academic/ai-assessment-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiAssessmentDraft: async (id) =>
+      apiCall(`/academic/ai-assessment-draft-approve/${Number(id)}`, "POST", {}),
+    queueAiCoverageReview: async (data = {}) => apiCall("/academic/ai-coverage-review-queue", "POST", data),
+    queueAiRubricDraft: async (data = {}) => apiCall("/academic/ai-rubric-draft-queue", "POST", data),
+    queueAiLearningGapReview: async (data = {}) => apiCall("/academic/ai-learning-gap-review-queue", "POST", data),
+    queueAiInterviewPreparation: async (data = {}) => apiCall("/admission/ai-interview-preparation-queue", "POST", data),
+    queueAiPlacementReview: async (data = {}) => apiCall("/admission/ai-placement-review-queue", "POST", data),
+    queueAiLatenessPattern: async (data = {}) => apiCall("/attendance/ai-lateness-pattern-queue", "POST", data),
+    approveAiRubricDraft: async (id) => apiCall(`/academic/ai-rubric-draft-approve/${Number(id)}`, "POST", {}),
+    approveAiCoverageReview: async (id) => apiCall(`/academic/ai-coverage-review-approve/${Number(id)}`, "POST", {}),
+    approveAiLearningGapReview: async (id) => apiCall(`/academic/ai-learning-gap-review-approve/${Number(id)}`, "POST", {}),
+    queueAiSupportPlanning: async (data = {}) => apiCall("/students/ai-support-planning-queue", "POST", data),
+    getAiSupportPlanningReviews: async (scope = "own") => apiCall(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiSupportPlanning: async (id) => apiCall(`/students/ai-support-planning-approve/${Number(id)}`, "POST", {}),
     getLessonPlanningContext: async (schemeId) =>
       apiCall(`/academic/lesson-planning-context/${schemeId}`, "GET"),
     saveLessonPlanLearnerEvidence: async (lessonPlanId, data) =>
@@ -4322,6 +4617,14 @@ window.API = {
     updateSessionConfig: async (id, data) => apiCall(`/attendance/session-config/${id}`, "PUT", data, null, { checkPermission: false }),
     getAcademicSummary: async (params = {}) =>
       apiCall("/attendance/academic-summary", "GET", null, params),
+    queueAiExceptionSummary: async (date) =>
+      apiCall("/attendance/ai-exception-summary-queue", "POST", { date }),
+    queueAiLatenessPattern: async (data = {}) =>
+      apiCall("/attendance/ai-lateness-pattern-queue", "POST", data),
+    getAiExceptionSummaries: async (scope = "own") =>
+      apiCall(`/attendance/ai-exception-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiExceptionSummary: async (id) =>
+      apiCall(`/attendance/ai-exception-summary-approve/${Number(id)}`, "POST", {}),
     getDailyRegister: async (params = {}) =>
       apiCall("/attendance/daily-register", "GET", null, params),
     getRegisterRange: async (params = {}) =>
@@ -4569,6 +4872,9 @@ window.API = {
 
   // Catering endpoints owned by CateringController/MealReportManager
   catering: {
+    queueAiConsumptionReview: async (dateFrom, dateTo) => apiCall("/catering/ai-consumption-review-queue", "POST", { date_from: dateFrom, date_to: dateTo }),
+    getAiConsumptionReviews: async (scope = "own") => apiCall(`/catering/ai-consumption-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiConsumptionReview: async (id) => apiCall(`/catering/ai-consumption-review-approve/${Number(id)}`, "POST", {}),
     getStats: async (params = {}) =>
       apiCall("/catering/stats", "GET", null, params),
     getMenu: async (params = {}) =>
@@ -4646,6 +4952,25 @@ window.API = {
   // Communications endpoints
   communications: {
     index: async () => apiCall("/communications/index", "GET"),
+
+    // School-domain mailboxes (role-scoped IMAP/SMTP mailboxes)
+    getMailboxes: async () => apiCall("/communications/mailboxes", "GET"),
+    getMailboxFolders: async (profileId) =>
+      apiCall(`/communications/mailboxes/${profileId}/folders`, "GET"),
+    getMailboxMessages: async (profileId, params = {}) =>
+      apiCall(
+        `/communications/mailboxes/${profileId}/messages`,
+        "GET",
+        null,
+        params,
+      ),
+    getMailboxMessage: async (profileId, params = {}) =>
+      apiCall(
+        `/communications/mailboxes/${profileId}/message/${params.message_id ?? ""}`,
+        "GET",
+        null,
+        params,
+      ),
 
     // SMS callbacks
     smsDeliveryReport: async (data) =>
@@ -4889,6 +5214,12 @@ window.API = {
       apiCall("/finance/payment-references", "POST", data),
     getPaymentCollectionRoutes: async () =>
       apiCall("/finance/payment-collection-routes", "GET"),
+    queueAiReconciliationReview: async () =>
+      apiCall("/finance/ai-reconciliation-review-queue", "POST", {}),
+    getAiReconciliationDrafts: async (scope = "own") =>
+      apiCall(`/finance/ai-reconciliation-drafts?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiReconciliationDraft: async (id) =>
+      apiCall(`/finance/ai-reconciliation-draft-approve/${Number(id)}`, "POST", {}),
     savePaymentCollectionRoute: async (data) =>
       apiCall("/finance/payment-collection-routes", "POST", data),
     updatePaymentCollectionRoute: async (id, data) =>
@@ -5234,6 +5565,9 @@ window.API = {
   },
 
   inventory: {
+    queueAiReplenishmentReview: async () => apiCall("/inventory/ai-replenishment-review-queue", "POST", {}),
+    getAiReplenishmentReviews: async (scope = "own") => apiCall(`/inventory/ai-replenishment-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiReplenishmentReview: async (id) => apiCall(`/inventory/ai-replenishment-review-approve/${Number(id)}`, "POST", {}),
     index: async () => apiCall("/inventory/index", "GET"),
     get: async (id = null) =>
       id
@@ -5720,6 +6054,22 @@ window.API = {
     getAccessContext: async () => apiCall("/staff/access-context", "GET"),
     getTeachers: async (params = {}) =>
       apiCall("/staff/teachers", "GET", null, params),
+    getTeacherSpecializations: async (params = {}) =>
+      apiCall("/staff/teacher-specializations", "GET", null, params),
+    getTeacherSpecializationCandidates: async (params = {}) =>
+      apiCall("/staff/teacher-specialization-candidates", "GET", null, params),
+    createTeacherSpecialization: async (payload = {}) =>
+      apiCall("/staff/teacher-specializations", "POST", payload),
+    approveTeacherSpecialization: async (id) =>
+      apiCall(`/staff/teacher-specializations/${Number(id)}/approve`, "POST", {}),
+    getTeacherLevelAuthorizations: async (params = {}) =>
+      apiCall("/staff/teacher-level-authorizations", "GET", null, params),
+    createTeacherLevelAuthorization: async (payload = {}) =>
+      apiCall("/staff/teacher-level-authorizations", "POST", payload),
+    approveTeacherLevelAuthorization: async (id) =>
+      apiCall(`/staff/teacher-level-authorizations/${Number(id)}/approve`, "POST", {}),
+    verifyTeacherQualification: async (qualificationId, status = "verified") =>
+      apiCall(`/staff/teacher-qualifications/${qualificationId}/verify`, "POST", { status }),
     getNonTeaching: async (params = {}) =>
       apiCall("/staff/non-teaching", "GET", null, params),
     getPayrollEligibility: async (staffId) =>
@@ -6075,6 +6425,9 @@ window.API = {
   },
 
   boarding: {
+    queueAiExceptionSummary: async (date) => apiCall("/boarding/ai-exception-summary-queue", "POST", { date }),
+    getAiExceptionSummaries: async (scope = "own") => apiCall(`/boarding/ai-exception-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiExceptionSummary: async (id) => apiCall(`/boarding/ai-exception-summary-approve/${Number(id)}`, "POST", {}),
     // Dormitories
     getDormitories: async () => apiCall("/boarding/dormitories", "GET"),
     getDormitory: async (id) => apiCall(`/boarding/dormitories/${id}`, "GET"),
@@ -6115,6 +6468,12 @@ window.API = {
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
     getOccupancy: async () => apiCall("/boarding/occupancy", "GET"),
+  },
+
+  transport: {
+    queueAiOperationsSummary: async () => apiCall("/transport/ai-operations-summary-queue", "POST", {}),
+    getAiOperationsSummaries: async (scope = "own") => apiCall(`/transport/ai-operations-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiOperationsSummary: async (id) => apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
   // Schedules endpoints
@@ -6259,6 +6618,10 @@ window.API = {
       ),
     listWorkflows: async (params) =>
       apiCall("/schedules/list-scheduling-workflows", "GET", null, params),
+    queueAiTimetablePlanning: async (data) =>
+      apiCall("/schedules/ai-timetable-planning-queue", "POST", data),
+    getAiTimetablePlanningSession: async (sessionId) =>
+      apiCall(`/schedules/ai-timetable-planning-session/${encodeURIComponent(sessionId)}`, "GET"),
 
     // Legacy support
     getClassSchedule: async (classId) =>
@@ -6325,6 +6688,16 @@ window.API = {
       apiCall(`/reports/execute/${encodeURIComponent(code)}`, "POST", { filters }),
     getRunStatus: async (runId) =>
       apiCall(`/reports/run-status/${Number(runId)}`, "GET"),
+    queueAiKpiBrief: async (reportCode, filters = {}) =>
+      apiCall(`/reports/ai-kpi-brief-queue/${encodeURIComponent(reportCode)}`, "POST", { filters }),
+    getAiKpiBriefs: async (scope = "own") =>
+      apiCall(`/reports/ai-kpi-briefs?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiKpiBrief: async (id) =>
+      apiCall(`/reports/ai-kpi-brief-approve/${Number(id)}`, "POST", {}),
+
+    // Governed NLQ ("talk to your data") staff assistant
+    askNlq: async (question) =>
+      apiCall("/reports/nlq", "POST", { question }),
 
     // Admission reports
     getAdmissionStats: async (params) =>
@@ -6680,8 +7053,23 @@ window.API = {
     updateSchoolConfig: async (data) =>
       apiCall("/system/school-config", "POST", data),
 
+    queueAiResourceReview: async () => apiCall('/activities/ai-resource-review-queue', 'POST', {}),
+    getAiResourceReviews: async (scope = 'own') => apiCall(`/activities/ai-resource-reviews?scope=${encodeURIComponent(scope)}`, 'GET'),
+    approveAiResourceReview: async (id) => apiCall(`/activities/ai-resource-review-approve/${Number(id)}`, 'POST', {}),
+
+    queueAiHrReview: async () => apiCall('/staff/ai-hr-review-queue', 'POST', {}),
+    getAiHrReviews: async (scope = 'own') => apiCall(`/staff/ai-hr-reviews?scope=${encodeURIComponent(scope)}`, 'GET'),
+    approveAiHrReview: async (id) => apiCall(`/staff/ai-hr-review-approve/${Number(id)}`, 'POST', {}),
+
+    queueAiCounselingReview: async () => apiCall('/counseling/ai-welfare-review-queue', 'POST', {}),
+    getAiCounselingReviews: async (scope = 'own') => apiCall(`/counseling/ai-welfare-reviews?scope=${encodeURIComponent(scope)}`, 'GET'),
+    approveAiCounselingReview: async (id) => apiCall(`/counseling/ai-welfare-review-approve/${Number(id)}`, 'POST', {}),
+
     // Health
     getHealth: async () => apiCall("/system/health", "GET"),
+    queueAiWelfareReview: async () => apiCall('/health/ai-welfare-review-queue', 'POST', {}),
+    getAiWelfareReviews: async (scope = 'own') => apiCall(`/health/ai-welfare-reviews?scope=${encodeURIComponent(scope)}`, 'GET'),
+    approveAiWelfareReview: async (id) => apiCall(`/health/ai-welfare-review-approve/${Number(id)}`, 'POST', {}),
 
     // Routes Management (System Admin)
     getRoutes: async (params) => apiCall("/system/routes", "GET", null, params),
@@ -6795,6 +7183,20 @@ window.API = {
     getRateLimiting: async () => apiCall("/system/rate-limiting", "GET"),
     getBackgroundJobs: async (params = {}) => apiCall("/system/background-jobs", "GET", null, params),
     getJobInspector: async (params = {}) => apiCall("/system/job-inspector", "GET", null, params),
+
+    // Operations & observability (deterministic summary + system.operations_brief reviews)
+    getOperationsSummary: async (params = {}) =>
+      apiCall("/system/operations-summary", "GET", null, params),
+    getSecuritySignals: async () => apiCall("/system/security-signals", "GET"),
+    getAiReadiness: async () => apiCall("/system/ai-readiness", "GET"),
+    getAiProviderHealth: async () => apiCall("/system/ai-provider-health", "GET"),
+    queueAiSecurityReview: async () => apiCall("/system/ai-security-review-queue", "POST", {}),
+    queueAiOperationsReview: async () =>
+      apiCall("/system/ai-operations-review-queue", "POST", {}),
+    getAiOperationsReviews: async (scope = "own") =>
+      apiCall(`/system/ai-operations-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiOperationsReview: async (id) =>
+      apiCall(`/system/ai-operations-review-approve/${Number(id)}`, "POST", {}),
     getSecurityIncidents: async (params = {}) => apiCall("/system/security-incidents", "GET", null, params),
     getPermissionChanges: async (params = {}) => apiCall("/system/permission-changes", "GET", null, params),
     getPolicyViolations: async (params = {}) => apiCall("/system/policy-violations", "GET", null, params),
@@ -6842,6 +7244,48 @@ window.API = {
       apiCall(`/system/ip-lists/${encodeURIComponent(id)}`, "PUT", data),
     deleteIpRule: async (id) =>
       apiCall(`/system/ip-lists/${encodeURIComponent(id)}`, "DELETE"),
+    getCommunicationConfigs: async () =>
+      apiCall("/system/communication-configs", "GET"),
+    saveCommunicationConfig: async (group, fields) =>
+      apiCall("/system/communication-configs", "PUT", { group, fields }),
+    testCommunicationConfig: async (type, phone = null) =>
+      apiCall("/system/communication-configs/test", "POST", { type, phone }),
+    getSystemAnnouncements: async (params = {}) =>
+      apiCall("/system/system-announcements", "GET", null, params),
+    getSystemAnnouncement: async (id) =>
+      apiCall(`/system/system-announcements/${encodeURIComponent(id)}`, "GET"),
+    createSystemAnnouncement: async (data) =>
+      apiCall("/system/system-announcements", "POST", data),
+    updateSystemAnnouncement: async (id, data) =>
+      apiCall(`/system/system-announcements/${encodeURIComponent(id)}`, "PUT", data),
+    deleteSystemAnnouncement: async (id) =>
+      apiCall(`/system/system-announcements/${encodeURIComponent(id)}`, "DELETE"),
+    getEmailProfiles: async (params = {}) =>
+      apiCall("/system/email-profiles", "GET", null, params),
+    getEmailProfile: async (id) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}`, "GET"),
+    createEmailProfile: async (data) =>
+      apiCall("/system/email-profiles", "POST", data),
+    updateEmailProfile: async (id, data) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}`, "PUT", data),
+    deleteEmailProfile: async (id) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}`, "DELETE"),
+    setDefaultEmailProfile: async (id) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}/default`, "PUT"),
+    testSmtpProfile: async (id) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}/test-smtp`, "POST"),
+    testImapProfile: async (id) =>
+      apiCall(`/system/email-profiles/${encodeURIComponent(id)}/test-imap`, "POST"),
+    getEmailInboxFolders: async (profileId) =>
+      apiCall(`/system/email-inbox/${encodeURIComponent(profileId)}/folders`, "GET"),
+    getEmailInboxMessages: async (profileId, params = {}) =>
+      apiCall(`/system/email-inbox/${encodeURIComponent(profileId)}/messages`, "GET", null, params),
+    getEmailInboxMessage: async (profileId, messageId, params = {}) =>
+      apiCall(`/system/email-inbox/${encodeURIComponent(profileId)}/message/${encodeURIComponent(messageId)}`, "GET", null, { ...params, profile_id: profileId, message_id: messageId }),
+    getAuditBcc: async () =>
+      apiCall("/system/audit-bcc", "GET"),
+    saveAuditBcc: async (email, enabled) =>
+      apiCall("/system/audit-bcc", "PUT", { email, enabled }),
   },
 
   // System Config endpoints (match SystemConfigController)
@@ -6892,6 +7336,12 @@ window.API = {
     getConfig: async (params) =>
       apiCall("/maintenance/config", "GET", null, params),
     updateConfig: async (data) => apiCall("/maintenance/config", "POST", data),
+    queueAiFacilitiesReview: async (data = {}) =>
+      apiCall("/maintenance/ai-facilities-review-queue", "POST", data),
+    getAiFacilitiesReviews: async (params = {}) =>
+      apiCall("/maintenance/ai-facilities-reviews", "GET", null, params),
+    approveAiFacilitiesReview: async (draftId, data = {}) =>
+      apiCall(`/maintenance/ai-facilities-review-approve/${draftId}`, "POST", data),
   },
 
   sms: {
@@ -7388,6 +7838,19 @@ window.API = {
      */
     getInternTeacherObservations: async () => {
       return await apiCall("/dashboard/intern-teacher/observations", "GET");
+    },
+
+    /**
+     * Proactive AI insight briefing (roadmap P3b). Returns the cached
+     * deterministic briefing for the calling user (~1h TTL) as `ready`, or
+     * `generating` with a cache_key when a background regeneration has been
+     * enqueued. Never blocks on a provider: the worker produces drafts/briefs
+     * asynchronously. Requires analytics_catalogue_view; guarded server-side.
+     */
+    getInsightBrief: async ({ cadence = "daily" } = {}) => {
+      return await apiCall("/dashboard/insight-brief", "GET", null, {
+        cadence,
+      });
     },
   },
 

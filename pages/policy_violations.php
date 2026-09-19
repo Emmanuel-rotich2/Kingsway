@@ -1,70 +1,71 @@
 <?php
-/** Kingsway System Administrator: Policy Violations. */
+/** Kingsway System Administrator: Policy Violations (flag feed). */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') { $appBase = ''; }
+}
 ?>
-<div class="container-fluid py-4"
-     data-system-admin-page
-     data-resource="violations"
-     data-mode="readonly"
-     data-title="Policy Violations">
+<div class="container-fluid py-4" id="policyViolationsPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">Policy Violations</h2>
-            <p class="text-muted mb-0">Investigate and resolve policy violations.</p>
+            <h2 class="h2 fw-bold mb-1">Policy Violations</h2>
+            <p class="text-muted mb-0">RBAC and policy denials recorded by the permission engine.</p>
         </div>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-secondary" data-system-refresh>
-                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-secondary" id="policyViolationsExportCsvBtn" title="Export to CSV">
+                <i class="bi bi-filetype-csv me-1"></i> Export CSV
             </button>
-            <button type="button" class="btn btn-primary" data-system-create>
-                <i class="bi bi-plus-lg me-1"></i> Add record
+            <button type="button" class="btn btn-outline-secondary" id="policyViolationsPrintBtn" title="Print / save as PDF">
+                <i class="bi bi-printer me-1"></i> Print / PDF
+            </button>
+            <button type="button" class="btn btn-primary" id="policyViolationsRefreshBtn">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
 
-    <div class="row g-3 mb-4" data-system-summary></div>
-
-    <div class="alert alert-info" data-system-state role="status">
+    <div class="alert alert-info" id="policyViolationsState" role="status" aria-live="polite">
         Loading policy violations...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>Policy Violations</strong>
-            <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input class="form-control" data-system-search placeholder="Search records">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Status filter" id="policyViolationsStatusFilter">
+            <button type="button" class="btn btn-outline-secondary active" data-status="all">All</button>
+            <button type="button" class="btn btn-outline-secondary" data-status="recorded">Recorded</button>
+            <button type="button" class="btn btn-outline-secondary" data-status="reviewed">Reviewed</button>
+            <button type="button" class="btn btn-outline-secondary" data-status="resolved">Resolved</button>
+        </div>
+        <div class="input-group input-group-sm ms-auto" style="max-width: 300px">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input class="form-control" id="policyViolationsSearch" type="search" maxlength="200" placeholder="Event, user or entity" autocomplete="off">
+        </div>
+        <span class="text-muted small" id="policyViolationsCount">No violations loaded</span>
+    </div>
+
+    <div class="list-group" id="policyViolationsFeed">
+        <div class="list-group-item text-center py-5 text-muted">Loading violations...</div>
+    </div>
+</div>
+
+<template id="policyViolationsItemTemplate">
+    <div class="list-group-item py-3 violation-row">
+        <div class="d-flex gap-3">
+            <span class="violation-flag mt-1"><i class="bi bi-exclamation-triangle-fill"></i></span>
+            <div class="flex-grow-1">
+                <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <span class="badge" data-fill="action"></span>
+                        <span class="fw-semibold" data-fill="username"></span>
+                        <span class="small text-muted"><code data-fill="entity"></code></span>
+                        <span class="small text-muted"><code data-fill="entity_id"></code></span>
+                    </div>
+                    <span class="badge status-badge" data-fill="status"></span>
+                </div>
+                <div class="small text-muted text-break mt-1" data-fill="details"></div>
+                <div class="small text-muted mt-1"><i class="bi bi-clock me-1"></i><span data-fill="created_at"></span></div>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead data-system-head>
-                    <tr><th scope="col">Loading</th></tr>
-                </thead>
-                <tbody data-system-body>
-                    <tr><td class="text-center py-5 text-muted">Loading...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="card-footer bg-white text-muted small" data-system-count></div>
     </div>
-</div>
+</template>
 
-<div class="modal fade" id="systemAdminRecordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <form data-system-form>
-                <div class="modal-header">
-                    <h5 class="modal-title" data-system-modal-title>Policy Violations</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" data-system-form-fields></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" data-system-save>Save</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/system_admin_console.js?v=<?= asset_version('js/pages/system/system_admin_console.js') ?>"></script>
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/policy_violations.js?v=<?= asset_version('js/pages/system/policy_violations.js') ?>"></script>

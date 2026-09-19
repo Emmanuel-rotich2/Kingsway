@@ -15,6 +15,10 @@ use Exception;
 use App\API\Services\payments\StatutoryRemittanceService;
 use App\API\Services\TeacherScopeService;
 use App\API\Services\StaffMigrationService;
+use Throwable;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 
 /**
  * StaffController - Explicit REST endpoints for Staff Management
@@ -91,6 +95,7 @@ class StaffController extends BaseController
     private $access;
     private $lifecycleService;
     private $recordsService;
+    private $teacherSpecializations;
 
     public function __construct()
     {
@@ -103,6 +108,7 @@ class StaffController extends BaseController
         $this->access = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
         $this->lifecycleService = $this->contract('App\API\Services\StaffLifecycleService');
         $this->recordsService = $this->contract('App\API\Services\StaffRecordsService', $this->db);
+        $this->teacherSpecializations = $this->contract('App\API\Services\TeacherSpecializationService', $this->db->getConnection());
     }
 
     public function index()
@@ -168,6 +174,37 @@ class StaffController extends BaseController
     {
         return $this->get($id, $data, $segments);
     }
+
+    public function postAiHrReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES)) return $denied;
+        $context = $this->aiHrContext();
+        try { $this->contract(AiWorkflowService::class)->authorize('staff.hr_review', $context); } catch (DomainException $e) { return $this->forbidden('Staff HR AI assistance is not available for your account'); }
+        try {
+            $result = $this->api->list(['status' => 'active', 'limit' => 1000]);
+            $rows = is_array($result['data']['staff'] ?? null) ? $result['data']['staff'] : (is_array($result['staff'] ?? null) ? $result['staff'] : (is_array($result['data'] ?? null) ? $result['data'] : []));
+            $teaching = $leave = $pending = $onboarding = 0;
+            foreach ($rows as $row) { $role = strtolower((string) ($row['role_name'] ?? $row['position'] ?? '')); if (str_contains($role, 'teacher') || str_contains($role, 'teaching')) $teaching++; if (str_contains(strtolower((string) ($row['status'] ?? '')), 'leave')) $leave++; if (str_contains(strtolower((string) ($row['onboarding_status'] ?? '')), 'pending')) $onboarding++; }
+            $input = ['report_date' => date('Y-m-d'), 'staff_count' => (string) count($rows), 'teaching_staff_count' => (string) $teaching, 'non_teaching_staff_count' => (string) max(0, count($rows) - $teaching), 'on_leave_count' => (string) $leave, 'pending_leave_count' => (string) $pending, 'onboarding_count' => (string) $onboarding, 'workload_exception_count' => '0', 'follow_up_intent' => 'Prepare aggregate HR follow-up; do not identify staff or make employment decisions.'];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('staff.hr_review', $context, $input, ['subject_type' => 'staff_hr_review', 'scope' => 'authorized_staff_aggregates']), 'Staff HR review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); } catch (Throwable $e) { return $this->serverError('Staff HR assistance is temporarily unavailable'); }
+    }
+
+    public function getAiHrReviews($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->userHasAny(['staff_hr_review', 'staff_manage'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'director', 'admin'])) return $this->forbidden('Staff HR review permission is required');
+        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'staff'), 'scope' => $review ? 'review' : 'own'], 'Staff HR AI reviews retrieved');
+    }
+
+    public function postAiHrReviewApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['staff_hr_review', 'staff_manage'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'director', 'admin'])) return $this->forbidden('Staff HR review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0); if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try { $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'staff.hr_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Staff HR review approved for guidance'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
+    }
+
+    private function aiHrContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
 
     /**
      * POST /api/staff - Create new staff member
@@ -566,7 +603,10 @@ return $this->serverError('An internal error occurred.');
         if ($id === null) {
             return $this->badRequest('Staff ID is required for update');
         }
-        
+        // This is server-owned provenance; never accept it from the browser.
+        // Qualification changes made through staff management remain pending
+        // until independently verified by an authorised reviewer.
+        $data['_admin_actor_user_id'] = (int) $this->getUserId();
         $result = $this->api->update($id, $data);
         return $this->handleResponse($result);
     }
@@ -1757,6 +1797,10 @@ return $this->error('An internal error occurred.');
                 'id_cards_manage' => $this->access->allows('staff.id_cards.manage', ['system administrator','school administrator']),
                 'role_assignments_manage' => $this->access->allows('staff.roles.manage', ['system administrator','school administrator']),
                 'teaching_assignments_manage' => $this->access->allows('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'teacher_specializations_view' => $this->access->allows('staff.teacher_specializations.view', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'teacher_specializations_manage' => $this->access->allows('staff.teacher_specializations.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'teacher_level_authorizations_view' => $this->access->allows('staff.teacher_level_authorizations.view', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'teacher_level_authorizations_manage' => $this->access->allows('staff.teacher_level_authorizations.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
                 'staff_performance_view' => $this->access->allows('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES),
             ],
         ]);
@@ -1767,6 +1811,105 @@ return $this->error('An internal error occurred.');
     {
         if ($denied = $this->guardStaffDomain('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
         return $this->handleResponse($this->api->listTeachers($_GET ?? []));
+    }
+
+    /** GET /api/staff/teacher-specializations */
+    public function getTeacherSpecializations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_specializations.view', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        return $this->success($this->teacherSpecializations->list($_GET ?? []));
+    }
+
+    /** GET /api/staff/teacher-specialization-candidates */
+    public function getTeacherSpecializationCandidates($id = null, $data = [], $segments = [])
+    {
+        $leadershipRoles = ['system administrator','school administrator','headteacher','deputy head - academic'];
+        $isLeadership = $this->access->allows('staff.teacher_specializations.view', $leadershipRoles);
+        if (!$isLeadership) {
+            if (!$this->userHasAny(['academic_view', 'schedules_view'], [], ['teacher', 'class teacher', 'subject teacher'])) {
+                return $this->forbidden('Academic timetable permission is required to view eligible teacher suggestions');
+            }
+            $streamId = (int)($_GET['class_stream_id'] ?? 0);
+            if ($streamId < 1) return $this->badRequest('A class stream is required for teacher-scoped suggestions');
+            $scope = $this->contract('App\\API\\Services\\TeacherScopeService', $this->db->getConnection())->forUser(
+                $this->user ?: [],
+                !empty($_GET['academic_year_id']) ? (int)$_GET['academic_year_id'] : null,
+                !empty($_GET['academic_year_term_id']) ? (int)$_GET['academic_year_term_id'] : null
+            );
+            if (!in_array($streamId, array_map('intval', (array)($scope['visible_stream_ids'] ?? [])), true)) {
+                return $this->forbidden('You may only request suggestions for an assigned class stream');
+            }
+        }
+        try {
+            $query = $_GET ?? [];
+            return $this->success($this->teacherSpecializations->suggestCandidates(
+                (int)($query['learning_area_id'] ?? 0),
+                (string)($query['class_name'] ?? ''),
+                $query['grade_level'] ?? null,
+                isset($query['academic_year_id']) ? (int)$query['academic_year_id'] : null,
+                isset($query['class_stream_id']) ? (int)$query['class_stream_id'] : null
+            ));
+        } catch (RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/staff/teacher-level-authorizations */
+    public function getTeacherLevelAuthorizations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_level_authorizations.view', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        return $this->success($this->teacherSpecializations->listLevelAuthorizations($_GET ?? []));
+    }
+
+    /** POST /api/staff/teacher-level-authorizations */
+    public function postTeacherLevelAuthorizations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_level_authorizations.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        try { return $this->created(['id' => $this->teacherSpecializations->saveLevelAuthorization($data, (int)$this->getUserId()), 'status' => 'pending'], 'Teaching level authorization saved for approval.'); }
+        catch (RuntimeException $e) { return $e->getCode() === 403 ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/staff/teacher-level-authorizations/{id}/approve */
+    public function postTeacherLevelAuthorizationsApprove($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_level_authorizations.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        try { $this->teacherSpecializations->approveLevelAuthorization((int)$id, (int)$this->getUserId()); return $this->success(['id' => (int)$id, 'status' => 'approved'], 'Teaching level authorization approved.'); }
+        catch (RuntimeException $e) { return $e->getCode() === 403 ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/staff/teacher-specializations — records always start pending. */
+    public function postTeacherSpecializations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_specializations.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $newId = $this->teacherSpecializations->save($data, (int)$this->getUserId());
+            return $this->created(['id' => $newId, 'status' => 'pending'], 'Teacher specialization saved for approval.');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 403 ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/staff/teacher-specializations/{id}/approve */
+    public function postTeacherSpecializationsApprove($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_specializations.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $this->teacherSpecializations->approve((int)$id, (int)$this->getUserId());
+            return $this->success(['id' => (int)$id, 'status' => 'approved'], 'Teacher specialization approved.');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 403 ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/staff/teacher-qualifications/{id}/verify */
+    public function postTeacherQualificationsVerify($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teacher_specializations.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $status = (string)($data['status'] ?? 'verified');
+            $this->teacherSpecializations->verifyQualification((int)$id, (int)$this->getUserId(), $status);
+            return $this->success(['id' => (int)$id, 'verification_status' => $status], 'Qualification verification updated.');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 403 ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage());
+        }
     }
 
     /** GET /api/staff/non-teaching */

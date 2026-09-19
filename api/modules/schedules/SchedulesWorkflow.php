@@ -4,10 +4,13 @@ namespace App\API\Modules\schedules;
 use Exception;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\ServiceContractBroker;
+use App\API\Services\TeacherSpecializationService;
 use function App\API\Includes\dayNameToNumber;
 
 class SchedulesWorkflow extends WorkflowHandler
 {
+    private TeacherSpecializationService $teacherSpecializations;
     /**
      * Orchestrate Exam Scheduling Workflow
      */
@@ -80,6 +83,11 @@ class SchedulesWorkflow extends WorkflowHandler
     public function __construct()
     {
         parent::__construct('class_timetabling');
+        $this->teacherSpecializations = ServiceContractBroker::contract(
+            TeacherSpecializationService::class,
+            [],
+            $this->db
+        );
     }
 
     /**
@@ -104,9 +112,8 @@ class SchedulesWorkflow extends WorkflowHandler
             if ($termId <= 0) {
                 throw new \Exception('No active term found for the given term');
             }
-            if (!$this->db->inTransaction()) {
-                $this->db->beginTransaction();
-            }
+            $startedTransaction = !$this->db->inTransaction();
+            if ($startedTransaction) $this->db->beginTransaction();
             // Insert timetable entries into timetable_entries
             foreach ($plan['timetable_entries'] as $entry) {
                 $dayNum = dayNameToNumber($entry['day_of_week']);
@@ -127,6 +134,9 @@ class SchedulesWorkflow extends WorkflowHandler
                 if ($streamLearningAreaId <= 0) {
                     throw new \Exception('Learning area is not configured for the selected class stream');
                 }
+                $teacherId = (int) ($entry['teacher_id'] ?? 0);
+                if ($teacherId <= 0) throw new \Exception('A valid teacher is required for every timetable entry');
+                $this->teacherSpecializations->assertEligible($teacherId, $learningAreaId, $classStreamId);
                 $timeSlotId = $this->resolveTimeSlotId($entry['time_slot_id'] ?? null, $entry['start_time'] ?? null, $entry['end_time'] ?? null);
                 if ($timeSlotId === null) {
                     throw new \Exception('No time slot matches the entry start/end time');
@@ -139,15 +149,15 @@ class SchedulesWorkflow extends WorkflowHandler
                     'day' => $dayNum,
                     'ts' => $timeSlotId,
                     'la' => $learningAreaId,
-                    'teacher' => (int) ($entry['teacher_id'] ?? 0)
+                    'teacher' => $teacherId
                 ]);
             }
             // Start workflow instance
             $instance_id = parent::startWorkflow('class', $plan['class_id'], $plan);
-            $this->db->commit();
+            if ($startedTransaction) $this->db->commit();
             return ['success' => true, 'instance_id' => $instance_id, 'next_stage' => 'timetable_review'];
         } catch (\Exception $e) {
-            if ($this->db->inTransaction()) {
+            if (($startedTransaction ?? false) && $this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             \App\API\Services\Logger::legacyError('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

@@ -3,13 +3,17 @@
 namespace App\API\Modules\parent;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\AuthSessionService;
 use App\API\Services\OTPDeliveryService;
 use App\API\Services\NotificationService;
 use App\API\Services\DownloadService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbMpesaExpressService;
 use App\API\Services\payments\FinancialAccountService;
+use App\API\Services\ServiceContractBroker;
 use App\API\Services\ReadReplicaService;
+use App\API\Services\DataScopeService;
+use Firebase\JWT\JWT;
 use PDO;
 use Exception;
 
@@ -42,12 +46,16 @@ use Exception;
  *   - `student_core_values`            → `learner_values_acquisition`
  *   - `fee_structures_detailed`        → `academic_year_fee_schedules` + `fee_catalog`
  *
- * Session token format: opaque 64-hex string stored in `user_sessions.session_token`;
- * the expiry the frontend caches (7 days) is enforced here via `login_time`.
+ * Session token format: standard HS256 JWT (same iss/aud/secret as staff
+ * tokens) stored in `user_sessions.session_token`
+ * (SHA-256 hashed via AuthSessionService). The single AuthMiddleware JWT path
+ * accepts parents exactly like staff; each parent device may hold its own
+ * session row and sessions slide on activity using the
+ * shared idle window (AUTH_IDLE_TIMEOUT_SECONDS); the server advertises the sliding
+ * expiry to the client via the X-Parent-Session-Expires header.
  */
 class ParentPortalManager extends BaseAPI
 {
-    private const SESSION_TTL_DAYS = 7;
 
     /** @var int */
     private $parentId = 0;
@@ -55,35 +63,62 @@ class ParentPortalManager extends BaseAPI
     /** @var int */
     private $sessionId = 0;
 
+    /**
+     * Access-token lifetime ceiling (seconds) for parent JWTs. The session's
+     * true validity is the shared sliding idle window in user_sessions; exp is
+     * a generous hard cap so very long-lived continuous use still re-authenticates.
+     */
+    private const PARENT_ACCESS_TOKEN_TTL = 604800;
+
     public function __construct()
     {
         parent::__construct('parent_portal');
 
-        $auth = $_SERVER['parent_auth'] ?? null;
+        $auth = $_SERVER['auth_user'] ?? null;
         if (is_array($auth)) {
             $this->parentId  = (int)($auth['parent_id'] ?? 0);
-            $this->sessionId = (int)($auth['session_id'] ?? 0);
-            $this->user_id   = (int)($auth['user_id'] ?? 0) ?: null;
+            $this->user_id   = (int)($auth['user_id'] ?? $auth['id'] ?? 0) ?: null;
         }
+        $this->sessionId = (int)($_SERVER['auth_session_id'] ?? 0);
     }
 
     // ========================================================================
-    // AUTH ENDPOINTS (public — no ParentAuthMiddleware)
+    // AUTH ENDPOINTS (public — no session required)
     // ========================================================================
 
     /**
-     * Email + password login against users.password_hash (normalised account).
+     * Email-or-phone + password login against users.password_hash (normalised
+     * account). The identifier may be the parent's registered email address OR
+     * phone number; the verification code always goes to the registered email.
      *
-     * @param array $data {email, password}
+     * @param array $data {email (or phone), password}
      * @return array
      */
     public function postLogin(array $data): array
     {
-        $email    = trim((string)($data['email'] ?? ''));
-        $password = (string)($data['password'] ?? '');
+        $identifier = trim((string)($data['email'] ?? ''));
+        $password   = (string)($data['password'] ?? '');
 
-        if ($email === '' || $password === '') {
-            return $this->errorResponse('Email and password are required', 400);
+        if ($identifier === '' || $password === '') {
+            return $this->errorResponse('Email or phone and password are required', 400);
+        }
+
+        // Build a match clause: exact email, or phone equal to any plausible
+        // entry format (+254..., 254..., 0..., local digits). Registering on
+        // the staff side uses the same person row, so phone login lands on the
+        // exact same parent account.
+        $phoneVariants = $this->phoneLookupVariants($identifier);
+        $phoneOrEmail  = 'p.email = :email';
+        $params        = [':email' => $identifier];
+        if ($phoneVariants !== []) {
+            $ands = [];
+            foreach ($phoneVariants as $i => $variant) {
+                $key = ':phone_'.$i;
+                // Stored phones may carry a leading '+'/spacing; compare digits-only.
+                $ands[] = "REPLACE(REPLACE(p.phone, '+', ''), ' ', '') = {$key}";
+                $params[$key] = $variant;
+            }
+            $phoneOrEmail .= ' OR '.implode(' OR ', $ands);
         }
 
         try {
@@ -95,7 +130,7 @@ class ParentPortalManager extends BaseAPI
                 FROM users u
                 JOIN persons p ON p.id = u.person_id
                 JOIN parents pr ON pr.person_id = u.person_id
-                WHERE p.email = :email
+                WHERE ({$phoneOrEmail})
                   AND pr.status = 'active'
                   AND u.status = 'active'
                   AND u.data_scope = p.data_scope
@@ -109,11 +144,23 @@ class ParentPortalManager extends BaseAPI
                   )
                  LIMIT 1"
             );
-            $stmt->execute([':email' => $email]);
+            $stmt->execute($params);
             $parent = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$parent) {
-                return $this->errorResponse('Invalid email or password', 401);
+                // Symmetric guard: a real staff-only account that tries the
+                // Parent Portal is directed back to the school workspace. The
+                // password must verify first so we never reveal account
+                // existence; unknown addresses keep the generic message.
+                $account = str_contains($identifier, '@') ? $this->lookupActiveAccount($identifier) : null;
+                if ($account && password_verify($password, $account['password_hash'])) {
+                    return $this->successResponse([
+                        'portal_mismatch' => 'staff',
+                        'staff_login_url' => $this->staffLoginUrl(),
+                        'message' => 'This account uses the school staff workspace, not the Parent Portal.',
+                    ], 'This account uses the school workspace.');
+                }
+                return $this->errorResponse('Invalid email/phone or password', 401);
             }
 
             // No portal password set yet → account can't log in via password
@@ -122,7 +169,7 @@ class ParentPortalManager extends BaseAPI
             }
 
             if (!password_verify($password, $parent['password_hash'])) {
-                return $this->errorResponse('Invalid email or password', 401);
+                return $this->errorResponse('Invalid email/phone or password', 401);
             }
 
             $otpSessionId = $this->sendParentEmailOtp((int)$parent['user_id'], (string)$parent['email']);
@@ -210,11 +257,16 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Parent account is not authorized', 403);
             }
 
-            $session = $this->createSession((int)$parent['user_id']);
+            $session = $this->createSession(
+                (int)$parent['user_id'],
+                (int)$parent['person_id'],
+                (int)$parent['parent_id']
+            );
 
             return $this->successResponse([
                 'token'      => $session['token'],
                 'expires_at' => $session['expires_at'],
+                'csrf_token' => $session['csrf_token'],
                 'parent'     => [
                     'id'         => (int)$parent['parent_id'],
                     'first_name' => $parent['first_name'],
@@ -226,6 +278,70 @@ class ParentPortalManager extends BaseAPI
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('OTP verification failed', 500);
         }
+    }
+
+    /**
+     * Build plausible local variants of a phone identifier so the entered
+     * format (+254/254/0/local digits) can match any stored representation.
+     * Returns [] when the identifier is clearly not a phone (e.g. an email).
+     */
+    private function phoneLookupVariants(string $identifier): array
+    {
+        if (str_contains($identifier, '@')) {
+            return [];
+        }
+        $digits = preg_replace('/\D+/', '', $identifier);
+        if ($digits === '' || !preg_match('/^\d{9,13}$/', $digits)) {
+            return [];
+        }
+
+        $variants = [$digits];
+        if (str_starts_with($digits, '0')) {
+            $variants[] = '254' . substr($digits, 1);
+        } elseif (str_starts_with($digits, '254')) {
+            $variants[] = '0' . substr($digits, 3);
+            $variants[] = substr($digits, 3);
+        } elseif (str_starts_with($digits, '7')) {
+            $variants[] = '2547' . substr($digits, 1);
+            $variants[] = '07' . substr($digits, 1);
+        }
+
+        return array_values(array_unique($variants));
+    }
+
+    private function lookupActiveAccount(string $email): ?array
+    {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT u.id, u.password_hash, u.status, u.data_scope, p.email
+                 FROM users u
+                 JOIN persons p ON p.id = u.person_id
+                 WHERE p.email = :email
+                   AND u.status = 'active'
+                 LIMIT 1"
+            );
+            $stmt->execute([':email' => $email]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ?: null;
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function staffLoginUrl(): string
+    {
+        $baseUrl = defined('BASE_URL') ? rtrim(BASE_URL, '/') : '';
+        if ($baseUrl === '') {
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+            $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+            $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+            $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+            $baseUrl = $scheme . '://' . $host . $appBase;
+        }
+
+        return rtrim($baseUrl, '/') . '/login.php';
     }
 
     private function sendParentEmailOtp(int $userId, string $email): ?int
@@ -276,7 +392,7 @@ class ParentPortalManager extends BaseAPI
     }
 
     // ========================================================================
-    // AUTHENTICATED ENDPOINTS (require ParentAuthMiddleware)
+    // AUTHENTICATED ENDPOINTS (require the shared AuthMiddleware JWT path)
     // ========================================================================
 
     /**
@@ -293,6 +409,8 @@ class ParentPortalManager extends BaseAPI
         try {
             $children = [];
             $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+            $scopes = DataScopeService::scopes();
+            $scopeIn = implode(',', array_fill(0, count($scopes), '?'));
             $stmt = $this->db->prepare(
                 "SELECT s.id, ps.first_name, ps.last_name, s.admission_no, s.status,
                         c.name AS class_name, sl.name AS level_name,
@@ -310,16 +428,11 @@ class ParentPortalManager extends BaseAPI
                  LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c ON c.id = ayc.class_id
                  LEFT JOIN school_levels sl ON sl.id = c.level_id
-                 JOIN persons parent_person ON parent_person.id = (
-                     SELECT parent_record.person_id
-                     FROM parents parent_record
-                     WHERE parent_record.id = sp.parent_id
-                 )
-                 WHERE sp.parent_id = :pid
-                   AND ps.data_scope = parent_person.data_scope
+                 WHERE sp.parent_id = ?
+                   AND ps.data_scope IN ($scopeIn)
                  ORDER BY ps.first_name, ps.last_name"
             );
-            $stmt->execute([':pid' => $this->parentId]);
+            $stmt->execute(array_merge([$this->parentId], array_values($scopes)));
             $children = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $parentInfo = $this->getParentProfile($this->parentId);
@@ -745,6 +858,827 @@ class ParentPortalManager extends BaseAPI
     }
 
     /**
+     * Learning workspace for a parent's child: published assignments with the
+     * child's submission status, approved scheme workbook items with their
+     * learning outcomes, practical key-inquiry questions and suggested
+     * experiences, plus the grade-level CBC learning outcomes.
+     *
+     * Only the child's current academic-year stream is considered; draft leak
+     * is impossible because scheme workbooks must be `approved` and
+     * assignments must be `published` and not deleted.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentLearning(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $context = $this->db->prepare(
+                "SELECT ay.id AS academic_year_id, ay.year_code, ayt.id AS academic_year_term_id,
+                        ayt.status AS term_status, t.name AS term_name,
+                        sae.academic_year_class_stream_id,
+                        c.name AS class_name, sn.name AS stream_name
+                 FROM student_academic_enrollments sae
+                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN terms t ON t.id = ayt.term_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 LIMIT 1"
+            );
+            $context->execute([$studentId]);
+            $ctx = $context->fetch(PDO::FETCH_ASSOC);
+            if (!$ctx) {
+                return $this->successResponse([
+                    'context' => null,
+                    'assignments' => [],
+                    'workbook_items' => [],
+                    'learning_outcomes' => [],
+                ]);
+            }
+
+            // Published, non-deleted assignments for the child's class in the
+            // current term, with the child's submission state attached.
+            $assignStmt = $this->db->prepare(
+                "SELECT a.id, a.title, a.description, a.due_date, a.total_marks,
+                        a.attachment_url, a.status, a.created_at,
+                        la.name AS learning_area,
+                        sn.name AS strand_name, ss.name AS sub_strand_name,
+                        (SELECT ap.id FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS submission_id,
+                        (SELECT ap.status FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS submission_status,
+                        (SELECT ap.marks_awarded FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS marks_awarded,
+                        (SELECT ap.feedback FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS feedback,
+                        (SELECT ap.graded_at FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS graded_at,
+                        (SELECT ap.marks_awarded IS NOT NULL FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
+                 FROM assignments a
+                 JOIN student_academic_enrollments a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN academic_year_class_streams aycs ON aycs.id = a2s.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                 LEFT JOIN strands sn ON sn.id = a.strand_id
+                 LEFT JOIN sub_strands ss ON ss.id = a.sub_strand_id
+                 WHERE a.class_id = c.id
+                   AND a.status = 'published'
+                   AND a.deleted_at IS NULL
+                   AND a.academic_year_id = ?
+                   AND a.term_id = ?
+                 ORDER BY a.due_date DESC, a.id DESC"
+            );
+            $assignStmt->execute([$studentId, (int) $ctx['academic_year_id'], (int) $ctx['academic_year_term_id']]);
+            $assignments = $assignStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Approved scheme workbooks → their items → outcomes, practical
+            // questions and suggested experiences, ordered by week then item.
+            $workbookStmt = $this->db->prepare(
+                "SELECT swb.title AS workbook_title, wbw.week_number,
+                        la.name AS learning_area,
+                        st.title AS strand_title, st.name AS strand_name,
+                        sst.name AS sub_strand_name,
+                        it.id AS item_id, it.title AS item_title,
+                        swbi.outcome_text, swbi.is_custom AS outcome_is_custom,
+                        q.question_text, q.is_custom AS question_is_custom,
+                        ex.experience_text, ex.is_custom AS experience_is_custom
+                 FROM scheme_workbooks swb
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = swb.academic_year_class_stream_learning_area_id
+                 JOIN academic_year_class_learning_areas ayscla
+                   ON ayscla.id = aysla.academic_year_class_learning_area_id
+                 JOIN learning_areas la ON la.id = ayscla.learning_area_id
+                 JOIN scheme_workbook_weeks wbw ON wbw.workbook_id = swb.id
+                 JOIN scheme_workbook_items it ON it.workbook_week_id = wbw.id
+                 LEFT JOIN strands st ON st.id = it.strand_id
+                 LEFT JOIN sub_strands sst ON sst.id = it.sub_strand_id
+                 LEFT JOIN scheme_workbook_item_outcomes swbi ON swbi.workbook_item_id = it.id
+                 LEFT JOIN scheme_workbook_item_questions q ON q.workbook_item_id = it.id
+                 LEFT JOIN scheme_workbook_item_experiences ex ON ex.workbook_item_id = it.id
+                 WHERE aysla.academic_year_class_stream_id = ?
+                   AND swb.academic_year_term_id = ?
+                   AND swb.status = 'approved'
+                 ORDER BY wbw.week_number, it.sort_order, it.id"
+            );
+            $workbookStmt->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
+            $workbookItems = $workbookStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Grade-level CBC outcomes (structured expectations a parent can
+            // read against the items above). The class name IS the grade
+            // level ('Playgroup','PP1',..,'Grade 9').
+            $grade = trim((string) ($ctx['class_name'] ?? ''));
+            $outcomes = [];
+            if ($grade !== '') {
+                $gradeMatch = $grade . '%';
+                $outcomeStmt = $this->db->prepare(
+                    "SELECT lo.id, lo.learning_area_id, la.name AS learning_area,
+                            lo.strand_id, lo.sub_strand_id,
+                            sn.name AS strand_name, ss.name AS sub_strand_name,
+                            lo.outcome
+                     FROM learning_outcomes lo
+                     JOIN learning_areas la ON la.id = lo.learning_area_id
+                     LEFT JOIN strands sn ON sn.id = lo.strand_id
+                     LEFT JOIN sub_strands ss ON ss.id = lo.sub_strand_id
+                     WHERE lo.grade_level LIKE ?
+                     ORDER BY la.name, sn.name, ss.name, lo.id"
+                );
+                $outcomeStmt->execute([$gradeMatch]);
+                $outcomes = $outcomeStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            return $this->successResponse([
+                'context' => $ctx,
+                'assignments' => $assignments,
+                'workbook_items' => $workbookItems,
+                'learning_outcomes' => $outcomes,
+            ], 'Learning workspace loaded');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] learning: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load the learning workspace', 500);
+        }
+    }
+
+    /**
+     * Covered content for a parent's child: the approved lesson plans actually
+     * taught this term (approved/delivered) with their learning area, strand,
+     * sub-strand, week and date, plus published assignments with the child's
+     * submission state. Grouping into learning area → week → day is done by
+     * the frontend from these flat arrays.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentCoverage(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $context = $this->db->prepare(
+                "SELECT ay.id AS academic_year_id, ay.year_code, ayt.id AS academic_year_term_id,
+                        ayt.status AS term_status, t.name AS term_name,
+                        sae.academic_year_class_stream_id,
+                        c.name AS class_name, sn.name AS stream_name
+                 FROM student_academic_enrollments sae
+                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN terms t ON t.id = ayt.term_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 LIMIT 1"
+            );
+            $context->execute([$studentId]);
+            $ctx = $context->fetch(PDO::FETCH_ASSOC);
+            if (!$ctx) {
+                return $this->successResponse(['context' => null, 'lessons' => [], 'assignments' => []]);
+            }
+
+            // Taught (approved/delivered) lesson plans for the child's stream
+            // this term, flat with their strand/sub-strand and week/date.
+            $lessons = $this->db->prepare(
+                "SELECT lp.id, lp.scheme_of_work_id, lp.status, lp.updated_at,
+                        d.date AS lesson_date, ac.week_number, ac.week_start, ac.week_end,
+                        la.name AS learning_area, lt.title,
+                        lt.duration, lt.activities, lt.resources, lt.assessment,
+                        sn.name AS strand_name, ss.name AS sub_strand_name
+                 FROM lesson_plans lp
+                 JOIN schemes_of_work sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = lp.academic_year_class_stream_learning_area_id
+                  AND aysla.academic_year_class_stream_id = ?
+                 JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
+                 JOIN learning_areas la ON la.id = lt.learning_area_id
+                 LEFT JOIN strands sn ON sn.id = lt.strand_id
+                 LEFT JOIN sub_strands ss ON ss.id = lt.sub_strand_id
+                 JOIN academic_year_calendar_days d ON d.id = lp.academic_year_calendar_day_id
+                 JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                 WHERE ac.academic_year_term_id = ?
+                   AND lp.status IN ('approved','delivered')
+                 ORDER BY ac.week_number, d.date, la.name, lp.id"
+            );
+            $lessons->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
+
+            // Published assignments with the child's submission state.
+            $assignStmt = $this->db->prepare(
+                "SELECT a.id, a.title, a.description, a.due_date, a.total_marks,
+                        a.attachment_url, a.status, a.created_at,
+                        la.name AS learning_area,
+                        sn.name AS strand_name, ss.name AS sub_strand_name,
+                        (SELECT ap.id FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS submission_id,
+                        (SELECT ap.status FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS submission_status,
+                        (SELECT ap.marks_awarded FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS marks_awarded,
+                        (SELECT ap.marks_awarded IS NOT NULL FROM assignment_submissions ap
+                          WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
+                          ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
+                 FROM assignments a
+                 JOIN student_academic_enrollments a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN academic_year_class_streams aycs ON aycs.id = a2s.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                 LEFT JOIN strands sn ON sn.id = a.strand_id
+                 LEFT JOIN sub_strands ss ON ss.id = a.sub_strand_id
+                 WHERE a.class_id = c.id
+                   AND a.status = 'published'
+                   AND a.deleted_at IS NULL
+                   AND a.academic_year_id = ?
+                   AND a.term_id = ?
+                 ORDER BY a.due_date DESC, a.id DESC"
+            );
+            $assignStmt->execute([$studentId, (int) $ctx['academic_year_id'], (int) $ctx['academic_year_term_id']]);
+
+            return $this->successResponse([
+                'context' => $ctx,
+                'lessons' => $lessons->fetchAll(PDO::FETCH_ASSOC),
+                'assignments' => $assignStmt->fetchAll(PDO::FETCH_ASSOC),
+            ], 'Covered content loaded');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load covered content', 500);
+        }
+    }
+
+    /**
+     * Learning analytics for a parent's child: term-to-term and year-to-year
+     * performance, learning-area profile, class comparison and rubric
+     * distribution — built from the governed analytic views — plus a
+     * deterministic, rule-based SWOT summary (never an LLM call).
+     *
+     * The views are per-child guarded; this method never exposes other
+     * learners, and class comparison only aggregates the child's own stream.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentAnalytics(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $student = $this->getStudentInfo($studentId);
+            if (!$student) {
+                return $this->errorResponse('Student not found', 404);
+            }
+
+            $term = $this->getCurrentTerm();
+            $year = $term['year'] ?? null;
+            $tnum = $term ? (int) $term['id'] : 0;
+            $tid  = $tnum;
+
+            $termOverview = [];
+            $stp = ReadReplicaService::qualifiedRef('student_term_performance');
+            if ($year) {
+                $stmt = $this->db->prepare(
+                    "SELECT academic_year, term_number, term_name, subjects_count,
+                            total_points, average_percentage, overall_grade, subjects_passed
+                     FROM $stp
+                     WHERE student_id = :sid
+                     ORDER BY academic_year, term_number"
+                );
+                $stmt->execute([':sid' => $studentId]);
+                $termOverview = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $yearOverview = [];
+            foreach ($termOverview as $row) {
+                $ay = $row['academic_year'] ?? 'Unknown';
+                if (!isset($yearOverview[$ay])) {
+                    $yearOverview[$ay] = ['academic_year' => $ay, 'terms' => 0, 'avg_total' => 0.0, 'percentage_values' => []];
+                }
+                if (($row['average_percentage'] ?? null) !== null) {
+                    $yearOverview[$ay]['percentage_values'][] = (float) $row['average_percentage'];
+                    $yearOverview[$ay]['avg_total'] += (float) $row['average_percentage'];
+                }
+                $yearOverview[$ay]['terms']++;
+            }
+            foreach ($yearOverview as $ay => $agg) {
+                $n = count($agg['percentage_values']);
+                $yearOverview[$ay]['average_percentage'] = $n ? round($agg['avg_total'] / $n, 2) : null;
+                unset($yearOverview[$ay]['avg_total'], $yearOverview[$ay]['percentage_values']);
+            }
+            $yearOverview = array_values($yearOverview);
+
+            // Per-learning-area profile for the child in the current term.
+            $learningAreas = [];
+            $rubric = ['ee' => 0, 'me' => 0, 'ae' => 0, 'be' => 0];
+            $slp = ReadReplicaService::qualifiedRef('student_learning_progress');
+            if ($year && $tnum) {
+                $stmt = $this->db->prepare(
+                    "SELECT learning_area,
+                            ROUND(AVG(average_percentage), 2) AS average_percentage,
+                            COUNT(*) AS rows_aggregated,
+                            SUM(ee_count) AS ee_count, SUM(me_count) AS me_count,
+                            SUM(ae_count) AS ae_count, SUM(be_count) AS be_count
+                     FROM $slp
+                     WHERE student_id = :sid AND academic_year = :year AND term_number = :tnum
+                     GROUP BY learning_area
+                     ORDER BY learning_area"
+                );
+                $stmt->execute([':sid' => $studentId, ':year' => $year, ':tnum' => $tnum]);
+                $learningAreas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmt = $this->db->prepare(
+                    "SELECT COALESCE(SUM(ee_count),0) AS ee, COALESCE(SUM(me_count),0) AS me,
+                            COALESCE(SUM(ae_count),0) AS ae, COALESCE(SUM(be_count),0) AS be
+                     FROM $slp
+                     WHERE student_id = :sid AND academic_year = :year AND term_number = :tnum"
+                );
+                $stmt->execute([':sid' => $studentId, ':year' => $year, ':tnum' => $tnum]);
+                $rubricRow = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($rubricRow) {
+                    $rubric = [
+                        'ee' => (int) $rubricRow['ee'],
+                        'me' => (int) $rubricRow['me'],
+                        'ae' => (int) $rubricRow['ae'],
+                        'be' => (int) $rubricRow['be'],
+                    ];
+                }
+            }
+
+            // Class-level comparison (the child's own stream only) so a parent
+            // can see standing without exposing other learners by name.
+            $classComparison = [];
+            $clp = ReadReplicaService::qualifiedRef('class_learning_area_performance');
+            if ($year && $tnum && !empty($student['class_name']) && !empty($student['stream_name'])) {
+                $stmt = $this->db->prepare(
+                    "SELECT learning_area, average_percentage, students_assessed
+                     FROM $clp
+                     WHERE academic_year = :year AND term_number = :tnum
+                       AND class_name = :cls AND stream_name = :stream
+                     GROUP BY learning_area
+                     ORDER BY learning_area"
+                );
+                $stmt->execute([
+                    ':year' => $year,
+                    ':tnum' => $tnum,
+                    ':cls' => $student['class_name'],
+                    ':stream' => $student['stream_name'],
+                ]);
+                $classRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $childByArea = [];
+                foreach ($learningAreas as $la) {
+                    $childByArea[$la['learning_area']] = isset($la['average_percentage']) ? (float) $la['average_percentage'] : null;
+                }
+                foreach ($classRows as $row) {
+                    $classComparison[] = [
+                        'learning_area' => $row['learning_area'],
+                        'class_average' => isset($row['average_percentage']) ? (float) $row['average_percentage'] : null,
+                        'students_assessed' => (int) $row['students_assessed'],
+                        'child_average' => $childByArea[$row['learning_area']] ?? null,
+                    ];
+                }
+                foreach ($learningAreas as $la) {
+                    $found = false;
+                    foreach ($classComparison as $cc) {
+                        if ($cc['learning_area'] === $la['learning_area']) {
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        $classComparison[] = [
+                            'learning_area' => $la['learning_area'],
+                            'class_average' => null,
+                            'students_assessed' => 0,
+                            'child_average' => isset($la['average_percentage']) ? (float) $la['average_percentage'] : null,
+                        ];
+                    }
+                }
+                usort($classComparison, static function ($a, $b) {
+                    return strcmp($a['learning_area'], $b['learning_area']);
+                });
+            }
+
+            // Attendance context (class register).
+            $attendance = ['total_days' => 0, 'days_present' => 0, 'days_absent' => 0, 'days_late' => 0];
+            if ($tid) {
+                $stmt = $this->db->prepare(
+                    "SELECT COALESCE(SUM(class_days_marked),0)   AS total_days,
+                            COALESCE(SUM(class_days_present),0)  AS days_present,
+                            COALESCE(SUM(class_days_absent),0)   AS days_absent,
+                            COALESCE(SUM(class_days_late),0)     AS days_late
+                     FROM vw_student_term_attendance_summary
+                     WHERE student_id = :sid AND term_id = :tid AND register_type = 'class'"
+                );
+                $stmt->execute([':sid' => $studentId, ':tid' => $tid]);
+                $attendance = $stmt->fetch(PDO::FETCH_ASSOC) ?: $attendance;
+            }
+
+            return $this->successResponse([
+                'student' => $student,
+                'term' => $term,
+                'term_overview' => $termOverview,
+                'year_overview' => $yearOverview,
+                'learning_areas' => $learningAreas,
+                'class_comparison' => $classComparison,
+                'rubric_distribution' => $rubric,
+                'attendance' => $attendance,
+                'swot' => $this->buildSwot($learningAreas, $classComparison, $termOverview, $rubric, $attendance),
+            ], 'Learning analytics loaded');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load learning analytics', 500);
+        }
+    }
+
+    /**
+     * Deterministic SWOT summary for a child (rule-based only — no LLM).
+     *
+     * @param array $learningAreas   per-LA child profile
+     * @param array $classComparison child vs class per LA
+     * @param array $termOverview    term-to-term performance rows
+     * @param array $rubric          ee/me/ae/be totals
+     * @param array $attendance      total/present/absent/late
+     * @return array
+     */
+    private function buildSwot(array $learningAreas, array $classComparison, array $termOverview, array $rubric, array $attendance): array
+    {
+        $strengths = [];
+        $weaknesses = [];
+        $opportunities = [];
+        $threats = [];
+
+        foreach ($learningAreas as $la) {
+            $avg = isset($la['average_percentage']) ? (float) $la['average_percentage'] : null;
+            $name = $la['learning_area'] ?? 'Learning area';
+            if ($avg === null) {
+                continue;
+            }
+            if ($avg >= 75.0) {
+                $strengths[] = "$name is a strong area (average {$avg}%).";
+            } elseif ($avg < 50.0) {
+                $weaknesses[] = "$name needs support (average {$avg}%).";
+            } else {
+                $classAvg = null;
+                foreach ($classComparison as $cc) {
+                    if ($cc['learning_area'] === $name && $cc['class_average'] !== null) {
+                        $classAvg = $cc['class_average'];
+                        break;
+                    }
+                }
+                if ($classAvg !== null && $avg < $classAvg - 5.0) {
+                    $opportunities[] = "$name ($avg%) is below the class average ($classAvg%) — a clear growth opportunity.";
+                }
+            }
+        }
+
+        $assessedRubric = array_sum($rubric);
+        if ($assessedRubric > 0) {
+            $eeShare = round(100 * (($rubric['ee'] ?? 0) + ($rubric['me'] ?? 0)) / $assessedRubric);
+            if ($eeShare >= 70) {
+                $strengths[] = "Most assessed work ($eeShare%) meets or exceeds expectations.";
+            } elseif (($rubric['be'] ?? 0) > 0 && (($rubric['be'] ?? 0) / $assessedRubric) >= 0.3) {
+                $weaknesses[] = 'A notable share of assessed work is below expectations — review support needs.';
+            }
+        }
+
+        $rates = [];
+        $total = (int) ($attendance['total_days'] ?? 0);
+        if ($total > 0) {
+            $rates['present'] = round(100 * (int) ($attendance['days_present'] ?? 0) / $total);
+            $rates['absent'] = round(100 * (int) ($attendance['days_absent'] ?? 0) / $total);
+        }
+        if (isset($rates['present']) && $rates['present'] >= 90) {
+            $strengths[] = "Attendance is excellent ({$rates['present']}%).";
+        } elseif (isset($rates['present']) && $rates['present'] < 75) {
+            $weaknesses[] = "Attendance is low ({$rates['present']}%) — missed learning days add up.";
+        }
+
+        $avgs = array_values(array_filter(array_map(static function ($r) {
+            return isset($r['average_percentage']) ? (float) $r['average_percentage'] : null;
+        }, $termOverview), static function ($v) {
+            return $v !== null;
+        }));
+        if (count($avgs) >= 2) {
+            $last = array_pop($avgs);
+            $prev = array_pop($avgs);
+            if ($last > $prev + 5) {
+                $opportunities[] = 'Overall performance is improving term over term — momentum to build on.';
+            } elseif ($last < $prev - 5) {
+                $threats[] = 'Overall performance has dipped recently — worth an early conversation.';
+            }
+        }
+
+        if (empty($strengths) && empty($weaknesses) && empty($opportunities) && empty($threats)) {
+            return ['strengths' => [], 'weaknesses' => [], 'opportunities' => [], 'threats' => []];
+        }
+
+        return [
+            'strengths' => $strengths,
+            'weaknesses' => $weaknesses,
+            'opportunities' => $opportunities,
+            'threats' => $threats,
+        ];
+    }
+
+    /**
+     * Full CBC competencies view for a parent's child: every core competency
+     * (assessed or not) with its current-term performance level, evidence and
+     * teacher notes, all core values with evidence, and the level legend.
+     *
+     * Unassessed competencies are returned too so the parent sees the full
+     * picture rather than only assessed rows.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentCompetencies(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $student = $this->getStudentInfo($studentId);
+            if (!$student) {
+                return $this->errorResponse('Student not found', 404);
+            }
+
+            $term = $this->getCurrentTerm();
+            $termId = $term ? (int) $term['id'] : 0;
+
+            $competencies = [];
+            if ($termId) {
+                $stmt = $this->db->prepare(
+                    "SELECT cc.id, cc.code, cc.name AS competency_name,
+                            lc.performance_level_id,
+                            plc.code AS level_code, plc.name AS level_name,
+                            lc.evidence, lc.teacher_notes,
+                            lc.assessed_date,
+                            (lc.id IS NOT NULL) AS has_assessment
+                     FROM core_competencies cc
+                     LEFT JOIN learner_competencies lc
+                            ON lc.competency_id = cc.id
+                           AND lc.student_id = :sid
+                           AND lc.term_id = :tid
+                     LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
+                     ORDER BY cc.id"
+                );
+                $stmt->execute([':sid' => $studentId, ':tid' => $termId]);
+                $competencies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $values = [];
+            if ($termId) {
+                $stmt = $this->db->prepare(
+                    "SELECT cv.id, cv.code, cv.name AS value_name,
+                            lva.evidence, lva.incident_date,
+                            (lva.id IS NOT NULL) AS has_evidence
+                     FROM core_values cv
+                     LEFT JOIN learner_values_acquisition lva
+                            ON lva.value_id = cv.id
+                           AND lva.student_id = :sid
+                           AND lva.term_id = :tid
+                     ORDER BY cv.id"
+                );
+                $stmt->execute([':sid' => $studentId, ':tid' => $termId]);
+                $values = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $levels = $this->db->prepare(
+                "SELECT id, code, name FROM performance_levels_cbc ORDER BY id"
+            );
+            $levels->execute();
+            $levelLegend = $levels->fetchAll(PDO::FETCH_ASSOC);
+
+            $assessed = 0;
+            foreach ($competencies as $comp) {
+                if (!empty($comp['has_assessment'])) {
+                    $assessed++;
+                }
+            }
+
+            return $this->successResponse([
+                'student' => $student,
+                'term' => $term,
+                'competencies' => $competencies,
+                'values' => $values,
+                'levels' => $levelLegend,
+                'summary' => [
+                    'assessed' => $assessed,
+                    'total' => count($competencies),
+                    'assessed_values' => count(array_filter($values, static function ($v) {
+                        return !empty($v['has_evidence']);
+                    })),
+                ],
+            ], 'Competencies loaded');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load competencies', 500);
+        }
+    }
+
+    /**
+     * Aggregate health summary for a parent's child (vw_student_health_summary).
+     * Returns counts/flags only — never raw health records or notes.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentHealth(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $view = ReadReplicaService::qualifiedRef('student_health_summary');
+            $stmt = $this->db->prepare(
+                "SELECT student_id, admission_no, student_name, class_name, stream_name,
+                        health_records, emergency_flags,
+                        active_allergies, active_conditions, active_medications
+                 FROM $view
+                 WHERE student_id = :sid
+                 LIMIT 1"
+            );
+            $stmt->execute([':sid' => $studentId]);
+            $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            return $this->successResponse([
+                'summary' => $summary,
+                'emergency_flags' => (int) ($summary['emergency_flags'] ?? 0) > 0,
+            ]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] health: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load health summary', 500);
+        }
+    }
+
+    /**
+     * Co-curricular participation for a parent's child: activities in which
+     * the child participates (via activity_participants) with category and
+     * schedule.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getStudentActivities(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT act.id, act.title, act.description,
+                        act.start_date, act.end_date, act.status AS activity_status,
+                        ac.name AS category_name,
+                        ap.role, ap.status AS participant_status, ap.joined_at, ap.notes,
+                        ap.student_academic_enrollment_id
+                 FROM activity_participants ap
+                 JOIN student_academic_enrollments sae
+                   ON sae.id = ap.student_academic_enrollment_id AND sae.student_id = ?
+                 JOIN activities act ON act.id = ap.activity_id
+                 LEFT JOIN activity_categories ac ON ac.id = act.category_id
+                 ORDER BY act.start_date DESC, act.id DESC"
+            );
+            $stmt->execute([$studentId]);
+            $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return $this->successResponse(['activities' => $activities]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] activities: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load activities', 500);
+        }
+    }
+
+    /**
+     * Parent-facing school updates: published announcements targeting all or
+     * parents, plus upcoming school events. Read-only; no mutation of feed
+     * state.
+     *
+     * @return array
+     */
+    public function getParentUpdates(): array
+    {
+        if (!$this->parentId) {
+            return $this->errorResponse('Not authenticated', 401);
+        }
+
+        try {
+            $annStmt = $this->db->prepare(
+                "SELECT id, title, content, announcement_type, priority,
+                        target_audience, status, published_at, expires_at
+                 FROM announcements_bulletin
+                 WHERE status = 'published'
+                   AND target_audience IN ('all', 'parents')
+                   AND (expires_at IS NULL OR expires_at > NOW())
+                   AND published_at <= NOW()
+                 ORDER BY priority = 'critical' DESC,
+                          priority = 'high' DESC,
+                          published_at DESC
+                 LIMIT 50"
+            );
+            $annStmt->execute();
+            $announcements = $annStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $eventStmt = $this->db->prepare(
+                "SELECT id, title, description, start_at, end_at, type, category,
+                        location, status
+                 FROM school_events
+                 WHERE source = 'manual'
+                   AND calendar_day_id IS NULL
+                   AND status IN ('upcoming', 'ongoing')
+                   AND end_at >= CURDATE()
+                   AND category NOT IN ('holiday', 'public_holiday')
+                 ORDER BY start_at ASC
+                 LIMIT 30"
+            );
+            $eventStmt->execute();
+            $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Upcoming assessments/exams for the parent's children.
+            $exams = $this->db->prepare(
+                "SELECT a.id, a.title, a.assessment_date, a.status, a.max_marks,
+                        a.max_marks,
+                        la.name AS learning_area,
+                        aty.name AS assessment_type,
+                        c.name AS class_name, sn.name AS stream_name,
+                        s.id AS student_id,
+                        CONCAT_WS(' ', p.first_name, p.last_name) AS student_name
+                 FROM assessments a
+                 JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                 LEFT JOIN assessment_types aty ON aty.id = a.assessment_type_id
+                 JOIN student_academic_enrollments sae
+                   ON sae.academic_year_class_stream_id = a.academic_year_class_stream_id
+                  AND sae.enrollment_status = 'active'
+                 JOIN students s ON s.id = sae.student_id
+                 JOIN persons p ON p.id = s.person_id
+                 JOIN student_parents sp ON sp.student_id = s.id AND sp.parent_id = :pid
+                 WHERE a.assessment_date >= CURDATE()
+                   AND a.status IN ('pending_submission', 'submitted')
+                 GROUP BY a.id
+                 ORDER BY a.assessment_date ASC
+                 LIMIT 30"
+            );
+            $exams->execute([':pid' => $this->parentId]);
+
+            // Current academic-year term dates (opening / half-term / closing).
+            $termDates = $this->db->prepare(
+                "SELECT ayt.id, t.name AS term_name,
+                        ayt.opening_date, ayt.half_term_start, ayt.half_term_end,
+                        ayt.closing_date, ayt.status
+                 FROM academic_year_terms ayt
+                 JOIN terms t ON t.id = ayt.term_id
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 WHERE ay.is_current = 1
+                 ORDER BY t.id"
+            );
+            $termDates->execute();
+            $termDates = $termDates->fetchAll(PDO::FETCH_ASSOC);
+
+            return $this->successResponse([
+                'announcements' => $announcements,
+                'events' => $events,
+                'exams' => $exams->fetchAll(PDO::FETCH_ASSOC),
+                'term_dates' => $termDates,
+            ]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] updates: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load updates', 500);
+        }
+    }
+
+    /**
      * Messages between the parent and the school, scoped to a student.
      *
      * @param int|null $studentId
@@ -1121,6 +2055,356 @@ class ParentPortalManager extends BaseAPI
     }
 
     /**
+     * Purpose-aware portal payment. `purpose` in
+     * {fees, transport, uniforms}. Fees reuse the existing fee STK flow;
+     * transport goes through TransportPaymentService (entitlement-bound) and
+     * uniforms through UniformPaymentService (accumulated balance). All paths
+     * create provider intents and purpose routing references — money is never
+     * guessed from a phone number.
+     *
+     * @param array $data {student_id, purpose, phone?, amount?, provider?}
+     * @return array
+     */
+    public function postPortalPayment(array $data): array
+    {
+        if (!$this->parentId) {
+            return $this->errorResponse('Not authenticated', 401);
+        }
+
+        $studentId = (int)($data['student_id'] ?? 0);
+        $purpose   = strtolower(trim((string)($data['purpose'] ?? '')));
+        if (!$studentId) {
+            return $this->errorResponse('student_id required', 400);
+        }
+        if (!in_array($purpose, ['fees', 'transport', 'uniforms'], true)) {
+            return $this->errorResponse('purpose must be fees, transport, or uniforms', 400);
+        }
+        if ($this->assertAccess($studentId) !== null) {
+            return $this->errorResponse('Access denied', 403);
+        }
+
+        if ($purpose === 'fees') {
+            // Reuse the exact fee flow above (student_id, phone, amount, provider).
+            return $this->postInitiateMpesaPayment($data);
+        }
+
+        try {
+            // Transport and uniforms share phone normalization.
+            $parent = $this->getParentProfile($this->parentId);
+            $phone = trim((string)($data['phone'] ?? $parent['phone'] ?? ''));
+            if (strlen($phone) === 9) $phone = '254' . $phone;
+            if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
+            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+                return $this->errorResponse('A valid phone number is required', 400);
+            }
+
+            $amount = (float)($data['amount'] ?? 0);
+            if ($amount <= 0) {
+                return $this->errorResponse('Amount must be greater than zero', 400);
+            }
+
+            if ($purpose === 'transport') {
+                // Resolve the child's active transport entitlement (one row).
+                $entStmt = $this->db->prepare(
+                    "SELECT te.id, te.amount_due, te.student_id,
+                            te.entitlement_status, r.name AS route_name
+                     FROM student_transport_entitlements te
+                     LEFT JOIN transport_routes r ON r.id = te.route_id
+                     WHERE te.student_id = ? AND te.entitlement_status = 'active'
+                     ORDER BY te.id DESC LIMIT 1"
+                );
+                $entStmt->execute([$studentId]);
+                $entitlement = $entStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$entitlement) {
+                    return $this->successResponse([
+                        'initiated' => false,
+                        'message' => 'No active transport entitlement was found for this learner. The school may not have enrolled them in transport yet.',
+                    ]);
+                }
+
+                // Amount default = entitlement due; never exceed it.
+                $maxAmount = (float) $entitlement['amount_due'];
+                if ($amount > $maxAmount) {
+                    return $this->errorResponse('Amount exceeds the transport entitlement balance', 400);
+                }
+
+                $transport = ServiceContractBroker::contract(
+                    'App\API\Services\payments\TransportPaymentService',
+                    [],
+                    $this->db
+                );
+                $intent = $transport->initiate([
+                    'entitlement_id' => (int) $entitlement['id'],
+                    'channel' => 'daraja_mpesa',
+                    'amount' => $amount,
+                    'phone' => $phone,
+                    'financial_account_id' => 0,
+                ], (int) $this->user_id);
+
+                return $this->successResponse([
+                    'initiated' => true,
+                    'purpose' => 'transport',
+                    'intent' => [
+                        'id' => (int) ($intent['id'] ?? 0),
+                        'status' => $intent['status'] ?? null,
+                        'reference' => $intent['idempotency_reference'] ?? null,
+                        'provider_request_id' => $intent['provider_request_id'] ?? null,
+                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
+                        'message' => 'M-Pesa STK Push sent. Check your phone and enter your PIN.',
+                    ],
+                ], 'Transport payment initiated');
+            }
+
+            // purpose === 'uniforms'
+            if ($amount > 0 && $purpose === 'uniforms') {
+                $uniforms = ServiceContractBroker::contract(
+                    'App\API\Services\payments\UniformPaymentService',
+                    [],
+                    $this->db
+                );
+                $intent = $uniforms->initiateAccumulated([
+                    'student_id' => $studentId,
+                    'parent_id' => $this->parentId,
+                    'amount' => $amount,
+                    'phone' => $phone,
+                    'channel' => 'daraja_mpesa',
+                    'financial_account_id' => 0,
+                ], (int) $this->user_id);
+
+                return $this->successResponse([
+                    'initiated' => true,
+                    'purpose' => 'uniforms',
+                    'intent' => [
+                        'id' => (int) ($intent['id'] ?? 0),
+                        'status' => $intent['status'] ?? null,
+                        'reference' => $intent['idempotency_reference'] ?? null,
+                        'provider_request_id' => $intent['provider_request_id'] ?? null,
+                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
+                        'message' => 'M-Pesa STK Push sent for the uniform balance. Check your phone and enter your PIN.',
+                    ],
+                ], 'Uniform balance payment initiated');
+            }
+
+            return $this->errorResponse('Unsupported purpose', 400);
+        } catch (\LogicException $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] payment service: ' . $e->getMessage());
+            return $this->errorResponse('The payment service is temporarily unavailable', 503);
+        } catch (\RuntimeException $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] payment: ' . $e->getMessage());
+            return $this->errorResponse($this->friendlyPaymentMessage($e), 400);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to process the payment', 500);
+        }
+    }
+
+    /**
+     * Downloads for a parent's child: released report cards (each immutable
+     * snapshot), plus outstanding transport/uniform balances that drive
+     * invoice/statement downloads.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function getDownloads(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            // Released report cards (all versions for permanent access).
+            $releaseStmt = $this->db->prepare(
+                "SELECT id, version_no, pdf_path, pdf_sha256, released_at
+                 FROM report_card_releases
+                 WHERE student_id = ? AND status = 'released'
+                 ORDER BY released_at DESC, version_no DESC"
+            );
+            $releaseStmt->execute([$studentId]);
+            $reportCards = [];
+            foreach ($releaseStmt->fetchAll(PDO::FETCH_ASSOC) as $release) {
+                $path = (string) ($release['pdf_path'] ?? '');
+                if ($path === '' || !is_file($path)
+                    || !hash_equals((string) ($release['pdf_sha256'] ?? ''), (string) @hash_file('sha256', $path))) {
+                    continue;
+                }
+                $reportCards[] = [
+                    'release_id' => (int) $release['id'],
+                    'version_no' => (int) $release['version_no'],
+                    'released_at' => $release['released_at'],
+                    'download_url' => (new DownloadService())->generatedDownloadUrlForAbsolutePath($path),
+                ];
+            }
+
+            // Transport summary (billing status per month).
+            $transportView = ReadReplicaService::qualifiedRef('student_transport_summary');
+            $trStmt = $this->db->prepare(
+                "SELECT bill_id, billing_month, amount_due, amount_paid, balance_due, payment_status
+                 FROM $transportView
+                 WHERE student_id = ?
+                 ORDER BY billing_month DESC
+                 LIMIT 6"
+            );
+            $trStmt->execute([$studentId]);
+            $transport = $trStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Uniform balance aggregate.
+            $uniformView = ReadReplicaService::qualifiedRef('student_uniform_balance');
+            $unStmt = $this->db->prepare(
+                "SELECT total_billed, total_paid, total_balance, last_purchase
+                 FROM $uniformView
+                 WHERE student_id = ?
+                 LIMIT 1"
+            );
+            $unStmt->execute([$studentId]);
+            $uniform = $unStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            // Fee statement data mirror (used by the frontend to offer a PDF).
+            $statement = $this->getStudentStatement($studentId);
+            $statementData = $statement['data'] ?? [];
+
+            return $this->successResponse([
+                'student' => $this->getStudentInfo($studentId),
+                'report_cards' => $reportCards,
+                'transport' => $transport,
+                'uniform' => $uniform,
+                'statement' => $statementData,
+            ]);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] downloads: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to load downloads', 500);
+        }
+    }
+
+    /**
+     * Generate a fee-statement PDF for a parent's child and return its
+     * short-lived download URL. Uses the authoritative PrintService data
+     * builder (prepareStudentFeeStatement) so the file matches the accounts
+     * office.
+     *
+     * @param int $studentId
+     * @return array
+     */
+    public function postDownloadStatement(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $print = new \App\API\Services\PrintService();
+            $data = $print->prepareStudentFeeStatement($studentId);
+            $path = $print->printFeeStatement($data, [
+                'filename' => 'fee_statement_student_' . $studentId . '_parent_' . $this->parentId . '_' . date('Ymd_His'),
+            ]);
+
+            $url = (new DownloadService())->generatedDownloadUrlForAbsolutePath($path);
+            $this->logStatementDownload($studentId);
+
+            return $this->successResponse([
+                'download_url' => $url,
+                'filename' => basename($path),
+                'generated_at' => date('Y-m-d H:i:s'),
+            ], 'Statement generated');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] statement PDF: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to generate the fee statement', 500);
+        }
+    }
+
+    /**
+     * Generate a payment-receipt PDF for a confirmed payment belonging to a
+     * parent's child.
+     *
+     * @param array $data {student_id, payment_id}
+     * @return array
+     */
+    public function postDownloadReceipt(array $data): array
+    {
+        $studentId = (int) ($data['student_id'] ?? 0);
+        $paymentId = (int) ($data['payment_id'] ?? 0);
+        if (!$studentId || !$paymentId) {
+            return $this->errorResponse('student_id and payment_id required', 400);
+        }
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT vp.id, vp.receipt_no, vp.reference_no, vp.payment_method,
+                        vp.amount_paid AS amount, vp.payment_date, vp.notes,
+                        t.name AS term_name
+                 FROM vw_payment_transactions_with_amount vp
+                 LEFT JOIN academic_year_terms ayt ON ayt.id = vp.term_id
+                 LEFT JOIN terms t ON t.id = ayt.term_id
+                 WHERE vp.id = ? AND vp.student_id = ?
+                   AND vp.status IN ('confirmed','completed','success')
+                 LIMIT 1"
+            );
+            $stmt->execute([$paymentId, $studentId]);
+            $payment = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$payment) {
+                return $this->errorResponse('Payment not found', 404);
+            }
+
+            $student = $this->getStudentInfo($studentId);
+            $print = new \App\API\Services\PrintService();
+            $path = $print->printReceiptTemplate([
+                'receiptNo' => $payment['receipt_no'] ?? ('RCP-' . $payment['id']),
+                'date' => date('d F Y', strtotime((string) $payment['payment_date'])),
+                'receivedFrom' => trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')) . ' (' . ($student['admission_no'] ?? '') . ')',
+                'amount' => (float) $payment['amount'],
+                'paymentMethod' => $payment['payment_method'] ?? 'M-Pesa',
+                'reference' => $payment['reference_no'] ?? '',
+                'items' => [['description' => 'School fees payment — ' . ($payment['term_name'] ?? 'Current term'), 'amount' => (float) $payment['amount']]],
+                'total' => (float) $payment['amount'],
+                'receivedBy' => 'Kingsway Accounts Office',
+                'remarks' => $payment['notes'] ?? 'Portal payment',
+            ], [
+                'filename' => 'receipt_' . $payment['id'] . '_parent_' . $this->parentId . '_' . date('Ymd_His'),
+            ]);
+
+            $url = (new DownloadService())->generatedDownloadUrlForAbsolutePath($path);
+            $this->logStatementDownload($studentId);
+
+            return $this->successResponse([
+                'download_url' => $url,
+                'filename' => basename($path),
+                'generated_at' => date('Y-m-d H:i:s'),
+            ], 'Receipt generated');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] receipt PDF: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Unable to generate the receipt', 500);
+        }
+    }
+
+    /**
+     * Human-friendly payment error messages (never leak internals).
+     *
+     * @param \Throwable $e
+     * @return string
+     */
+    private function friendlyPaymentMessage(\Throwable $e): string
+    {
+        $message = $e->getMessage();
+        $haystack = strtolower((string) $message);
+        if (str_contains($haystack, 'exceeds accumulated')) {
+            return 'Amount exceeds the accumulated uniform balance.';
+        }
+        if (str_contains($haystack, 'not found')) {
+            return 'The selected payment record could not be found.';
+        }
+        if (str_contains($haystack, 'must be selected')) {
+            return 'No collection account is configured for this payment type yet.';
+        }
+        return 'The payment could not be initiated. Please review your phone number and amount.';
+    }
+
+    /**
      * Poll Safaricom for the transaction status of an STK Push.
      *
      * @param string $checkoutRequestId
@@ -1152,29 +2436,68 @@ class ParentPortalManager extends BaseAPI
      * Create an opaque portal session in user_sessions and touch users.last_login.
      *
      * @param int $userId
-     * @return array {token, expires_at}
+     * @param int $personId
+     * @param int $parentId
+     * @return array {token, expires_at, csrf_token}
      */
-    private function createSession(int $userId): array
-    {
-        $token   = bin2hex(random_bytes(32));
-        $expires = date('Y-m-d H:i:s', strtotime('+' . self::SESSION_TTL_DAYS . ' days'));
+    private function createSession(
+        int $userId,
+        int $personId,
+        int $parentId
+    ): array {
+        $now   = time();
+        $expire = $now + self::PARENT_ACCESS_TOKEN_TTL;
 
-        $this->db->prepare(
-            "INSERT INTO user_sessions
-                (user_id, session_token, ip_address, user_agent, login_time, last_activity, session_status)
-             VALUES (?, ?, ?, ?, NOW(), NOW(), 'active')"
-        )->execute([
+        // Standard HS256 JWT with the same iss/aud/secret as staff tokens so
+        // the single AuthMiddleware JWT path authenticates parents exactly
+        // like every other user. The Parent role travels as a role claim, and
+        // the parent/person identities ride as extra claims for controllers.
+        $token = JWT::encode([
+            'user_id'   => $userId,
+            'id'        => $userId,
+            'person_id' => $personId,
+            'parent_id' => $parentId,
+            'roles'     => [['id' => 73, 'name' => 'Parent']],
+            'iat'       => $now,
+            'exp'       => $expire,
+            'iss'       => JWT_ISSUER,
+            'aud'       => JWT_AUDIENCE,
+        ], JWT_SECRET, 'HS256');
+
+        $session = new AuthSessionService($this->db);
+
+        // Stores the SHA-256 hash and rotates the user's single active row in
+        // place, so the row store matches how staff access tokens are held.
+        $this->sessionId = $session->upsertAccessSession(
             $userId,
             $token,
-            $_SERVER['REMOTE_ADDR'] ?? null,
-            substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
-        ]);
+            null,
+            date('Y-m-d H:i:s', $expire),
+            false
+        );
 
         $this->db->prepare(
             "UPDATE users SET last_login = NOW() WHERE id = ?"
         )->execute([$userId]);
 
-        return ['token' => $token, 'expires_at' => $expires];
+        return [
+            'token'      => $token,
+            'expires_at' => date('Y-m-d H:i:s', $now + $session->idleTimeoutSeconds()),
+            'csrf_token' => $this->generateCsrfToken($userId),
+        ];
+    }
+
+    /**
+     * Generate a CSRF token for parent mutating requests.
+     * Must match CsrfMiddleware::validateToken().
+     */
+    private function generateCsrfToken(int $userId): string
+    {
+        $timestamp = time();
+        $random = bin2hex(random_bytes(16));
+        $plaintext = $userId . ':' . $timestamp . ':' . $random;
+        $signature = hash_hmac('sha256', $plaintext, JWT_SECRET);
+        return base64_encode($plaintext . ':' . $signature);
     }
 
     /**
@@ -1186,7 +2509,7 @@ class ParentPortalManager extends BaseAPI
     private function getParentByUserId(int $userId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT u.id AS user_id, pr.id AS parent_id,
+            "SELECT u.id AS user_id, pr.id AS parent_id, p.id AS person_id,
                     p.first_name, p.last_name, p.email
              FROM users u
              JOIN persons p ON p.id = u.person_id
@@ -1237,19 +2560,19 @@ class ParentPortalManager extends BaseAPI
     private function verifyAccess(int $studentId): bool
     {
         try {
+            $scopes = DataScopeService::scopes();
+            $scopeIn = implode(',', array_fill(0, count($scopes), '?'));
             $stmt = $this->db->prepare(
                 "SELECT sp.student_id
                  FROM student_parents sp
                  JOIN students s ON s.id = sp.student_id
                  JOIN persons child_person ON child_person.id = s.person_id
-                 JOIN parents parent_record ON parent_record.id = sp.parent_id
-                 JOIN persons parent_person ON parent_person.id = parent_record.person_id
-                 WHERE sp.parent_id = :pid
-                   AND sp.student_id = :sid
-                   AND child_person.data_scope = parent_person.data_scope
+                 WHERE sp.parent_id = ?
+                   AND sp.student_id = ?
+                   AND child_person.data_scope IN ($scopeIn)
                  LIMIT 1"
             );
-            $stmt->execute([':pid' => $this->parentId, ':sid' => $studentId]);
+            $stmt->execute(array_merge([$this->parentId, $studentId], array_values($scopes)));
             return (bool)$stmt->fetchColumn();
         } catch (Exception $e) {
             return false;

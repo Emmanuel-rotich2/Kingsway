@@ -392,6 +392,9 @@ final class StaffMigrationService
         ");
         $stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
         if(!$row)throw new RuntimeException('Staff onboarding profile not found.');
+        $qualificationStmt=$this->db->prepare("SELECT id,qualification_level,source,verification_status,title,institution,year_obtained,description,document_url FROM staff_qualifications WHERE staff_id=? ORDER BY year_obtained DESC,id DESC");
+        $qualificationStmt->execute([(int)$row['staff_id']]);
+        $row['qualification_claims']=$qualificationStmt->fetchAll(PDO::FETCH_ASSOC);
         return $row;
     }
 
@@ -424,6 +427,30 @@ final class StaffMigrationService
             if(!empty($data['emergency_contact_name'])){
                 $this->db->prepare("INSERT INTO emergency_contacts(person_id,name,phone,created_at) VALUES(?,?,?,NOW())")
                     ->execute([$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
+            }
+            if (array_key_exists('qualifications', $data)) {
+                if (!is_array($data['qualifications']) || count($data['qualifications']) > 20) {
+                    throw new RuntimeException('Qualifications must be an array containing at most 20 records.');
+                }
+                $allowedLevels = ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'];
+                $qualificationStmt = $this->db->prepare("INSERT INTO staff_qualifications
+                    (staff_id, qualification_type, qualification_level, source, verification_status, submitted_by, title, institution, year_obtained, description, document_url)
+                    VALUES (?, ?, ?, 'self_reported', 'pending', ?, ?, ?, ?, ?, ?)");
+                foreach ($data['qualifications'] as $qualification) {
+                    if (!is_array($qualification)) throw new RuntimeException('Each qualification must be an object.');
+                    $title = trim((string)($qualification['title'] ?? ''));
+                    $institution = trim((string)($qualification['institution'] ?? ''));
+                    if ($title === '' || $institution === '') throw new RuntimeException('Each qualification requires a title and institution.');
+                    $level = (string)($qualification['qualification_level'] ?? $qualification['level'] ?? 'other');
+                    if (!in_array($level, $allowedLevels, true)) throw new RuntimeException('Invalid qualification level.');
+                    $legacyType = in_array($level, ['certificate','diploma','degree'], true) ? $level : 'other';
+                    $year = $qualification['year_obtained'] ?? $qualification['year'] ?? null;
+                    $description = trim((string)($qualification['description'] ?? '')) ?: null;
+                    $documentUrl = trim((string)($qualification['document_url'] ?? '')) ?: null;
+                    $duplicateStmt=$this->db->prepare("SELECT id FROM staff_qualifications WHERE staff_id=? AND source='self_reported' AND verification_status='pending' AND qualification_level=? AND title=? AND institution=? AND (year_obtained <=> ?) AND (description <=> ?) AND (document_url <=> ?) LIMIT 1");
+                    $duplicateStmt->execute([$sid,$level,$title,$institution,$year ?: null,$description,$documentUrl]);
+                    if (!$duplicateStmt->fetchColumn()) $qualificationStmt->execute([$sid, $legacyType, $level, $userId, $title, $institution, $year ?: null, $description, $documentUrl]);
+                }
             }
             $this->db->prepare("UPDATE users SET profile_completed_at=NOW() WHERE id=?")->execute([$userId]);
             $this->audit($userId,'staff_profile_completed','staff',$sid);$this->db->commit();return $this->onboardingForUser($userId);

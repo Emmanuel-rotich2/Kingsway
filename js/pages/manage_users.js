@@ -17,6 +17,8 @@ const ManageUsersController = {
     environmentPhase: null,
     selectedIds: new Set(),
     testInventory: null,
+    currentPage: 1,
+    pageSize: 10,
   },
 
   elements: {},
@@ -94,6 +96,10 @@ const ManageUsersController = {
       tableHead: document.getElementById("userAccountsTableHead"),
       tableBody: document.getElementById("userAccountsTableBody"),
       count: document.getElementById("userAccountsCount"),
+      pageSizeSelect: document.getElementById("usersPageSize"),
+      prevPageBtn: document.getElementById("usersPrevBtn"),
+      nextPageBtn: document.getElementById("usersNextBtn"),
+      pageInfo: document.getElementById("usersPageInfo"),
       modalElement: document.getElementById("userAccountModal"),
       modalTitle: document.getElementById("userAccountModalTitle"),
       form: document.getElementById("userAccountForm"),
@@ -111,6 +117,11 @@ const ManageUsersController = {
       bulkRoleSelect: document.getElementById("bulkRoleSelect"),
       bulkRoleCount: document.getElementById("bulkRoleCount"),
       bulkRoleApplyBtn: document.getElementById("bulkRoleApplyBtn"),
+      bulkScopeBtn: document.getElementById("bulkScopeBtn"),
+      bulkScopeCount: document.getElementById("bulkScopeCount"),
+      bulkScopeSelect: document.getElementById("bulkScopeSelect"),
+      bulkScopeModal: document.getElementById("bulkScopeModal"),
+      bulkScopeApplyBtn: document.getElementById("bulkScopeApplyBtn"),
       manageRolesModalElement: document.getElementById("manageRolesModal"),
       manageRolesList: document.getElementById("manageRolesList"),
       manageRolesSaveBtn: document.getElementById("manageRolesSaveBtn"),
@@ -177,7 +188,22 @@ const ManageUsersController = {
   bindEvents() {
     if (this.state.eventsBound) return;
 
-    this.elements.search.addEventListener("input", () => this.renderTable());
+    this.elements.search.addEventListener("input", () => {
+      this.state.currentPage = 1;
+      this.renderTable();
+    });
+    this.elements.pageSizeSelect.addEventListener("change", () => {
+      this.state.pageSize = Number(this.elements.pageSizeSelect.value);
+      this.state.currentPage = 1;
+      this.renderTable();
+    });
+    this.elements.prevPageBtn.addEventListener("click", () => {
+      if (this.state.currentPage > 1) { this.state.currentPage--; this.renderTable(); }
+    });
+    this.elements.nextPageBtn.addEventListener("click", () => {
+      const totalPages = this.totalPages();
+      if (this.state.currentPage < totalPages) { this.state.currentPage++; this.renderTable(); }
+    });
     this.elements.refreshButton.addEventListener("click", () => {
       void this.loadData();
     });
@@ -238,8 +264,11 @@ const ManageUsersController = {
 
     this.state.loading = true;
     this.setControlsDisabled(true);
-    this.showState("Loading user accounts...", "info");
-    this.showTableLoading();
+
+    if (this.state.users.length === 0) {
+      this.showState("Loading user accounts...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const [usersResponse, rolesResponse, modeResponse, phaseResponse, inventoryResponse] = await Promise.all([
@@ -423,13 +452,11 @@ const ManageUsersController = {
       });
     }
     this.updateBulkBar();
-    this.renderTable();
   },
 
   clearSelection() {
     this.state.selectedIds.clear();
     this.updateBulkBar();
-    this.renderTable();
   },
 
   updateBulkBar() {
@@ -439,6 +466,7 @@ const ManageUsersController = {
     this.elements.tableBody.querySelectorAll("input[type=checkbox][data-user-id]").forEach((checkbox) => {
       checkbox.checked = this.state.selectedIds.has(Number(checkbox.dataset.userId));
     });
+    this.syncSelectAll();
   },
 
   selectedUsers() {
@@ -455,8 +483,21 @@ const ManageUsersController = {
     const users = this.selectedUsers();
     const count = users.length;
     if (!count) return;
-    this.elements.bulkGrantCount.textContent =
-      `Grant temporary access to ${count} selected account${count === 1 ? "" : "s"}. This supersedes any active or scheduled grants on those accounts.`;
+    const testUsers = users.filter(
+      (user) => Number(user.is_test_user || 0) === 1 || user.account_type === "test",
+    );
+    const realCount = count - testUsers.length;
+    let message =
+      `Grant temporary access to ${testUsers.length} of ${count} selected account${count === 1 ? "" : "s"}. ` +
+      "This supersedes any active or scheduled grants on those accounts.";
+    if (realCount > 0) {
+      message += ` ${realCount} real account${realCount === 1 ? "" : "s"} in the selection will be skipped because test access applies only to test accounts.`;
+    }
+    if (!testUsers.length) {
+      this.notify("Select at least one test account for the grant.", "warning");
+      return;
+    }
+    this.elements.bulkGrantCount.textContent = message;
     const now = new Date();
     const start = new Date(now.getTime() + 60 * 1000);
     const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -488,7 +529,10 @@ const ManageUsersController = {
       .map((u) => Number(u.id ?? u.user_id ?? 0))
       .filter((id) => id > 0))];
     if (!ids.length) {
-      this.notify("Select at least one test account.", "error");
+      this.notify(
+        "None of the selected accounts are test accounts. Real accounts cannot receive test access.",
+        "warning",
+      );
       return;
     }
     this.elements.bulkGrantApplyBtn.disabled = true;
@@ -500,13 +544,11 @@ const ManageUsersController = {
       });
       this.elements.bulkGrantModal.hide();
       const data = result?.data || {};
-      const granted = data.granted?.length || 0;
-      const skipped = data.skipped?.length || 0;
-      this.notify(
-        data.message ||
-          `Test access granted to ${granted} account${granted === 1 ? "" : "s"}${skipped ? `; ${skipped} skipped` : ""}.`,
-        "success",
-      );
+      const granted = Array.isArray(data.granted) ? data.granted.length : 0;
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      const message = data.message ||
+        `${granted} test account${granted === 1 ? "" : "s"} granted${skipped ? `; ${skipped} skipped` : ""}.`;
+      this.notify(message, granted > 0 ? "success" : "warning");
       this.clearSelection();
       await this.loadData();
     } catch (error) {
@@ -580,6 +622,56 @@ const ManageUsersController = {
         })
         .join("");
     this.elements.bulkRoleModal.show();
+  },
+
+  openBulkScope() {
+    const users = this.selectedUsers();
+    const count = users.length;
+    if (!count) return;
+    this.elements.bulkScopeCount.textContent =
+      `Switch workspace for ${count} selected account${count === 1 ? "" : "s"}. Settings persist per account; test accounts stay money-safe (recordScope 'test').`;
+    this.elements.bulkScopeSelect.value = "both";
+    this.elements.bulkScopeModal.show();
+  },
+
+  async applyBulkScope() {
+    const scope = this.elements.bulkScopeSelect.value;
+    if (!scope) {
+      this.notify("Choose a workspace first.", "error");
+      return;
+    }
+    const users = this.selectedUsers();
+    if (!users.length) {
+      this.notify("No accounts selected.", "error");
+      return;
+    }
+    this.elements.bulkScopeApplyBtn.disabled = true;
+    let errors = 0;
+    let updated = 0;
+    try {
+      for (const user of users) {
+        const id = Number(user.id ?? user.user_id ?? 0);
+        try {
+          await window.API.users.update(id, { data_scope: scope });
+          updated += 1;
+        } catch (error) {
+          errors += 1;
+        }
+      }
+      this.elements.bulkScopeModal.hide();
+      this.notify(
+        errors
+          ? `Workspace switched for ${updated} account${updated === 1 ? "" : "s"}; ${errors} failed.`
+          : `Workspace switched for ${updated} account${updated === 1 ? "" : "s"}.`,
+        errors ? "warning" : "success",
+      );
+      this.clearSelection();
+      await this.loadData();
+    } catch (error) {
+      this.notify(this.formatError(error, "Bulk scope update failed."), "error");
+    } finally {
+      this.elements.bulkScopeApplyBtn.disabled = false;
+    }
   },
 
   async applyBulkRole() {
@@ -762,9 +854,10 @@ const ManageUsersController = {
       .join("");
   },
 
-  renderTable() {
+  visibleUsers() {
     const query = this.elements.search.value.trim().toLowerCase();
-    const visibleUsers = this.state.users.filter((user) =>
+    if (!query) return this.state.users;
+    return this.state.users.filter((user) =>
       [
         user.username,
         user.email,
@@ -778,131 +871,192 @@ const ManageUsersController = {
           .includes(query),
       ),
     );
+  },
 
-    this.elements.tableHead.innerHTML = `
-      <tr>
-        <th class="text-center" style="width: 40px">
-          <input
-            class="form-check-input"
-            type="checkbox"
-            data-select-all
-            aria-label="Select all matching accounts"
-          >
-        </th>
-        <th>User</th>
-        <th>Email</th>
-        <th>Roles</th>
-        <th>Account type</th>
-        <th>Status</th>
-        <th>Last login</th>
-        <th class="text-end">Actions</th>
-      </tr>`;
+  totalPages() {
+    const filtered = this.visibleUsers().length;
+    const pageSize = Number(this.state.pageSize);
+    if (!filtered) return 1;
+    if (!pageSize || pageSize <= 0) return 1;
+    return Math.ceil(filtered / pageSize);
+  },
 
+  renderPager() {
+    const filtered = this.visibleUsers().length;
+    const pageSize = Number(this.state.pageSize);
+    const totalPages = this.totalPages();
+    if (this.state.currentPage > totalPages) this.state.currentPage = totalPages;
+    const page = Math.max(1, Math.min(this.state.currentPage, totalPages));
+    this.state.currentPage = page;
+    this.elements.prevPageBtn.disabled = page <= 1;
+    this.elements.nextPageBtn.disabled = page >= totalPages;
+    this.elements.pageInfo.textContent = pageSize > 0
+      ? `Page ${page} of ${totalPages}`
+      : `All ${filtered}`;
+  },
+
+  renderTable() {
+    const filteredUsers = this.visibleUsers();
+    const totalFiltered = filteredUsers.length;
+    const pageSize = Number(this.state.pageSize);
+    if (pageSize > 0) {
+      const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+      if (this.state.currentPage > totalPages) this.state.currentPage = totalPages;
+      const start = (this.state.currentPage - 1) * pageSize;
+      this.elements.pageSizeSelect.value = String(pageSize);
+      this.renderPager();
+      return this.renderTableRows(filteredUsers.slice(start, start + pageSize), totalFiltered);
+    }
+    this.elements.pageSizeSelect.value = "0";
+    this.renderPager();
+    return this.renderTableRows(filteredUsers, totalFiltered);
+  },
+
+  renderTableRows(visibleUsers, totalFiltered) {
     if (visibleUsers.length === 0) {
       const message = this.state.users.length
         ? "No user accounts match the current search."
         : "No user accounts found.";
       this.showTableMessage(message);
       this.elements.count.textContent = `0 of ${this.state.users.length} user accounts`;
+      this.syncSelectAll();
       return;
     }
 
-    const authenticatedUserId = this.currentUserId();
-    this.elements.tableBody.innerHTML = visibleUsers
-      .map((user) => {
-        const userId = Number(user.id ?? user.user_id ?? 0);
-        const name =
-          `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
-          user.username ||
-          "Unnamed user";
-        const isCurrentUser = userId === authenticatedUserId;
-        const isTestUser = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
-        const testAccess = isTestUser
-          ? (user.test_access_status
-            ? `${this.formatStatus(user.test_access_status)} until ${this.formatDateTime(user.test_access_expires_at)}`
-            : "No current grant")
-          : "Live workspace";
+    const template = document.getElementById("userAccountsRowTemplate");
+    const rows = visibleUsers.map((user) => this.buildUserRow(template, user));
+    this.elements.tableBody.replaceChildren(...rows);
 
-        return `
-          <tr>
-            <td class="text-center">
-              <input
-                class="form-check-input"
-                type="checkbox"
-                data-user-id="${userId}"
-                aria-label="Select ${this.escapeHtml(name)}"
-              >
-            </td>
-            <td>
-              <strong>${this.escapeHtml(name)}</strong>
-              <div class="small text-muted">@${this.escapeHtml(user.username || "")}</div>
-            </td>
-            <td>${this.escapeHtml(user.email || "—")}</td>
-            <td>${this.renderRoleBadges(user)}</td>
-            <td>
-              <span class="badge text-bg-${isTestUser ? "warning" : "success"}">
-                ${isTestUser ? "Test" : "Real"}
-              </span>
-              <div class="small text-muted mt-1">${this.escapeHtml(testAccess)}</div>
-            </td>
-            <td>
-              <span class="badge text-bg-${this.statusColor(user.status)}">
-                ${this.escapeHtml(this.formatStatus(user.status))}
-              </span>
-            </td>
-            <td>${this.escapeHtml(this.formatDateTime(user.last_login, "Never"))}</td>
-            <td class="text-end">
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-warning ms-1"
-                data-user-action="revoke-test-access"
-                data-user-id="${userId}"
-                ${!isTestUser || !["scheduled", "active"].includes(String(user.test_access_status || "").toLowerCase()) ? "disabled" : ""}
-              >
-                <i class="fas fa-ban me-1"></i>Revoke test access
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-secondary"
-                data-user-action="manage-roles"
-                data-user-id="${userId}"
-                title="View or change all roles assigned to this user"
-              >
-                <i class="fas fa-user-tag me-1"></i>Manage roles
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-primary"
-                data-user-action="edit"
-                data-user-id="${userId}"
-              >
-                <i class="fas fa-edit me-1"></i>Edit
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-danger ms-1"
-                data-user-action="reset-mfa"
-                data-user-id="${userId}"
-                ${isCurrentUser ? 'disabled title="Use Account Settings for your own MFA"' : ""}
-              >
-                <i class="fas fa-shield-halved me-1"></i>Reset MFA
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-danger ms-1"
-                data-user-action="delete"
-                data-user-id="${userId}"
-                ${isCurrentUser ? 'disabled title="You cannot delete your own account"' : ""}
-              >
-                <i class="fas fa-trash me-1"></i>Delete
-              </button>
-            </td>
-          </tr>`;
-      })
-      .join("");
-
+    const pageSize = Number(this.state.pageSize);
+    const start = pageSize > 0
+      ? (this.state.currentPage - 1) * pageSize + 1
+      : 1;
+    const end = pageSize > 0 ? start + visibleUsers.length - 1 : totalFiltered;
     this.elements.count.textContent =
-      `${visibleUsers.length} of ${this.state.users.length} user accounts`;
+      `Showing ${start}–${end} of ${totalFiltered} user accounts`;
+    this.syncSelectAll();
+  },
+
+  buildUserRow(template, user) {
+    const userId = Number(user.id ?? user.user_id ?? 0);
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const name =
+      `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
+      user.username ||
+      "Unnamed user";
+    const isCurrentUser = userId === this.currentUserId();
+    const isTestUser = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
+    const testAccess = isTestUser
+      ? (user.test_access_status
+        ? `${this.formatStatus(user.test_access_status)} until ${this.formatDateTime(user.test_access_expires_at)}`
+        : "No current grant")
+      : "Live workspace";
+
+    const checkbox = row.querySelector("input[type=checkbox]");
+    checkbox.dataset.userId = String(userId);
+    checkbox.checked = this.state.selectedIds.has(userId);
+    checkbox.setAttribute("aria-label", `Select ${name}`);
+
+    cell("name").textContent = name;
+    const username = user.username || "";
+    cell("username").textContent = username ? `@${username}` : "";
+    cell("email").textContent = user.email || "—";
+
+    const rolesCell = cell("roles");
+    rolesCell.innerHTML = this.renderRoleBadges(user);
+
+    const accountBadge = cell("accountTypeBadge");
+    const accountTypeLabel = user.account_type === "service"
+      ? "Service"
+      : (isTestUser ? "Test" : "Real");
+    accountBadge.className = `badge text-bg-${user.account_type === "service" ? "info" : (isTestUser ? "warning" : "success")}`;
+    accountBadge.textContent = accountTypeLabel;
+
+    cell("testAccess").textContent = testAccess;
+
+    const dataScope = user.data_scope || (isTestUser ? "test" : "live");
+    const scopeBadge = cell("dataScopeBadge");
+    scopeBadge.className = `badge text-bg-${dataScope === "both" ? "secondary" : (dataScope === "test" ? "warning" : "success")}`;
+    scopeBadge.textContent =
+      dataScope === "both"
+        ? "Real + Test"
+        : dataScope === "test"
+          ? "Test only"
+          : "Real only";
+
+    const statusBadge = cell("statusBadge");
+    statusBadge.className = `badge text-bg-${this.statusColor(user.status)}`;
+    statusBadge.textContent = this.formatStatus(user.status);
+
+    cell("lastLogin").textContent = this.formatDateTime(user.last_login, "Never");
+    cell("actions").innerHTML = this.buildRowActions(user, { userId, isCurrentUser, isTestUser });
+
+    return row;
+  },
+
+  buildRowActions(user, { userId, isCurrentUser, isTestUser }) {
+    const hasActiveGrant = ["scheduled", "active"].includes(
+      String(user.test_access_status || "").toLowerCase(),
+    );
+    return `
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-warning ms-1"
+        data-user-action="revoke-test-access"
+        data-user-id="${userId}"
+        ${!isTestUser || !hasActiveGrant ? "disabled" : ""}
+      >
+        <i class="fas fa-ban me-1"></i>Revoke test access
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary"
+        data-user-action="manage-roles"
+        data-user-id="${userId}"
+        title="View or change all roles assigned to this user"
+      >
+        <i class="fas fa-user-tag me-1"></i>Manage roles
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-primary"
+        data-user-action="edit"
+        data-user-id="${userId}"
+      >
+        <i class="fas fa-edit me-1"></i>Edit
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-danger ms-1"
+        data-user-action="reset-mfa"
+        data-user-id="${userId}"
+        ${isCurrentUser ? 'disabled title="Use Account Settings for your own MFA"' : ""}
+      >
+        <i class="fas fa-shield-halved me-1"></i>Reset MFA
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-danger ms-1"
+        data-user-action="delete"
+        data-user-id="${userId}"
+        ${isCurrentUser ? 'disabled title="You cannot delete your own account"' : ""}
+      >
+        <i class="fas fa-trash me-1"></i>Delete
+      </button>`;
+  },
+
+  syncSelectAll() {
+    const selectAll = this.elements.tableHead?.querySelector("input[data-select-all]");
+    if (!selectAll) return;
+    const visible = this.visibleUsers();
+    const selectedVisible = visible.filter((user) =>
+      this.state.selectedIds.has(Number(user.id ?? user.user_id ?? 0)),
+    ).length;
+    selectAll.checked = visible.length > 0 && selectedVisible === visible.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
   },
 
   async handleTableAction(event) {
@@ -1025,12 +1179,21 @@ const ManageUsersController = {
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label" for="userAccountType">Account type</label>
-          <select class="form-select" id="userAccountType" name="account_type" ${editing ? "disabled" : ""} required>
+          <select class="form-select" id="userAccountType" name="account_type" required>
             <option value="real" ${selectedAccountType === "real" ? "selected" : ""}>Real account</option>
             <option value="test" ${selectedAccountType === "test" ? "selected" : ""}>Temporary test account</option>
             <option value="service" ${selectedAccountType === "service" ? "selected" : ""}>Service account</option>
           </select>
-          <div class="form-text">Account type cannot be converted after creation.</div>
+          <div class="form-text">The System Administrator can convert an account between Real and Test; the change cascades to the linked person and staff records.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="userDataScope">Data scope</label>
+          <select class="form-select" id="userDataScope" name="data_scope">
+            <option value="live" ${(user?.data_scope || "live") === "live" ? "selected" : ""}>Real data only</option>
+            <option value="test" ${(user?.data_scope || "") === "test" ? "selected" : ""}>Test data only</option>
+            <option value="both" ${(user?.data_scope || "") === "both" ? "selected" : ""}>Real + test data</option>
+          </select>
+          <div class="form-text">Which data side this account is allowed to view and manage.</div>
         </div>
         <div class="col-md-6">
           <label class="form-label" for="userUsername">Username</label>
@@ -1166,6 +1329,25 @@ const ManageUsersController = {
     const editing = this.state.editingUserId !== null;
     if (!payload.password) {
       delete payload.password;
+    }
+
+    // Detect account type conversion on an existing account and confirm it,
+    // since it cascades the linked person and staff records to the new side.
+    if (editing) {
+      const current = this.state.users.find((row) => Number(row.id) === this.state.editingUserId);
+      const currentType = current?.account_type || "real";
+      const newType = payload.account_type || currentType;
+      if (newType !== currentType) {
+        const confirmed = await window.confirmAction(
+          "Convert Account Type",
+          `Convert ${current?.username || `user ${this.state.editingUserId}`} from a ${currentType} account to a ${newType} account? The linked person record and its staff records will be moved to the target side.`,
+          { confirmText: "Convert", danger: newType === "test" },
+        );
+        if (!confirmed) {
+          this.setSaveButtonBusy(false);
+          return;
+        }
+      }
     }
 
     if (!editing) {
@@ -1383,18 +1565,11 @@ const ManageUsersController = {
   },
 
   showTableLoading() {
-    if (
-      !this.elements.tableHead ||
-      !this.elements.tableBody ||
-      !this.elements.count
-    ) {
-      return;
-    }
+    if (!this.elements.tableBody || !this.elements.count) return;
 
-    this.elements.tableHead.innerHTML = "<tr><th>Loading</th></tr>";
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td class="text-center py-5 text-muted">
+        <td colspan="9" class="text-center py-5 text-muted">
           <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
           Loading user accounts...
         </td>
@@ -1407,7 +1582,7 @@ const ManageUsersController = {
 
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center py-5 ${className}">
+        <td colspan="9" class="text-center py-5 ${className}">
           ${this.escapeHtml(message)}
         </td>
       </tr>`;

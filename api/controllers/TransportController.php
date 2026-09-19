@@ -5,6 +5,9 @@ use App\API\Modules\transport\TransportAPI;
 use App\API\Modules\finance\TransportBillingManager;
 use App\API\Modules\transport\StudentTransportEntitlementManager;
 use App\API\Services\payments\TransportPaymentService;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 use App\Database\Database;
 use Exception;
 
@@ -77,6 +80,66 @@ class TransportController extends BaseController
         // GET /api/transport — return summary of routes, vehicles, students
         $result = $this->api->getSummary();
         return $this->handleResponse($result);
+    }
+
+    /** POST /api/transport/ai-operations-summary-queue */
+    public function postAiOperationsSummaryQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiTransport()) return $this->forbidden('Transport AI assistance is not available for your account');
+        try {
+            $summaryResponse = $this->api->getSummary();
+            $summary = is_array($summaryResponse['data'] ?? null) ? $summaryResponse['data'] : $summaryResponse;
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'transport.operations_summary',
+                $this->aiTransportContext(),
+                [
+                    'report_date' => date('Y-m-d'),
+                    'active_route_count' => (string) ($summary['routes'] ?? 0),
+                    'active_vehicle_count' => (string) ($summary['vehicles'] ?? 0),
+                    'assigned_passenger_count' => (string) ($summary['active_subscriptions'] ?? 0),
+                    'follow_up_intent' => 'Prepare transport operations review; do not change assignments or safety controls.',
+                ],
+                ['subject_type' => 'transport_operations_summary', 'scope' => 'authorized_transport_aggregate']
+            );
+            return $this->accepted($queued, 'Transport operations summary queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->serverError('Transport assistance is temporarily unavailable');
+        }
+    }
+
+    public function getAiOperationsSummaries($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiTransport()) return $this->forbidden('Transport review permission is required');
+        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'transport'), 'scope' => $review ? 'review' : 'own'], 'Transport AI summaries retrieved');
+    }
+
+    public function postAiOperationsSummaryApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiTransport()) return $this->forbidden('Transport review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'transport.operations_summary');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Transport summary approved for staff guidance');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        }
+    }
+
+    private function aiTransportContext(): array
+    {
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
+    }
+    private function canUseAiTransport(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('transport.operations_summary', $this->aiTransportContext()); return true; } catch (DomainException $e) { return false; }
+    }
+    private function canApproveAiTransport(): bool
+    {
+        return $this->userHasAny(['transport_manage', 'transport_edit', 'transport_assign'], [], ['director', 'school administrator', 'transport manager', 'transport officer', 'admin']);
     }
 
     /**

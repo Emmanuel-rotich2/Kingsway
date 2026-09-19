@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const state = { userId: null, method: null, challenge: null, remember: false, identifier: '', password: '', recovery: false, verifying: false };
+  const state = { userId: null, method: null, challenge: null, remember: false, identifier: '', password: '', recovery: false, verifying: false, redirecting: false };
   const byId = (id) => document.getElementById(id);
   const showError = (id, message) => { const el=byId(id); if(!el)return; el.textContent=message; el.classList.remove('d-none'); };
   const clearMessages = () => ['authError','verifyError','verifySuccess'].forEach((id)=>byId(id)?.classList.add('d-none'));
@@ -13,8 +13,8 @@
 
   function dashboard(response) {
     if (response?.password_setup_required && response?.password_setup_url) return response.password_setup_url;
-    const info=window.AuthContext?.getDashboardInfo?.();
-    return info?.key ? `${window.APP_BASE||''}/home.php?route=${encodeURIComponent(info.key)}` : `${window.APP_BASE||''}/home.php`;
+    const next = new URLSearchParams(window.location.search).get('next') || undefined;
+    return window.AuthContext?.getAfterLoginUrl?.(next) || `${window.APP_BASE||''}/home.php`;
   }
   async function finish(userId, challenge) {
     const result=await window.API.auth.complete2FALogin(userId,state.remember,challenge);
@@ -36,9 +36,9 @@
     event.preventDefault(); clearMessages();
     state.identifier=byId('authIdentifier').value.trim(); state.password=byId('authPassword').value; state.remember=byId('authRemember').checked;
     const button=byId('authSubmit'); button.disabled=true; button.querySelector('.spinner-border').classList.remove('d-none');
-    try { const result=await window.API.auth.login(state.identifier,state.password,state.remember); if(result?.requires_2fa){await beginVerification(result);return;} if(result?.token){window.location.replace(dashboard(result));return;} throw new Error(result?.message||'Sign in failed.'); }
-    catch(error){showError('authError',error.message||'Sign in failed.');}
-    finally{button.disabled=false;button.querySelector('.spinner-border').classList.add('d-none');}
+    try { const result=await window.API.auth.login(state.identifier,state.password,state.remember); if(result?.parent_portal_only){state.redirecting=true;showError('authError',(result.message||'This sign-in is for school staff only. Parents use the Parent Portal.')+' Redirecting to the Parent Portal…');setTimeout(()=>{window.location.replace(result.parent_portal_url||`${window.APP_BASE||''}/parent_portal.php`);},1800);return;} if(result?.requires_2fa){await beginVerification(result);return;} if(result?.token){window.location.replace(dashboard(result));return;} throw new Error(result?.message||'Sign in failed.'); }
+    catch(error){if(!state.redirecting)showError('authError',error.message||'Sign in failed.');}
+    finally{if(!state.redirecting){button.disabled=false;button.querySelector('.spinner-border').classList.add('d-none');}}
   }
   async function verify(event) {
     event?.preventDefault?.();
@@ -70,5 +70,5 @@
     });
   }
   function reset() { state.userId=null;state.challenge=null;state.recovery=false;state.verifying=false;clearMessages();clearOtp();byId('verificationStep').classList.add('d-none');byId('signInStep').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').classList.add('d-none');byId('authOtpGrid').classList.remove('d-none');byId('verifySubmit').classList.add('d-none');byId('authPassword').focus(); }
-  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const info=window.AuthContext.getDashboardInfo?.();window.location.replace(info?.key?`${window.APP_BASE||''}/home.php?route=${encodeURIComponent(info.key)}`:`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authUseRecovery').addEventListener('click',()=>{state.recovery=true;byId('verificationTitle').textContent='Use a recovery code';byId('verificationDescription').textContent='Enter one unused recovery code saved during MFA setup.';byId('authOtpGrid').classList.add('d-none');byId('authAutoStatus').classList.add('d-none');byId('verificationCode').classList.remove('d-none');byId('verifySubmit').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').removeAttribute('inputmode');byId('verificationCode').focus();});byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
+  document.addEventListener('DOMContentLoaded',async()=>{ await window.AuthContext?.ready?.(); if(window.AuthContext?.isAuthenticated?.()){const next = new URLSearchParams(window.location.search).get('next')||undefined; window.location.replace(window.AuthContext.getAfterLoginUrl?.(next)||`${window.APP_BASE||''}/home.php`);return;} setupOtpInputs();byId('authLoginForm').addEventListener('submit',login);byId('verificationForm').addEventListener('submit',verify);byId('authPasswordless').addEventListener('click',passwordless);byId('authVerifyPasskey').addEventListener('click',verifyPasskey);byId('authResend').addEventListener('click',resend);byId('authBack').addEventListener('click',reset);byId('authUseRecovery').addEventListener('click',()=>{state.recovery=true;byId('verificationTitle').textContent='Use a recovery code';byId('verificationDescription').textContent='Enter one unused recovery code saved during MFA setup.';byId('authOtpGrid').classList.add('d-none');byId('authAutoStatus').classList.add('d-none');byId('verificationCode').classList.remove('d-none');byId('verifySubmit').classList.remove('d-none');byId('verificationCode').value='';byId('verificationCode').removeAttribute('inputmode');byId('verificationCode').focus();});byId('authTogglePassword').addEventListener('click',()=>{const input=byId('authPassword');input.type=input.type==='password'?'text':'password';}); });
 })();

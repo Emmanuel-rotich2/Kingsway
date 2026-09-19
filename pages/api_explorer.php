@@ -1,70 +1,73 @@
 <?php
-/** Kingsway System Administrator: API Explorer. */
+/** Kingsway System Administrator: API Explorer (route directory). */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') { $appBase = ''; }
+}
 ?>
-<div class="container-fluid py-4"
-     data-system-admin-page
-     data-resource="api-explorer"
-     data-mode="explorer"
-     data-title="API Explorer">
+<div class="container-fluid py-4" id="apiExplorerPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">API Explorer</h2>
-            <p class="text-muted mb-0">Run authorized API diagnostics against registered endpoints.</p>
+            <h2 class="h2 fw-bold mb-1">API Explorer</h2>
+            <p class="text-muted mb-0">Route directory of the registered application API, grouped by controller.</p>
         </div>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-secondary" data-system-refresh>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-secondary" id="apiExplorerExportCsvBtn" title="Export to CSV">
+                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="apiExplorerPrintBtn" title="Print / save as PDF">
+                <i class="bi bi-printer me-1"></i> Print / PDF
+            </button>
+            <button type="button" class="btn btn-primary" id="apiExplorerRefreshBtn">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
-            <button type="button" class="btn btn-primary" data-system-create>
-                <i class="bi bi-plus-lg me-1"></i> Add record
-            </button>
         </div>
     </div>
 
-    <div class="row g-3 mb-4" data-system-summary></div>
-
-    <div class="alert alert-info" data-system-state role="status">
-        Loading api explorer...
+    <div class="alert alert-info" id="apiExplorerState" role="status" aria-live="polite">
+        Loading API routes...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>API Explorer</strong>
-            <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input class="form-control" data-system-search placeholder="Search records">
-            </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Method filter" id="apiExplorerMethodFilter">
+            <button type="button" class="btn btn-outline-secondary active" data-method="all">All</button>
+            <button type="button" class="btn btn-outline-secondary" data-method="GET">GET</button>
+            <button type="button" class="btn btn-outline-secondary" data-method="POST">POST</button>
+            <button type="button" class="btn btn-outline-secondary" data-method="PUT">PUT</button>
+            <button type="button" class="btn btn-outline-secondary" data-method="PATCH">PATCH</button>
+            <button type="button" class="btn btn-outline-secondary" data-method="DELETE">DELETE</button>
         </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead data-system-head>
-                    <tr><th scope="col">Loading</th></tr>
-                </thead>
-                <tbody data-system-body>
-                    <tr><td class="text-center py-5 text-muted">Loading...</td></tr>
-                </tbody>
-            </table>
+        <div class="input-group input-group-sm ms-auto" style="max-width: 320px">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input class="form-control" id="apiExplorerSearch" type="search" maxlength="200" placeholder="Path, controller or middleware" autocomplete="off">
         </div>
-        <div class="card-footer bg-white text-muted small" data-system-count></div>
+        <span class="text-muted small" id="apiExplorerCount">No routes loaded</span>
+    </div>
+
+    <div id="apiExplorerDirectory">
+        <div class="text-center py-5 text-muted">Loading routes...</div>
     </div>
 </div>
 
-<div class="modal fade" id="systemAdminRecordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <form data-system-form>
-                <div class="modal-header">
-                    <h5 class="modal-title" data-system-modal-title>API Explorer</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" data-system-form-fields></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" data-system-save>Save</button>
-                </div>
-            </form>
+<template id="apiExplorerGroupTemplate">
+    <section class="card border-0 shadow-sm mb-3 route-group">
+        <div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            <strong class="text-break" data-fill="controller"></strong>
+            <span class="badge bg-light text-dark border" data-fill="group_count"></span>
         </div>
-    </div>
-</div>
+        <div class="card-body p-0">
+            <div class="list-group list-group-flush" data-fill="rows"></div>
+        </div>
+    </section>
+</template>
 
-<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/system_admin_console.js?v=<?= asset_version('js/pages/system/system_admin_console.js') ?>"></script>
+<template id="apiExplorerRouteTemplate">
+    <div class="list-group-item d-flex flex-wrap gap-2 align-items-start py-2">
+        <span class="badge method-badge mt-1" data-fill="method"></span>
+        <code class="text-break flex-grow-1" data-fill="path"></code>
+        <span class="badge mt-1" data-fill="isActive"></span>
+        <span class="small text-muted mt-1 flex-basis-100" data-fill="middleware"></span>
+    </div>
+</template>
+
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/api_explorer.js?v=<?= asset_version('js/pages/system/api_explorer.js') ?>"></script>

@@ -42,6 +42,11 @@ class AuthMiddleware
             'session/validate-token',
             'users/login',
             'users/register',
+            // Parent credential and OTP verification happen before a parent
+            // JWT exists; the issued JWT protects all other portal routes.
+            'parent-portal/login',
+            'parent-portal/login-otp-request',
+            'parent-portal/login-otp-verify',
             // Payment webhook endpoints (should be public for bank/M-Pesa callbacks)
             'payments/index',
             'payments/mpesa-b2c-callback',
@@ -59,10 +64,6 @@ class AuthMiddleware
             'payments/kcb-account-notification',
             'payments/kcb-till-notification',
             'payments/bank-webhook',
-            // Parent portal auth endpoints (use their own session tokens, not staff JWT)
-            'parent-portal/login',
-            'parent-portal/login-otp-request',
-            'parent-portal/login-otp-verify',
             'public/uniform-catalog',
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',
@@ -121,6 +122,9 @@ class AuthMiddleware
             'public/inquiries',
             'public/applications',
             'public/subscribers',
+            // Public FAQ assistant is intentionally anonymous; the
+            // controller supplies only the published website corpus.
+            'public/ai-faq',
             // Provider callbacks are authenticated by the webhook secret checked
             // in CommunicationsController, not by a staff JWT.
             'communications/sms-delivery-report',
@@ -137,10 +141,24 @@ class AuthMiddleware
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'realtime/worker',
             'realtime/cleanup',
+            'realtime/sync-projection',
+            // MCP authenticates with its own expiring machine token inside
+            // McpController, never with a staff JWT.
+            'mcp',
         ];
+
+        // MCP has its own machine-token authentication inside McpController;
+        // keep this exemption exact so a similarly named route is not opened.
+        $pathOnly = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        if ($pathOnly === '/api/mcp') {
+            return;
+        }
 
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
+            if ($endpoint === 'mcp') {
+                continue;
+            }
             if (strpos($path, $endpoint) !== false) {
                 // Public website content is anonymous only when it is being
                 // read. Mutations must continue through JWT + RBAC even though
@@ -164,31 +182,11 @@ class AuthMiddleware
             }
         }
 
-        // Parent portal routes bypass staff JWT auth entirely.
-        // Login/OTP endpoints are public; every other parent-portal endpoint enforces
-        // auth via ParentAuthMiddleware, which sets $_SERVER['parent_auth'] for the
-        // controller (ParentPortalController reads $this->parentId from it).
-        // NOTE: ParentAuthMiddleware::handle() must be invoked here — the router
-        // pipeline does not call it, so without this line every authed portal
-        // endpoint returns 401 (parentId is never populated).
-        if (strpos($path, 'parent-portal/') !== false) {
-            $publicPortal = [
-                'parent-portal/login',
-                'parent-portal/login-otp-request',
-                'parent-portal/login-otp-verify',
-            ];
-            $isPublic = false;
-            foreach ($publicPortal as $ep) {
-                if (strpos($path, $ep) !== false) {
-                    $isPublic = true;
-                    break;
-                }
-            }
-            if (!$isPublic) {
-                \App\API\Middleware\ParentAuthMiddleware::handle();
-            }
-            return;
-        }
+        // Parent portal routes authenticate the exact same way as every other
+        // authenticated route through validateJWT() below — parents sign in via
+        // the shared /auth/login + /twofactor/* flow, and the canonical parent
+        // JWT carries a parent_id claim exposed on $_SERVER['auth_user']. No
+        // bespoke parent-auth exemption remains.
 
         // Validate JWT token for protected endpoints
         self::validateJWT();
@@ -199,42 +197,9 @@ class AuthMiddleware
      */
     private static function validateJWT()
     {
-        // Resolve the Authorization header across all the places PHP may expose it.
-        // Header-key casing in getallheaders()/$_SERVER varies by SAPI: Apache upper-cases the
-        // key, but a front-end proxy (nginx -> Apache) often delivers it lower-case ("authorization").
-        // If we match an exact literal we break in one of those environments, so we search
-        // case-insensitively across every source.
-        $authHeader = null;
-
-        // Method 1: getallheaders() (most reliable behind a proxy; case-insensitive lookup)
-        if (function_exists('getallheaders')) {
-            foreach (getallheaders() as $name => $value) {
-                if (strcasecmp($name, 'Authorization') === 0) {
-                    $authHeader = $value;
-                    break;
-                }
-            }
-        }
-
-        // Method 2: $_SERVER['HTTP_AUTHORIZATION'] (may be null behind a proxy)
-        if (!$authHeader) {
-            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
-        }
-
-        // Method 3: Apache-specific redirect-injected header
-        if (!$authHeader) {
-            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
-        }
-
-        // Method 4: Direct case-insensitive sweep of $_SERVER for a HTTP_AUTHORIZATION var
-        if (!$authHeader) {
-            foreach ($_SERVER as $key => $value) {
-                if (strcasecmp($key, 'HTTP_AUTHORIZATION') === 0) {
-                    $authHeader = $value;
-                    break;
-                }
-            }
-        }
+        // Resolve the Authorization header across all the places PHP may expose it
+        // (shared resolver — see resolveBearerHeader() for the SAPI/casing rationale).
+        $authHeader = self::resolveBearerHeader();
 
         if (!$authHeader) {
             \App\API\Services\Logger::legacyError('AuthMiddleware: No Authorization header found');
@@ -261,6 +226,24 @@ class AuthMiddleware
             $userId = (int) (
                 $authUser['user_id'] ?? $authUser['id'] ?? 0
             );
+
+            // Restricted onboarding tokens: minted only when a policy-forced
+            // user still owes MFA enrollment. They prove the password step but
+            // may ONLY reach the two-factor setup surface; every other route
+            // is denied so a half-enrolled session can never read school data.
+            if (!empty($authUser['onboarding'])) {
+                self::authorizeOnboardingScope(
+                    strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH))
+                );
+
+                $authUser['account_type'] = 'production';
+                $authUser['is_test_user'] = 0;
+                $authUser['data_scope'] = 'live';
+                $_SERVER['data_scope'] = 'live';
+                $_SERVER['auth_user'] = $authUser;
+                $_SERVER['auth_session_id'] = 0;
+                return;
+            }
 
             try {
                 $session = (new AuthSessionService())
@@ -310,9 +293,61 @@ class AuthMiddleware
             $_SERVER['auth_user'] = $authUser;
             $_SERVER['auth_session_id'] = (int) $session['id'];
 
+            // Sliding-session renewal contract for parent sessions: tell the
+            // client exactly when the session slides to so the portal can
+            // persist pp_expires. Only JWTs carrying a parent_id claim (minted
+            // by ParentPortalManager) get this header; staff tokens never do.
+            if (!empty($authUser['parent_id'])) {
+                $sessionService = new AuthSessionService();
+                header(
+                    'X-Parent-Session-Expires: ' .
+                    gmdate(
+                        'D, d M Y H:i:s',
+                        strtotime($session['last_activity']) +
+                            $sessionService->idleTimeoutSeconds()
+                    ) . ' GMT',
+                    true
+                );
+            }
+
         } catch (\Exception $e) {
             self::deny(401, 'Invalid or expired token');
         }
+    }
+
+    /**
+     * Default-deny scope check for onboarding tokens. Only the two-factor
+     * enrollment surface is reachable until a real (post-MFA) session exists.
+     */
+    private static function authorizeOnboardingScope(string $pathOnly): void
+    {
+        if (self::onboardingScopeAllowed($pathOnly)) {
+            return;
+        }
+
+        self::deny(
+            403,
+            'Onboarding session is restricted to MFA enrollment'
+        );
+    }
+
+    /**
+     * Pure decision rule for onboarding-token scoping. Kept separate so the
+     * allowlist can be unit-tested without triggering the exit inside deny().
+     */
+    private static function onboardingScopeAllowed(string $pathOnly): bool
+    {
+        $allowedPrefixes = [
+            '/api/twofactor/',
+        ];
+
+        foreach ($allowedPrefixes as $prefix) {
+            if (strpos($pathOnly, $prefix) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -356,6 +391,44 @@ class AuthMiddleware
         $user['role_names'] = array_values(array_unique($roleNames));
 
         return $user;
+    }
+
+    /**
+     * Resolve the Authorization header across all the places PHP may expose it.
+     * Header-key casing in getallheaders()/$_SERVER varies by SAPI: Apache
+     * upper-cases the key, but a front-end proxy (nginx -> Apache) often
+     * delivers it lower-case ("authorization"). Lookup is case-insensitive
+     * across every source so the parent and staff paths share one resolver.
+     */
+    private static function resolveBearerHeader(): ?string
+    {
+        // Method 1: getallheaders() (most reliable behind a proxy)
+        if (function_exists('getallheaders')) {
+            foreach (getallheaders() as $name => $value) {
+                if (strcasecmp($name, 'Authorization') === 0) {
+                    return $value;
+                }
+            }
+        }
+
+        // Method 2: $_SERVER['HTTP_AUTHORIZATION'] (may be null behind a proxy)
+        if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+            return $_SERVER['HTTP_AUTHORIZATION'];
+        }
+
+        // Method 3: Apache-specific redirect-injected header
+        if (!empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+            return $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+        }
+
+        // Method 4: Direct case-insensitive sweep of $_SERVER
+        foreach ($_SERVER as $key => $value) {
+            if (strcasecmp($key, 'HTTP_AUTHORIZATION') === 0) {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     /**

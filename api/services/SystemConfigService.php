@@ -252,8 +252,15 @@ class SystemConfigService
         );
         $result = $stmt->fetch();
 
-        // Deny by default if no explicit assignment
-        return $result ? (bool) $result['is_allowed'] : false;
+        if ($result) {
+            // An explicit database deny always wins over the canonical menu.
+            return (bool) $result['is_allowed'];
+        }
+
+        // The authenticated UI is sourced from role_sidebars.php. Use that
+        // canonical role menu when the synchronization table has no row yet;
+        // required route permissions are still enforced by the caller.
+        return SidebarConfigReader::roleHasRoute($roleId, $routeName);
     }
 
     /**
@@ -762,7 +769,11 @@ class SystemConfigService
             }
 
             return array_values(array_unique(array_filter(array_map(
-                static fn(array $row): ?string => $row['permission_code'] ?? null,
+                // The deployed procedure currently returns `code`; older
+                // installations returned `permission_code`. Accept both so
+                // route RBAC does not fail closed for every valid permission
+                // merely because the procedure column alias differs.
+                static fn(array $row): ?string => $row['permission_code'] ?? $row['code'] ?? null,
                 $rows
             ))));
         } catch (Exception $e) {

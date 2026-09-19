@@ -25,6 +25,10 @@ class Router
     public function handle()
     {
         try {
+            $payloadGuard = $this->enforcePayloadLimits();
+            if ($payloadGuard !== null) {
+                return $payloadGuard;
+            }
             // ===== MIDDLEWARE PIPELINE =====
             // 1. CORS - Check origin and handle preflight
             CORSMiddleware::handle();
@@ -76,6 +80,7 @@ class Router
             if ($code < 400 || $code > 599) {
                 $code = 500;
             }
+            \App\API\Services\Logger::legacyError('[Router] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             http_response_code($code);
             return [
                 "success" => false,
@@ -86,5 +91,29 @@ class Router
                 "code" => $code
             ];
         }
+    }
+
+    /** Reject oversized anonymous AI bodies before JSON parsing/provider work. */
+    private function enforcePayloadLimits(): ?array
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        if (strpos($path, '/public/ai-faq') === false) {
+            return null;
+        }
+
+        $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($length <= 65536) {
+            return null;
+        }
+
+        http_response_code(413);
+        return [
+            'success' => false,
+            'status' => 'error',
+            'data' => null,
+            'message' => 'The public assistant request is too large.',
+            'errors' => [],
+            'code' => 413,
+        ];
     }
 }

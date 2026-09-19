@@ -18,7 +18,7 @@ final class FamilyController extends BaseController
         $s=Database::getInstance()->getConnection()->prepare('SELECT pr.id FROM users u JOIN parents pr ON pr.person_id=u.person_id WHERE u.id=? AND pr.status="active" LIMIT 1');
         $s->execute([$userId]); $parentId=(int)$s->fetchColumn();
         if(!$parentId) throw new \RuntimeException('This staff account is not linked to an active parent profile.',403);
-        $_SERVER['parent_auth']=['parent_id'=>$parentId,'user_id'=>$userId,'staff_family_context'=>true];
+        $_SERVER['auth_user']['parent_id'] = $parentId;
         $this->parent=$this->contract('App\API\Modules\parent\ParentPortalManager');
     }
 

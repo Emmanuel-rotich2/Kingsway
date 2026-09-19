@@ -177,6 +177,28 @@ class RealtimeController extends BaseAPI
         return $this->successResponse($report, 'Cleanup completed', 200);
     }
 
+    /** POST /api/realtime/sync-projection — HostAfrica projection worker. */
+    public function postSyncProjection($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->errorResponse('Invalid worker credential', 403);
+        }
+        $projection = trim((string) ($data['projection'] ?? 'fee_collection_monthly_trend'));
+        if (!ReadProjectionSynchronizer::supports($projection)) {
+            return $this->errorResponse('Projection is not enabled for synchronization', 422);
+        }
+        try {
+            return $this->successResponse(
+                ReadProjectionSynchronizer::synchronize($projection),
+                'Read projection synchronized',
+                200
+            );
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] projection sync failed: ' . $e->getMessage());
+            return $this->errorResponse('Read projection synchronization failed', 500);
+        }
+    }
+
     private function hasValidWorkerCredential(): bool
     {
         $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';

@@ -10,7 +10,28 @@ if (!isset($appBase)) {
 ?>
 <div class="container-fluid py-4" id="manageUsersPage">
     <style>
-        #manageUsersPage .table-responsive { min-width: 0; }
+        #manageUsersPage .table-responsive { min-width: 0; overflow-x: auto; }
+        #manageUsersPage table.table { border-collapse: separate; border-spacing: 0; }
+        #manageUsersPage table.table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: #fff;
+            box-shadow: inset 0 -2px 0 #dee2e6;
+        }
+        #manageUsersPage table.table .col-actions {
+            position: sticky;
+            right: 0;
+            z-index: 4;
+            background: #fff;
+            box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.12);
+            min-width: 220px;
+        }
+        #manageUsersPage table.table thead th.col-actions {
+            z-index: 6;
+            box-shadow: -6px -2px 8px -6px rgba(0, 0, 0, 0.12);
+        }
+        #manageUsersPage .users-pager .form-select { width: auto; min-width: 72px; }
         @media print {
             @page { size: A4 landscape; margin: 8mm; }
             body { background: #fff !important; }
@@ -19,9 +40,12 @@ if (!isset($appBase)) {
             #manageUsersPage .card { border: none !important; box-shadow: none !important; }
             #manageUsersPage .table-responsive { overflow: visible !important; }
             #manageUsersPage table { width: 100%; }
+            #manageUsersPage table.table thead th { position: static; }
+            #manageUsersPage table.table .col-actions { position: static; box-shadow: none; }
             #manageUsersPage thead { display: table-header-group; }
             #manageUsersPage tr { break-inside: avoid; }
             #manageUsersPage td, #manageUsersPage th { font-size: 8pt; padding: 2px 4px; }
+            #manageUsersPage .users-pager { display: none !important; }
         }
     </style>
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -123,6 +147,9 @@ if (!isset($appBase)) {
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkRoleBtn">
                     <i class="bi bi-people me-1"></i> Assign role
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkScopeBtn">
+                    <i class="bi bi-symmetry-vertical me-1"></i> Switch workspace
+                </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
                     Clear selection
                 </button>
@@ -131,16 +158,81 @@ if (!isset($appBase)) {
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead id="userAccountsTableHead">
-                    <tr><th scope="col">Loading</th></tr>
+                    <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching accounts"
+                            >
+                        </th>
+                        <th scope="col">User</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Roles</th>
+                        <th scope="col">Account type</th>
+                        <th scope="col">Data scope</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Last login</th>
+                        <th scope="col" class="text-end col-actions">Actions</th>
+                    </tr>
                 </thead>
                 <tbody id="userAccountsTableBody">
                     <tr>
-                        <td class="text-center py-5 text-muted">Waiting for authentication...</td>
+                        <td colspan="9" class="text-center py-5 text-muted">Waiting for authentication...</td>
                     </tr>
                 </tbody>
             </table>
+            <template id="userAccountsRowTemplate">
+                <tr>
+                    <td class="text-center">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            aria-label="Select this account"
+                        >
+                    </td>
+                    <td>
+                        <strong data-row-fill="name"></strong>
+                        <div class="small text-muted" data-row-fill="username"></div>
+                    </td>
+                    <td data-row-fill="email"></td>
+                    <td data-row-fill="roles"></td>
+                    <td>
+                        <span class="badge" data-row-fill="accountTypeBadge"></span>
+                        <div class="small text-muted mt-1" data-row-fill="testAccess"></div>
+                    </td>
+                    <td>
+                        <span class="badge" data-row-fill="dataScopeBadge"></span>
+                    </td>
+                    <td>
+                        <span class="badge" data-row-fill="statusBadge"></span>
+                    </td>
+                    <td data-row-fill="lastLogin"></td>
+                    <td class="text-end col-actions" data-row-fill="actions"></td>
+                </tr>
+            </template>
         </div>
-        <div class="card-footer bg-white text-muted small" id="userAccountsCount"></div>
+        <div class="card-footer bg-white d-flex flex-wrap align-items-center justify-content-between gap-2" id="usersTableFooter">
+            <span class="text-muted small" id="userAccountsCount"></span>
+            <div class="d-flex align-items-center gap-2 users-pager" id="usersPager">
+                <label class="small text-muted mb-0" for="usersPageSize">Rows</label>
+                <select class="form-select form-select-sm" id="usersPageSize" aria-label="Rows per page">
+                    <option value="10" selected>10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="0">All</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="usersPrevBtn" aria-label="Previous page" disabled>
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <span class="small text-muted" id="usersPageInfo"></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="usersNextBtn" aria-label="Next page" disabled>
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -183,6 +275,30 @@ if (!isset($appBase)) {
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="bulkRoleApplyBtn">Assign role</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bulkScopeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Switch workspace for selected accounts</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3" id="bulkScopeCount"></p>
+                <label class="form-label" for="bulkScopeSelect">Workspace</label>
+                <select class="form-select" id="bulkScopeSelect">
+                    <option value="both" selected>Both (live + test)</option>
+                    <option value="live">Live only</option>
+                    <option value="test">Test only</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="bulkScopeApplyBtn">Switch workspace</button>
             </div>
         </div>
     </div>

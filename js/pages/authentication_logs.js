@@ -227,7 +227,7 @@ const AuthenticationLogsController = {
     }
 
     this.state.loading = true;
-    if (!quiet) {
+    if (!quiet && this.state.logs.length === 0) {
       this.elements.refreshButton.disabled = true;
       this.elements.previousButton.disabled = true;
       this.elements.nextButton.disabled = true;
@@ -438,69 +438,64 @@ const AuthenticationLogsController = {
       return;
     }
 
-    this.elements.tableBody.innerHTML = this.state.logs
-      .map((log) => {
-        const accountName =
-          [log.firstName, log.lastName].filter(Boolean).join(" ") ||
-          log.username ||
-          log.attemptedIdentifier ||
-          "Unknown account";
-        const identifier =
-          [
-            log.username ? `@${log.username}` : "",
-            log.email,
-          ]
-            .filter(Boolean)
-            .join(" · ") ||
-          log.attemptedIdentifier ||
-          "Unmatched identifier";
-        const showAttemptedIdentifier = Boolean(
-          log.attemptedIdentifier &&
-            ![log.username, log.email].includes(log.attemptedIdentifier),
-        );
-        const statusClass = log.status === "success" ? "success" : "danger";
-        const statusLabel =
-          log.status === "success" ? "Successful" : "Failed";
-        const client = this.truncate(log.userAgent || "Not recorded", 72);
+    const template = document.getElementById("authenticationLogsRowTemplate");
+    const rows = this.state.logs.map((log) => this.buildLogRow(template, log));
+    this.elements.tableBody.replaceChildren(...rows);
+  },
 
-        return `
-          <tr>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(log.createdAt))}
-            </td>
-            <td>
-              <div class="fw-semibold">${this.escapeHtml(accountName)}</div>
-              <div class="small text-muted">${this.escapeHtml(identifier)}</div>
-              ${
-                showAttemptedIdentifier
-                  ? `<div class="small text-muted">Attempted: ${this.escapeHtml(
-                      log.attemptedIdentifier,
-                    )}</div>`
-                  : ""
-              }
-            </td>
-            <td>
-              <span class="badge bg-${statusClass}">${statusLabel}</span>
-            </td>
-            <td>
-              <code>${this.escapeHtml(log.ipAddress || "Not recorded")}</code>
-            </td>
-            <td>
-              ${this.escapeHtml(
-                log.failureReason
-                  ? this.humanize(log.failureReason)
-                  : "—",
-              )}
-            </td>
-            <td
-              class="small text-muted"
-              title="${this.escapeAttribute(log.userAgent || "Not recorded")}"
-            >
-              ${this.escapeHtml(client)}
-            </td>
-          </tr>`;
-      })
-      .join("");
+  buildLogRow(template, log) {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const accountName =
+      [log.firstName, log.lastName].filter(Boolean).join(" ") ||
+      log.username ||
+      log.attemptedIdentifier ||
+      "Unknown account";
+    const identifier =
+      [
+        log.username ? `@${log.username}` : "",
+        log.email,
+      ]
+        .filter(Boolean)
+        .join(" · ") ||
+      log.attemptedIdentifier ||
+      "Unmatched identifier";
+    const showAttemptedIdentifier = Boolean(
+      log.attemptedIdentifier &&
+        ![log.username, log.email].includes(log.attemptedIdentifier),
+    );
+    const statusClass = log.status === "success" ? "success" : "danger";
+    const statusLabel =
+      log.status === "success" ? "Successful" : "Failed";
+    const client = this.truncate(log.userAgent || "Not recorded", 72);
+
+    cell("createdAt").textContent = this.formatDateTime(log.createdAt);
+    cell("accountName").textContent = accountName;
+    cell("identifier").textContent = identifier;
+
+    const attempted = cell("attemptedIdentifier");
+    if (showAttemptedIdentifier) {
+      attempted.textContent = `Attempted: ${log.attemptedIdentifier}`;
+    } else {
+      attempted.hidden = true;
+    }
+
+    const resultBadge = cell("resultBadge");
+    resultBadge.className = `badge bg-${statusClass}`;
+    resultBadge.textContent = statusLabel;
+
+    cell("ip").textContent = log.ipAddress || "Not recorded";
+    cell("failureReason").textContent = log.failureReason
+      ? this.humanize(log.failureReason)
+      : "—";
+
+    const clientCell = cell("client");
+    clientCell.textContent = client;
+    clientCell.title = log.userAgent || "Not recorded";
+
+    return row;
   },
 
   renderPagination() {

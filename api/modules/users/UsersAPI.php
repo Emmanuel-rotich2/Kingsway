@@ -392,7 +392,11 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Invalid account type'];
         }
         $isTestAccount = $accountType === 'test';
-        $dataScope = $isTestAccount ? 'test' : 'live';
+        $dataScope = strtolower((string) ($data['data_scope'] ?? ''));
+        if (!in_array($dataScope, ['live', 'test', 'both'], true)) {
+            $dataScope = $isTestAccount ? 'test' : 'live';
+        }
+        $recordScope = $isTestAccount ? 'test' : 'live';
         if ($isTestAccount && TestAccountAccessService::environment() !== 'development') {
             if (empty($data['test_access_expires_at']) || empty($data['test_access_purpose'])) {
                 return ['success' => false, 'error' => 'Production and staging test accounts require a purpose and expiry date'];
@@ -449,7 +453,7 @@ class UsersAPI extends BaseAPI
                 $data['middle_name'] ?? null,
                 $validatedData['last_name'] ?? '',
                 $validatedData['email'] ?? null,
-                $dataScope,
+                $recordScope,
             ]);
             if (!$personOk) {
                 throw new Exception('Person creation failed');
@@ -723,7 +727,11 @@ class UsersAPI extends BaseAPI
                         throw new Exception('Invalid account type');
                     }
                     $isTestAccount = $accountType === 'test';
-                    $dataScope = $isTestAccount ? 'test' : 'live';
+                    $dataScope = strtolower((string) ($userData['data_scope'] ?? ''));
+                    if (!in_array($dataScope, ['live', 'test', 'both'], true)) {
+                        $dataScope = $isTestAccount ? 'test' : 'live';
+                    }
+                    $recordScope = $isTestAccount ? 'test' : 'live';
                     if ($isTestAccount && TestAccountAccessService::environment() !== 'development'
                         && (empty($userData['test_access_purpose']) || empty($userData['test_access_expires_at']))) {
                         throw new Exception('Production and staging test accounts require a purpose and expiry date');
@@ -735,7 +743,7 @@ class UsersAPI extends BaseAPI
                         $userData['middle_name'] ?? null,
                         $userData['last_name'] ?? '',
                         $userData['email'],
-                        $dataScope,
+                        $recordScope,
                     ]);
                     if (!$personOk) {
                         throw new Exception('Person creation failed');
@@ -857,9 +865,21 @@ class UsersAPI extends BaseAPI
         }
         $oldData = $oldDataResult['data'];
 
-        if (isset($data['account_type']) && $data['account_type'] !== $oldData['account_type']) {
-            return ['success' => false, 'error' => 'Account type is immutable; create a clean account instead of converting test and real identities'];
+        // Account type conversion (real <-> test) is an explicit System Admin
+        // decision and cascades to the linked person, user mirror flag and the
+        // person's staff records. 'service' accounts can also be converted.
+        $conversion = null;
+        if (isset($data['account_type'])) {
+            $newType = strtolower((string) $data['account_type']);
+            if (!in_array($newType, ['real', 'test', 'service'], true)) {
+                return ['success' => false, 'error' => 'Invalid account type'];
+            }
+            $oldType = strtolower((string) ($oldData['account_type'] ?? ''));
+            if ($newType !== $oldType) {
+                $conversion = ['from' => $oldType, 'to' => $newType];
+            }
         }
+
         $testAccessAction = strtolower((string) ($data['test_access_action'] ?? ''));
         $hasTestAccessChange = in_array($testAccessAction, ['grant', 'revoke'], true);
 
@@ -901,7 +921,36 @@ class UsersAPI extends BaseAPI
             $userParams[] = password_hash($validatedData['password'], PASSWORD_DEFAULT);
         }
 
-        if (empty($userFields) && empty($personFields) && empty($validatedData['role_ids']) && !$hasTestAccessChange) {
+        // Per-account visibility knob: overrides which sides this account can see.
+        if (isset($data['data_scope'])) {
+            $dataScope = strtolower((string) $data['data_scope']);
+            if (in_array($dataScope, ['live', 'test', 'both'], true)) {
+                $userFields[] = 'data_scope = ?';
+                $userParams[] = $dataScope;
+            }
+        }
+
+        // Account type conversion fields + cascade.
+        $cascade = null;
+        if ($conversion !== null) {
+            $targetIsTest = $conversion['to'] === 'test';
+            $recordScope = $targetIsTest ? 'test' : 'live';
+            $userFields[] = 'account_type = ?';
+            $userParams[] = $conversion['to'];
+            $userFields[] = 'is_test_user = ?';
+            $userParams[] = $targetIsTest ? 1 : 0;
+            // Default the visibility knob to the new side unless the UI picked 'both'.
+            if (empty($data['data_scope']) && $oldData['data_scope'] !== 'both') {
+                $userFields[] = 'data_scope = ?';
+                $userParams[] = $recordScope;
+            }
+            $cascade = [
+                'record_scope' => $recordScope,
+                'target_is_test' => $targetIsTest,
+            ];
+        }
+
+        if (empty($userFields) && empty($personFields) && empty($validatedData['role_ids']) && !$hasTestAccessChange && $cascade === null) {
             return ['success' => false, 'error' => 'No fields to update'];
         }
 
@@ -922,6 +971,26 @@ class UsersAPI extends BaseAPI
                     . ' WHERE id = (SELECT person_id FROM users WHERE id = ?)';
                 $stmt = $this->db->prepare($personSql);
                 $stmt->execute($personParams);
+            }
+
+            // Account conversion cascade: restamp the linked person and its
+            // staff records so the whole identity graph moves to the new side.
+            if ($cascade !== null) {
+                $recordScope = $cascade['record_scope'];
+                $personStmt = $this->db->prepare('SELECT person_id FROM users WHERE id = ?');
+                $personStmt->execute([$id]);
+                $personId = (int) $personStmt->fetchColumn();
+                if ($personId > 0) {
+                    $this->db->prepare('UPDATE persons SET data_scope = ? WHERE id = ?')
+                        ->execute([$recordScope, $personId]);
+                    $this->db->prepare('UPDATE staff SET data_scope = ? WHERE person_id = ?')
+                        ->execute([$recordScope, $personId]);
+                    $this->db->prepare('UPDATE staff_payroll_profiles spp
+                         JOIN staff s ON s.id = spp.staff_id
+                         SET spp.data_scope = ?
+                         WHERE s.person_id = ?')
+                        ->execute([$recordScope, $personId]);
+                }
             }
 
             if (!empty($validatedData['role_ids'])) {
@@ -1322,6 +1391,37 @@ class UsersAPI extends BaseAPI
 
         return ['success' => true, 'data' => $items];
     }
+    /**
+     * Build plausible local variants of a phone identifier so the entered
+     * format (+254/254/0/07/local digits) can match the stored persons.phone
+     * representation. Returns [] when the identifier is clearly not a phone
+     * (e.g. an email or a bare username).
+     */
+    private function phoneLookupVariants(string $identifier): array
+    {
+        if (str_contains($identifier, '@')) {
+            return [];
+        }
+        $digits = preg_replace('/\D+/', '', $identifier);
+        if ($digits === '' || !preg_match('/^\d{9,13}$/', $digits)) {
+            return [];
+        }
+
+        $variants = [$digits];
+        if (str_starts_with($digits, '0')) {
+            $variants[] = '254' . substr($digits, 1);
+            $variants[] = substr($digits, 1);
+        } elseif (str_starts_with($digits, '254')) {
+            $variants[] = '0' . substr($digits, 3);
+            $variants[] = substr($digits, 3);
+        } elseif (str_starts_with($digits, '7')) {
+            $variants[] = '2547' . substr($digits, 1);
+            $variants[] = '07' . substr($digits, 1);
+        }
+
+        return array_values(array_unique($variants));
+    }
+
     public function login($data, bool $issueAccessToken = true)
     {
         $username = trim((string) ($data['username'] ?? ''));
@@ -1337,7 +1437,18 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Username and password required'];
         }
 
-        // Lookup user by username or email
+        // Lookup user by username, email or a normalized phone number. Local
+        // entry formats (+254/254/0/07/7...) are reconciled to the stored
+        // persons.phone representation so parents can sign in with the phone
+        // number they actually remember.
+        $phoneVariants = $this->phoneLookupVariants($username);
+        $phoneIn = '';
+        $lookupParams = [$username, $username];
+        if ($phoneVariants) {
+            $phoneIn = ' OR p.phone IN (' .
+                implode(',', array_fill(0, count($phoneVariants), '?')) . ')';
+            $lookupParams = array_merge($lookupParams, $phoneVariants);
+        }
         $failureDayColumn = $this->hasDailyFailureColumn()
             ? 'u.failed_login_date'
             : 'DATE(u.updated_at)';
@@ -1346,6 +1457,7 @@ class UsersAPI extends BaseAPI
                 u.id,
                 u.username,
                 p.email,
+                p.phone,
                 u.password_hash AS password,
                 p.first_name,
                 p.last_name,
@@ -1369,10 +1481,10 @@ class UsersAPI extends BaseAPI
                 END AS is_locked
              FROM users u
              LEFT JOIN persons p ON p.id = u.person_id
-             WHERE u.username = ? OR p.email = ?
+             WHERE u.username = ? OR p.email = ?' . $phoneIn . '
              LIMIT 1'
         );
-        $stmt->execute([$username, $username]);
+        $stmt->execute($lookupParams);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
             $this->recordAuthenticationAttempt(
@@ -2020,7 +2132,7 @@ class UsersAPI extends BaseAPI
                 $staffInfo['contract_type'] ?? 'permanent',
                 $staffInfo['employment_date'] ?? date('Y-m-d'),
                 $staffInfo['status'] ?? 'active',
-                ($user['data_scope'] ?? 'live') === 'test' ? 'test' : 'live',
+                (int) ($user['is_test_user'] ?? 0) === 1 ? 'test' : 'live',
                 $staffInfo['supervisor_id'] ?? null,
                 $staffInfo['salary'] ?? null,
                 $staffInfo['bank_name'] ?? null,

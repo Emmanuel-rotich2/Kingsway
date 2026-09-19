@@ -120,9 +120,8 @@ const manageWebsiteController = {
   ════════════════════════════════════════════════════════════════════════════ */
   async loadStats() {
     try {
-      const r = await this.API('GET', 'website/stats');
-      if (r.status === 'success' && r.data) {
-        const d = r.data;
+      const d = await this.API('GET', 'website/stats');
+      if (d && typeof d === 'object') {
         document.getElementById('statNews').textContent   = d.news   ?? '\u2014';
         document.getElementById('statEvents').textContent = d.events  ?? '\u2014';
         document.getElementById('statJobs').textContent   = d.jobs    ?? '\u2014';
@@ -141,7 +140,7 @@ const manageWebsiteController = {
       // Load categories for filter
       if (this.state.newsCats.length === 0) {
         const cr = await this.API('GET','website/categories');
-        this.state.newsCats = cr?.data?.items || [];
+        this.state.newsCats = cr?.items || [];
         const sel = document.getElementById('newsCategory');
         const filterSel = document.getElementById('newsCatFilter');
         this.state.newsCats.forEach(c => {
@@ -153,7 +152,7 @@ const manageWebsiteController = {
       const status = document.getElementById('newsStatusFilter').value;
       const search = document.getElementById('newsSearch').value;
       const r = await this.API('GET','website/news', {category:cat, status, search, limit:100});
-      this.state.newsItems = r?.data?.items || [];
+      this.state.newsItems = r?.items || [];
       this.renderNewsTable();
     } catch(e) {
       body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message||'Load failed')}</td></tr>`;
@@ -196,7 +195,7 @@ const manageWebsiteController = {
     document.getElementById('newsCategory').value    = 'Announcement';
     if (id) {
       const r = await this.API('GET', `website/news/${id}`);
-      const a = r?.data;
+      const a = r;
       if (a) {
         document.getElementById('newsTitle').value     = a.title || '';
         document.getElementById('newsExcerpt').value   = a.excerpt || '';
@@ -233,14 +232,12 @@ const manageWebsiteController = {
     const btn = document.getElementById('newsSubmitBtn');
     btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving\u2026';
     try {
-      const r = id
+      id
         ? await this.API('PUT',  `website/news/${id}`, payload)
         : await this.API('POST', 'website/news',        payload);
-      if (r.status === 'success') {
-        this.notify(id ? 'Article updated' : 'Article published');
-        bootstrap.Modal.getInstance(document.getElementById('wsNewsModal')).hide();
-        this.loadNews(); this.loadStats();
-      } else { this.notify(r.message || 'Save failed', 'danger'); }
+      this.notify(id ? 'Article updated' : 'Article published');
+      bootstrap.Modal.getInstance(document.getElementById('wsNewsModal')).hide();
+      this.loadNews(); this.loadStats();
     } catch(e) { this.notify(e.message || 'Error', 'danger'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Publish Article'; }
   },
@@ -262,7 +259,7 @@ const manageWebsiteController = {
     try {
       const upcoming = document.getElementById('eventsUpcomingOnly')?.checked ? '1' : '';
       const r = await this.API('GET','website/events',{upcoming});
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No events found.</td></tr>'; return; }
       body.innerHTML = items.map(ev => `
         <tr>
@@ -289,7 +286,7 @@ const manageWebsiteController = {
     document.getElementById('eventCategory').value = 'Academic';
     if (id) {
       const r = await this.API('GET',`website/events/${id}`);
-      const ev = r?.data;
+      const ev = r;
       if (ev) {
         document.getElementById('eventTitle').value       = ev.title || '';
         document.getElementById('eventDate').value        = ev.event_date?.split('T')[0] || '';
@@ -318,12 +315,10 @@ const manageWebsiteController = {
     };
     if (!payload.title || !payload.event_date) return this.notify('Title and date are required.','warning');
     try {
-      const r = id ? await this.API('PUT',`website/events/${id}`,payload) : await this.API('POST','website/events',payload);
-      if (r.status === 'success') {
-        this.notify(id ? 'Event updated' : 'Event created');
-        bootstrap.Modal.getInstance(document.getElementById('wsEventModal')).hide();
-        this.loadEvents(); this.loadStats();
-      } else this.notify(r.message,'danger');
+      id ? await this.API('PUT',`website/events/${id}`,payload) : await this.API('POST','website/events',payload);
+      this.notify(id ? 'Event updated' : 'Event created');
+      bootstrap.Modal.getInstance(document.getElementById('wsEventModal')).hide();
+      this.loadEvents(); this.loadStats();
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -341,7 +336,7 @@ const manageWebsiteController = {
     grid.innerHTML = '<div class="text-muted small p-3"><div class="spinner-border spinner-border-sm me-2"></div>Loading\u2026</div>';
     try {
       const r = await this.API('GET','website/gallery');
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       if (!items.length) { grid.innerHTML = '<div class="text-muted small p-3">No images in gallery yet. Add one above.</div>'; return; }
       grid.innerHTML = items.map(g => `
         <div class="ws-gallery-item">
@@ -380,16 +375,14 @@ const manageWebsiteController = {
     const url = document.getElementById('galleryUrl').value.trim();
     if (!url) return this.notify('Image URL is required.','warning');
     try {
-      const r = await this.API('POST','website/gallery',{
+      await this.API('POST','website/gallery',{
         image_url: url,
         caption:  document.getElementById('galleryCaption').value.trim(),
         category: document.getElementById('galleryCategory').value,
       });
-      if (r.status === 'success') {
-        this.notify('Image added to gallery');
-        bootstrap.Modal.getInstance(document.getElementById('wsGalleryModal')).hide();
-        this.loadGallery();
-      } else this.notify(r.message,'danger');
+      this.notify('Image added to gallery');
+      bootstrap.Modal.getInstance(document.getElementById('wsGalleryModal')).hide();
+      this.loadGallery();
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -407,7 +400,7 @@ const manageWebsiteController = {
     body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r = await this.API('GET','website/downloads');
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No downloads configured.</td></tr>'; return; }
       body.innerHTML = items.map(d => `
         <tr>
@@ -433,7 +426,7 @@ const manageWebsiteController = {
     const fileInput = document.getElementById('dlFile'); if (fileInput) fileInput.value = '';
     if (id) {
       const r = await this.API('GET','website/downloads');
-      const item = (r?.data?.items||[]).find(d => d.id == id);
+      const item = (r?.items||[]).find(d => d.id == id);
       if (item) {
         document.getElementById('dlTitle').value    = item.title||'';
         document.getElementById('dlDesc').value     = item.description||'';
@@ -462,12 +455,10 @@ const manageWebsiteController = {
     if (document.getElementById('dlSize').value.trim()) fd.append('file_size', document.getElementById('dlSize').value.trim());
     if (hasFile) fd.append('file', fileInput.files[0]);
     try {
-      const r = id ? await this.API('PUT',`website/downloads/${id}`, fd, {}, { isFile: true }) : await this.API('POST','website/downloads', fd, {}, { isFile: true });
-      if (r.status === 'success') {
-        this.notify(id ? 'Download updated' : 'Download added');
-        bootstrap.Modal.getInstance(document.getElementById('wsDownloadModal')).hide();
-        this.loadDownloads();
-      } else this.notify(r.message,'danger');
+      id ? await this.API('PUT',`website/downloads/${id}`, fd, {}, { isFile: true }) : await this.API('POST','website/downloads', fd, {}, { isFile: true });
+      this.notify(id ? 'Download updated' : 'Download added');
+      bootstrap.Modal.getInstance(document.getElementById('wsDownloadModal')).hide();
+      this.loadDownloads();
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -485,7 +476,7 @@ const manageWebsiteController = {
     body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r = await this.API('GET','website/jobs');
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       if (!items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No job vacancies posted.</td></tr>'; return; }
       body.innerHTML = items.map(j => `
         <tr>
@@ -513,7 +504,7 @@ const manageWebsiteController = {
     document.getElementById('jobLocation').value = 'Londiani, Kenya';
     if (id) {
       const r = await this.API('GET',`website/jobs/${id}`);
-      const j = r?.data;
+      const j = r;
       if (j) {
         document.getElementById('jobTitle').value          = j.title||'';
         document.getElementById('jobDepartment').value     = j.department||'';
@@ -547,12 +538,10 @@ const manageWebsiteController = {
     };
     if (!payload.title || !payload.deadline) return this.notify('Title and deadline are required.','warning');
     try {
-      const r = id ? await this.API('PUT',`website/jobs/${id}`,payload) : await this.API('POST','website/jobs',payload);
-      if (r.status === 'success') {
-        this.notify(id ? 'Vacancy updated' : 'Vacancy posted');
-        bootstrap.Modal.getInstance(document.getElementById('wsJobModal')).hide();
-        this.loadJobs(); this.loadStats();
-      } else this.notify(r.message,'danger');
+      id ? await this.API('PUT',`website/jobs/${id}`,payload) : await this.API('POST','website/jobs',payload);
+      this.notify(id ? 'Vacancy updated' : 'Vacancy posted');
+      bootstrap.Modal.getInstance(document.getElementById('wsJobModal')).hide();
+      this.loadJobs(); this.loadStats();
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -572,7 +561,7 @@ const manageWebsiteController = {
     body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r = await this.API('GET','website/applications',{status});
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       const boardMap = {day:'Day Scholar',full_boarding:'Full Boarding',weekly_boarding:'Weekly Boarding'};
       if (!items.length) { body.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No applications found.</td></tr>'; return; }
       body.innerHTML = items.map(a => `
@@ -598,7 +587,7 @@ const manageWebsiteController = {
     jBody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r2 = await this.API('GET','website/job-applications');
-      const items2 = r2?.data?.items || [];
+      const items2 = r2?.items || [];
       if (!items2.length) { jBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No job applications yet.</td></tr>'; return; }
       jBody.innerHTML = items2.map(a => `
         <tr>
@@ -626,7 +615,7 @@ const manageWebsiteController = {
     body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r = await this.API('GET','website/inquiries');
-      const items = r?.data?.items || [];
+      const items = r?.items || [];
       if (!items.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No enquiries yet.</td></tr>'; return; }
       body.innerHTML = items.map(q => `
         <tr>
@@ -668,8 +657,8 @@ const manageWebsiteController = {
     container.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
     try {
       const r = await this.API('GET','website/content');
-      const blocks = r?.data?.blocks || [];
-      const cats   = r?.data?.sections?.categories || [];
+      const blocks = r?.blocks || [];
+      const cats   = r?.sections?.categories || [];
 
       // Render editable content blocks
       container.innerHTML = blocks.map(b => `
@@ -704,9 +693,8 @@ const manageWebsiteController = {
     if (!name?.trim()) return;
     const color = await window.promptAction('Input', 'Hex color (e.g. #1976d2):', '#198754');
     try {
-      const r = await this.API('POST','website/categories',{name:name.trim(), color:color||'#198754'});
-      if (r.status === 'success') { this.notify('Category added'); this.loadContent(); }
-      else this.notify(r.message,'danger');
+      await this.API('POST','website/categories',{name:name.trim(), color:color||'#198754'});
+      this.notify('Category added'); this.loadContent();
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -724,7 +712,7 @@ const manageWebsiteController = {
     container.innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
     try {
       const r = await this.API('GET','website/settings');
-      this.state.allSettings = r?.data?.items || [];
+      this.state.allSettings = r?.items || [];
       this.renderSettings(this.state.allSettings);
     } catch(e) { container.innerHTML = `<div class="text-danger small">${this.esc(e.message)}</div>`; }
   },
@@ -751,9 +739,8 @@ const manageWebsiteController = {
 
   async wsSaveSetting(key, value) {
     try {
-      const r = await this.API('PUT','website/settings',{key, value});
-      if (r.status === 'success') this.notify(`Setting "${key}" saved`);
-      else this.notify(r.message,'warning');
+      await this.API('PUT','website/settings',{key, value});
+      this.notify(`Setting "${key}" saved`);
     } catch(e) { this.notify(e.message,'danger'); }
   },
 
@@ -840,8 +827,7 @@ const manageWebsiteController = {
       card.innerHTML = `<div class="ws-stat-card"><div class="ws-stat-icon" style="background:#e9f7ef;color:#198754"><i class="bi bi-hourglass-split"></i></div><div><h6 class="mb-0">${cfg.title}</h6><small class="text-muted">Loading\u2026</small></div></div>`;
       try {
         const r = await this.API('GET', 'website/' + resource);
-        if (r.status !== 'success') { card.innerHTML = `<div class="alert alert-warning small">${this.stEscape(r.message)}</div>`; continue; }
-        this.renderStaticTable(resource, cfg, r.data.items || []);
+        this.renderStaticTable(resource, cfg, r?.items || []);
       } catch(e) { card.innerHTML = `<div class="alert alert-danger small">${this.stEscape(e.message)}</div>`; }
     }
     this.loadLeadership();
@@ -889,9 +875,7 @@ const manageWebsiteController = {
   async stEdit(resource, id) {
     const cfg = this.ST_TABLES[resource];
     try {
-      const r = await this.API('GET','website/'+resource+'/'+id);
-      if (r.status !== 'success') return this.notify(r.message,'warning');
-      const it = r.data;
+      const it = await this.API('GET','website/'+resource+'/'+id);
       const box = document.getElementById('st-form-' + resource);
       box.innerHTML = `<div class="card card-body border-primary mb-2 p-2">
         <h6 class="small fw-bold mb-2">Edit #${id}</h6>
@@ -911,18 +895,16 @@ const manageWebsiteController = {
     const payload = this.stReadForm(box);
     for (const f of cfg.fields) if (f.req && !payload[f.k]) return this.notify(`${f.l} is required`,'warning');
     try {
-      const r = await this.API(id ? 'PUT' : 'POST', 'website/'+resource+(id?'/'+id:''), payload);
-      if (r.status === 'success') { this.notify(id ? 'Updated' : 'Created'); this.loadStaticTables(); }
-      else this.notify(r.message,'warning');
+      await this.API(id ? 'PUT' : 'POST', 'website/'+resource+(id?'/'+id:''), payload);
+      this.notify(id ? 'Updated' : 'Created'); this.loadStaticTables();
     } catch(e){ this.notify(e.message,'danger'); }
   },
 
   async stDelete(resource, id) {
     if (!(await window.confirmAction('Confirm Deletion', 'Delete this record? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
-      const r = await this.API('DELETE','website/'+resource+'/'+id);
-      if (r.status === 'success') { this.notify('Deleted'); this.loadStaticTables(); }
-      else this.notify(r.message,'warning');
+      await this.API('DELETE','website/'+resource+'/'+id);
+      this.notify('Deleted'); this.loadStaticTables();
     } catch(e){ this.notify(e.message,'danger'); }
   },
 
@@ -935,7 +917,7 @@ const manageWebsiteController = {
     panel.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
     try {
       const r = await this.API('GET', 'website/leadership');
-      this.state.leadershipData = (r.status === 'success' ? r.data : null) || [];
+      this.state.leadershipData = Array.isArray(r) ? r : [];
       this.renderLeadership();
     } catch(e) {
       panel.innerHTML = `<div class="alert alert-danger small">${this.esc(e.message)}</div>`;
@@ -1053,7 +1035,7 @@ const manageWebsiteController = {
 
     try {
       const pr = await this.API('GET', 'website/leadership/positions', { level_id: levelId });
-      this.state.leadershipPositions = (pr.status === 'success' ? pr.data : null) || [];
+      this.state.leadershipPositions = Array.isArray(pr) ? pr : [];
       posSel.innerHTML = '<option value="">Select position\u2026</option>' +
         this.state.leadershipPositions.map(p =>
           `<option value="${p.id}">${this.esc(p.name)}</option>`
@@ -1122,14 +1104,12 @@ const manageWebsiteController = {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving\u2026';
     try {
-      const r = editId
+      editId
         ? await this.API('PUT', `website/leadership/${editId}`, payload)
         : await this.API('POST', 'website/leadership', payload);
-      if (r.status === 'success') {
-        this.notify(editId ? 'Entry updated' : 'Member added');
-        bootstrap.Modal.getInstance(document.getElementById('wsLeadershipModal'))?.hide();
-        this.loadLeadership();
-      } else { this.notify(r.message || 'Save failed', 'danger'); }
+      this.notify(editId ? 'Entry updated' : 'Member added');
+      bootstrap.Modal.getInstance(document.getElementById('wsLeadershipModal'))?.hide();
+      this.loadLeadership();
     } catch(e) { this.notify(e.message || 'Error', 'danger'); }
     finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save'; }
   },
@@ -1167,7 +1147,7 @@ const manageWebsiteController = {
     this._leadershipSearchTimer = setTimeout(async () => {
       try {
         const r = await this.API('GET', 'website/leadership');
-        const levels = (r.status === 'success' ? r.data : null) || [];
+        const levels = Array.isArray(r) ? r : [];
         const seen = new Set();
         const matches = [];
         for (const lvl of levels) {

@@ -164,6 +164,24 @@
                     </tr>
                 </tbody>
             </table>
+            <template id="authenticationLogsRowTemplate">
+                <tr>
+                    <td class="text-nowrap" data-row-fill="createdAt"></td>
+                    <td>
+                        <div class="fw-semibold" data-row-fill="accountName"></div>
+                        <div class="small text-muted" data-row-fill="identifier"></div>
+                        <div class="small text-muted" data-row-fill="attemptedIdentifier"></div>
+                    </td>
+                    <td>
+                        <span class="badge" data-row-fill="resultBadge"></span>
+                    </td>
+                    <td>
+                        <code data-row-fill="ip"></code>
+                    </td>
+                    <td data-row-fill="failureReason"></td>
+                    <td class="small text-muted" data-row-fill="client"></td>
+                </tr>
+            </template>
         </div>
 
         <div

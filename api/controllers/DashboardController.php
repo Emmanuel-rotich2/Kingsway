@@ -14,6 +14,8 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\API\Services\AiWorkflowService;
+use App\API\Services\AiInsightOrchestrator;
 use App\API\Services\SidebarConfigReader;
 use App\Config\DashboardRouter;
 
@@ -42,6 +44,77 @@ class DashboardController extends BaseController
     public function index()
     {
         return $this->success(['message' => 'Dashboard API is running']);
+    }
+
+    /**
+     * GET /api/dashboard/ai-assistant-catalog
+     * Return only contextual assistance the current staff member may use.
+     * This powers the shell assistant; domain actions remain in their own
+     * controllers and pages.
+     */
+    public function getAiAssistantCatalog($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        try {
+            $permissions = array_values(array_unique(array_map('strval', array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))));
+            $route = strtolower(trim((string) ($_GET['route'] ?? '')));
+            $module = strtolower(trim((string) ($_GET['module'] ?? 'dashboard')));
+            $roleNames = (array) ($this->user['roles'] ?? $this->user['role_names'] ?? []);
+            $service = $this->contract(AiWorkflowService::class);
+            $workflows = $service->describeForContext($permissions, $route, $module, 'staff', $roleNames);
+
+            return $this->success([
+                'workflows' => $workflows,
+                'context' => [
+                    'route' => $route,
+                    'module' => $module,
+                ],
+            ], 'AI assistance catalogue retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] AI catalogue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load contextual assistance');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/insight-brief
+     * Page-load insight briefing: serves a fresh cached briefing (<1h)
+     * immediately; when stale it enqueues background regeneration and reports
+     * "generating". Never performs a synchronous provider call on page load.
+     * Returns BYO cadence, defaults to a daily briefing.
+     */
+    public function getInsightBrief($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasPermission('analytics_catalogue_view')) {
+            return $this->forbidden('Insight briefings require analytics catalogue access');
+        }
+        try {
+            $userId = (int) $this->getUserId();
+            if ($userId < 1) {
+                return $this->unauthorized('A valid session is required');
+            }
+            $permissions = array_values(array_unique(array_map('strval', array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))));
+            $cadence = preg_match('/^(daily|weekly|term)$/', (string) ($_GET['cadence'] ?? 'daily'))
+                ? (string) $_GET['cadence']
+                : 'daily';
+            $orchestrator = $this->contract(AiInsightOrchestrator::class);
+            $result = $orchestrator->pageLoad(
+                $userId,
+                $permissions,
+                (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ['cadence' => $cadence, 'broadcast' => false]
+            );
+            return $this->success($result, 'Insight briefing retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] insight brief failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load the insight briefing');
+        }
     }
 
     /** Resolve the normalized staff.id used by teaching assignment tables. */

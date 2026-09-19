@@ -124,11 +124,25 @@ const AppLogger = (() => {
   }
 
   function canDeliver() {
-    return (
+    if (
       typeof window.API !== "undefined" &&
       window.API.system &&
       typeof window.API.system.logFromClient === "function"
-    );
+    ) {
+      // Public/portal pages (KINGSWAY_PUBLIC_PAGE=true) must not flush
+      // telemetry through the staff-protected /system/logs endpoint: with no
+      // staff session, apiCall falls through to handleSessionExpired() and
+      // hard-redirects the page to index.php. Only deliver when a real staff
+      // session exists, or when this is not a public page.
+      if (window.KINGSWAY_PUBLIC_PAGE) {
+        return Boolean(
+          window.AuthContext && window.AuthContext.hasSession &&
+          window.AuthContext.hasSession()
+        );
+      }
+      return true;
+    }
+    return false;
   }
 
   function flush() {

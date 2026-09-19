@@ -26,6 +26,7 @@ const TokenManagementController = {
     reloadQueued: false,
     searchTimer: null,
     revokingKey: null,
+    selectedKeys: new Set(),
   },
 
   elements: {},
@@ -127,6 +128,11 @@ const TokenManagementController = {
       pageSize: document.getElementById("tokenPageSize"),
       resetButton: document.getElementById("resetTokenFiltersBtn"),
       refreshButton: document.getElementById("refreshTokensBtn"),
+      bulkBar: document.getElementById("tokenManagementBulkBar"),
+      bulkSelectedCount: document.getElementById("tokenManagementBulkCount"),
+      bulkRevokeBtn: document.getElementById("bulkRevokeTokensBtn"),
+      bulkClearBtn: document.getElementById("bulkClearTokensBtn"),
+      tableHead: document.getElementById("tokenManagementTableHead"),
       tableBody: document.getElementById("tokenManagementTableBody"),
       count: document.getElementById("tokenManagementCount"),
       previousButton: document.getElementById("tokenPreviousPage"),
@@ -201,6 +207,18 @@ const TokenManagementController = {
         void this.revokeToken(tokenId, tokenType);
       }
     });
+    this.elements.tableBody.addEventListener("change", (event) => {
+      this.handleRowSelection(event);
+    });
+    this.elements.tableHead.addEventListener("change", (event) => {
+      this.handleSelectAll(event);
+    });
+    this.elements.bulkRevokeBtn.addEventListener("click", () => {
+      void this.applyBulkRevoke();
+    });
+    this.elements.bulkClearBtn.addEventListener("click", () => {
+      this.clearSelection();
+    });
 
     this.state.eventsBound = true;
   },
@@ -215,8 +233,11 @@ const TokenManagementController = {
     this.elements.refreshButton.disabled = true;
     this.elements.previousButton.disabled = true;
     this.elements.nextButton.disabled = true;
-    this.showState("Loading token records...", "info");
-    this.showTableLoading();
+
+    if (this.state.tokens.length === 0) {
+      this.showState("Loading token records...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const response = await window.API.system.getTokens({
@@ -430,109 +451,223 @@ const TokenManagementController = {
   },
 
   renderTable() {
-    if (this.state.tokens.length === 0) {
+    const tokens = this.state.tokens;
+
+    if (tokens.length === 0) {
       this.showTableMessage(
         this.hasActiveFilters()
           ? "No token records match the selected filters."
           : "There are no token records to display.",
       );
+      this.syncSelectAll();
       return;
     }
 
-    this.elements.tableBody.innerHTML = this.state.tokens
-      .map((token) => {
-        const displayName =
-          [token.firstName, token.lastName].filter(Boolean).join(" ") ||
-          token.username ||
-          token.email ||
-          `User ${token.userId}`;
-        const identity = [token.username, token.email]
-          .filter(Boolean)
-          .join(" · ");
-        const typeLabel =
-          token.tokenType === "api" ? "API token" : "Refresh token";
-        const credentialLabel =
-          token.tokenType === "api"
-            ? token.tokenName || `API token #${token.id}`
-            : `Refresh token #${token.id}`;
-        const detail =
-          token.tokenType === "api"
-            ? this.formatScope(token.scope)
-            : token.hasActiveSession
-              ? "Linked access session active"
-              : "No active access session";
-        const isRevoking = this.state.revokingKey === token.registryKey;
-        const canRevoke =
-          this.canManage() && token.status === "active" && !token.isCurrent;
+    const template = document.getElementById("tokenManagementRowTemplate");
+    const rows = tokens.map((token) => this.buildTokenRow(template, token));
+    this.elements.tableBody.replaceChildren(...rows);
+    this.syncSelectAll();
+  },
 
-        return `
-          <tr>
-            <td>
-              <span class="badge ${
-                token.tokenType === "api"
-                  ? "bg-info text-dark"
-                  : "bg-primary"
-              }">
-                ${this.escapeHtml(typeLabel)}
-              </span>
-            </td>
-            <td>
-              <div class="fw-semibold">${this.escapeHtml(displayName)}</div>
-              <div class="small text-muted">${this.escapeHtml(
-                identity || `User ID ${token.userId}`,
-              )}</div>
-            </td>
-            <td>
-              <div class="d-flex align-items-center gap-2">
-                <span class="fw-semibold">
-                  ${this.escapeHtml(credentialLabel)}
-                </span>
-                ${
-                  token.isCurrent
-                    ? '<span class="badge bg-primary">Current</span>'
-                    : ""
-                }
-              </div>
-              <div class="small text-muted">${this.escapeHtml(detail)}</div>
-            </td>
-            <td>${this.statusBadge(token.status)}</td>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(token.createdAt))}
-            </td>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(token.lastUsedAt))}
-            </td>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(token.expiresAt))}
-            </td>
-            <td class="text-end">
-              ${
-                token.isCurrent
-                  ? '<span class="text-muted small">Use Log out</span>'
-                  : canRevoke
-                    ? `<button
-                        type="button"
-                        class="btn btn-sm btn-outline-danger"
-                        data-revoke-token
-                        data-token-id="${token.id}"
-                        data-token-type="${this.escapeAttribute(token.tokenType)}"
-                        ${isRevoking ? "disabled" : ""}
-                      >
-                        ${
-                          isRevoking
-                            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
-                            : '<i class="fas fa-ban me-1"></i>'
-                        }
-                        Revoke
-                      </button>`
-                    : token.status === "active"
-                      ? '<span class="text-muted small">View only</span>'
-                      : '<span class="text-muted small">No action</span>'
-              }
-            </td>
-          </tr>`;
-      })
-      .join("");
+  pageTokenKeys() {
+    return this.state.tokens.map((token) => token.registryKey);
+  },
+
+  handleRowSelection(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-token-key]");
+    if (!checkbox) return;
+    const tokenKey = String(checkbox.dataset.tokenKey || "");
+    if (!tokenKey) return;
+    if (checkbox.checked) {
+      this.state.selectedKeys.add(tokenKey);
+    } else {
+      this.state.selectedKeys.delete(tokenKey);
+    }
+    this.updateBulkBar();
+  },
+
+  handleSelectAll(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-select-all]");
+    if (!checkbox) return;
+    const visible = new Set(this.pageTokenKeys());
+    if (checkbox.checked) {
+      visible.forEach((key) => this.state.selectedKeys.add(key));
+    } else {
+      this.state.selectedKeys.forEach((key) => {
+        if (visible.has(key)) this.state.selectedKeys.delete(key);
+      });
+    }
+    this.updateBulkBar();
+  },
+
+  clearSelection() {
+    this.state.selectedKeys.clear();
+    this.updateBulkBar();
+  },
+
+  updateBulkBar() {
+    const count = this.state.selectedKeys.size;
+    this.elements.bulkSelectedCount.textContent = `${count} selected`;
+    this.elements.bulkBar.hidden = count === 0;
+    this.elements.tableBody.querySelectorAll("input[type=checkbox][data-token-key]").forEach((checkbox) => {
+      checkbox.checked = this.state.selectedKeys.has(String(checkbox.dataset.tokenKey || ""));
+    });
+    this.syncSelectAll();
+  },
+
+  selectedTokens() {
+    return this.state.tokens.filter((token) =>
+      this.state.selectedKeys.has(token.registryKey),
+    );
+  },
+
+  syncSelectAll() {
+    const selectAll = this.elements.tableHead?.querySelector("input[data-select-all]");
+    if (!selectAll) return;
+    const visible = this.pageTokenKeys();
+    const selectedVisible = visible.filter((key) =>
+      this.state.selectedKeys.has(key),
+    ).length;
+    selectAll.checked = visible.length > 0 && selectedVisible === visible.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
+  },
+
+  async applyBulkRevoke() {
+    const tokens = this.selectedTokens();
+    if (!tokens.length) return;
+
+    const revocable = tokens.filter(
+      (token) => token.status === "active" && !token.isCurrent,
+    );
+    if (!revocable.length) {
+      this.showState(
+        "None of the selected tokens can be revoked. Tokens must be active and must not be your current refresh token.",
+        "warning",
+      );
+      return;
+    }
+
+    const confirmed = await window.confirmAction(
+      "Revoke Selected Tokens",
+      `Revoke ${revocable.length} active token${revocable.length === 1 ? "" : "s"}?${
+        revocable.some((token) => token.tokenType === "refresh")
+          ? " Any linked access sessions will end immediately."
+          : ""
+      }${tokens.length > revocable.length ? ` ${tokens.length - revocable.length} ineligible token${tokens.length - revocable.length === 1 ? "" : "s"} will be skipped.` : ""}`,
+      { confirmText: "Revoke", danger: true },
+    );
+    if (!confirmed) return;
+
+    this.showState("Revoking the selected tokens...", "info");
+    let revoked = 0;
+    let failed = 0;
+    for (const token of revocable) {
+      try {
+        await window.API.system.revokeToken(token.id, token.tokenType);
+        revoked += 1;
+      } catch (error) {
+        console.error(
+          "[TokenManagementController] Bulk token revocation failed:",
+          error,
+        );
+        failed += 1;
+      }
+    }
+    this.clearSelection();
+    await this.loadTokens();
+    this.showState(
+      failed
+        ? `${revoked} token${revoked === 1 ? "" : "s"} revoked; ${failed} failed.`
+        : `${revoked} token${revoked === 1 ? "" : "s"} revoked successfully.`,
+      failed ? "warning" : "success",
+    );
+  },
+
+  buildTokenRow(template, token) {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const displayName =
+      [token.firstName, token.lastName].filter(Boolean).join(" ") ||
+      token.username ||
+      token.email ||
+      `User ${token.userId}`;
+    const identity = [token.username, token.email]
+      .filter(Boolean)
+      .join(" · ");
+    const typeLabel =
+      token.tokenType === "api" ? "API token" : "Refresh token";
+    const credentialLabel =
+      token.tokenType === "api"
+        ? token.tokenName || `API token #${token.id}`
+        : `Refresh token #${token.id}`;
+    const detail =
+      token.tokenType === "api"
+        ? this.formatScope(token.scope)
+        : token.hasActiveSession
+          ? "Linked access session active"
+          : "No active access session";
+    const isRevoking = this.state.revokingKey === token.registryKey;
+
+    const checkbox = row.querySelector("input[type=checkbox]");
+    checkbox.dataset.tokenKey = token.registryKey;
+    checkbox.checked = this.state.selectedKeys.has(token.registryKey);
+    checkbox.setAttribute("aria-label", `Select ${credentialLabel}`);
+
+    const typeBadge = cell("typeBadge");
+    typeBadge.className = `badge ${
+      token.tokenType === "api" ? "bg-info text-dark" : "bg-primary"
+    }`;
+    typeBadge.textContent = typeLabel;
+
+    cell("ownerName").textContent = displayName;
+    cell("ownerIdentity").textContent = identity || `User ID ${token.userId}`;
+
+    cell("credentialLabel").textContent = credentialLabel;
+    cell("credentialCurrent").hidden = !token.isCurrent;
+    cell("credentialDetail").textContent = detail;
+
+    const statusBadge = cell("statusBadge");
+    statusBadge.className = this.statusBadgeClass(token.status);
+    statusBadge.textContent = token.status.charAt(0).toUpperCase() + token.status.slice(1);
+
+    cell("createdAt").textContent = this.formatDateTime(token.createdAt);
+    cell("lastUsedAt").textContent = this.formatDateTime(token.lastUsedAt);
+    cell("expiresAt").textContent = this.formatDateTime(token.expiresAt);
+
+    cell("actions").innerHTML = this.buildTokenActions(token, { isRevoking });
+
+    return row;
+  },
+
+  buildTokenActions(token, { isRevoking }) {
+    const canRevoke =
+      this.canManage() && token.status === "active" && !token.isCurrent;
+
+    if (token.isCurrent) {
+      return '<span class="text-muted small">Use Log out</span>';
+    }
+    if (!canRevoke) {
+      const label = token.status === "active" ? "View only" : "No action";
+      return `<span class="text-muted small">${label}</span>`;
+    }
+    return `
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-danger"
+        data-revoke-token
+        data-token-id="${token.id}"
+        data-token-type="${this.escapeAttribute(token.tokenType)}"
+        ${isRevoking ? "disabled" : ""}
+      >
+        ${
+          isRevoking
+            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
+            : '<i class="fas fa-ban me-1"></i>'
+        }
+        Revoke
+      </button>`;
   },
 
   renderPagination() {
@@ -581,7 +716,7 @@ const TokenManagementController = {
     const content = allowMarkup ? message : this.escapeHtml(message);
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center py-5 ${className}">
+        <td colspan="9" class="text-center py-5 ${className}">
           ${content}
         </td>
       </tr>`;
@@ -684,16 +819,13 @@ const TokenManagementController = {
     return { page, limit, total, totalPages };
   },
 
-  statusBadge(status) {
+  statusBadgeClass(status) {
     const styles = {
-      active: "bg-success",
-      expired: "bg-warning text-dark",
-      revoked: "bg-danger",
+      active: "badge bg-success",
+      expired: "badge bg-warning text-dark",
+      revoked: "badge bg-danger",
     };
-    const label = status.charAt(0).toUpperCase() + status.slice(1);
-    return `<span class="badge ${styles[status] || "bg-secondary"}">${this.escapeHtml(
-      label,
-    )}</span>`;
+    return styles[status] || "badge bg-secondary";
   },
 
   formatScope(scope) {

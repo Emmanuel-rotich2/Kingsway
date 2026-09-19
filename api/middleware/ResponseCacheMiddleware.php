@@ -54,6 +54,7 @@ final class ResponseCacheMiddleware
         // Aggregates already offloaded to the read replica (mv_* views):
         // short TTL keeps freshness while absorbing dashboard tab bursts.
         'dashboard/config' => 120,
+        'dashboard/insight-brief' => 60,
         'staff/stats' => 120,
         'payments/stats' => 120,
         'finance/fees-annual-summary' => 120,

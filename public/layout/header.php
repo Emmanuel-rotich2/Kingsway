@@ -110,7 +110,7 @@ $bodyClass  = trim((string)($bodyClass ?? ''));
             
             <li><a class="dropdown-item" href="<?= $appBase ?>/uniform_catalog.php"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/contact.php"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/parents/"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
           </ul>
         </li>
 
@@ -132,3 +132,32 @@ $bodyClass  = trim((string)($bodyClass ?? ''));
     <div class="ticker-track" id="site-ticker"></div>
   </div>
 </div>
+
+<!-- Public, source-grounded assistant. It never exposes staff or learner data. -->
+<aside id="public-ai-assistant" class="public-ai-assistant" aria-label="Kingsway public assistant">
+  <button type="button" id="public-ai-toggle" class="public-ai-toggle" aria-expanded="false" aria-controls="public-ai-panel">
+    <i class="bi bi-stars me-2" aria-hidden="true"></i>Ask Kingsway
+  </button>
+  <section id="public-ai-panel" class="public-ai-panel" hidden aria-labelledby="public-ai-title">
+    <div class="public-ai-panel-header">
+      <div>
+        <h2 id="public-ai-title" class="h6 mb-1">Kingsway assistant</h2>
+        <p class="small mb-0">Ask about the school, admissions, programmes, or policies.</p>
+      </div>
+      <button type="button" id="public-ai-close" class="btn-close btn-close-white" aria-label="Close assistant"></button>
+    </div>
+    <div id="public-ai-history" class="public-ai-history" aria-label="Conversation history"></div>
+    <div id="public-ai-answer" class="public-ai-answer" aria-live="polite">
+      <p class="small mb-0">Answers use published school information. For anything uncertain, we will refer you to a human assistant.</p>
+    </div>
+    <div id="public-ai-suggestions" class="public-ai-suggestions" aria-label="Suggested follow-up questions" hidden></div>
+    <form id="public-ai-form" class="public-ai-form" novalidate>
+      <label class="visually-hidden" for="public-ai-question">Your question</label>
+      <textarea id="public-ai-question" name="question" rows="2" maxlength="500" required placeholder="How do I apply for admission?"></textarea>
+      <div class="d-flex justify-content-between align-items-center gap-2 mt-2">
+        <span id="public-ai-status" class="small text-muted" role="status"></span>
+        <button type="submit" id="public-ai-submit" class="btn btn-success btn-sm"><i class="bi bi-send me-1" aria-hidden="true"></i>Ask</button>
+      </div>
+    </form>
+  </section>
+</aside>

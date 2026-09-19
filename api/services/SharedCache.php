@@ -29,6 +29,7 @@ class SharedCache
 
     private string $dir;
     private UploadService $storage;
+    private ?LocalSqliteBuffer $sqlite = null;
 
     public function __construct(?string $dir = null)
     {
@@ -36,6 +37,13 @@ class SharedCache
         $this->dir = $dir
             ?? (sys_get_temp_dir() . '/kingsway_cache');
         $this->storage->ensureDirectoryPath($this->dir);
+        // SQLite is the fast local index. JSON files remain a portable
+        // fallback for shared hosts without pdo_sqlite and for recovery.
+        try {
+            $this->sqlite = new LocalSqliteBuffer($this->dir . '/sqlite');
+        } catch (\Throwable) {
+            $this->sqlite = null;
+        }
     }
 
     /**
@@ -48,6 +56,16 @@ class SharedCache
      */
     public function get(string $key): mixed
     {
+        if ($this->sqlite) {
+            try {
+                $buffered = $this->sqlite->get('shared_cache_v1', $key);
+                if ($buffered !== null) {
+                    return $buffered;
+                }
+            } catch (\Throwable) {
+                // Fall through to the locked JSON recovery copy.
+            }
+        }
         $cached = $this->read($this->pathFor($key));
         if ($cached === null || $cached['expires'] <= time()) {
             return null;
@@ -69,6 +87,13 @@ class SharedCache
         if ($payload === false) {
             return false;
         }
+        if ($this->sqlite) {
+            try {
+                $this->sqlite->put('shared_cache_v1', $key, $value, $ttl);
+            } catch (\Throwable) {
+                // The JSON copy below is the portable fallback.
+            }
+        }
         $this->storage->atomicWrite($this->pathFor($key), $payload);
         return true;
     }
@@ -84,12 +109,26 @@ class SharedCache
         }
 
         $value = $compute();
+        if ($this->sqlite) {
+            try {
+                $this->sqlite->put('shared_cache_v1', $key, $value, $ttl);
+            } catch (\Throwable) {
+                // Continue with the portable JSON copy.
+            }
+        }
         $this->write($path, $value, time() + $ttl);
         return $value;
     }
 
     public function forget(string $key): void
     {
+        if ($this->sqlite) {
+            try {
+                $this->sqlite->delete('shared_cache_v1', $key);
+            } catch (\Throwable) {
+                // Continue removing the JSON recovery copy.
+            }
+        }
         $path = $this->pathFor($key);
         if (is_file($path)) {
             $this->storage->deleteFile($path);
@@ -98,6 +137,13 @@ class SharedCache
 
     public function clear(): void
     {
+        if ($this->sqlite) {
+            try {
+                $this->sqlite->clearNamespace('shared_cache_v1');
+            } catch (\Throwable) {
+                // Continue clearing JSON files.
+            }
+        }
         if (!is_dir($this->dir)) {
             return;
         }

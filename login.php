@@ -38,6 +38,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
                     <button class="btn btn-warning w-100 auth-submit" id="authSubmit" type="submit"><span>Sign in</span><span class="spinner-border spinner-border-sm d-none"></span></button>
                 </form>
                 <div class="auth-divider"><span>or</span></div><button class="btn btn-outline-dark w-100" id="authPasswordless" type="button"><i class="bi bi-fingerprint me-2"></i>Sign in with a passkey</button>
+                <p class="text-center mt-3 mb-0"><a href="<?= htmlspecialchars($appBase) ?>/parent_portal.php"><i class="bi bi-people me-1"></i>Login as parent or guardian</a></p>
             </div>
             <div class="d-none" id="verificationStep">
                 <span class="auth-step-label">Identity verification</span><h2 id="verificationTitle">Two-factor authentication 🔑</h2><p class="auth-intro" id="verificationDescription">Use your device to get the code.</p>
@@ -48,6 +49,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
             </div>
         </div>
         <p class="auth-help"><i class="bi bi-shield-lock"></i> Kingsway will never ask you to share a verification code.</p>
+        <p class="auth-soft">Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a></p>
     </section>
 </main>
 <script src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"></script>

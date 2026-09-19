@@ -20,6 +20,8 @@ if ($appBase === '.') $appBase = '';
 
   <div id="fcStats" class="row g-3 mb-4"></div>
 
+  <div class="card border-success-subtle bg-light mb-4"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Catering consumption assistant</strong><div class="small text-muted">Reviews aggregate usage and waste signals. It does not make nutrition, food-safety, menu, or purchasing decisions.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiCateringReview"><i class="bi bi-stars me-1"></i>Review variance</button></div><div id="aiCateringReviews" class="row g-2 mt-2"></div></div></div>
+
   <div class="bg-white border rounded-3 overflow-hidden">
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
@@ -34,3 +36,4 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <?php asset_script($appBase, 'js/pages/food_consumption.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_catering_review.js'); ?>

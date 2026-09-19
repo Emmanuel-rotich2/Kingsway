@@ -48,6 +48,14 @@ class ServiceContractRegistry
         self::govern('App\\API\\Modules\\attendance\\AttendanceAPI', 'attendance', 'attendance.api');
         self::govern('App\\API\\Modules\\reports\\ReportsAPI', 'reports', 'reports.api');
         self::govern('App\\API\\Modules\\system\\SystemAPI', 'system', 'system.api');
+        self::govern('App\\API\\Services\\AiCapabilityMatrix', 'system', 'system.aicapabilitymatrix');
+        self::govern('App\\API\\Services\\PublicAiAssistantService', 'public', 'public.aiassistant');
+        self::govern('App\\API\\Services\\ResearchAiAssistantService', 'research', 'research.aiassistant');
+        self::govern('App\\API\\Services\\ResearchSourceCatalog', 'research', 'research.sourcecatalog');
+        self::govern('App\\API\\Services\\SystemSecuritySignalsService', 'system', 'system.securitysignals');
+        self::govern('App\\API\\Services\\AiProviderGateway', 'system', 'system.aiprovidergateway');
+        self::govern('App\\API\\Services\\AiReadinessReportService', 'system', 'system.aireadiness');
+        self::govern('App\\API\\Services\\TimetablePlanningConversationService', 'schedules', 'schedules.timetableplanningconversation');
 
         // Full governed inventory: every business-logic class controllers may
 
@@ -147,6 +155,10 @@ class ServiceContractRegistry
         self::govern('App\API\Services\AttendanceRegisterService', '', 'attendanceregisterservice');
         self::govern('App\API\Services\FinanceCrudService', '', 'financecrudservice');
         self::govern('App\API\Services\IpAccessControlService', '', 'ipaccesscontrolservice');
+        self::govern('App\API\Services\SystemCommsConfigService', '', 'systemcommsconfigservice');
+        self::govern('App\API\Services\AnnouncementBulletinService', '', 'announcementbulletinservice');
+        self::govern('App\API\Services\EmailProfileService', '', 'emailprofileservice');
+        self::govern('App\API\Services\EmailInboxService', '', 'emailinboxservice');
         self::govern('App\API\Services\StaffAppointmentsService', '', 'staffappointmentsservice');
         self::govern('App\API\Services\StaffMigrationService', '', 'staffmigrationservice');
         self::govern('App\API\Services\SystemAdministrationService', '', 'systemadministrationservice');
@@ -167,6 +179,7 @@ class ServiceContractRegistry
         self::govern('App\API\Services\payments\UniformCatalogService', 'payments', 'payments.uniformcatalogservice');
         self::govern('App\API\Services\payments\ParentRefundService', 'payments', 'payments.parentrefundservice');
         self::govern('App\API\Services\TeacherScopeService', '', 'teacherscopeservice');
+        self::govern('App\API\Services\TeacherSpecializationService', 'staff', 'staff.teacherspecializations');
         self::govern('App\API\Services\DelegationService', '', 'delegationservice');
         self::govern('App\API\Services\TestDataManagementService', '', 'testdatamanagementservice');
         self::govern('App\API\Services\SubjectTeacherAnalyticsService', '', 'subjectteacheranalyticsservice');
@@ -185,6 +198,13 @@ class ServiceContractRegistry
         self::govern('App\API\Services\FinancialReconciliationService', '', 'financialreconciliationservice');
         self::govern('App\API\Services\ClassTeacherAnalyticsService', '', 'classteacheranalyticsservice');
         self::govern('App\API\Services\StaffTeachingAssignmentService', '', 'staffteachingassignmentservice');
+        self::govern('App\API\Services\AiDraftService', '', 'aidraftservice');
+        self::govern('App\API\Services\TimetablePlanningConversationService', '', 'timetableplanningconversationservice');
+        self::govern('App\API\Services\AiAnalyticsInsightService', '', 'aianalyticsinsightservice');
+        self::govern('App\API\Services\AiWorkflowService', '', 'aiworkflowservice');
+        self::govern('App\API\Services\AiInsightOrchestrator', '', 'aiinsightorchestrator');
+        self::govern('App\API\Services\NlqQueryService', '', 'nlqqueryservice');
+        self::govern('App\API\Services\SystemOperationsReviewService', '', 'systemoperationsreviewservice');
 
         self::register([
             'id' => 'system.info',

@@ -7,9 +7,62 @@ use PHPMailer\PHPMailer\Exception;
 class MessageService
 {
     private $db;
+
+    /** DB-stored SMTP override applied by the dispatcher (System Config pages). */
+    private array $smtpOverlay = [];
+
     public function __construct($db)
     {
         $this->db = $db;
+    }
+
+    /**
+     * Apply a DB-stored SMTP configuration overlay (host, port, username,
+     * password, from_email, from_name) so configured provider settings from the
+     * System Config pages take effect at send time.
+     */
+    public function applySmtpOverlay(array $overlay = []): void
+    {
+        $this->smtpOverlay = is_array($overlay) ? $overlay : [];
+    }
+
+    private function overlayOrConstant(string $keyName, string $constantName)
+    {
+        if (array_key_exists($keyName, $this->smtpOverlay) && trim((string) $this->smtpOverlay[$keyName]) !== '') {
+            return $this->smtpOverlay[$keyName];
+        }
+        if (defined($constantName) && constant($constantName) !== '') {
+            return constant($constantName);
+        }
+        return '';
+    }
+
+    /**
+     * Resolve the configurable audit BCC address. Defaults to enabled with
+     * prepapartoryschoolkingsway@gmail.com; controlled via the System Mailbox
+     * settings (comms_email_audit_bcc / comms_email_audit_bcc_enabled).
+     */
+    public function resolveAuditBcc(): ?string
+    {
+        $enabled = $this->readSetting('comms_email_audit_bcc_enabled', '1');
+        if (!filter_var($enabled, FILTER_VALIDATE_BOOLEAN) && (int) $enabled !== 1) {
+            return null;
+        }
+        $email = $this->readSetting('comms_email_audit_bcc', defined('AUDIT_BCC_EMAIL') ? constant('AUDIT_BCC_EMAIL') : 'preparatoryschoolkingsway@gmail.com');
+        return trim((string) $email) !== '' ? trim((string) $email) : null;
+    }
+
+    /** Read a school_settings value via DB, with a fallback default. */
+    private function readSetting(string $key, string $default = ''): string
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT setting_value FROM school_settings WHERE setting_key = :key LIMIT 1');
+            $stmt->execute([':key' => $key]);
+            $val = $stmt->fetchColumn();
+            return $val === false ? $default : (string) $val;
+        } catch (\Throwable $ignored) {
+            return $default;
+        }
     }
 
     /**
@@ -230,7 +283,7 @@ class MessageService
     }
 
     // Send email (single or mass)
-    public function sendEmail($recipients, $subject, $htmlBody, $attachments = [])
+    public function sendEmail($recipients, $subject, $htmlBody, $attachments = [], $includeAuditBcc = false)
     {
         // Enforce one visual identity at the transport boundary. Callers may
         // provide a body fragment or an already-rendered Kingsway message; no
@@ -239,18 +292,23 @@ class MessageService
             $htmlBody = $this->renderFormalEmail($subject, $htmlBody, '', '');
         }
         // Assumes config.php is loaded at application entry point and constants are available
+        // A DB-stored overlay from the System Config pages takes precedence.
         $mail = new PHPMailer(true);
+        $smtpHost = $this->overlayOrConstant('host', 'SMTP_HOST');
+        $smtpPort = (int) $this->overlayOrConstant('port', 'SMTP_PORT');
         try {
             $mail->isSMTP();
-            $mail->Host = SMTP_HOST;
+            $mail->Host = $smtpHost;
             $mail->SMTPAuth = true;
-            $mail->Username = SMTP_USERNAME;
-            $mail->Password = SMTP_PASSWORD;
+            $mail->Username = $this->overlayOrConstant('username', 'SMTP_USERNAME');
+            $mail->Password = $this->overlayOrConstant('password', 'SMTP_PASSWORD');
             $mail->SMTPSecure = 'tls';
-            $mail->Port = SMTP_PORT;
+            $mail->Port = $smtpPort ?: 587;
             $mail->CharSet = 'UTF-8';
             $mail->Encoding = 'base64';
-            $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
+            $fromEmail = $this->overlayOrConstant('from_email', 'SMTP_FROM_EMAIL');
+            $fromName = $this->overlayOrConstant('from_name', 'SMTP_FROM_NAME');
+            $mail->setFrom($fromEmail !== '' ? $fromEmail : 'noreply@kingswaypreparatoryschool.sc.ke', $fromName);
             if (is_array($recipients)) {
                 foreach ($recipients as $email => $name) {
                     $mail->addAddress($email, $name);
@@ -258,6 +316,19 @@ class MessageService
             } else {
                 $mail->addAddress($recipients);
             }
+
+            // Configurable audit BCC, opt-in ONLY for user-initiated sends.
+            // System auto-emails (OTP, password reset, invitations, payment
+            // confirmations, staff migration, etc.) are private between the
+            // recipient and the system and must never carry the audit BCC.
+            // Callers signal intent with $includeAuditBcc = true.
+            if ($includeAuditBcc) {
+                $auditBcc = $this->resolveAuditBcc();
+                if ($auditBcc !== null && $auditBcc !== '') {
+                    $mail->addBCC($auditBcc);
+                }
+            }
+
             $mail->isHTML(true);
             // Explicitly set content type to HTML with UTF-8 encoding
             $mail->ContentType = 'text/html; charset=UTF-8';
@@ -287,10 +358,10 @@ class MessageService
     }
 
     // Mass sending logic (e.g. for announcements)
-    public function sendMassEmail($recipientList, $subject, $htmlBody, $attachments = [])
+    public function sendMassEmail($recipientList, $subject, $htmlBody, $attachments = [], $includeAuditBcc = false)
     {
         foreach ($recipientList as $recipients) {
-            $this->sendEmail($recipients, $subject, $htmlBody, $attachments);
+            $this->sendEmail($recipients, $subject, $htmlBody, $attachments, $includeAuditBcc);
         }
     }
 

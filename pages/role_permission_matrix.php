@@ -61,10 +61,32 @@
             <strong id="rolePermissionMatrixTitle">Permissions</strong>
             <small class="text-muted" id="rolePermissionMatrixCount"></small>
         </div>
+        <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-success" id="bulkGrantBtn">
+                    <i class="bi bi-check2-circle me-1"></i> Assign selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkRevokeBtn">
+                    <i class="bi bi-x-circle me-1"></i> Revoke selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead>
+                <thead id="rolePermissionMatrixTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all permissions"
+                            >
+                        </th>
                         <th style="width: 90px">Assigned</th>
                         <th scope="col">Permission</th>
                         <th scope="col">Module</th>

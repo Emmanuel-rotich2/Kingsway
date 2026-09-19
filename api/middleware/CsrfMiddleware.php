@@ -22,6 +22,11 @@ class CsrfMiddleware
         'session/validate-token',
         'users/login',
         'users/register',
+        // Parent login and OTP verification happen before a JWT/CSRF token
+        // exists; authenticated portal mutations remain protected.
+        'parent-portal/login',
+        'parent-portal/login-otp-request',
+        'parent-portal/login-otp-verify',
         'twofactor/challenge',
         'twofactor/verify',
         'twofactor/passwordless-options',
@@ -42,9 +47,6 @@ class CsrfMiddleware
         'payments/kcb-account-notification',
         'payments/kcb-till-notification',
         'payments/bank-webhook',
-        'parent-portal/login',
-        'parent-portal/login-otp-request',
-        'parent-portal/login-otp-verify',
         'staff-appointments/careers-candidate',
         'academic/resources/download',
         'download/public',
@@ -69,6 +71,8 @@ class CsrfMiddleware
         'public/inquiries',
         'public/applications',
         'public/subscribers',
+        // Anonymous public FAQ requests have no staff session CSRF token.
+        'public/ai-faq',
         'communications/sms-delivery-report',
         'communications/whatsapp-delivery-report',
         'communications/whatsapp-incoming',
@@ -82,6 +86,8 @@ class CsrfMiddleware
         // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'realtime/worker',
         'realtime/cleanup',
+        'realtime/sync-projection',
+        'mcp',
     ];
 
     public static function handle(): void
@@ -98,6 +104,9 @@ class CsrfMiddleware
 
         $path = strtolower($_SERVER['REQUEST_URI'] ?? '');
         foreach (self::$exemptEndpoints as $endpoint) {
+            if ($endpoint === 'mcp' && strtolower((string) parse_url($path, PHP_URL_PATH)) !== '/api/mcp') {
+                continue;
+            }
             if (strpos($path, $endpoint) !== false) {
                 return;
             }

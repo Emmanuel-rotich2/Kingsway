@@ -22,6 +22,7 @@
       this.updateVisibilityHint();
       await this.loadStatistics();
       await this.loadTemplates();
+      await this.loadAiDrafts();
     },
 
     updateVisibilityHint: function () {
@@ -60,6 +61,11 @@
       document.getElementById('saveTemplateBtn')?.addEventListener('click', () => this.saveTemplate());
       document.getElementById('submitProviderTemplateBtn')?.addEventListener('click', () => this.submitProviderTemplate());
       document.getElementById('templateChannel')?.addEventListener('change', e => { document.getElementById('submitProviderTemplateBtn').classList.toggle('d-none', e.target.value !== 'whatsapp'); });
+      document.getElementById('aiDraftMessageBtn')?.addEventListener('click', () => {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('aiCommunicationDraftModal')).show();
+      });
+      document.getElementById('queueAiCommunicationDraft')?.addEventListener('click', () => this.queueAiDraft());
+      document.getElementById('refreshAiCommunicationDrafts')?.addEventListener('click', () => this.loadAiDrafts());
 
       document.querySelectorAll(".channel-card").forEach(function (card) {
         card.addEventListener("mouseenter", function () {
@@ -79,6 +85,74 @@
     async submitProviderTemplate() { const name = document.getElementById('templateName').value.trim(); const body = document.getElementById('templateBody').value.trim(); const category = (document.getElementById('templateCategory').value.trim() || 'UTILITY').toUpperCase(); if (!name || !body) return this.showNotification('Name and body are required', 'warning'); try { const r = await window.API.communications.createWhatsappTemplate({ name, language: 'en', category: ['MARKETING','UTILITY','AUTHENTICATION'].includes(category) ? category : 'UTILITY', components: { body: { type: 'BODY', text: body } } }); this.showNotification(r?.message || 'Submitted for WhatsApp approval', 'success'); } catch (e) { this.showNotification(e.message || 'Provider template submission failed', 'error'); } },
     async saveTemplate() { const id = document.getElementById('templateId').value; const data = { name: document.getElementById('templateName').value.trim(), template_type: document.getElementById('templateChannel').value, category: document.getElementById('templateCategory').value.trim() || null, template_body: document.getElementById('templateBody').value }; if (!data.name || !data.template_body) return this.showNotification('Name and body are required', 'warning'); try { if (id) await window.API.communications.updateTemplate(id, data); else await window.API.communications.createTemplate(data); bootstrap.Modal.getInstance(document.getElementById('templateManagerModal'))?.hide(); this.showNotification('Template saved', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template save failed', 'error'); } },
     async deleteTemplate(id) { if (!(await window.confirmAction('Delete template', 'Delete this communication template?'))) return; try { await window.API.communications.deleteTemplate(id); this.showNotification('Template deleted', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template deletion failed', 'error'); } },
+
+    async queueAiDraft() {
+      const form = document.getElementById('aiCommunicationDraftForm');
+      const button = document.getElementById('queueAiCommunicationDraft');
+      if (!form || !form.reportValidity()) return;
+      const data = Object.fromEntries(new FormData(form).entries());
+      if (button) button.disabled = true;
+      try {
+        const queued = await window.API.apiCall('/communications/ai-message-draft-queue', 'POST', data);
+        bootstrap.Modal.getInstance(document.getElementById('aiCommunicationDraftModal'))?.hide();
+        this.showNotification(`Communication draft queued${queued?.job_id ? ` (job ${queued.job_id})` : ''}.`, 'info');
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 1000 : 2500));
+          await this.loadAiDrafts();
+        }
+      } catch (error) {
+        this.showNotification(error.message || 'Unable to queue communication draft', 'error');
+      } finally {
+        if (button) button.disabled = false;
+      }
+    },
+
+    async loadAiDrafts() {
+      const container = document.getElementById('aiCommunicationDrafts');
+      if (!container) return;
+      try {
+        const own = await window.API.apiCall('/communications/ai-drafts?scope=own', 'GET');
+        let review = { drafts: [] };
+        try { review = await window.API.apiCall('/communications/ai-drafts?scope=review', 'GET'); } catch (_) {}
+        const drafts = [
+          ...(Array.isArray(own?.drafts) ? own.drafts : []).map((draft) => ({ ...draft, __review: false })),
+          ...(Array.isArray(review?.drafts) ? review.drafts : []).map((draft) => ({ ...draft, __review: true }))
+        ];
+        if (!drafts.length) {
+          container.innerHTML = '<div class="col-12 text-muted small">No assistant drafts available.</div>';
+          return;
+        }
+        container.innerHTML = drafts.map((draft) => {
+          const generated = draft.draft || {};
+          const metadata = draft.metadata || {};
+          const canApprove = draft.__review && draft.status === 'pending_approval';
+          const materialized = metadata.materialized_communication_id;
+          return `<div class="col-12 col-lg-6"><article class="card h-100 border-0 shadow-sm" data-ai-draft-status="${this.escapeHtml(draft.status || '')}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between gap-2 mb-2"><h6 class="mb-0">${this.escapeHtml(generated.title || 'Communication draft')}</h6><span class="badge text-bg-secondary">${this.escapeHtml(draft.status || 'queued')}</span></div>
+              <div class="small text-muted mb-2">${this.escapeHtml(metadata.channel || 'channel')} · ${this.escapeHtml(metadata.audience || 'audience')}</div>
+              <p class="small">${this.escapeHtml(generated.body || 'Draft is still being generated.')}</p>
+              ${Array.isArray(generated.next_steps) && generated.next_steps.length ? `<ul class="small">${generated.next_steps.map((step) => `<li>${this.escapeHtml(step)}</li>`).join('')}</ul>` : ''}
+              ${materialized ? `<div class="alert alert-success small mb-0">Saved to communications drafts (#${this.escapeHtml(materialized)}). Select recipients and dispatch through the normal workflow.</div>` : ''}
+              ${canApprove ? `<button class="btn btn-sm btn-success" onclick="CommunicationsHubController.approveAiDraft(${Number(draft.id)})">Approve into communications drafts</button>` : ''}
+            </div>
+          </article></div>`;
+        }).join('');
+      } catch (error) {
+        container.innerHTML = '<div class="col-12 text-warning small">Assistant drafts are temporarily unavailable.</div>';
+      }
+    },
+
+    async approveAiDraft(draftId) {
+      try {
+        await window.API.apiCall(`/communications/ai-draft-approve/${Number(draftId)}`, 'POST', {});
+        this.showNotification('Approved and saved as a normal communication draft.', 'success');
+        await this.loadAiDrafts();
+        await this.loadStatistics();
+      } catch (error) {
+        this.showNotification(error.message || 'Unable to approve communication draft', 'error');
+      }
+    },
 
     loadStatistics: async function () {
       try {

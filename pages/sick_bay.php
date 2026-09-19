@@ -7,6 +7,7 @@
 /* PARTIAL — no DOCTYPE/html/head/body */
 ?>
 <div class="container-fluid mt-3">
+  <div class="card border-success-subtle bg-light mb-3" id="aiHealthWelfarePanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Health and welfare assistant</strong><div class="small text-muted">Aggregate health signals only; no diagnosis, learner identity disclosure, or record changes.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiHealthWelfare"><i class="bi bi-stars me-1"></i>Review welfare signals</button></div><div id="aiHealthWelfareReviews" class="row g-2 mt-2"></div></div></div>
 
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
@@ -171,4 +172,5 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/sick_bay.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_health_welfare.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => sickBayController.init());</script>

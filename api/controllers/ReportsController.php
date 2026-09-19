@@ -3,6 +3,11 @@ namespace App\API\Controllers;
 
 use App\API\Modules\reports\ReportsAPI;
 use Exception;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiAnalyticsInsightService;
+use App\API\Services\AiWorkflowService;
+use App\API\Services\NlqQueryService;
+use DomainException;
 
 /**
  * ReportsController - REST endpoints for all reporting operations
@@ -25,6 +30,22 @@ class ReportsController extends BaseController
     public function index()
     {
         return $this->success(['message' => 'Reports API is running']);
+    }
+
+    /** POST /api/reports/ai-research — sources are loaded server-side only. */
+    public function postAiResearch($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasPermission('ai_research')) return $this->forbidden('Research AI permission is required');
+        $question = trim((string) ($data['question'] ?? ''));
+        if ($question === '') return $this->badRequest('A research question is required');
+        try {
+            $sources = $this->contract('App\\API\\Services\\ResearchSourceCatalog')->approved();
+            return $this->success($this->contract('App\\API\\Services\\ResearchAiAssistantService')->ask($question, $sources), 'Research answer generated');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->serverError('Research assistance is temporarily unavailable');
+        }
     }
 
     // --- Governed enterprise analytics ---
@@ -107,6 +128,104 @@ class ReportsController extends BaseController
         } catch (\Throwable $e) {
             return $this->analyticsError($e);
         }
+    }
+
+    /** POST /api/reports/ai-kpi-brief-queue */
+    public function postAiKpiBriefQueue($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_report_execute')) return $guard;
+        $code = (string) ($id ?? $data['report_code'] ?? '');
+        if ($code === '') return $this->badRequest('Report code is required');
+        try {
+            $filters = isset($data['filters']) && is_array($data['filters']) ? $data['filters'] : [];
+            $queued = $this->contract(AiAnalyticsInsightService::class)->queue(
+                $code,
+                $filters,
+                $this->user,
+                (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId)
+            );
+            return $this->accepted($queued, 'Report explanation queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    /** GET /api/reports/ai-kpi-briefs?scope=own|review */
+    public function getAiKpiBriefs($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiReport()) return $this->forbidden('Report review permission is required');
+        try {
+            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'reports'
+            ), 'scope' => $review ? 'review' : 'own'], 'Report AI briefs retrieved');
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    /** POST /api/reports/ai-kpi-brief-approve/{id} */
+    public function postAiKpiBriefApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiReport()) return $this->forbidden('Report review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'reports.kpi_brief');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Report explanation approved for staff guidance');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    /**
+     * POST /api/reports/nlq
+     * Governed "talk to your data": the provider parses the staff question into
+     * a report intent; the server validates it against the caller's authorized
+     * catalogue and executes deterministically through the governed ReportsAPI.
+     */
+    public function postNlq($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $question = (string) ($data['question'] ?? '');
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $result = $this->contract(NlqQueryService::class)->ask(
+                $this->getDb()->getConnection(),
+                [
+                    'user_id' => $userId,
+                    'roles' => $this->user['roles'] ?? [],
+                    'permissions' => $permissions,
+                    'effective_permissions' => $permissions,
+                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                    'audience' => 'staff',
+                ],
+                $question
+            );
+            return $this->success($result, 'Assistant answer prepared');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    private function aiReportContext(): array
+    {
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+    }
+
+    private function canApproveAiReport(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('reports.kpi_brief', $this->aiReportContext()); return true; } catch (DomainException $e) { return false; }
     }
     // --- Enrollment Summary (alias for Director dashboard) ---
     public function getEnrollmentSummary($id = null, $data = [], $segments = [])

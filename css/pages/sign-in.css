@@ -14,6 +14,11 @@ body.auth-page { margin:0; color:#1f332a; background:#f7faf8; font-family:Inter,
 .auth-card { width:100%; max-width:520px; margin:auto; background:#fff; border:1px solid #e3ebe7; border-radius:1.25rem; padding:clamp(1.6rem,4vw,3rem); box-shadow:0 1.2rem 3.4rem rgba(18,63,43,.09); }.auth-card h2 { margin:.45rem 0 .5rem; font-weight:750; }.auth-card .form-control,.auth-card .input-group-text,.auth-card .btn { min-height:48px; }.auth-card .form-control { border-color:#dce5e0; }.auth-card .input-group-text { background:#f6f9f7; color:var(--auth-green); border-color:#dce5e0; }.auth-submit { font-weight:700; }.auth-divider { display:flex; align-items:center; gap:1rem; margin:1.3rem 0; color:#87928c; font-size:.8rem; }.auth-divider::before,.auth-divider::after { content:''; height:1px; background:#e2e8e5; flex:1; }.auth-code { letter-spacing:.32em; font-weight:800; }.auth-change-account { min-height:auto!important; }.auth-help { text-align:center; color:#718078; font-size:.82rem; margin:1.2rem auto 0; }
 @media(max-width:900px){.auth-layout{display:block}.auth-story{min-height:250px;padding:1.5rem}.auth-story-copy{margin:3rem 0 1rem}.auth-story h1{font-size:2.3rem}.auth-story ul,.auth-story-foot{display:none}.auth-workspace{padding:5rem 1rem 2rem}.auth-back{top:1.5rem;left:1rem}.auth-card{padding:1.5rem}}
 
+/* "Maintained by AngiSoft Technologies" — fixed, unobtrusive footer note. */
+.auth-soft { position:fixed; bottom:.85rem; right:1.15rem; margin:0; color:rgba(255,255,255,.62); font-size:.78rem; z-index:3; }
+.auth-soft a { color:#f5d873; text-decoration:none; }
+.auth-soft a:hover { color:#fff0ad; }
+
 /* Immersive authentication shell shared by password, OTP and passkey states. */
 body.auth-page { color:#fff; background:#031c13; }
 .auth-layout {

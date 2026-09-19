@@ -64,14 +64,17 @@ class JobHandlerRegistry
                     $pdo->exec("ALTER TABLE system_realtime_events AUTO_INCREMENT = 1");
                 }
             },
-            // Read-replica integrity canary (roadmap §4.5): replica projections are VIEWS
-            // over master, so they are always current - there is nothing to
-            // rebuild. This job verifies replica-vs-master parity (and records
-            // the check in the file journal) rather than doing a materialized
-            // rebuild that could introduce staleness.
+            // Read-model health canary (roadmap §4.5). Pass-through projections
+            // are recorded as not_offloaded and are not treated as failures;
+            // only an enabled materialized projection that is stale, missing,
+            // or mismatched should fail the canary.
             'rebuild.read.replica' => static function (array $payload, PDO $pdo): void {
                 $results = \App\API\Services\ReadReplicaService::freshness();
-                $bad = array_values(array_filter($results, static fn(array $r) => empty($r['realtime'])));
+                $bad = array_values(array_filter($results, static fn(array $r) => in_array(
+                    (string) ($r['status'] ?? ''),
+                    ['materialized_unhealthy', 'unavailable_master_fallback'],
+                    true
+                )));
                 \App\API\Includes\FileLogger::write('reads', [
                     'event' => 'replica.verify',
                     'checked' => (int) count($results),
@@ -125,6 +128,37 @@ class JobHandlerRegistry
                     'status' => 'success',
                     'result_keys' => array_keys(is_array($result) ? $result : []),
                 ]);
+            },
+            'ai.workflow.draft' => static function (array $payload, PDO $pdo): void {
+                $workflowId = (string) ($payload['workflow_id'] ?? '');
+                $input = isset($payload['input']) && is_array($payload['input']) ? $payload['input'] : [];
+                if ($workflowId === '') {
+                    throw new RuntimeException('ai.workflow.draft: missing workflow_id');
+                }
+                (new AiDraftService())->create($pdo, $workflowId, [
+                    'user_id' => (int) ($payload['user_id'] ?? 0),
+                    'permissions' => isset($payload['permissions']) && is_array($payload['permissions'])
+                        ? $payload['permissions'] : [],
+                    'request_id' => (string) ($payload['request_id'] ?? ''),
+                ], $input, isset($payload['metadata']) && is_array($payload['metadata'])
+                    ? $payload['metadata'] : []);
+            },
+            'ai.analytics.insight' => static function (array $payload, PDO $pdo): void {
+                (new AiAnalyticsInsightService())->execute($pdo, $payload);
+            },
+            // Proactive AI briefing (roadmap P3b): the worker re-authorizes with
+            // the recorded operator context (no broadened scope), re-runs the
+            // deterministic engine, and creates a reviewable draft or caches the
+            // deterministic summary for page-load delivery. Never a second queue.
+            'ai.insight.generate' => static function (array $payload, PDO $pdo): void {
+                (new AiInsightOrchestrator())->execute($pdo, $payload);
+            },
+            // KICD policy-watch interpretation (roadmap P3b): the worker
+            // re-authorizes the governed curriculum workflow with the recorded
+            // operator and stores a reviewable draft. The provider call happens
+            // here, never in a controller or on page load.
+            'curriculum.policy_interpret' => static function (array $payload, PDO $pdo): void {
+                (new CurriculumPolicyWatchAgent())->interpret($pdo, $payload);
             },
             // Extend here with 'generate_report_card' => ..., 'send_bulk_sms' => ...
             // only once the producing workflow pushes and consumes them.

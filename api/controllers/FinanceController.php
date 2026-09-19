@@ -17,6 +17,9 @@ use App\API\Services\payments\PaymentRoutingService;
 use App\API\Services\payments\KcbFundsTransferService;
 use App\API\Services\payments\KcbTransferReconciliationService;
 use App\API\Services\FinancialReconciliationService;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 
 /**
  * FinanceController - REST endpoints for all finance operations
@@ -493,6 +496,115 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         return $this->success(['cases' => ($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->listUnmatchedCases(['status' => $_GET['status'] ?? 'unmatched'])]);
+    }
+
+    /** POST /api/finance/ai-reconciliation-review-queue */
+    public function postAiReconciliationReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiReconciliation()) return $this->forbidden('Finance reconciliation permission is required');
+        try {
+            $cases = ($this->contract('App\\API\\Services\\payments\\PaymentRoutingService', Database::getInstance()->getConnection()))
+                ->listUnmatchedCases(['status' => 'unmatched']);
+            if ($cases === []) return $this->badRequest('There are no unmatched payment cases to review.');
+
+            $createdAt = array_filter(array_map(static fn(array $case): int => strtotime((string) ($case['created_at'] ?? '')) ?: 0, $cases));
+            $amounts = array_map(static fn(array $case): float => (float) ($case['amount'] ?? 0), $cases);
+            $maxAmount = $amounts ? max($amounts) : 0.0;
+            $amountBand = $maxAmount <= 10000 ? '0-10,000' : ($maxAmount <= 100000 ? '10,001-100,000' : '100,001+');
+            $providers = array_values(array_unique(array_filter(array_map(static fn(array $case): string => (string) ($case['provider_code'] ?? ''), $cases))));
+            $input = [
+                'unmatched_count' => (string) count($cases),
+                'days_open' => (string) max(0, (int) floor((time() - ($createdAt ? min($createdAt) : time())) / 86400)),
+                'amount_band' => 'KES ' . $amountBand,
+                'currency' => 'KES',
+                'provider' => implode(', ', array_slice($providers, 0, 10)) ?: 'mixed providers',
+                'reconciliation_rule' => 'Review reference, account routing, duplicate risk, and missing evidence before deterministic resolution.',
+            ];
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'finance.reconciliation_review',
+                $this->aiFinanceContext(),
+                $input,
+                [
+                    'subject_type' => 'finance_reconciliation_review',
+                    'subject_id' => 0,
+                    'scope' => 'unmatched_payment_cases',
+                    'provider' => $input['provider'],
+                    'amount_band' => $input['amount_band'],
+                    'currency' => 'KES',
+                    'reconciliation_rule' => 'deterministic_match_and_human_resolution',
+                ]
+            );
+            return $this->accepted($queued, 'Finance reconciliation review queued');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI reconciliation queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue finance reconciliation assistance');
+        }
+    }
+
+    /** GET /api/finance/ai-reconciliation-drafts?scope=own|review */
+    public function getAiReconciliationDrafts($id = null, $data = [], $segments = [])
+    {
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->canApproveAiReconciliation()) return $this->forbidden('Senior finance reconciliation permission is required');
+        try {
+            return $this->success([
+                'drafts' => $this->contract(AiDraftService::class)->listForReview(
+                    $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'finance'
+                ),
+                'scope' => $review ? 'review' : 'own',
+            ], 'Finance reconciliation AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI reconciliation list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load finance reconciliation assistance');
+        }
+    }
+
+    /** POST /api/finance/ai-reconciliation-draft-approve/{id} */
+    public function postAiReconciliationDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiReconciliation()) return $this->forbidden('Senior finance reconciliation permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'finance.reconciliation_review');
+            return $this->success([
+                'draft_id' => $draftId,
+                'status' => 'approved',
+                'review_only' => true,
+                'draft' => $approved['draft'] ?? [],
+            ], 'AI review approved; reconcile or resolve through the normal finance workflow');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FinanceController] AI reconciliation approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve finance reconciliation assistance');
+        }
+    }
+
+    private function aiFinanceContext(): array
+    {
+        return [
+            'user_id' => (int) ($this->getUserId() ?? 0),
+            'permissions' => array_values(array_unique(array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+        ];
+    }
+
+    private function canUseAiReconciliation(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('finance.reconciliation_review', $this->aiFinanceContext()); return true; }
+        catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiReconciliation(): bool
+    {
+        return $this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [3, 4, 10], ['accountant', 'finance', 'admin']);
     }
 
     /** POST /api/finance/payment-references */

@@ -66,7 +66,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $targetTermId = $this->resolveTargetTermId($data);
             $intake = $this->requireOpenAdmissionWindow($targetTermId, $normalizedGrade, $admissionCategory);
             $targetTermId = (int) $intake['academic_year_term_id'];
-            $academicYear = (int) substr((string) $intake['year_code'], -4);
+            // The normalized academic_year value is the start year used by
+            // ExtraChargeService and the legacy application-number index.
+            // For a code such as 2026/2027, using the trailing year makes the
+            // application impossible to resolve back to academic_years.id.
+            $academicYear = (int) preg_replace('/[^0-9].*$/', '', (string) $intake['year_code']);
             $admissionCategory = $intake['default_admission_category'] ?: $admissionCategory;
             $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
             $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
@@ -113,8 +117,6 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'application_source' => $applicationSource,
                 'admission_category' => $admissionCategory,
                 'target_term_id' => $targetTermId,
-                'admission_window_id' => (int) $intake['id'],
-                'academic_year' => $intake['year_code'],
                 'requires_interview' => $requiresInterview,
                 'interview_policy_reason' => $interviewReason,
                 'prev_school' => $data['previous_school'] ?? $data['child_prev_school'] ?? null,
@@ -239,14 +241,22 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $params[] = $email;
             }
             $stmt = $this->db->prepare(
-                "SELECT pr.id FROM parents pr JOIN persons pe ON pe.id = pr.person_id
+                "SELECT pr.id AS parent_id, pe.id AS person_id
+                 FROM parents pr JOIN persons pe ON pe.id = pr.person_id
                  WHERE " . implode(' OR ', $criteria) . " LIMIT 1"
             );
             $stmt->execute($params);
-            $existing = $stmt->fetchColumn();
-            if ($existing) {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
                 $this->parentPreExisting = true;
-                return (int) $existing;
+                if ($phone !== '' || $nationalId !== '' || $email !== '') {
+                    $this->backfillPersonIdentity((int) $row['person_id'], [
+                        'phone' => $phone,
+                        'national_id_no' => $nationalId,
+                        'email' => $email,
+                    ]);
+                }
+                return (int) $row['parent_id'];
             }
         }
 
@@ -272,6 +282,13 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt->execute($params);
             $personId = $stmt->fetchColumn();
             if ($personId) {
+                if ($phone !== '' || $nationalId !== '' || $email !== '') {
+                    $this->backfillPersonIdentity((int) $personId, [
+                        'phone' => $phone,
+                        'national_id_no' => $nationalId,
+                        'email' => $email,
+                    ]);
+                }
                 return $this->createParentForPerson((int) $personId, $address);
             }
         }
@@ -298,6 +315,36 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $personId = (int) $this->db->lastInsertId();
 
         return $this->createParentForPerson($personId, $address);
+    }
+
+    /**
+     * Backfill the submitted public-form identity onto an existing person.
+     *
+     * The public application may match an existing parent/person on a single
+     * criterion (typically email). The freshly-typed phone / national ID /
+     * email is persisted ONLY where the stored column is currently empty, so
+     * partial records (historically common in admissions) self-heal without
+     * silently overwriting existing values.
+     */
+    private function backfillPersonIdentity(int $personId, array $identity): void
+    {
+        $sets  = [];
+        $params = [];
+        foreach (['phone', 'national_id_no', 'email'] as $column) {
+            $value = trim((string) ($identity[$column] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $sets[]  = "{$column} = COALESCE(NULLIF({$column}, ''), ?)";
+            $params[] = $value;
+        }
+        if ($sets === [] || $personId <= 0) {
+            return;
+        }
+        $params[] = $personId;
+        $this->db->prepare(
+            'UPDATE persons SET ' . implode(', ', $sets) . ' WHERE id = ?'
+        )->execute($params);
     }
 
     private function createParentForPerson(int $personId, string $address = ''): int
@@ -1860,9 +1907,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     // ========================================================================
 
     private function generateApplicationNumber($year) {
-        $sql = "SELECT COUNT(*) + 1 as next_num 
-                FROM admission_applications 
-                WHERE academic_year = :year";
+        // COUNT(*) is not a safe sequence source after rolled-back/deleted
+        // applications or older records imported with the same year. Use the
+        // greatest persisted suffix and keep the unique application number
+        // invariant under retries and historical data.
+        $sql = "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(application_no, '/', -1) AS UNSIGNED)), 0) + 1 AS next_num
+                FROM admission_applications
+                WHERE application_no LIKE CONCAT('ADM/', :year, '/%')";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['year' => $year]);
         $num = $stmt->fetchColumn();

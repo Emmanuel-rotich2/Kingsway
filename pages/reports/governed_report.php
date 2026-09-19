@@ -33,6 +33,7 @@ $governedPrimaryVisual = $governedPrimaryVisual ?? 'bar';
       <div class="btn-group btn-group-sm" id="analyticsExportButtons"></div>
     </div>
     <div class="row g-2 mb-3" id="analyticsSummary"></div><div class="alert alert-warning py-2" id="analyticsWarnings" hidden></div>
+    <div class="card border-success-subtle bg-light mb-3"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>AI report explanation</strong><div class="small text-muted">Explains governed results and suggests follow-up questions. It does not calculate or change report data.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiKpiBrief"><i class="bi bi-stars me-1"></i>Explain this report</button></div><div id="aiKpiBriefs" class="row g-2 mt-2"></div></div></div>
     <div class="row g-3 mb-3" id="analyticsVisualRegion">
       <div class="col-xl-7"><div class="kw-report-panel h-100"><div class="kw-report-panel__head"><div><div class="kw-report-eyebrow">Visual analysis</div><h3 class="h6 mb-0" id="analyticsPrimaryVisualTitle">Report pattern</h3></div></div><div class="kw-report-panel__body kw-chart" id="analyticsPrimaryVisual"><canvas id="analyticsPrimaryChart"></canvas></div></div></div>
       <div class="col-xl-5"><div class="kw-report-panel h-100"><div class="kw-report-panel__head"><div><div class="kw-report-eyebrow">Cross-tabulation</div><h3 class="h6 mb-0">Pivot summary</h3></div></div><div class="kw-report-panel__body" id="analyticsPivot"></div></div></div>
@@ -43,3 +44,4 @@ $governedPrimaryVisual = $governedPrimaryVisual ?? 'bar';
 </div>
 <?php asset_script($appBase, 'js/reports/report_components.js'); ?>
 <?php asset_script($appBase, 'js/pages/analytics_catalogue.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_kpi_brief.js'); ?>

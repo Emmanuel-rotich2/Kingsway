@@ -85,16 +85,18 @@ class DisbursementManager
 
     public function payrollSourceAllocationRows(int $payrollId): array
     {
-        $scope = DataScopeService::current();
-        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? AND data_scope=? LIMIT 1');
-        $run->execute([$payrollId,$scope]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        [$rScope, $rParams] = DataScopeService::predicateFor('payroll_runs');
+        $run = $this->db->prepare("SELECT id,month,year,status,data_scope FROM payroll_runs WHERE id=? AND $rScope LIMIT 1");
+        $run->execute(array_merge([$payrollId], $rParams)); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND pr.data_scope=? AND ps.data_scope=? LIMIT 1');
-            $run->execute([$payrollId,$scope,$scope]); $period = $run->fetch(PDO::FETCH_ASSOC);
+            [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
+            [$pScope, $pParams] = DataScopeService::predicateFor('payslips', 'ps');
+            $run = $this->db->prepare("SELECT pr.id,pr.month,pr.year,pr.status,pr.data_scope FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND $prScope AND $pScope LIMIT 1");
+            $run->execute(array_merge([$payrollId], $prParams, $pParams)); $period = $run->fetch(PDO::FETCH_ASSOC);
         }
         if (!$period) throw new Exception('Payroll run not found.');
         $q=$this->db->prepare("SELECT ps.id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(p.first_name,' ',p.last_name) staff_name FROM payslips ps JOIN staff s ON s.id=ps.staff_id JOIN persons p ON p.id=s.person_id WHERE ps.payroll_month=? AND ps.payroll_year=? AND ps.data_scope=? ORDER BY p.last_name,p.first_name");
-        $q->execute([$period['month'],$period['year'],$scope]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
+        $q->execute([$period['month'],$period['year'],$period['data_scope']]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
     }
 
     /**
@@ -527,19 +529,22 @@ class DisbursementManager
      */
     public function getDisbursementReport($payrollId)
     {
-        $scope = DataScopeService::current();
+        [$rScope, $rParams] = DataScopeService::predicateFor('payroll_runs');
+        $run = $this->db->prepare("SELECT month, year, data_scope FROM payroll_runs WHERE id = ? AND $rScope LIMIT 1");
+        $run->execute(array_merge([$payrollId], $rParams));
+        $runInfo = $run->fetch(PDO::FETCH_ASSOC);
+        if (!$runInfo) throw new Exception('Payroll run not found in the active workspace');
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, st.staff_no AS employee_number,
                     ps.payment_method, ps.payment_status AS status
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
-             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND data_scope=?)
-               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND data_scope=?)
+             WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                AND ps.data_scope=? AND st.data_scope=?
              ORDER BY ps.payment_status DESC, p.last_name ASC"
         );
-        $stmt->execute([$payrollId, $scope, $payrollId, $scope, $scope, $scope]);
+        $stmt->execute([$runInfo['month'], $runInfo['year'], $runInfo['data_scope'], $runInfo['data_scope']]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -548,18 +553,24 @@ class DisbursementManager
      */
     public function getFailedPayments($payrollId)
     {
-        $scope = DataScopeService::current();
+        [$psScopeSql, $psScopeParams] = DataScopeService::predicateFor('payslips', 'ps');
+        [$stScopeSql, $stScopeParams] = DataScopeService::predicateFor('staff', 'st');
+        [$prScopeSql, $prScopeParams] = DataScopeService::predicateFor('payroll_runs');
         $stmt = $this->db->prepare(
-            "SELECT ps.*, p.first_name, p.last_name
+            "SELECT ps.*, p.first_name, p.first_name AS first_name, p.last_name
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
-             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND data_scope=?)
-               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND data_scope=?)
-               AND ps.data_scope=? AND st.data_scope=?
+             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND $prScopeSql)
+               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND $prScopeSql)
+               AND $psScopeSql AND $stScopeSql
                AND ps.payment_status = 'failed'"
         );
-        $stmt->execute([$payrollId, $scope, $payrollId, $scope, $scope, $scope]);
+        $stmt->execute(array_merge(
+            [$payrollId], $prScopeParams,
+            [$payrollId], $prScopeParams,
+            $psScopeParams, $stScopeParams
+        ));
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

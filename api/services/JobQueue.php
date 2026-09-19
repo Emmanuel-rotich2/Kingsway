@@ -32,6 +32,7 @@ final class JobQueue
 
     private const MAX_ATTEMPTS = 20;
     private const MAX_BACKOFF = 3600;
+    private const MAX_PAYLOAD_BYTES = 131072;
 
     /**
      * Enqueue a background job.
@@ -60,27 +61,64 @@ final class JobQueue
             $payload,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         );
+        if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) {
+            throw new \InvalidArgumentException('Background job payload exceeds the 128 KB limit.');
+        }
+
+        $idempotencyKey = trim((string) ($payload['idempotency_key'] ?? ''));
+        if ($idempotencyKey !== '' && (strlen($idempotencyKey) > 128 || preg_match('/^[A-Za-z0-9._:-]+$/', $idempotencyKey) !== 1)) {
+            throw new \InvalidArgumentException('Background job idempotency key is invalid.');
+        }
 
         return ConnectionManager::run(static function (PDO $pdo) use (
             $jobType,
             $encoded,
+            $idempotencyKey,
             $availableAt,
             $maxAttempts,
             $backoffSeconds
         ): int {
+            $lockName = '';
+            if ($idempotencyKey !== '') {
+                // MySQL named locks serialize only the same idempotency key and
+                // are released in finally, including worker/request failure.
+                $lockName = 'KingswayJob:' . hash('sha256', $jobType . ':' . $idempotencyKey);
+                $lock = $pdo->prepare('SELECT GET_LOCK(?, 5)');
+                $lock->execute([$lockName]);
+                if ((int) $lock->fetchColumn() !== 1) {
+                    throw new RuntimeException('Unable to acquire the job idempotency lock.');
+                }
+                try {
+                    $existing = $pdo->prepare(
+                        "SELECT id FROM jobs_queue
+                         WHERE job_type = ?
+                           AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.idempotency_key')) = ?
+                           AND status IN (?, ?, ?)
+                         ORDER BY id DESC LIMIT 1"
+                    );
+                    $existing->execute([$jobType, $idempotencyKey, self::STATUS_PENDING, self::STATUS_PROCESSING, self::STATUS_DONE]);
+                    $existingId = $existing->fetchColumn();
+                    if ($existingId !== false) return (int) $existingId;
+
+                    $stmt = $pdo->prepare(
+                        "INSERT INTO jobs_queue
+                            (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                         VALUES (?, ?, 0, ?, ?, ?, ?)"
+                    );
+                    $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
+                    return (int) $pdo->lastInsertId();
+                } finally {
+                    $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+                    $release->execute([$lockName]);
+                }
+            }
+
             $stmt = $pdo->prepare(
                 "INSERT INTO jobs_queue
                     (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
                  VALUES (?, ?, 0, ?, ?, ?, ?)"
             );
-            $stmt->execute([
-                $jobType,
-                $encoded,
-                $maxAttempts,
-                $backoffSeconds,
-                self::STATUS_PENDING,
-                $availableAt,
-            ]);
+            $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
             return (int) $pdo->lastInsertId();
         }, ConnectionManager::NS_BUFFERS);
     }
@@ -312,6 +350,72 @@ final class JobQueue
             );
             $stmt->execute();
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Deterministic queue-health snapshot for observability surfaces.
+     *
+     * Returns counts by status plus dead-letter totals and staleness signals.
+     * Stale = a pending/processing job whose updated_at predates the lease
+     * window (15 minutes) and is therefore presumed orphaned.
+     *
+     * @return array{
+     *      generated_at:string, statuses:array<string,int>,
+     *      deadline_letter_total:int, dead_letter_24h:int,
+     *      stale_processing:int, stale_pending:int,
+     *      oldest_processing_minutes:int, oldest_pending_minutes:int,
+     *      jobs_total:int
+     * }
+     */
+    public static function statusSummary(): array
+    {
+        return ConnectionManager::run(static function (PDO $pdo): array {
+            $statuses = [
+                self::STATUS_PENDING => 0,
+                self::STATUS_PROCESSING => 0,
+                self::STATUS_DONE => 0,
+                self::STATUS_FAILED => 0,
+                self::STATUS_CANCELLED => 0,
+            ];
+            foreach ($pdo->query('SELECT status, COUNT(*) AS total FROM jobs_queue GROUP BY status')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $status = (string) $row['status'];
+                if (isset($statuses[$status])) {
+                    $statuses[$status] = (int) $row['total'];
+                }
+            }
+
+            $staleQ = $pdo->prepare(
+                "SELECT
+                    SUM(CASE WHEN status = 'processing' AND updated_at < NOW() - INTERVAL 15 MINUTE THEN 1 ELSE 0 END) AS stale_processing,
+                    SUM(CASE WHEN status = 'pending' AND available_at <= NOW() AND updated_at < NOW() - INTERVAL 15 MINUTE THEN 1 ELSE 0 END) AS stale_pending,
+                    MAX(CASE WHEN status = 'processing' THEN TIMESTAMPDIFF(MINUTE, updated_at, NOW()) ELSE 0 END) AS oldest_processing_minutes,
+                    MAX(CASE WHEN status = 'pending' AND available_at <= NOW() THEN TIMESTAMPDIFF(MINUTE, updated_at, NOW()) ELSE 0 END) AS oldest_pending_minutes
+                 FROM jobs_queue"
+            );
+            $staleQ->execute();
+            $stale = $staleQ->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $dl = $pdo->prepare(
+                "SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN dead_lettered_at >= NOW() - INTERVAL 24 HOUR THEN 1 ELSE 0 END) AS last_24h
+                 FROM dead_letter_queue"
+            );
+            $dl->execute();
+            $deadLetter = $dl->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            return [
+                'generated_at' => date('Y-m-d H:i:s'),
+                'statuses' => $statuses,
+                'jobs_total' => array_sum($statuses),
+                'dead_letter_total' => (int) ($deadLetter['total'] ?? 0),
+                'dead_letter_24h' => (int) ($deadLetter['last_24h'] ?? 0),
+                'stale_processing' => (int) ($stale['stale_processing'] ?? 0),
+                'stale_pending' => (int) ($stale['stale_pending'] ?? 0),
+                'oldest_processing_minutes' => max(0, (int) ($stale['oldest_processing_minutes'] ?? 0)),
+                'oldest_pending_minutes' => max(0, (int) ($stale['oldest_pending_minutes'] ?? 0)),
+            ];
         }, ConnectionManager::NS_BUFFERS);
     }
 

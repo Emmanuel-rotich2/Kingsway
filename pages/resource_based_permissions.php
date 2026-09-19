@@ -120,10 +120,29 @@
             </div>
         </div>
 
+        <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkDeleteBtn">
+                    <i class="bi bi-trash me-1"></i> Delete selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead>
+                <thead id="resourcePermissionsTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all permissions"
+                            >
+                        </th>
                         <th scope="col">Permission code</th>
                         <th scope="col">Resource</th>
                         <th scope="col">Action</th>

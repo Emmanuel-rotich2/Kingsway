@@ -64,11 +64,12 @@
     if (state.loading) return;
     setLoading(true);
     try {
-      const [dashboardResponse, lowStockResponse] = await Promise.all([
+      const [inventoryResponse, dashboardResponse, lowStockResponse] = await Promise.all([
+        window.API.inventory.getDashboard(),
         window.API.inventory.getUniformDashboard(),
         window.API.inventory.getLowStockUniforms(),
       ]);
-      const uniform = unwrap(dashboardResponse);
+      const uniform = { ...unwrap(inventoryResponse), ...unwrap(dashboardResponse) };
       const stock = uniform.inventory_status || {};
       const monthly = uniform.monthly_metrics || {};
       const topItems = Array.isArray(uniform.top_selling_items) ? uniform.top_selling_items : [];

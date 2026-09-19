@@ -2,7 +2,12 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
 use App\API\Services\DataScopeService;
+use App\API\Services\EmailProfileService;
+use App\API\Services\EmailInboxService;
+use DomainException;
 use Exception;
 
 /**
@@ -145,7 +150,8 @@ use Exception;
  *
  * Notes & Integration:
  *  - All heavy lifting is delegated to App\API\Modules\communications\CommunicationsAPI.
- *  - Callback endpoints log raw payloads (via error_log) for audit/debug.
+ *  - Callback endpoints use the application file-journal logging policy for
+ *    audit/debug without writing directly to the PHP error log.
  *  - Where endpoints require an identifier or specific data keys, controller
  *    returns badRequest() immediately if requirements are not met.
  *  - This controller is intended to be invoked by a router which passes $id,
@@ -162,11 +168,20 @@ class CommunicationsController extends BaseController
      * @var CommunicationsAPI
      */
     private $api;
+    private EmailProfileService $emailProfileService;
+    private EmailInboxService $emailInboxService;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = $this->contract('App\API\Modules\communications\CommunicationsAPI');
+        $this->emailProfileService = $this->contract('App\API\Services\EmailProfileService',
+            $this->getDb()->getConnection()
+        );
+        $this->emailInboxService = $this->contract('App\API\Services\EmailInboxService',
+            $this->getDb()->getConnection(),
+            $this->emailProfileService
+        );
     }
 
     public function index()
@@ -178,6 +193,165 @@ class CommunicationsController extends BaseController
             'user_id' => (int) $this->getUserId(),
             'visibility' => $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged'),
         ]));
+    }
+
+    /** POST /api/communications/ai-message-draft-queue */
+    public function postAiMessageDraftQueue($id = null, $data = [], $segments = [])
+    {
+        $context = $this->aiCommunicationContext();
+        try {
+            $this->contract(AiWorkflowService::class)->authorize('communications.parent_message_draft', $context);
+        } catch (DomainException $e) {
+            return $this->forbidden('Communication AI assistance is not available for your account');
+        }
+        $input = [
+            'purpose' => trim((string) ($data['purpose'] ?? '')),
+            'audience' => trim((string) ($data['audience'] ?? '')),
+            'tone' => trim((string) ($data['tone'] ?? 'professional')),
+            'facts' => $data['facts'] ?? '',
+            'deadline' => trim((string) ($data['deadline'] ?? '')),
+            'channel' => strtolower(trim((string) ($data['channel'] ?? 'email'))),
+        ];
+        if ($input['purpose'] === '' || $input['audience'] === '' || $input['facts'] === '') {
+            return $this->badRequest('Purpose, audience, and approved facts are required');
+        }
+        if (!in_array($input['channel'], ['email', 'sms', 'whatsapp', 'internal'], true)) {
+            return $this->badRequest('Unsupported communication channel');
+        }
+        if (!in_array($input['audience'], ['all_parents', 'selected_parents', 'selected_class', 'all_staff', 'selected_staff'], true)) {
+            return $this->badRequest('Unsupported communication audience');
+        }
+        if (is_string($input['facts']) && mb_strlen($input['facts']) > 4000) {
+            return $this->badRequest('Approved facts are too long');
+        }
+
+        try {
+            $service = $this->contract(AiDraftService::class);
+            $queued = $service->queue(
+                'communications.parent_message_draft',
+                $context,
+                $input,
+                [
+                    'subject_type' => 'communication_draft',
+                    'subject_id' => 0,
+                    'channel' => $input['channel'],
+                    'audience' => $input['audience'],
+                ]
+            );
+            return $this->accepted($queued, 'Communication draft queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] AI draft queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue communication assistance');
+        }
+    }
+
+    /** GET /api/communications/ai-drafts?scope=own|review */
+    public function getAiDrafts($id = null, $data = [], $segments = [])
+    {
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->canApproveAiCommunication()) {
+            return $this->forbidden('Communication approval permission is required to review AI drafts');
+        }
+
+        try {
+            $service = $this->contract(AiDraftService::class);
+            return $this->success([
+                'drafts' => $service->listForReview(
+                    $this->getDb()->getConnection(),
+                    (int) ($this->getUserId() ?? 0),
+                    $review,
+                    'communications'
+                ),
+                'scope' => $review ? 'review' : 'own',
+            ], 'Communication AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] AI draft list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load communication assistance');
+        }
+    }
+
+    /** POST /api/communications/ai-draft-approve/{id} */
+    public function postAiDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiCommunication()) {
+            return $this->forbidden('Communication approval permission is required to approve AI drafts');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+
+        try {
+            $service = $this->contract(AiDraftService::class);
+            $approved = $service->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'communications.parent_message_draft');
+            $metadata = (array) ($approved['metadata'] ?? []);
+            if (!empty($metadata['materialized_communication_id'])) {
+                return $this->success($approved + ['communication_id' => (int) $metadata['materialized_communication_id']], 'Communication draft already prepared');
+            }
+
+            $draft = (array) ($approved['draft'] ?? []);
+            $channel = strtolower((string) ($metadata['channel'] ?? 'email'));
+            $audience = (string) ($metadata['audience'] ?? '');
+            if (!in_array($channel, ['email', 'sms', 'whatsapp', 'internal'], true) || $audience === '') {
+                throw new DomainException('The approved communication draft has incomplete delivery metadata.', 422);
+            }
+            $communication = $this->api->createCommunication([
+                'sender_id' => (int) ($this->getUserId() ?? 0),
+                'subject' => (string) ($draft['title'] ?? 'AI communication draft'),
+                'body' => (string) ($draft['body'] ?? ''),
+                'type' => $channel,
+                'status' => 'draft',
+                'audit_bcc' => 1,
+                'recipient_type' => $audience,
+                'sender_signature' => json_encode([
+                    'ai_draft_id' => $draftId,
+                    'created_by_ai' => true,
+                    'requires_recipient_review' => true,
+                ], JSON_UNESCAPED_SLASHES),
+            ]);
+            $communicationId = (int) ($communication['id'] ?? $communication['communication_id'] ?? 0);
+            if ($communicationId < 1) {
+                throw new DomainException('Communication draft could not be created.', 500);
+            }
+            $service->markMaterialized($this->getDb()->getConnection(), $draftId, $communicationId);
+            return $this->success([
+                'draft_id' => $draftId,
+                'communication_id' => $communicationId,
+                'status' => 'draft',
+            ], 'AI content approved and saved as a communication draft');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] AI draft approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve communication assistance');
+        }
+    }
+
+    private function aiCommunicationContext(): array
+    {
+        return [
+            'user_id' => (int) ($this->getUserId() ?? 0),
+            'permissions' => array_values(array_unique(array_merge(
+                (array) ($this->user['effective_permissions'] ?? []),
+                (array) ($this->user['permissions'] ?? [])
+            ))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+        ];
+    }
+
+    private function canApproveAiCommunication(): bool
+    {
+        $context = $this->aiCommunicationContext();
+        try {
+            $this->contract(AiWorkflowService::class)->authorize(
+                'communications.parent_message_draft',
+                $context
+            );
+            return true;
+        } catch (DomainException $e) {
+            return false;
+        }
     }
 
     /** Internal worker endpoint for systemd/cron when CLI PHP lacks pdo_mysql. */
@@ -694,6 +868,7 @@ class CommunicationsController extends BaseController
         $teacherRoles = [7, 8, 9];
         if (array_intersect($roles, $teacherRoles) && !array_intersect($roles, $fullAudienceRoles) && !in_array($audience, ['selected_students', 'selected_class', 'selected_parents'], true)) return $this->forbidden('Your role may message only assigned learner and parent audiences.');
         if (in_array($audience, ['selected_vendors', 'all_vendors'], true) && !array_intersect($roles, [2, 3, 4, 10])) return $this->forbidden('Vendor messaging is restricted to finance and school management roles.');
+        $data['audit_bcc'] = 1;
         return $this->handleResponse($this->api->createCommunication($data));
     }
     public function postDispatchCommunication($id = null, $data = [], $segments = [])
@@ -981,5 +1156,123 @@ class CommunicationsController extends BaseController
             return $this->success($result);
         }
         return $this->success($result);
+    }
+
+    /**
+     * School-domain mailbox endpoints. Access rule: School Admin (role 4) sees ALL
+     * profiles; any other authenticated staff role sees only profiles whose
+     * assigned_role_ids intersect their own role IDs. System Administrator is not
+     * granted mailbox visibility here — configuration only.
+     */
+
+    private function accessibleMailboxProfiles(): array
+    {
+        $roles = $this->getUserRoleIds();
+        $isSchoolAdmin = in_array(4, $roles, true);
+        $profiles = $this->emailProfileService->listProfiles();
+        $visible = [];
+        foreach ($profiles as $profile) {
+            if ((int) ($profile['is_active'] ?? 0) !== 1) {
+                continue;
+            }
+            if ($isSchoolAdmin) {
+                $visible[] = $profile;
+                continue;
+            }
+            $assigned = $profile['assigned_role_ids'] ?? [];
+            // Empty (NULL) assigned_role_ids means "all staff".
+            if (!is_array($assigned) || $assigned === []) {
+                $visible[] = $profile;
+                continue;
+            }
+            if (!empty(array_intersect($assigned, $roles))) {
+                $visible[] = $profile;
+            }
+        }
+        return $visible;
+    }
+
+    private function resolveAccessibleProfile(int $profileId): ?array
+    {
+        foreach ($this->accessibleMailboxProfiles() as $profile) {
+            if ((int) $profile['id'] === $profileId) {
+                return $profile;
+            }
+        }
+        return null;
+    }
+
+    private function maskProfile(array $profile): array
+    {
+        unset($profile['smtp_password'], $profile['imap_password'], $profile['smtp_pass'], $profile['imap_pass']);
+        return $profile;
+    }
+
+    public function getMailboxes($id = null, $data = [], $segments = [])
+    {
+        $profiles = array_map(fn ($p) => $this->maskProfile($p), $this->accessibleMailboxProfiles());
+        return $this->success(['mailboxes' => $profiles], 'Mailboxes retrieved');
+    }
+
+    public function getMailboxesFolders($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($id ?? 0);
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+        if (!$this->resolveAccessibleProfile($profileId)) {
+            return $this->forbidden('Mailbox not accessible to your role');
+        }
+        try {
+            $folders = $this->emailInboxService->listMailboxes($profileId);
+            return $this->success(['folders' => $folders], 'Folders retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] folder listing failed: ' . $e->getMessage());
+            return $this->badRequest('Unable to connect to mailbox. Please contact the System Administrator.');
+        }
+    }
+
+    public function getMailboxesMessages($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($id ?? 0);
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+        if (!$this->resolveAccessibleProfile($profileId)) {
+            return $this->forbidden('Mailbox not accessible to your role');
+        }
+        $folder = (string) ($data['folder'] ?? 'INBOX');
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
+        try {
+            $result = $this->emailInboxService->listMessages($profileId, $folder, $page, $perPage);
+            return $this->success($result, 'Messages retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] message listing failed: ' . $e->getMessage());
+            return $this->badRequest('Unable to read mailbox. Please contact the System Administrator.');
+        }
+    }
+
+    public function getMailboxesMessage($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($data['profile_id'] ?? $segments[0] ?? 0);
+        $messageId = (string) ($id ?? $data['message_id'] ?? '');
+        $folder = (string) ($data['folder'] ?? 'INBOX');
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+        if ($messageId === '') {
+            return $this->badRequest('Message ID required');
+        }
+        if (!$this->resolveAccessibleProfile($profileId)) {
+            return $this->forbidden('Mailbox not accessible to your role');
+        }
+        try {
+            $message = $this->emailInboxService->getMessage($profileId, $folder, $messageId);
+            return $this->success(['message' => $message], 'Message retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] message read failed: ' . $e->getMessage());
+            return $this->badRequest('Unable to read message. Please contact the System Administrator.');
+        }
     }
 }

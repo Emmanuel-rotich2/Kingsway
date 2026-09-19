@@ -195,6 +195,15 @@ if (!isset($response)) {
     $router = new Router();
     $response = $router->handle();
 }
+
+// MCP speaks the protocol's native JSON-RPC envelope. It is intentionally
+// marked by McpController so the normal application envelope does not wrap it.
+if (is_array($response) && !empty($response['mcp_raw'])) {
+    unset($response['mcp_raw']);
+    ob_end_clean();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return;
+}
 $response = \App\API\Includes\ApiResponse::normalize(
     is_array($response) ? $response : ['data' => $response]
 );

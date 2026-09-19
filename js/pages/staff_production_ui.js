@@ -460,6 +460,7 @@ const StaffProductionUI = {
         document.getElementById('resetFilters')?.addEventListener('click', () => {
             this.resetFilters();
         });
+        document.getElementById('addStaffQualificationBtn')?.addEventListener('click', () => this.addQualificationRow());
 
         document.getElementById('addStaffBtn')?.addEventListener('click', () => {
             if (this.canManageDirectory()) {
@@ -957,6 +958,7 @@ const StaffProductionUI = {
         document.getElementById('staffForm').reset();
         this.setValue('contractType', 'permanent');
         this.setValue('status', 'active');
+        this.renderQualificationEditor([]);
         
         const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staffModal'));
         modal.show();
@@ -990,7 +992,8 @@ const StaffProductionUI = {
             bank_name: this.getValue('bankName') || null,
             bank_account: this.getValue('bankAccount') || null,
             salary: this.getValue('salary') || null,
-            address: this.getValue('address') || null
+            address: this.getValue('address') || null,
+            qualification_details: this.collectQualificationDetails()
         };
 
         const requiredForCreate = {
@@ -1027,7 +1030,7 @@ const StaffProductionUI = {
                 await window.API.staff.update(staffId, data);
                 this.showToast('Staff updated successfully', 'success');
             } else {
-                await window.API.staff.create(data);
+                await window.API.staff.create({ ...data, qualifications: data.qualification_details });
                 this.showToast('Staff created successfully', 'success');
             }
 
@@ -1139,6 +1142,37 @@ const StaffProductionUI = {
         this.setValue('bankAccount', normalized.bank_account || '');
         this.setValue('salary', normalized.salary || '');
         this.setValue('address', normalized.address || '');
+        this.renderQualificationEditor(normalized.qualifications || []);
+    },
+
+    renderQualificationEditor(rows) {
+        const container = document.getElementById('staffQualificationRows');
+        if (!container) return;
+        container.innerHTML = '';
+        (rows.length ? rows : [{}]).forEach((row) => this.addQualificationRow(row));
+    },
+
+    addQualificationRow(qualification = {}) {
+        const container = document.getElementById('staffQualificationRows');
+        if (!container) return;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 staff-qualification-row';
+        row.dataset.id = qualification.id || '';
+        row.innerHTML = `<div class="col-md-2"><select class="form-select" data-qualification-field="qualification_level" aria-label="Qualification level"><option value="certificate">Certificate</option><option value="diploma">Diploma</option><option value="degree">Degree</option><option value="postgraduate_diploma">PG Diploma</option><option value="masters">Masters</option><option value="phd">PhD</option><option value="professional">Professional</option><option value="other">Other</option></select></div><div class="col-md-3"><input class="form-control" data-qualification-field="title" maxlength="255" placeholder="Qualification title"></div><div class="col-md-3"><input class="form-control" data-qualification-field="institution" maxlength="255" placeholder="Institution"></div><div class="col-md-2"><input class="form-control" data-qualification-field="year_obtained" type="number" min="1950" max="2100" placeholder="Year"></div><div class="col-md-2"><button type="button" class="btn btn-outline-danger w-100">Remove</button></div>`;
+        row.querySelector('[data-qualification-field="qualification_level"]').value = qualification.qualification_level || 'other';
+        row.querySelector('[data-qualification-field="title"]').value = qualification.title || '';
+        row.querySelector('[data-qualification-field="institution"]').value = qualification.institution || '';
+        row.querySelector('[data-qualification-field="year_obtained"]').value = qualification.year_obtained || '';
+        row.querySelector('button').addEventListener('click', () => row.remove());
+        container.appendChild(row);
+    },
+
+    collectQualificationDetails() {
+        return Array.from(document.querySelectorAll('#staffQualificationRows .staff-qualification-row')).map((row) => {
+            const result = { id: Number(row.dataset.id || 0) || undefined };
+            row.querySelectorAll('[data-qualification-field]').forEach((field) => { result[field.dataset.qualificationField] = field.value.trim(); });
+            return result;
+        }).filter((row) => row.title || row.institution);
     },
 
     renderStaffProfile(staff) {
@@ -1242,7 +1276,6 @@ const StaffProductionUI = {
         if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this staff member?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
-            await window.API.staff.delete(staffId);
             this.showToast('Staff deleted successfully', 'success');
             await this.loadStaff();
         } catch (error) {

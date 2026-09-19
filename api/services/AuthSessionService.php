@@ -12,7 +12,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Canonical lifecycle owner for authenticated staff sessions.
+ * Canonical lifecycle owner for authenticated sessions (staff and parents).
  *
  * Sessions live in the normalised `user_sessions` store (the single canonical
  * session registry; `auth_sessions` was merged here). user_sessions stores
@@ -39,15 +39,16 @@ final class AuthSessionService
      * Create a session or rotate the access-token hash for an existing session.
      * The returned ID is safe to expose as a session identifier.
      *
-     * Each user keeps one active `user_sessions` row; a re-login or refresh
-     * rotates that row's access-token hash in place so the session ID stays
-     * stable for current-session protection.
+     * By default each user keeps one active row and a re-login/refresh rotates
+     * that row. Portal callers may disable rotation to keep independent device
+     * sessions; the schema supports multiple active rows per user.
      */
     public function upsertAccessSession(
         int $userId,
         string $accessToken,
         ?int $refreshTokenId,
-        string $expiresAt
+        string $expiresAt,
+        bool $rotateExisting = true
     ): int {
         if ($userId <= 0) {
             throw new InvalidArgumentException('A valid user ID is required');
@@ -89,7 +90,7 @@ final class AuthSessionService
             $ipAddress = $this->clientIpAddress();
             $userAgent = $this->clientUserAgent();
 
-            if ($sessionId !== false && $sessionId !== null) {
+            if ($rotateExisting && $sessionId !== false && $sessionId !== null) {
                 $stmt = $this->db->prepare(
                     'UPDATE user_sessions
                      SET session_token = ?,
@@ -185,12 +186,32 @@ final class AuthSessionService
         );
         $stmt->execute([(int) $session['id']]);
 
+        // Reflect the throttled touch: after an activity write the effective
+        // last_activity is now (server clock), otherwise the stored value.
+        $lastActivity = (string) $session['last_activity'];
+        if ($stmt->rowCount() === 1) {
+            $stmt = $this->db->prepare(
+                'SELECT last_activity FROM user_sessions WHERE id = ?'
+            );
+            $stmt->execute([(int) $session['id']]);
+            $lastActivity = (string) $stmt->fetchColumn();
+        }
+
         return [
             'id' => (int) $session['id'],
             'user_id' => (int) $session['user_id'],
-            'last_activity' => $session['last_activity'],
+            'last_activity' => $lastActivity,
             'expires_at' => null,
         ];
+    }
+
+    /**
+     * The shared inactivity window (seconds) applied to every authenticated
+     * session through validateAccessToken().
+     */
+    public function idleTimeoutSeconds(): int
+    {
+        return $this->idleTimeoutSeconds;
     }
 
     /**

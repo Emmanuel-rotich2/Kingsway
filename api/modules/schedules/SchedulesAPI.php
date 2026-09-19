@@ -7,6 +7,8 @@ use App\API\Modules\schedules\SchedulesWorkflow;
 use App\API\Modules\schedules\TermHolidayManager;
 use App\API\Modules\schedules\TermHolidayWorkflow;
 use App\API\Services\CalendarSyncService;
+use App\API\Services\TeacherSpecializationService;
+use App\API\Services\TimetableAssignmentDraftValidator;
 use App\API\Services\NotificationService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
@@ -21,6 +23,7 @@ class SchedulesAPI extends BaseAPI {
     private $termHolidayManager;
     private $termHolidayWorkflow;
     private CalendarSyncService $calendarSync;
+    private TeacherSpecializationService $teacherSpecializations;
 
     public function __construct() {
         parent::__construct('schedules');
@@ -29,6 +32,7 @@ class SchedulesAPI extends BaseAPI {
         $this->termHolidayManager = new TermHolidayManager($this->db);
         $this->termHolidayWorkflow = new TermHolidayWorkflow();
         $this->calendarSync = new CalendarSyncService($this->db);
+        $this->teacherSpecializations = $this->contract(TeacherSpecializationService::class, $this->db);
         // (Instantiate other workflow handlers as needed)
     }
 
@@ -2162,6 +2166,14 @@ class SchedulesAPI extends BaseAPI {
         $id = !empty($data['id']) ? (int) $data['id'] : 0;
         $entries = is_array($data['entries'] ?? null) ? $data['entries'] : [];
         try {
+            $entries = TimetableAssignmentDraftValidator::normalize(
+                $entries,
+                !empty($data['_class_teacher_mode']) && ($data['scope'] ?? '') === 'lower_primary'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return errorResponse($e->getMessage(), 400);
+        }
+        try {
             $this->db->beginTransaction();
             if ($id) {
                 $stmt = $this->db->prepare("SELECT status FROM timetable_drafts WHERE id = ? FOR UPDATE"); $stmt->execute([$id]);
@@ -2183,7 +2195,7 @@ class SchedulesAPI extends BaseAPI {
             $contextTeacherCount = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_stream_learning_area_teachers WHERE academic_year_class_stream_learning_area_id = ? AND academic_year_term_id = ? AND status = 'active'");
             $staffCheck = $this->db->prepare("SELECT id FROM staff WHERE id = ? AND status = 'active' LIMIT 1");
             $insert = $this->db->prepare("INSERT INTO timetable_draft_entries (draft_id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, day_of_week, time_slot_id, learning_area_id, teacher_id, room_id, notes) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?)");
-            $seenCells = []; $seenTeachers = [];
+            $seenCells = []; $seenTeachers = []; $seenRooms = [];
             foreach ($entries as $entry) {
                 $stream = (int)($entry['academic_year_class_stream_id'] ?? 0); $day = (int)($entry['day_of_week'] ?? 0); $slot = (int)($entry['time_slot_id'] ?? 0);
                 if ($stream <= 0 || $day < 1 || $day > 7 || $slot <= 0) continue;
@@ -2203,6 +2215,12 @@ class SchedulesAPI extends BaseAPI {
                     if (isset($seenTeachers[$teacherKey])) throw new \InvalidArgumentException('A teacher cannot be assigned to two class streams at the same time.');
                     $seenTeachers[$teacherKey] = true;
                 }
+                $room = (int)($entry['room_id'] ?? 0);
+                if ($room > 0) {
+                    $roomKey = $room . ':' . $day . ':' . $slot;
+                    if (isset($seenRooms[$roomKey])) throw new \InvalidArgumentException('A room cannot be assigned to two class streams at the same time.');
+                    $seenRooms[$roomKey] = true;
+                }
                 $streamCheck->execute([$stream, (int)$data['academic_year_id']]); $streamRow = $streamCheck->fetch(PDO::FETCH_ASSOC); $classId = (int)($streamRow['id'] ?? 0);
                 if (!$classId) throw new \InvalidArgumentException('The selected class stream does not belong to the selected academic year.');
                 if (!empty($data['_actor_staff_id'])) {
@@ -2220,6 +2238,7 @@ class SchedulesAPI extends BaseAPI {
                 $slotCheck->execute([$slot]); if (!$slotCheck->fetchColumn()) throw new \InvalidArgumentException('The selected timetable period is not active.');
                 $areaCheck->execute([$stream, $area]); $areaRow = $areaCheck->fetch(PDO::FETCH_ASSOC); $streamLearningAreaId = (int)($areaRow['id'] ?? 0); $classAreaId = (int)($areaRow['learning_area_id'] ?? 0);
                 if (!$streamLearningAreaId) throw new \InvalidArgumentException('The selected learning area is not configured for this stream.');
+                $this->teacherSpecializations->assertEligible($teacher, $classAreaId, $stream);
                 $teacherCheck->execute([$classAreaId, (int)$data['academic_year_term_id'], $teacher]);
                 $assigned = (bool)$teacherCheck->fetchColumn();
                 $contextTeacherCount->execute([$streamLearningAreaId, (int)$data['academic_year_term_id']]);
@@ -2235,7 +2254,7 @@ class SchedulesAPI extends BaseAPI {
                 } elseif (!$assigned && empty($data['_class_teacher_mode'])) {
                     throw new \InvalidArgumentException('The selected teacher is not assigned to this learning area and class for the selected term.');
                 }
-                $insert->execute([$id, $stream, $streamLearningAreaId, $day, $slot, $area, $teacher, (int)($entry['room_id'] ?? 0), $entry['notes'] ?? null]);
+                $insert->execute([$id, $stream, $streamLearningAreaId, $day, $slot, $area, $teacher, $room, $entry['notes'] ?? null]);
             }
             $this->db->commit();
             return successResponse(['id' => $id, 'status' => 'draft', 'entry_count' => count($entries)], 'Timetable draft saved');
@@ -2257,11 +2276,53 @@ class SchedulesAPI extends BaseAPI {
         $id = (int)($data['id'] ?? 0); $action = $data['action'] ?? ''; $actor = (int)($data['actor_id'] ?? 0);
         $allowed = ['submit' => ['draft','changes_requested'], 'review' => ['submitted'], 'request_changes' => ['submitted'], 'approve' => ['submitted'], 'publish' => ['approved']];
         if (!$id || !isset($allowed[$action])) return errorResponse('Draft id and valid action are required', 400);
-        $stmt = $this->db->prepare("SELECT status FROM timetable_drafts WHERE id = ? FOR UPDATE"); $stmt->execute([$id]); $from = $stmt->fetchColumn();
-        if (!$from || !in_array($from, $allowed[$action], true)) return errorResponse("Cannot {$action} a draft in its current state", 409);
-        $to = ['submit'=>'submitted','review'=>'submitted','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
+        if ($actor < 1) return errorResponse('A valid acting user is required', 401);
         $this->db->beginTransaction();
         try {
+            $stmt = $this->db->prepare("SELECT status, created_by, scope FROM timetable_drafts WHERE id = ? FOR UPDATE"); $stmt->execute([$id]); $draft = $stmt->fetch(PDO::FETCH_ASSOC);
+            $from = $draft['status'] ?? null;
+            if (!$from || !in_array($from, $allowed[$action], true)) throw new Exception("Cannot {$action} a draft in its current state", 409);
+            if ($action === 'approve' && (int)($draft['created_by'] ?? 0) === $actor) throw new Exception('A timetable draft must be approved by another authorised user', 403);
+            if (in_array($action, ['approve', 'publish'], true)) {
+                // Approval and publication re-check the persisted draft, not
+                // the browser payload. This keeps an AI preview or a stale
+                // browser matrix from becoming authoritative without the same
+                // deterministic conflict and completeness checks used at save.
+                $entryStmt = $this->db->prepare(
+                    'SELECT academic_year_class_stream_id, day_of_week, time_slot_id,
+                            learning_area_id, teacher_id, room_id, notes
+                     FROM timetable_draft_entries
+                     WHERE draft_id = ?
+                     ORDER BY day_of_week, time_slot_id, academic_year_class_stream_id'
+                );
+                $entryStmt->execute([$id]);
+                $persistedEntries = $entryStmt->fetchAll(PDO::FETCH_ASSOC);
+                if ($persistedEntries === []) {
+                    throw new Exception('A timetable draft must contain at least one validated assignment before approval or publication', 422);
+                }
+                try {
+                    TimetableAssignmentDraftValidator::normalize(
+                        $persistedEntries,
+                        ($draft['scope'] ?? '') === 'lower_primary'
+                    );
+                } catch (\InvalidArgumentException $e) {
+                    throw new Exception('The timetable draft must be corrected before approval or publication: ' . $e->getMessage(), 422);
+                }
+            }
+            if ($action === 'publish') {
+                // Publication requires an actual recorded approval by someone
+                // other than the draft creator; status alone is insufficient.
+                $approval = $this->db->prepare(
+                    "SELECT 1 FROM timetable_draft_reviews
+                     WHERE draft_id = ? AND action = 'approved' AND reviewer_id <> ?
+                     ORDER BY id DESC LIMIT 1"
+                );
+                $approval->execute([$id, (int)($draft['created_by'] ?? 0)]);
+                if (!$approval->fetchColumn()) {
+                    throw new Exception('A timetable draft cannot be published without an independent recorded approval', 403);
+                }
+            }
+            $to = ['submit'=>'submitted','review'=>'submitted','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
             $this->db->prepare("UPDATE timetable_drafts SET status = ?, submitted_at = IF(?='submitted', NOW(), submitted_at), approved_at = IF(?='approved', NOW(), approved_at), published_at = IF(?='published', NOW(), published_at) WHERE id = ?")->execute([$to,$to,$to,$to,$id]);
             $reviewAction = ['submit'=>'submitted','review'=>'reviewed','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
             $this->db->prepare("INSERT INTO timetable_draft_reviews (draft_id, reviewer_id, action, comments) VALUES (?, ?, ?, ?)")->execute([$id,$actor,$reviewAction,$data['comments'] ?? null]);
@@ -2269,16 +2330,54 @@ class SchedulesAPI extends BaseAPI {
                 $this->publishDraftEntries($id);
             }
             $this->db->commit(); return successResponse(['id'=>$id,'status'=>$to], "Timetable draft {$to}");
-        } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return errorResponse($e->getMessage(), 400); }
+        } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); $code = (int)$e->getCode(); return errorResponse($e->getMessage(), $code >= 400 && $code < 600 ? $code : 400); }
     }
 
     private function publishDraftEntries(int $draftId): void
     {
-        $stmt = $this->db->prepare("SELECT academic_year_term_id FROM timetable_drafts WHERE id = ?"); $stmt->execute([$draftId]); $term = (int)$stmt->fetchColumn();
-        $this->db->prepare("DELETE te FROM timetable_entries te JOIN timetable_draft_entries de ON de.academic_year_class_stream_id = te.academic_year_class_stream_id AND de.day_of_week = te.day_of_week AND de.time_slot_id = te.time_slot_id WHERE de.draft_id = ? AND te.academic_year_term_id = ?")->execute([$draftId,$term]);
+        $stmt = $this->db->prepare("SELECT academic_year_term_id, scope FROM timetable_drafts WHERE id = ?");
+        $stmt->execute([$draftId]);
+        $draftMeta = $stmt->fetch(PDO::FETCH_ASSOC);
+        $term = (int)($draftMeta['academic_year_term_id'] ?? 0);
+        $scope = (string)($draftMeta['scope'] ?? '');
         $rows = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ?"); $rows->execute([$draftId]);
+        $pendingRows = $rows->fetchAll(PDO::FETCH_ASSOC);
+        $teacherConflict = $this->db->prepare(
+            "SELECT COUNT(*) FROM timetable_entries live
+             WHERE live.academic_year_term_id = ?
+               AND live.status = 'scheduled'
+               AND live.teacher_id = ?
+               AND live.day_of_week = ?
+               AND live.time_slot_id = ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM timetable_draft_entries replacing
+                   WHERE replacing.draft_id = ?
+                     AND replacing.academic_year_class_stream_id = live.academic_year_class_stream_id
+                     AND replacing.day_of_week = live.day_of_week
+                     AND replacing.time_slot_id = live.time_slot_id
+               )"
+        );
+        foreach ($pendingRows as $row) {
+            $this->teacherSpecializations->assertEligible((int)$row['teacher_id'], (int)$row['learning_area_id'], (int)$row['academic_year_class_stream_id']);
+            if ($scope !== 'lower_primary') {
+                $teacherConflict->execute([
+                    $term,
+                    (int)$row['teacher_id'],
+                    (int)$row['day_of_week'],
+                    (int)$row['time_slot_id'],
+                    $draftId,
+                ]);
+                if ((int)$teacherConflict->fetchColumn() > 0) {
+                    throw new \RuntimeException('Publication would double-book a teacher against the current timetable', 409);
+                }
+            }
+        }
+        // Only after every pending row has passed the final publication gate
+        // replace the affected live cells. The surrounding transition
+        // transaction makes this replacement all-or-nothing.
+        $this->db->prepare("DELETE te FROM timetable_entries te JOIN timetable_draft_entries de ON de.academic_year_class_stream_id = te.academic_year_class_stream_id AND de.day_of_week = te.day_of_week AND de.time_slot_id = te.time_slot_id WHERE de.draft_id = ? AND te.academic_year_term_id = ?")->execute([$draftId,$term]);
         $insert = $this->db->prepare("INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')");
-        foreach ($rows as $row) $insert->execute([$row['academic_year_class_stream_id'],$row['academic_year_class_stream_learning_area_id'],$term,$row['day_of_week'],$row['time_slot_id'],$row['learning_area_id'],$row['teacher_id']]);
+        foreach ($pendingRows as $row) $insert->execute([$row['academic_year_class_stream_id'],$row['academic_year_class_stream_learning_area_id'],$term,$row['day_of_week'],$row['time_slot_id'],$row['learning_area_id'],$row['teacher_id']]);
     }
 
     /**

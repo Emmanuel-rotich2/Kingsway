@@ -31,4 +31,5 @@
 </div>
 
 <script src="<?= $appBase ?>/js/dashboards/dashboard_router.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/components/insight_brief_widget.js?v=<?php echo time(); ?>"></script>
 <script src="<?= $appBase ?>/js/pages/dashboard.js?v=<?php echo time(); ?>"></script>

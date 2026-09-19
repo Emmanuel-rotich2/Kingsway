@@ -36,6 +36,7 @@ const IpWhitelistBlacklistController = {
     editingId: null,
     saving: false,
     deletingId: null,
+    selectedIds: new Set(),
   },
 
   elements: {},
@@ -143,6 +144,11 @@ const IpWhitelistBlacklistController = {
       resetButton: document.getElementById("resetIpRuleFiltersBtn"),
       refreshButton: document.getElementById("refreshIpRulesBtn"),
       addButton: document.getElementById("addIpRuleBtn"),
+      bulkBar: document.getElementById("ipRulesBulkBar"),
+      bulkSelectedCount: document.getElementById("ipRulesBulkCount"),
+      bulkDeleteBtn: document.getElementById("bulkDeleteIpRulesBtn"),
+      bulkClearBtn: document.getElementById("bulkClearIpRulesBtn"),
+      tableHead: document.getElementById("ipRuleTableHead"),
       tableBody: document.getElementById("ipRuleTableBody"),
       count: document.getElementById("ipRuleCount"),
       previousButton: document.getElementById("ipRulePreviousPage"),
@@ -240,6 +246,18 @@ const IpWhitelistBlacklistController = {
         if (ruleId > 0) void this.deleteRule(ruleId);
       }
     });
+    this.elements.tableBody.addEventListener("change", (event) => {
+      this.handleRowSelection(event);
+    });
+    this.elements.tableHead.addEventListener("change", (event) => {
+      this.handleSelectAll(event);
+    });
+    this.elements.bulkDeleteBtn.addEventListener("click", () => {
+      void this.applyBulkDelete();
+    });
+    this.elements.bulkClearBtn.addEventListener("click", () => {
+      this.clearSelection();
+    });
     this.elements.form.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.saveRule();
@@ -258,8 +276,11 @@ const IpWhitelistBlacklistController = {
     this.elements.refreshButton.disabled = true;
     this.elements.previousButton.disabled = true;
     this.elements.nextButton.disabled = true;
-    this.showState("Loading IP access rules...", "info");
-    this.showTableLoading();
+
+    if (this.state.rules.length === 0) {
+      this.showState("Loading IP access rules...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const response = await window.API.system.getIpLists({
@@ -602,78 +623,195 @@ const IpWhitelistBlacklistController = {
           ? "No IP rules match the selected filters."
           : "There are no IP access rules to display.",
       );
+      this.syncSelectAll();
       return;
     }
 
-    this.elements.tableBody.innerHTML = this.state.rules
-      .map((rule) => {
-        const deleting = this.state.deletingId === rule.id;
-        const schedule = this.formatSchedule(rule);
-        const actor =
-          rule.updatedByName ||
-          (rule.updatedBy ? `User ${rule.updatedBy}` : "Not recorded");
-        const canChange = this.canManage();
+    const template = document.getElementById("ipRuleRowTemplate");
+    const rows = this.state.rules.map((rule) => this.buildRuleRow(template, rule));
+    this.elements.tableBody.replaceChildren(...rows);
+    this.syncSelectAll();
+  },
 
-        return `
-          <tr>
-            <td>${this.ruleTypeBadge(rule.ruleType)}</td>
-            <td>
-              <div class="fw-semibold font-monospace">
-                ${this.escapeHtml(rule.cidr)}
-              </div>
-              ${
-                rule.matchesCurrentIp
-                  ? '<span class="badge bg-info text-dark mt-1">Matches current IP</span>'
-                  : ""
-              }
-            </td>
-            <td>
-              ${this.escapeHtml(
-                this.truncate(rule.description || "No description", 100),
-              )}
-            </td>
-            <td>${this.statusBadge(rule.status)}</td>
-            <td class="small text-nowrap">
-              ${this.escapeHtml(schedule)}
-            </td>
-            <td>
-              <div>${this.escapeHtml(actor)}</div>
-              <div class="small text-muted">
-                ${this.escapeHtml(this.formatDateTime(rule.updatedAt))}
-              </div>
-            </td>
-            <td class="text-end">
-              ${
-                canChange
-                  ? `<div class="btn-group btn-group-sm">
-                      <button
-                        type="button"
-                        class="btn btn-outline-primary"
-                        data-edit-ip-rule="${rule.id}"
-                        ${deleting ? "disabled" : ""}
-                      >
-                        <i class="fas fa-pen me-1"></i> Edit
-                      </button>
-                      <button
-                        type="button"
-                        class="btn btn-outline-danger"
-                        data-delete-ip-rule="${rule.id}"
-                        ${deleting ? "disabled" : ""}
-                      >
-                        ${
-                          deleting
-                            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
-                            : '<i class="fas fa-trash me-1"></i>'
-                        }
-                        Delete
-                      </button>
-                    </div>`
-                  : '<span class="text-muted small">View only</span>'
-              }
-            </td>
-          </tr>`;
-      })
-      .join("");
+  visibleRuleIds() {
+    return this.state.rules.map((rule) => rule.id);
+  },
+
+  handleRowSelection(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-rule-id]");
+    if (!checkbox) return;
+    const ruleId = Number(checkbox.dataset.ruleId || 0);
+    if (checkbox.checked) {
+      this.state.selectedIds.add(ruleId);
+    } else {
+      this.state.selectedIds.delete(ruleId);
+    }
+    this.updateBulkBar();
+  },
+
+  handleSelectAll(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-select-all]");
+    if (!checkbox) return;
+    const visible = new Set(this.visibleRuleIds());
+    if (checkbox.checked) {
+      visible.forEach((id) => this.state.selectedIds.add(id));
+    } else {
+      this.state.selectedIds.forEach((id) => {
+        if (visible.has(id)) this.state.selectedIds.delete(id);
+      });
+    }
+    this.updateBulkBar();
+  },
+
+  clearSelection() {
+    this.state.selectedIds.clear();
+    this.updateBulkBar();
+  },
+
+  updateBulkBar() {
+    const count = this.state.selectedIds.size;
+    this.elements.bulkSelectedCount.textContent = `${count} selected`;
+    this.elements.bulkBar.hidden = count === 0;
+    this.elements.tableBody.querySelectorAll("input[type=checkbox][data-rule-id]").forEach((checkbox) => {
+      checkbox.checked = this.state.selectedIds.has(Number(checkbox.dataset.ruleId || 0));
+    });
+    this.syncSelectAll();
+  },
+
+  selectedRules() {
+    return this.state.rules.filter((rule) =>
+      this.state.selectedIds.has(rule.id),
+    );
+  },
+
+  syncSelectAll() {
+    const selectAll = this.elements.tableHead?.querySelector("input[data-select-all]");
+    if (!selectAll) return;
+    const visible = this.visibleRuleIds();
+    const selectedVisible = visible.filter((id) =>
+      this.state.selectedIds.has(id),
+    ).length;
+    selectAll.checked = visible.length > 0 && selectedVisible === visible.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
+  },
+
+  async applyBulkDelete() {
+    const rules = this.selectedRules();
+    if (!rules.length) return;
+    if (!this.canManage()) {
+      this.showState(
+        "You do not have permission to delete IP access rules.",
+        "warning",
+      );
+      return;
+    }
+
+    const confirmed = await window.confirmAction(
+      "Confirm Deletion",
+      `Delete ${rules.length} selected IP rule${rules.length === 1 ? "" : "s"}?`,
+      { confirmText: "Delete", danger: true },
+    );
+    if (!confirmed) return;
+
+    this.showState("Deleting the selected IP rules...", "info");
+    let succeeded = 0;
+    let failed = 0;
+    for (const rule of rules) {
+      try {
+        await window.API.system.deleteIpRule(rule.id);
+        succeeded += 1;
+      } catch (error) {
+        console.error(
+          "[IpWhitelistBlacklistController] Bulk rule deletion failed:",
+          error,
+        );
+        failed += 1;
+      }
+    }
+    this.clearSelection();
+    await this.loadRules();
+    this.showState(
+      failed
+        ? `${succeeded} rule${succeeded === 1 ? "" : "s"} deleted; ${failed} failed.`
+        : `${succeeded} rule${succeeded === 1 ? "" : "s"} deleted successfully.`,
+      failed ? "warning" : "success",
+    );
+  },
+
+  buildRuleRow(template, rule) {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const deleting = this.state.deletingId === rule.id;
+    const schedule = this.formatSchedule(rule);
+    const actor =
+      rule.updatedByName ||
+      (rule.updatedBy ? `User ${rule.updatedBy}` : "Not recorded");
+    const canChange = this.canManage();
+
+    const checkbox = row.querySelector("input[type=checkbox]");
+    checkbox.dataset.ruleId = String(rule.id);
+    checkbox.checked = this.state.selectedIds.has(rule.id);
+    checkbox.setAttribute("aria-label", `Select rule ${rule.cidr}`);
+    if (!canChange) {
+      checkbox.disabled = true;
+    }
+
+    const typeBadge = cell("typeBadge");
+    typeBadge.innerHTML = this.ruleTypeBadge(rule.ruleType);
+
+    cell("cidr").textContent = rule.cidr;
+    cell("matchesCurrentIp").hidden = !rule.matchesCurrentIp;
+
+    cell("description").textContent = this.truncate(
+      rule.description || "No description",
+      100,
+    );
+
+    const statusBadge = cell("statusBadge");
+    statusBadge.innerHTML = this.statusBadge(rule.status);
+
+    cell("schedule").textContent = schedule;
+    cell("updatedByName").textContent = actor;
+    cell("updatedAt").textContent = this.formatDateTime(rule.updatedAt);
+
+    cell("actions").innerHTML = this.buildRuleActions(rule, {
+      canChange,
+      deleting,
+    });
+
+    return row;
+  },
+
+  buildRuleActions(rule, { canChange, deleting }) {
+    if (!canChange) {
+      return '<span class="text-muted small">View only</span>';
+    }
+    return `
+      <div class="btn-group btn-group-sm">
+        <button
+          type="button"
+          class="btn btn-outline-primary"
+          data-edit-ip-rule="${rule.id}"
+          ${deleting ? "disabled" : ""}
+        >
+          <i class="fas fa-pen me-1"></i> Edit
+        </button>
+        <button
+          type="button"
+          class="btn btn-outline-danger"
+          data-delete-ip-rule="${rule.id}"
+          ${deleting ? "disabled" : ""}
+        >
+          ${
+            deleting
+              ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
+              : '<i class="fas fa-trash me-1"></i>'
+          }
+          Delete
+        </button>
+      </div>`;
   },
 
   renderPagination() {
@@ -725,7 +863,7 @@ const IpWhitelistBlacklistController = {
     const content = allowMarkup ? message : this.escapeHtml(message);
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="7" class="text-center py-5 ${className}">
+        <td colspan="8" class="text-center py-5 ${className}">
           ${content}
         </td>
       </tr>`;
