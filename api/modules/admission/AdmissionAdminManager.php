@@ -724,6 +724,67 @@ class AdmissionAdminManager extends BaseAPI
         }
     }
 
+    /**
+     * Build minimized, non-identifying context for an admissions follow-up
+     * draft. The AI adapter receives workflow facts only; names, contacts,
+     * application numbers, documents, and raw workflow JSON stay server-side.
+     */
+    public function getAiFollowupContext(int $id, array $ctx, string $channel = 'email'): array
+    {
+        $channel = strtolower(trim($channel));
+        if (!in_array($channel, ['email', 'sms', 'whatsapp', 'internal'], true)) {
+            return $this->errorResponse('Unsupported admissions follow-up channel.', 422);
+        }
+
+        $details = $this->getApplication($id, $ctx);
+        if (($details['success'] ?? false) !== true) {
+            return $details;
+        }
+
+        $application = (array) ($details['data']['application'] ?? []);
+        $documents = (array) ($details['data']['documents'] ?? []);
+        $workflowData = (array) ($details['data']['workflow_data'] ?? []);
+        $missingItems = [];
+
+        foreach ($documents as $document) {
+            $status = strtolower((string) ($document['verification_status'] ?? $document['status'] ?? 'pending'));
+            if ($status !== 'verified') {
+                $label = (string) ($document['document_type'] ?? 'required document');
+                $missingItems[] = preg_replace('/[_-]+/', ' ', $label) ?: 'required document';
+            }
+        }
+
+        $createdAt = strtotime((string) ($application['created_at'] ?? ''));
+        $daysWaiting = $createdAt ? max(0, (int) floor((time() - $createdAt) / 86400)) : 0;
+        $grade = trim((string) ($application['grade_applying_for'] ?? ''));
+        $termName = trim((string) ($workflowData['admission_window_label'] ?? $workflowData['term_name'] ?? ''));
+
+        return $this->successResponse([
+            'workflow_id' => 'admissions.application_followup_draft',
+            'input' => [
+                'stage' => (string) ($application['current_stage'] ?? 'application_received'),
+                'missing_items' => array_values(array_unique(array_slice($missingItems, 0, 20))),
+                'days_waiting' => (string) $daysWaiting,
+                'grade_band' => $this->aiGradeBand($grade),
+                'term_name' => $termName !== '' ? mb_substr($termName, 0, 120) : 'current intake',
+                'channel' => $channel,
+            ],
+        ], 'Admissions AI context prepared');
+    }
+
+    private function aiGradeBand(string $grade): string
+    {
+        $normalized = strtolower($grade);
+        if (preg_match('/^(grade|g)?\s*([1-9])$/', $normalized, $matches)) {
+            $number = (int) $matches[2];
+            return $number <= 3 ? 'lower_primary' : ($number <= 6 ? 'upper_primary' : 'junior_secondary');
+        }
+        if (str_contains($normalized, 'pp') || str_contains($normalized, 'play')) {
+            return 'pre_primary';
+        }
+        return 'unspecified';
+    }
+
     // ========================================================================
     // ADMISSION WINDOWS
     // ========================================================================
@@ -892,9 +953,9 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute([$title, $notes, $openAt, $endAt, $eventStatus, $eventId]);
             return;
         }
-        $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM school_events')->fetchColumn();
-        $stmt = $this->db->prepare("INSERT INTO school_events (id, title, description, start_at, end_at, type, location, status, source) VALUES (?, ?, ?, ?, ?, 'admissions', 'Admissions Office', ?, 'manual')");
-        $stmt->execute([$eventId, $title, $notes, $openAt, $endAt, $eventStatus]);
+        $stmt = $this->db->prepare("INSERT INTO school_events (title, description, start_at, end_at, type, location, status, source) VALUES (?, ?, ?, ?, 'admissions', 'Admissions Office', ?, 'manual')");
+        $stmt->execute([$title, $notes, $openAt, $endAt, $eventStatus]);
+        $eventId = (int) $this->db->lastInsertId();
         $this->db->prepare('UPDATE admission_windows SET calendar_event_id = ? WHERE id = ?')->execute([$eventId, $windowId]);
     }
 
@@ -1063,8 +1124,8 @@ class AdmissionAdminManager extends BaseAPI
             if ($eventId) {
                 $this->db->prepare("UPDATE school_events SET title=?, start_at=?, end_at=?, type='admissions_interview', status='upcoming', updated_at=NOW() WHERE id=?")->execute([$title, $date . ' ' . $start, $date . ' ' . $end, $eventId]);
             } else {
-                $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id),0)+1 FROM school_events')->fetchColumn();
-                $this->db->prepare("INSERT INTO school_events (id,title,description,start_at,end_at,type,location,status,source) VALUES (?,?,?,?,?,'admissions_interview',?,'upcoming','manual')")->execute([$eventId, $title, $data['notes'] ?? null, $date . ' ' . $start, $date . ' ' . $end, $venue]);
+                $this->db->prepare("INSERT INTO school_events (title,description,start_at,end_at,type,location,status,source) VALUES (?,?,?,?,'admissions_interview',?,'upcoming','manual')")->execute([$title, $data['notes'] ?? null, $date . ' ' . $start, $date . ' ' . $end, $venue]);
+                $eventId = (int) $this->db->lastInsertId();
                 $this->db->prepare('UPDATE admission_interview_sessions SET calendar_event_id=? WHERE id=?')->execute([$eventId, $id]);
             }
             return $this->successResponse(['id' => $id, 'calendar_event_id' => $eventId], 'Interview session saved');

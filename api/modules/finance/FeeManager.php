@@ -4,6 +4,7 @@ namespace App\API\Modules\finance;
 
 use App\Database\Database;
 use App\API\Services\NotificationService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -54,30 +55,19 @@ class FeeManager
     }
 
     /**
-     * Generate the next integer id for tables without AUTO_INCREMENT (3NF/4NF schema)
-     * @param string $table Table name (callers pass only hard-coded literals)
-     * @return int
-     */
-    private function nextId($table)
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM `$table`");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
-    /**
      * Reconcile a changed fee schedule without rewriting paid history.
      * Unpaid/partial obligations are repriced; paid obligations remain
      * unchanged and any reduction becomes a student credit.
      */
     private function reconcileScheduleChange(int $oldScheduleId, int $newScheduleId, float $oldAmount, float $newAmount, ?int $userId): array
     {
+        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         $rows = $this->db->prepare(
             "SELECT sfo.id, sfo.amount_due, sfo.academic_year_id, sfo.academic_year_term_id,
                     sae.student_id, COALESCE(vfb.amount_paid, 0) AS amount_paid
              FROM student_fee_obligations sfo
              JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
-             LEFT JOIN vw_student_fee_balances vfb
+             LEFT JOIN $feeBalView vfb
                ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
               AND vfb.academic_year_term_id = sfo.academic_year_term_id
              WHERE sfo.academic_year_fee_schedule_id = ?"
@@ -109,19 +99,17 @@ class FeeManager
             // them: an increase creates a remaining debit, while a reduction
             // above the paid amount creates a usable credit.
             if ($newAmount < $paid) {
-                $creditId = $this->nextId('fee_credit_notes');
                 $yearStmt = $this->db->prepare("SELECT year_code FROM academic_years WHERE id = ? LIMIT 1");
                 $yearStmt->execute([(int) $row['academic_year_id']]);
                 $yearCode = (string) ($yearStmt->fetchColumn() ?: date('Y'));
                 $this->db->prepare(
                     "INSERT INTO fee_credit_notes
-                        (id, credit_number, student_id, academic_year, term_id,
+                        (credit_number, student_id, academic_year, term_id,
                          credit_amount, credit_reason, status, applied_amount,
                          notes, created_by)
-                     VALUES (?, ?, ?, ?, ?, ?, 'fee_reduction', 'available', 0, ?, ?)"
+                     VALUES (?, ?, ?, ?, ?, 'fee_reduction', 'available', 0, ?, ?)"
                 )->execute([
-                    $creditId,
-                    'CRD-' . date('YmdHis') . '-' . $creditId,
+                    'CRD-' . date('YmdHis'),
                     (int) $row['student_id'],
                     substr($yearCode, 0, 4),
                     (int) $row['academic_year_term_id'],
@@ -129,6 +117,7 @@ class FeeManager
                     'Credit created from approved fee reduction; paid history preserved.',
                     $userId,
                 ]);
+                $creditId = (int) $this->db->lastInsertId();
                 $credits++;
             }
 
@@ -174,13 +163,13 @@ class FeeManager
         if ($catalogId) {
             return (int) $catalogId;
         }
-        $catalogId = $this->nextId('fee_catalog');
         $stmt = $this->db->prepare(
-            "INSERT INTO fee_catalog (id, code, name, default_amount, status)
-             VALUES (?, 'SCHOOL_FEES', 'School Fees', 0, 'active')"
+            "INSERT INTO fee_catalog (code, name, default_amount, status)
+             VALUES ('SCHOOL_FEES', 'School Fees', 0, 'active')
+             ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
         );
-        $stmt->execute([$catalogId]);
-        return $catalogId;
+        $stmt->execute();
+        return (int) $this->db->lastInsertId();
     }
 
     /**
@@ -188,13 +177,14 @@ class FeeManager
      */
     private function computeStudentInvoice($studentId, $academicYearId, $termId)
     {
-        $stmt = $this->db->prepare("
+                $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                $stmt = $this->db->prepare("
             SELECT
                 COALESCE(SUM(v.amount_due), 0) AS total_amount,
                 COALESCE(SUM(v.amount_paid), 0) AS amount_paid,
                 COALESCE(SUM(v.balance), 0) AS balance,
                 MAX(v.latest_due_date) AS due_date
-            FROM vw_student_fee_balances v
+            FROM $feeBalView v
             WHERE v.student_id = ? AND v.academic_year_id = ? AND v.academic_year_term_id = ?
         ");
         $stmt->execute([$studentId, $academicYearId, $termId]);
@@ -251,35 +241,32 @@ class FeeManager
 
             // Insert main fee structure into the fee catalog (master fee item)
             $code = 'FS-' . $data['academic_year'] . '-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $data['name']), 0, 8));
-            $feeStructureId = $this->nextId('fee_catalog');
             $stmt = $this->db->prepare("
                 INSERT INTO fee_catalog (
-                    id, code, name, description, default_amount, status
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    code, name, description, default_amount, status
+                ) VALUES (?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
-                $feeStructureId,
                 $code,
                 $data['name'],
                 $data['description'] ?? null,
                 $data['amount'],
                 $data['status'] ?? 'active'
             ]);
+            $feeStructureId = (int) $this->db->lastInsertId();
 
             // Insert detailed fee types if provided
             if (!empty($data['fee_types'])) {
-                $scheduleId = $this->nextId('academic_year_fee_schedules');
                 $stmt = $this->db->prepare("
                     INSERT INTO academic_year_fee_schedules (
-                        id, academic_year_id, academic_year_term_id, academic_year_class_id,
+                        academic_year_id, academic_year_term_id, academic_year_class_id,
                         student_type_id, fee_catalog_id, amount, status, created_by
-                    ) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+                    ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?)
                 ");
 
                 foreach ($data['fee_types'] as $feeType) {
                     $stmt->execute([
-                        $scheduleId++,
                         $academicYearId,
                         $feeType['student_type_id'] ?? null,
                         $feeStructureId,
@@ -287,6 +274,7 @@ class FeeManager
                         $feeType['status'] ?? 'active',
                         $data['created_by'] ?? null
                     ]);
+                    $newStructureId = (int) $this->db->lastInsertId();
                 }
             }
 
@@ -667,9 +655,10 @@ class FeeManager
                 $bindings[] = $filters['stream_id'];
             }
 
-            $stmt = $this->db->prepare("
+                        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $stmt = $this->db->prepare("
                 SELECT DISTINCT v.student_id AS student_id
-                FROM vw_student_fee_balances v
+                FROM $feeBalView v
                 JOIN students s ON v.student_id = s.id
                 LEFT JOIN student_academic_enrollments sae ON sae.student_id = v.student_id AND sae.academic_year_id = v.academic_year_id AND sae.enrollment_status = 'active'
                 LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
@@ -826,10 +815,8 @@ class FeeManager
                     if ($updateStmt->rowCount() > 0) {
                         $updatedCount++;
                     } else {
-                        $insertId = $this->nextId('academic_year_fee_schedules');
                         $insertStmt = $this->db->prepare("
                             INSERT INTO academic_year_fee_schedules (
-                                id,
                                 academic_year_id,
                                 academic_year_term_id,
                                 student_type_id,
@@ -837,11 +824,10 @@ class FeeManager
                                 amount,
                                 status,
                                 created_by
-                            ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                            ) VALUES (?, ?, ?, ?, ?, 'active', ?)
                         ");
 
                         $insertStmt->execute([
-                            $insertId,
                             $academicYearId,
                             $termId,
                             $data['student_type_id'],
@@ -849,6 +835,7 @@ class FeeManager
                             $amount,
                             $data['updated_by']
                         ]);
+                        $insertId = (int) $this->db->lastInsertId();
 
                         $createdCount++;
                     }
@@ -979,6 +966,7 @@ class FeeManager
      */
     public function getStudentFeeBalance($studentId, $academicYear = null)
     {
+        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         try {
             $yearId = null;
             if (!empty($academicYear)) {
@@ -1012,7 +1000,7 @@ class FeeManager
                 LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
                 LEFT JOIN classes c ON ayc.class_id = c.id
                 LEFT JOIN streams st ON aycs.stream_id = st.id
-                LEFT JOIN vw_student_fee_balances v ON v.student_id = s.id
+                LEFT JOIN $feeBalView v ON v.student_id = s.id
                 LEFT JOIN academic_years ay ON v.academic_year_id = ay.id
                 WHERE " . implode(' AND ', $summaryWhere) . "
                 GROUP BY s.id, s.admission_no, p.first_name, p.last_name, c.name, st.name
@@ -1043,7 +1031,7 @@ class FeeManager
                     v.amount_paid,
                     v.amount_waived,
                     v.balance
-                FROM vw_student_fee_balances v
+                FROM $feeBalView v
                 JOIN academic_year_terms ayt ON v.academic_year_term_id = ayt.id
                 JOIN terms t ON ayt.term_id = t.id
                 WHERE " . implode(' AND ', $termsWhere) . "
@@ -1132,14 +1120,15 @@ class FeeManager
     public function sendFeeReminder($studentId)
     {
         try {
-            $stmt = $this->db->prepare(
+                        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $stmt = $this->db->prepare(
                 "SELECT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                         COALESCE(SUM(v.balance), 0) AS amount_due,
                         MAX(v.latest_due_date) AS due_date,
                         MAX(v.academic_year) AS academic_year,
                         MAX(v.term_id) AS term_id
                    FROM students s JOIN persons p ON p.id = s.person_id
-                   LEFT JOIN vw_student_fee_balances v ON v.student_id = s.id
+                   LEFT JOIN $feeBalView v ON v.student_id = s.id
                   WHERE s.id = ? GROUP BY s.id, p.first_name, p.middle_name, p.last_name"
             );
             $stmt->execute([(int) $studentId]);
@@ -1204,6 +1193,7 @@ class FeeManager
      */
     public function getOutstandingFeesReport($filters = [])
     {
+        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         try {
             // Use the live balances view to derive per-student outstanding amounts
             $sql = "SELECT v.student_id,
@@ -1218,7 +1208,7 @@ class FeeManager
                            v.amount_paid,
                            v.balance AS outstanding_balance,
                            v.days_overdue
-                    FROM vw_student_fee_balances v
+                    FROM $feeBalView v
                     JOIN students s ON v.student_id = s.id
                     LEFT JOIN persons p ON s.person_id = p.id
                     LEFT JOIN student_academic_enrollments sae ON sae.student_id = v.student_id
@@ -1331,7 +1321,8 @@ class FeeManager
             $academicYearId = $this->resolveAcademicYearId($academicYear);
 
             // Get fee obligations
-            $stmt = $this->db->prepare("
+                        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $stmt = $this->db->prepare("
                 SELECT
                     sfo.id,
                     sfo.student_academic_enrollment_id,
@@ -1358,7 +1349,7 @@ class FeeManager
                 JOIN academic_year_terms ayt ON sfo.academic_year_term_id = ayt.id
                 JOIN terms t ON ayt.term_id = t.id
                 LEFT JOIN academic_year_fee_schedules ayfs ON sfo.academic_year_fee_schedule_id = ayfs.id
-                LEFT JOIN vw_student_fee_balances v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
+                LEFT JOIN $feeBalView v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
                 WHERE sae.student_id = ? AND sfo.academic_year_id = ?
                 ORDER BY term_number ASC, sfo.id ASC
             ");
@@ -1648,7 +1639,8 @@ class FeeManager
     public function sendBatchFeeReminders()
     {
         try {
-            $stmt = $this->db->query("SELECT DISTINCT student_id FROM vw_student_fee_balances WHERE balance > 0");
+                        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $stmt = $this->db->query("SELECT DISTINCT student_id FROM $feeBalView WHERE balance > 0");
             $queued = 0;
             $failed = 0;
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $studentId) {
@@ -1772,16 +1764,16 @@ class FeeManager
                             AND fee_catalog_id = ? AND status = 'active'
                         ")->execute([$academicYearId, $aytId, $aycId, $data['student_type_id'], $catalogId]);
 
-                        $insertId = $this->nextId('academic_year_fee_schedules');
                         $this->db->prepare("
                             INSERT INTO academic_year_fee_schedules (
-                                id, academic_year_id, academic_year_term_id, academic_year_class_id,
+                                academic_year_id, academic_year_term_id, academic_year_class_id,
                                 student_type_id, fee_catalog_id, amount, status, created_by, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())
+                            ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())
                         ")->execute([
-                            $insertId, $academicYearId, $aytId, $aycId,
+                            $academicYearId, $aytId, $aycId,
                             $data['student_type_id'], $catalogId, $amount, $data['created_by']
                         ]);
+                        $insertId = (int) $this->db->lastInsertId();
 
                         \App\API\Includes\FileLogger::write('finance', [
                             'type' => 'audit',
@@ -2004,15 +1996,15 @@ class FeeManager
                                 continue;
                             }
 
-                            $insertId = $this->nextId('academic_year_fee_schedules');
                             $this->db->prepare("
                                 INSERT INTO academic_year_fee_schedules (
-                                    id, academic_year_id, academic_year_term_id, academic_year_class_id,
+                                    academic_year_id, academic_year_term_id, academic_year_class_id,
                                     student_type_id, fee_catalog_id, amount, status, created_by, created_at, updated_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())
+                                ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NOW(), NOW())
                             ")->execute([
-                                $insertId, $academicYearId, $aytId, $aycId, $stId, $catalogId, $amount, $data['created_by']
+                                $academicYearId, $aytId, $aycId, $stId, $catalogId, $amount, $data['created_by']
                             ]);
+                            $insertId = (int) $this->db->lastInsertId();
                             $rowsCreated++;
 
                             foreach ($oldRows as $oldRow) {
@@ -2818,16 +2810,13 @@ class FeeManager
 
             // Create new structure record with price adjustment
             $multiplier = (100 + $priceAdjustment) / 100;
-            $newStructureId = $this->nextId('academic_year_fee_schedules');
-
             $stmt = $this->db->prepare("
                 INSERT INTO academic_year_fee_schedules
-                (id, academic_year_id, academic_year_term_id, academic_year_class_id, student_type_id,
+                (academic_year_id, academic_year_term_id, academic_year_class_id, student_type_id,
                  fee_catalog_id, amount, due_date, status, created_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
             ");
             $stmt->execute([
-                $newStructureId,
                 $targetYearId,
                 $sourceStructure['academic_year_term_id'],
                 $sourceStructure['academic_year_class_id'],
@@ -3362,12 +3351,11 @@ class FeeManager
                 LIMIT 1
             ");
 
-            $obligationId = $this->nextId('student_fee_obligations');
             $insertStmt = $this->db->prepare("
                 INSERT INTO student_fee_obligations
-                    (id, student_academic_enrollment_id, academic_year_id, academic_year_term_id, academic_year_fee_schedule_id,
+                    (student_academic_enrollment_id, academic_year_id, academic_year_term_id, academic_year_fee_schedule_id,
                      amount_due, status, due_date)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?)
                 ON DUPLICATE KEY UPDATE
                     due_date   = VALUES(due_date)
             ");
@@ -3381,7 +3369,6 @@ class FeeManager
                 }
                 foreach ($feeRows as $feeRow) {
                     $insertStmt->execute([
-                        $obligationId++,
                         $enrollmentId,
                         $academicYearId,
                         $termId,
@@ -3577,7 +3564,8 @@ class FeeManager
             }
 
             // Fetch obligations with enriched joins
-            $stmt = $this->db->prepare("
+                        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $stmt = $this->db->prepare("
                 SELECT sfo.id,
                        sfo.student_academic_enrollment_id,
                        sfo.academic_year_id,
@@ -3609,7 +3597,7 @@ class FeeManager
                 LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
                 LEFT JOIN classes c ON ayc.class_id = c.id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
-                LEFT JOIN vw_student_fee_balances v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
+                LEFT JOIN $feeBalView v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
                 WHERE sae.student_id = ?
                 ORDER BY ay.year_code DESC, t.code ASC
             ");
@@ -3708,6 +3696,7 @@ class FeeManager
      */
     public function getClassBillingReport($classId, $academicYearId, $termId = null)
     {
+        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         try {
             if (empty($classId) || empty($academicYearId)) {
                 return formatResponse(false, null, 'class_id and academic_year_id are required');
@@ -3735,7 +3724,7 @@ class FeeManager
                 JOIN student_types st ON s.student_type_id = st.id
                 JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
                 JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN vw_student_fee_balances v
+                LEFT JOIN $feeBalView v
                        ON v.student_academic_enrollment_id = sae.id
                       AND v.academic_year_id = sae.academic_year_id
                       $termFilter

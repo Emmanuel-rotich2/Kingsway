@@ -23,6 +23,9 @@ use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use Exception;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 
 /**
  * AcademicController
@@ -140,22 +143,22 @@ class AcademicController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->academicManager = new AcademicManager();
-        $this->api = new AcademicAPI();
-        $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->teachingAssignments = new StaffTeachingAssignmentService();
+        $this->academicManager = $this->contract('App\API\Modules\academic\AcademicManager');
+        $this->api = $this->contract('academic');
+        $this->staffAccess = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->teachingAssignments = $this->contract('App\API\Services\StaffTeachingAssignmentService');
 
         // Initialize Academic Context Service
-        $this->contextService = new AcademicContextService();
+        $this->contextService = $this->contract('App\API\Services\AcademicContextService');
 
         // Initialize Cohort Projection Service (Admission Stage 5)
-        $this->cohortProjectionService = new AcademicCohortProjectionService();
-        $this->examService = new AcademicExamService($this->api);
-        $this->reportService = new AcademicReportService($this->api);
-        $this->curriculumService = new AcademicCurriculumService($this->api);
-        $this->yearService = new AcademicYearService($this->api);
-        $this->curriculumScopeService = new TeacherCurriculumScopeService($this->db->getConnection());
-        $this->curriculumProposalService = new CurriculumProposalService(
+        $this->cohortProjectionService = $this->contract('App\API\Modules\academic\AcademicCohortProjectionService');
+        $this->examService = $this->contract('App\API\Modules\academic\AcademicExamService', $this->api);
+        $this->reportService = $this->contract('App\API\Modules\academic\AcademicReportService', $this->api);
+        $this->curriculumService = $this->contract('App\API\Modules\academic\AcademicCurriculumService', $this->api);
+        $this->yearService = $this->contract('App\API\Modules\academic\AcademicYearService', $this->api);
+        $this->curriculumScopeService = $this->contract('App\API\Services\TeacherCurriculumScopeService', $this->db->getConnection());
+        $this->curriculumProposalService = $this->contract('App\API\Services\CurriculumProposalService', 
             $this->db->getConnection(),
             $this->curriculumScopeService
         );
@@ -404,7 +407,7 @@ return $this->error('An internal error occurred.');
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $kpis = $analytics->getAcademicKPIs();
 
             return $this->success([
@@ -428,7 +431,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $matrix = $analytics->getPerformanceMatrix();
 
             return $this->success([
@@ -1338,7 +1341,7 @@ return $this->serverError('An internal error occurred.');
         }
         if (!$studentIds) return $this->badRequest('student_ids or class_id is required');
 
-        $service = new ReportCardReleaseService($this->db->getConnection());
+        $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
         $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
         $generated = [];
         $failed = [];
@@ -1373,7 +1376,7 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
-                $service = new ReportCardReleaseService($this->db->getConnection());
+                $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
                 return $this->success($service->approve((int) $data['release_id'], $actor), 'Report card approved');
             } catch (RuntimeException $e) {
@@ -1395,7 +1398,7 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
-                $service = new ReportCardReleaseService($this->db->getConnection());
+                $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
                 $channels = $data['channels'] ?? ['sms', 'email', 'whatsapp'];
                 return $this->success(
@@ -1416,7 +1419,7 @@ return $this->serverError('An internal error occurred.');
         try {
             $filters = array_merge($_GET, is_array($data) ? $data : []);
             if ($id !== null) $filters['student_id'] = (int) $id;
-            $service = new ReportCardReleaseService($this->db->getConnection());
+            $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
             return $this->success($service->list($filters));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AcademicController] report card releases: ' . $e->getMessage());
@@ -2679,6 +2682,352 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+    /** POST /api/academic/ai-scheme-draft-queue */
+    public function postAiSchemeDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiSchemeDraft()) return $this->forbidden('Academic curriculum permission is required');
+        try {
+            $input = $this->buildAiSchemeInput($data);
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'academics.scheme_draft', $this->aiAcademicContext(), $input,
+                ['subject_type' => 'academic_scheme_draft', 'subject_id' => 0, 'scope' => 'authorized_teacher_curriculum']
+            );
+            return $this->accepted($queued, 'CBC scheme draft queued for academic review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI scheme draft queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue CBC scheme assistance');
+        }
+    }
+
+    /** GET /api/academic/ai-scheme-drafts?scope=own|review */
+    public function getAiSchemeDrafts($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiSchemeDraft()) return $this->forbidden('Academic approval permission is required');
+        try {
+            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
+            ), 'scope' => $review ? 'review' : 'own'], 'CBC AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI scheme draft list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load CBC scheme assistance');
+        }
+    }
+
+    /** POST /api/academic/ai-scheme-draft-approve/{id} */
+    public function postAiSchemeDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiSchemeDraft()) return $this->forbidden('Academic approval permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.scheme_draft');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'CBC draft approved for teacher editing; existing academic approval remains required');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI scheme draft approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve CBC scheme assistance');
+        }
+    }
+
+    /** POST /api/academic/ai-lesson-plan-draft-queue */
+    public function postAiLessonPlanDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiLessonPlanDraft()) return $this->forbidden('Academic lesson-planning permission is required');
+        try {
+            $schemeId = (int) ($data['scheme_of_work_id'] ?? $id ?? 0);
+            if ($schemeId < 1) throw new DomainException('An approved scheme row is required.', 422);
+            $input = $this->buildAiLessonPlanInput($schemeId, $data);
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'academics.lesson_plan_draft', $this->aiAcademicContext(), $input,
+                ['subject_type' => 'academic_lesson_plan_draft', 'subject_id' => $schemeId, 'scope' => 'approved_scheme_context']
+            );
+            return $this->accepted($queued, 'Lesson-plan draft queued for academic review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI lesson-plan queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue lesson-plan assistance');
+        }
+    }
+
+    /** GET /api/academic/ai-lesson-plan-drafts?scope=own|review */
+    public function getAiLessonPlanDrafts($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiLessonPlanDraft()) return $this->forbidden('Academic approval permission is required');
+        try {
+            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
+            ), 'scope' => $review ? 'review' : 'own'], 'Lesson-plan AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI lesson-plan list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load lesson-plan assistance');
+        }
+    }
+
+    /** POST /api/academic/ai-lesson-plan-draft-approve/{id} */
+    public function postAiLessonPlanDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiLessonPlanDraft()) return $this->forbidden('Academic approval permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.lesson_plan_draft');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Lesson-plan draft approved for teacher editing');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI lesson-plan approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve lesson-plan assistance');
+        }
+    }
+
+    private function canUseAiLessonPlanDraft(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('academics.lesson_plan_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiLessonPlanDraft(): bool
+    {
+        return $this->canApproveAiSchemeDraft();
+    }
+
+    private function buildAiLessonPlanInput(int $schemeId, array $data): array
+    {
+        $context = $this->api->getLessonPlanningContext($schemeId);
+        $payload = is_array($context) ? ($context['data'] ?? $context) : [];
+        if (isset($payload['data']) && is_array($payload['data'])) $payload = $payload['data'];
+        if (empty($payload['id']) || ($payload['status'] ?? '') !== 'approved') throw new DomainException('Only an approved scheme row can ground a lesson-plan draft.', 403);
+        $choices = (array) ($payload['choices'] ?? []);
+        $texts = static function (array $rows, array $keys = ['text', 'name']): array {
+            $out = [];
+            foreach ($rows as $row) { if (!is_array($row)) continue; foreach ($keys as $key) if (isset($row[$key]) && trim((string) $row[$key]) !== '') { $out[] = trim((string) $row[$key]); break; } }
+            return array_slice(array_values(array_unique($out)), 0, 20);
+        };
+        return [
+            'learning_area' => (string) ($payload['learning_area_name'] ?? ''),
+            'grade_level' => (string) ($payload['class_name'] ?? ''),
+            'term_name' => (string) ($payload['term_name'] ?? ''),
+            'week_number' => (string) ($payload['week_number'] ?? ''),
+            'strand' => (string) ($payload['strand_name'] ?? ''),
+            'sub_strand' => (string) ($payload['sub_strand_name'] ?? ''),
+            'scheme_title' => (string) ($payload['title'] ?? ''),
+            'learning_outcomes' => $texts((array) ($choices['outcomes'] ?? [])),
+            'learning_experiences' => $texts((array) ($choices['experiences'] ?? [])),
+            'resources' => $texts((array) ($choices['resources'] ?? [])),
+            'assessment_tools' => $texts((array) ($choices['assessment_tools'] ?? [])),
+            'competencies' => $texts((array) ($choices['competencies'] ?? [])),
+            'inquiry_questions' => $texts((array) ($choices['inquiry_questions'] ?? [])),
+            'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create an inclusive lesson with clear activities and formative assessment.')), 0, 500),
+        ];
+    }
+
+    /** POST /api/academic/ai-assessment-draft-queue */
+    public function postAiAssessmentDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiAssessmentDraft()) return $this->forbidden('Academic assessment permission is required');
+        try {
+            $outcomeId = (int) ($data['learning_outcome_id'] ?? 0);
+            if ($outcomeId < 1) throw new DomainException('Select an authorized CBC learning outcome first.', 422);
+            $query = $this->scopedCurriculumQuery(['learning_area_id' => (int) ($data['learning_area_id'] ?? 0)]);
+            $outcomeResult = $this->academicManager->getLearningOutcomes($outcomeId, $query);
+            $outcomePayload = is_array($outcomeResult) ? ($outcomeResult['data'] ?? $outcomeResult) : [];
+            if (isset($outcomePayload['data']) && is_array($outcomePayload['data'])) $outcomePayload = $outcomePayload['data'];
+            if (empty($outcomePayload['id'])) throw new DomainException('The selected learning outcome is outside your academic scope.', 403);
+            $type = trim((string) ($data['assessment_type'] ?? ''));
+            if ($type === '' || mb_strlen($type) > 100) throw new DomainException('A valid assessment type is required.', 422);
+            $input = [
+                'learning_area' => (string) ($outcomePayload['learning_area_name'] ?? ''),
+                'grade_level' => (string) ($outcomePayload['grade_level'] ?? ''),
+                'term_name' => mb_substr(trim((string) ($data['term_name'] ?? '')), 0, 100),
+                'assessment_type' => $type,
+                'max_marks' => (string) max(1, min(1000, (int) ($data['max_marks'] ?? 100))),
+                'learning_outcome' => (string) ($outcomePayload['outcome'] ?? ''),
+                'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create a fair, age-appropriate assessment with clear evidence of the outcome.')), 0, 500),
+            ];
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'academics.assessment_draft', $this->aiAcademicContext(), $input,
+                ['subject_type' => 'academic_assessment_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']
+            );
+            return $this->accepted($queued, 'Assessment draft queued for academic review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI assessment queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue assessment assistance');
+        }
+    }
+
+    /** GET /api/academic/ai-assessment-drafts?scope=own|review */
+    public function getAiAssessmentDrafts($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiAssessmentDraft()) return $this->forbidden('Academic approval permission is required');
+        try {
+            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'academics'
+            ), 'scope' => $review ? 'review' : 'own'], 'Assessment AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI assessment list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load assessment assistance');
+        }
+    }
+
+    /** POST /api/academic/ai-assessment-draft-approve/{id} */
+    public function postAiAssessmentDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiAssessmentDraft()) return $this->forbidden('Academic approval permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'academics.assessment_draft');
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Assessment draft approved for teacher editing');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] AI assessment approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve assessment assistance');
+        }
+    }
+
+    /** POST /api/academic/ai-coverage-review-queue */
+    public function postAiCoverageReviewQueue($id = null, $data = [], $segments = [])
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('academics.coverage_review', $this->aiAcademicContext()); }
+        catch (DomainException $e) { return $this->forbidden('Academic curriculum permission is required'); }
+        $classId = (int) ($data['academic_year_class_id'] ?? $id ?? 0);
+        if ($classId < 1) return $this->badRequest('academic_year_class_id is required');
+        try {
+            $raw = $this->api->getClassLearningAreaCoverage(['academic_year_class_id' => $classId]);
+            $rows = is_array($raw) ? ($raw['data']['learning_areas'] ?? $raw['learning_areas'] ?? []) : [];
+            $planned = count($rows); $withCurriculum = 0;
+            foreach ($rows as $row) if ((int) ($row['strand_count'] ?? 0) > 0 || (int) ($row['sub_strand_count'] ?? 0) > 0) $withCurriculum++;
+            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr(trim((string) ($data['grade_level'] ?? '')), 0, 100), 'learning_area' => mb_substr(trim((string) ($data['learning_area'] ?? 'All learning areas')), 0, 100), 'planned_count' => (string) $planned, 'completed_count' => (string) $withCurriculum, 'overdue_count' => '0', 'coverage_rate' => $planned > 0 ? (string) round(($withCurriculum / $planned) * 100, 2) : '0', 'unmapped_count' => (string) max(0, $planned - $withCurriculum), 'follow_up_intent' => 'Verify curriculum mapping and delivery records before taking action.'];
+            $queued = $this->contract(AiDraftService::class)->queue('academics.coverage_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_coverage_review', 'subject_id' => $classId, 'scope' => 'authorized_class_curriculum_aggregate']);
+            return $this->accepted($queued, 'Curriculum coverage review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (Exception $e) { return $this->serverError('Unable to queue curriculum coverage review'); }
+    }
+
+    /** POST /api/academic/ai-rubric-draft-queue */
+    public function postAiRubricDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAcademicAi('academics.rubric_draft')) return $this->forbidden('Academic rubric permission is required');
+        try {
+            $outcomeId = (int) ($data['learning_outcome_id'] ?? 0);
+            if ($outcomeId < 1) throw new DomainException('Select an authorized CBC learning outcome first.', 422);
+            $result = $this->academicManager->getLearningOutcomes($outcomeId, $this->scopedCurriculumQuery([]));
+            $outcome = is_array($result) ? ($result['data'] ?? $result) : [];
+            if (isset($outcome['data']) && is_array($outcome['data'])) $outcome = $outcome['data'];
+            if (empty($outcome['id'])) throw new DomainException('The selected learning outcome is outside your academic scope.', 403);
+            $input = ['learning_area' => (string) ($outcome['learning_area_name'] ?? ''), 'grade_level' => (string) ($outcome['grade_level'] ?? ''), 'term_name' => mb_substr(trim((string) ($data['term_name'] ?? '')), 0, 100), 'learning_outcome' => (string) ($outcome['outcome'] ?? ''), 'criterion_count' => (string) max(1, min(12, (int) ($data['criterion_count'] ?? 4))), 'performance_levels' => mb_substr(trim((string) ($data['performance_levels'] ?? 'Beginning, Developing, Meeting, Exceeding')), 0, 300), 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create observable, age-appropriate criteria.')), 0, 500)];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.rubric_draft', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_rubric_draft', 'subject_id' => $outcomeId, 'scope' => 'authorized_cbc_outcome']), 'CBC rubric draft queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (Exception $e) { return $this->serverError('Unable to queue rubric assistance'); }
+    }
+
+    /** POST /api/academic/ai-learning-gap-review-queue */
+    public function postAiLearningGapReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAcademicAi('academics.learning_gap_review')) return $this->forbidden('Academic learning-gap permission is required');
+        try {
+            // Request only the aggregate school/class view from the academic
+            // source service; learner rows never enter the AI payload.
+            $overview = $this->api->getPerformanceOverview(array_merge(['view_mode' => 'school'], $_GET, $data));
+            $rows = (array) ($overview['rows'] ?? $overview['data'] ?? []); $below = 0; $missing = 0; $bands = ['below_50' => 0, '50_to_74' => 0, '75_plus' => 0];
+            foreach ($rows as $row) { $score = $row['average_score'] ?? null; if ($score === null) { $missing++; continue; } $score = (float) $score; if ($score < 50) { $below++; $bands['below_50']++; } elseif ($score < 75) { $bands['50_to_74']++; } else $bands['75_plus']++; }
+            $input = ['report_date' => date('Y-m-d'), 'grade_level' => mb_substr((string) ($data['grade_level'] ?? ''), 0, 100), 'learning_area' => mb_substr((string) ($data['learning_area'] ?? 'All learning areas'), 0, 100), 'learner_count' => (string) count($rows), 'assessment_count' => (string) count($rows), 'below_threshold_count' => (string) $below, 'missing_evidence_count' => (string) $missing, 'gap_bands' => json_encode($bands), 'follow_up_intent' => 'Verify authorized assessment evidence and provide teacher-led support; do not identify learners in the AI response.'];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('academics.learning_gap_review', $this->aiAcademicContext(), $input, ['subject_type' => 'academic_learning_gap_review', 'scope' => 'authorized_aggregate_performance']), 'Learning-gap review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (Exception $e) { return $this->serverError('Unable to queue learning-gap review'); }
+    }
+
+    private function canUseAcademicAi(string $workflow): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize($workflow, $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    public function postAiRubricDraftApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAcademicAiDraft($id, $data, $segments, 'academics.rubric_draft', 'rubric');
+    }
+
+    public function postAiCoverageReviewApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAcademicAiDraft($id, $data, $segments, 'academics.coverage_review', 'coverage');
+    }
+
+    public function postAiLearningGapReviewApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAcademicAiDraft($id, $data, $segments, 'academics.learning_gap_review', 'learning-gap');
+    }
+
+    private function approveAcademicAiDraft($id, array $data, array $segments, string $workflow, string $label): array
+    {
+        if (!$this->canApproveAiSchemeDraft()) return $this->forbidden('Academic approval permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], ucfirst($label) . ' review approved for teacher editing');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
+    }
+
+    private function canUseAiAssessmentDraft(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('academics.assessment_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiAssessmentDraft(): bool
+    {
+        return $this->canApproveAiSchemeDraft();
+    }
+
+    private function aiAcademicContext(): array
+    {
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+    }
+
+    private function canUseAiSchemeDraft(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('academics.scheme_draft', $this->aiAcademicContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiSchemeDraft(): bool
+    {
+        return $this->userHasAny(['academic_approve', 'academic_manage', 'academics_manage', 'curriculum_approve'], [3, 4, 5, 10], ['headteacher', 'deputy headteacher', 'admin', 'director']);
+    }
+
+    private function buildAiSchemeInput(array $data): array
+    {
+        $context = $this->api->getTeacherPlanningContext();
+        $payload = is_array($context) ? ($context['data'] ?? $context) : [];
+        if (isset($payload['data']) && is_array($payload['data'])) $payload = $payload['data'];
+        $streamId = (int) ($data['stream_id'] ?? 0);
+        $areaId = (int) ($data['learning_area_id'] ?? 0);
+        if ($streamId < 1 || $areaId < 1) throw new DomainException('Select an authorized class stream and learning area.', 422);
+        $stream = null;
+        foreach ((array) ($payload['streams'] ?? []) as $candidate) if ((int) ($candidate['academic_year_class_stream_id'] ?? 0) === $streamId) { $stream = $candidate; break; }
+        if (!$stream) throw new DomainException('The selected class stream is outside your academic scope.', 403);
+        $area = null;
+        foreach ((array) ($stream['learning_areas'] ?? []) as $candidate) if ((int) ($candidate['id'] ?? 0) === $areaId) { $area = $candidate; break; }
+        if (!$area) throw new DomainException('The selected learning area is outside your academic scope.', 403);
+        $rows = (array) ($payload['curriculum'][$streamId . ':' . $areaId] ?? []);
+        $strandId = (int) ($data['strand_id'] ?? 0);
+        $subStrandId = (int) ($data['sub_strand_id'] ?? 0);
+        $rows = array_values(array_filter($rows, static fn(array $row): bool => (!$strandId || (int) ($row['strand_id'] ?? 0) === $strandId) && (!$subStrandId || (int) ($row['sub_strand_id'] ?? 0) === $subStrandId)));
+        if (!$rows) throw new DomainException('No authorized CBC strands or sub-strands were found for the selection.', 422);
+        $strands = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string) ($row['strand_name'] ?? ''), $rows))));
+        $subStrands = array_values(array_unique(array_filter(array_map(static fn(array $row): string => (string) ($row['sub_strand_name'] ?? ''), $rows))));
+        $outcomes = [];
+        foreach ($rows as $row) foreach ((array) ($row['learning_outcomes'] ?? []) as $outcome) $outcomes[] = (string) $outcome;
+        return ['learning_area' => (string) ($area['name'] ?? ''), 'grade_level' => (string) ($stream['class_name'] ?? ''), 'term_name' => (string) ($payload['term_name'] ?? ''), 'instructional_weeks' => (string) count(array_filter((array) ($payload['weeks'] ?? []), static fn(array $week): bool => empty($week['is_reserved']))), 'strands' => array_slice($strands, 0, 20), 'sub_strands' => array_slice($subStrands, 0, 20), 'learning_outcomes' => array_slice(array_values(array_unique($outcomes)), 0, 20), 'teacher_intent' => mb_substr(trim((string) ($data['teacher_intent'] ?? 'Create a practical, learner-centred sequence with assessment opportunities.')), 0, 500)];
+    }
+
     /**
      * GET /api/academic/scheme-of-work/get/{id} - Get scheme of work
      */
@@ -3478,7 +3827,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Access to my teachers is not available for this account');
         }
         try {
-            $studentIds = (new StudentProfileManager())->resolveStudentIds($this->user);
+            $studentIds = ($this->contract('App\API\Modules\students\StudentProfileManager'))->resolveStudentIds($this->user);
             if (empty($studentIds)) {
                 return $this->success([], 'No student profile is linked to the current user');
             }
@@ -3503,12 +3852,12 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Access to class teacher contacts is not available for this account');
         }
         try {
-            $profileManager = new StudentProfileManager();
+            $profileManager = $this->contract('App\API\Modules\students\StudentProfileManager');
             $parentIds = $profileManager->resolveParentIds($this->user);
             if (empty($parentIds)) {
                 return $this->success([], 'No linked student profiles found for the current user');
             }
-            $children = (new FamilyGroupsManager())->getChildrenForParentIds($parentIds);
+            $children = ($this->contract('App\API\Modules\students\FamilyGroupsManager'))->getChildrenForParentIds($parentIds);
             $studentIds = ($children['success'] ?? false) ? ($children['data'] ?? []) : [];
             $contacts = [];
             foreach ($studentIds as $studentId) {

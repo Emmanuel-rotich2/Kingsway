@@ -347,7 +347,7 @@ const analyticsCatalogueController = {
       `Run #${run.id || "—"} · ${result.row_count || 0} rows · ${run.duration_ms || 0} ms · As of ${this.formatDate(result.as_of)}`;
     this.renderSummary(result.summary || {});
     this.renderWarnings(result.warnings || []);
-    this.renderVisuals(result.rows || []);
+    this.renderVisuals(result.rows || [], result.columns || [], result.visualizations || []);
     this.renderTable(result.rows || [], result.columns || []);
     this.renderExportButtons(result.permitted_exports || []);
     region.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -380,7 +380,7 @@ const analyticsCatalogueController = {
     target.textContent = warnings.map((warning) => warning.message || String(warning)).join(" · ");
   },
 
-  renderVisuals(rows) {
+  renderVisuals(rows, configuredColumns = [], visualizations = []) {
     const page = document.getElementById("governedReportPage");
     const region = document.getElementById("analyticsVisualRegion");
     if (!page || !region || !window.ReportComponents || !rows.length) {
@@ -389,12 +389,16 @@ const analyticsCatalogueController = {
     }
     region.hidden = false;
     const keys = Object.keys(rows[0] || {});
-    const numeric = keys.filter((key) => rows.some((row) => row[key] !== null && row[key] !== "" && Number.isFinite(Number(row[key]))));
-    const dimensions = keys.filter((key) => !numeric.includes(key));
-    if (!numeric.length) { region.hidden = true; return; }
+    const configured = configuredColumns.map((column) => typeof column === "string" ? { key: column } : column).filter((column) => keys.includes(column.key));
+    const numeric = configured.filter((column) => ["number", "integer", "decimal", "percent", "currency"].includes(String(column.type || "").toLowerCase())).map((column) => column.key);
+    const inferredNumeric = keys.filter((key) => rows.some((row) => row[key] !== null && row[key] !== "" && Number.isFinite(Number(row[key]))));
+    const valueCandidates = numeric.length ? numeric : inferredNumeric;
+    const dimensions = keys.filter((key) => !valueCandidates.includes(key));
+    if (!valueCandidates.length) { region.hidden = true; return; }
     const labelKey = dimensions[0] || keys[0];
-    const valueKeys = numeric.slice(0, 3);
-    const type = page.dataset.primaryVisual || "bar";
+    const valueKeys = valueCandidates.slice(0, 3);
+    const declaredVisual = (Array.isArray(visualizations) ? visualizations : []).find((visual) => !["table", "kpi", "funnel"].includes(String(typeof visual === "string" ? visual : visual?.type).toLowerCase()));
+    const type = String(typeof declaredVisual === "string" ? declaredVisual : declaredVisual?.type || page.dataset.primaryVisual || "bar").toLowerCase();
     const title = document.getElementById("analyticsPrimaryVisualTitle");
     if (title) title.textContent = `${this.label(valueKeys[0])} by ${this.label(labelKey)}`;
     const spec = { labels: rows.slice(0, 20).map((row) => row[labelKey]), datasets: valueKeys.map((key) => ({ label: this.label(key), data: rows.slice(0, 20).map((row) => Number(row[key]) || 0) })) };

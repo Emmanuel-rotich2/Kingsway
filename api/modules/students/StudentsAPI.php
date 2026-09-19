@@ -20,8 +20,8 @@ class StudentsAPI extends BaseAPI
     public function __construct()
     {
         parent::__construct('students');
-        $this->idCardGenerator = new StudentIDCardGenerator();
-        $this->yearManager = new AcademicYearManager($this->db);
+        $this->idCardGenerator = $this->contract('App\API\Modules\students\StudentIDCardGenerator');
+        $this->yearManager = $this->contract('App\API\Modules\academic\AcademicYearManager', $this->db);
         $this->promotionManager = new PromotionManager($this->db, $this->yearManager);
     }
 
@@ -152,7 +152,7 @@ class StudentsAPI extends BaseAPI
                         SUM(amount_waived) AS total_waived,
                         SUM(balance) AS total_balance,
                         MIN(CASE WHEN balance > 0 THEN latest_due_date END) AS earliest_balance_due
-                    FROM vw_student_fee_balances
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
                     {$feeSummaryWhere}
                     GROUP BY student_id
                 ) fee_summary ON fee_summary.student_id = s.id
@@ -1023,13 +1023,6 @@ class StudentsAPI extends BaseAPI
         }
     }
 
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
     private function resolveClassFromStream(int $streamId): ?array
     {
         $stmt = $this->db->prepare("
@@ -1140,20 +1133,16 @@ class StudentsAPI extends BaseAPI
         $admissionDateStmt->execute([$studentId]);
         $enrollmentDate = $admissionDateStmt->fetchColumn() ?: date('Y-m-d');
 
-        $newEnrollmentId = $this->nextId('student_academic_enrollments');
-
         $insertStmt = $this->db->prepare("
             INSERT INTO student_academic_enrollments (
-                id,
                 student_id,
                 academic_year_id,
                 academic_year_class_stream_id,
                 enrolled_on,
                 enrollment_status
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
         ");
         $insertStmt->execute([
-            $newEnrollmentId,
             $studentId,
             $academicYearId,
             $assignmentId,
@@ -1161,7 +1150,7 @@ class StudentsAPI extends BaseAPI
             $enrollmentStatus
         ]);
 
-        return $newEnrollmentId;
+        return (int) $this->db->lastInsertId();
     }
 
     private function generateStudentFeeObligationsForCurrentYear(int $studentId, ?int $academicYearId = null, array $sponsorship = []): int
@@ -1328,7 +1317,6 @@ class StudentsAPI extends BaseAPI
 
             $insertStmt = $this->db->prepare("
                 INSERT INTO student_fee_obligations (
-                    id,
                     student_academic_enrollment_id,
                     academic_year_id,
                     academic_year_term_id,
@@ -1338,10 +1326,9 @@ class StudentsAPI extends BaseAPI
                     due_date,
                     is_sponsored,
                     sponsored_waiver_amount
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $insertStmt->execute([
-                $this->nextId('student_fee_obligations'),
                 $enrollmentId,
                 $academicYearId,
                 (int) $row['term_id'],
@@ -1386,11 +1373,9 @@ class StudentsAPI extends BaseAPI
 
         $note = $reason ?: 'Internal class/stream transfer';
         $userId = $this->getCurrentUserId();
-        $transitionId = $this->nextId('student_transitions');
 
         $sql = "
             INSERT INTO student_transitions (
-                id,
                 student_id,
                 from_student_academic_enrollment_id,
                 to_student_academic_enrollment_id,
@@ -1400,12 +1385,11 @@ class StudentsAPI extends BaseAPI
                 decided_by,
                 decided_at,
                 executed_at
-            ) VALUES (?, ?, ?, ?, ?, 'internal', ?, ?, NOW(), NOW())
+            ) VALUES (?, ?, ?, ?, 'internal', ?, ?, NOW(), NOW())
         ";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $transitionId,
             $studentId,
             $enrollmentId ?: null,
             $enrollmentId ?: null,
@@ -1414,7 +1398,7 @@ class StudentsAPI extends BaseAPI
             $userId
         ]);
 
-        return $transitionId;
+        return (int) $this->db->lastInsertId();
     }
 
     // Create new student
@@ -1496,15 +1480,11 @@ class StudentsAPI extends BaseAPI
             // Start transaction so parent linking and student insert are atomic
             $this->db->beginTransaction();
 
-            $newStudentId = $this->nextId('students');
-            $newPersonId = $this->nextId('persons');
-
             $personStmt = $this->db->prepare("
-                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO persons (first_name, middle_name, last_name, dob, gender, photo_url)
+                VALUES (?, ?, ?, ?, ?, ?)
             ");
             $personStmt->execute([
-                $newPersonId,
                 $data['first_name'],
                 $data['middle_name'] ?? null,
                 $data['last_name'],
@@ -1512,10 +1492,10 @@ class StudentsAPI extends BaseAPI
                 $data['gender'] ?? null,
                 $data['photo_url'] ?? null
             ]);
+            $newPersonId = (int) $this->db->lastInsertId();
 
             $sql = "
                 INSERT INTO students (
-                    id,
                     person_id,
                     admission_no,
                     student_type_id,
@@ -1527,12 +1507,11 @@ class StudentsAPI extends BaseAPI
                     status,
                     application_id,
                     blood_group
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $newStudentId,
                 $newPersonId,
                 $admissionNo,
                 $data['student_type_id'] ?? null,
@@ -1546,7 +1525,7 @@ class StudentsAPI extends BaseAPI
                 $data['blood_group'] ?? null
             ]);
 
-            $studentId = $newStudentId;
+            $studentId = (int) $this->db->lastInsertId();
 
             // Link parent as part of student creation
             try {
@@ -1634,16 +1613,14 @@ class StudentsAPI extends BaseAPI
         $paymentMethod = $this->normalizePaymentMethod($paymentData['method'] ?? '');
         $paymentDate = $paymentData['payment_date'] ?? date('Y-m-d H:i:s');
         $receiptNo = $paymentData['receipt_no'] ?? ('ADM-' . date('YmdHis') . '-' . $studentId);
-        $paymentId = $this->nextId('payments');
 
         $sql = "INSERT INTO payments (
-            id, student_id, parent_id, amount, payment_date, method, reference,
+            student_id, parent_id, amount, payment_date, method, reference,
             receipt_no, received_by, status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)";
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $paymentId,
             $studentId,
             $parentId,
             $paymentData['amount'],
@@ -1654,6 +1631,7 @@ class StudentsAPI extends BaseAPI
             $receivedBy,
             $paymentData['notes'] ?? 'Initial admission payment'
         ]);
+        $paymentId = (int) $this->db->lastInsertId();
 
         if ($academicYear !== null && $termId !== null) {
             $this->refreshStudentPaymentSummary($studentId, $academicYear, $termId);
@@ -1908,13 +1886,11 @@ class StudentsAPI extends BaseAPI
      */
     private function createParentRecord(array $parentData): int
     {
-        $personId = $this->nextId('persons');
         $stmt = $this->db->prepare("
-            INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO persons (first_name, middle_name, last_name, dob, gender, national_id_no, email, phone, data_scope)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live')
         ");
         $stmt->execute([
-            $personId,
             $parentData['first_name'] ?? '',
             $parentData['middle_name'] ?? null,
             $parentData['last_name'] ?? '',
@@ -1924,20 +1900,19 @@ class StudentsAPI extends BaseAPI
             $parentData['email'] ?? null,
             $parentData['phone_1'] ?? null
         ]);
+        $personId = (int) $this->db->lastInsertId();
 
-        $parentId = $this->nextId('parents');
         $stmt = $this->db->prepare("
-            INSERT INTO parents (id, person_id, occupation, address, status)
-            VALUES (?, ?, ?, ?, 'active')
+            INSERT INTO parents (person_id, occupation, address, status)
+            VALUES (?, ?, ?, 'active')
         ");
         $stmt->execute([
-            $parentId,
             $personId,
             $parentData['occupation'] ?? null,
             $parentData['address'] ?? null
         ]);
 
-        return $parentId;
+        return (int) $this->db->lastInsertId();
     }
 
     /**
@@ -1993,6 +1968,15 @@ class StudentsAPI extends BaseAPI
             ");
             $stmt->execute($parentParams);
         }
+
+        $this->db->prepare(
+            "INSERT INTO user_roles (user_id, role_id)
+             SELECT u.id, 73
+             FROM users u
+             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
+             WHERE u.person_id = ?
+             ON DUPLICATE KEY UPDATE user_id = user_id"
+        )->execute([$personId]);
     }
 
     private function getStudentParents($studentId)
@@ -2052,7 +2036,7 @@ class StudentsAPI extends BaseAPI
                 COALESCE(SUM(amount_waived), 0) AS total_waived,
                 COALESCE(SUM(balance), 0) AS balance,
                 MIN(CASE WHEN balance > 0 THEN latest_due_date END) AS earliest_due_date
-            FROM vw_student_fee_balances vfb
+            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
             WHERE " . implode(' AND ', $where) . "
         ";
         $stmt = $this->db->prepare($obligationSql);
@@ -2480,7 +2464,7 @@ class StudentsAPI extends BaseAPI
             LEFT JOIN academic_years ay ON ay.id = sfo.academic_year_id
             LEFT JOIN terms t ON t.id = ayt.term_id
             LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
-            LEFT JOIN vw_student_fee_balances vfb
+            LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                 ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
                AND vfb.academic_year_term_id <=> sfo.academic_year_term_id
             WHERE sae.student_id = ?
@@ -2621,11 +2605,8 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $attendanceId = $this->nextId('student_attendance');
-
             $sql = "
                 INSERT INTO student_attendance (
-                    id,
                     student_academic_enrollment_id,
                     date,
                     session_id,
@@ -2636,7 +2617,7 @@ class StudentsAPI extends BaseAPI
                     notes,
                     register_type,
                     marked_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     status = VALUES(status),
                     notes = VALUES(notes),
@@ -2648,7 +2629,6 @@ class StudentsAPI extends BaseAPI
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $attendanceId,
                 (int) $enrollmentId,
                 $data['date'],
                 isset($data['session_id']) ? (int) $data['session_id'] : null,
@@ -2711,10 +2691,8 @@ class StudentsAPI extends BaseAPI
             }
 
             // Record transfer history
-            $transitionId = $this->nextId('student_transitions');
             $stmt = $this->db->prepare("
                 INSERT INTO student_transitions (
-                    id,
                     student_id,
                     from_student_academic_enrollment_id,
                     to_student_academic_enrollment_id,
@@ -2724,10 +2702,9 @@ class StudentsAPI extends BaseAPI
                     decided_by,
                     decided_at,
                     executed_at
-                ) VALUES (?, ?, ?, ?, ?, 'transfer', ?, ?, NOW(), ?)
+                ) VALUES (?, ?, ?, ?, 'transfer', ?, ?, NOW(), ?)
             ");
             $stmt->execute([
-                $transitionId,
                 $id,
                 (int) $currentEnrollment['enrollment_id'],
                 (int) $currentEnrollment['enrollment_id'],
@@ -2823,11 +2800,8 @@ class StudentsAPI extends BaseAPI
             $termStmt->execute([(int) $enrollment['academic_year_id']]);
             $termId = $termStmt->fetchColumn();
 
-            $caseId = $this->nextId('discipline_incidents');
-
             $sql = "
                 INSERT INTO discipline_incidents (
-                    id,
                     student_academic_enrollment_id,
                     academic_year_term_id,
                     type,
@@ -2836,12 +2810,11 @@ class StudentsAPI extends BaseAPI
                     description,
                     action_taken,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $caseId,
                 (int) $enrollment['id'],
                 $termId ? (int) $termId : null,
                 $data['type'] ?? 'general',
@@ -2851,6 +2824,7 @@ class StudentsAPI extends BaseAPI
                 $data['action_taken'] ?? null,
                 $status
             ]);
+            $caseId = (int) $this->db->lastInsertId();
 
             $this->db->commit();
             $this->logAction('create', $caseId, "Recorded discipline case for student ID: $id");
@@ -3603,13 +3577,11 @@ class StudentsAPI extends BaseAPI
                 try {
                     $this->db->beginTransaction();
 
-                    $personId = $this->nextId('persons');
                     $personStmt = $this->db->prepare("
-                        INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO persons (first_name, middle_name, last_name, dob, gender, photo_url)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     ");
                     $personStmt->execute([
-                        $personId,
                         $row['first_name'] ?? null,
                         $row['middle_name'] ?? null,
                         $row['last_name'] ?? null,
@@ -3617,17 +3589,16 @@ class StudentsAPI extends BaseAPI
                         $row['gender'] ?? null,
                         $row['photo_url'] ?? null,
                     ]);
+                    $personId = (int) $this->db->lastInsertId();
 
-                    $studentId = $this->nextId('students');
                     $studentStmt = $this->db->prepare("
                         INSERT INTO students (
-                            id, person_id, admission_no, student_type_id, assessment_number,
+                            person_id, admission_no, student_type_id, assessment_number,
                             assessment_status, nemis_number, nemis_status, status,
                             admission_date, blood_group, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
                     ");
                     $studentStmt->execute([
-                        $studentId,
                         $personId,
                         $row['admission_no'],
                         (int) ($row['student_type_id'] ?? 1),
@@ -3639,6 +3610,7 @@ class StudentsAPI extends BaseAPI
                         $row['admission_date'] ?? date('Y-m-d'),
                         $row['blood_group'] ?? null,
                     ]);
+                    $studentId = (int) $this->db->lastInsertId();
 
                     $streamId = (int) ($row['stream_id'] ?? 0);
                     if ($streamId > 0) {
@@ -4002,7 +3974,7 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT COALESCE(SUM(GREATEST(balance, 0)), 0) AS pending_balance,
                        SUM(CASE WHEN payment_status IN ('pending', 'partial') THEN 1 ELSE 0 END) AS pending_fees
-                FROM vw_student_fee_balances
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
                 WHERE student_id = ?
             ");
             $stmt->execute([$studentId]);
@@ -4624,7 +4596,7 @@ class StudentsAPI extends BaseAPI
                            ) AS attendance_percentage,
                            SUM(vws.status IN ('present', 'late')) AS days_present,
                            SUM(vws.status = 'absent') AS days_absent
-                    FROM vw_student_attendance_summary vws
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . " vws
                     GROUP BY vws.student_id
                 ) sa ON sa.student_id = s.id
                 WHERE c.id = ? AND s.status = 'active'
@@ -5215,13 +5187,11 @@ class StudentsAPI extends BaseAPI
             }
             $streamId = $this->getOrCreateStreamId($data['class_id'], $data['stream_name']);
 
-            $personId = $this->nextId('persons');
             $personStmt = $this->db->prepare("
-                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url, email, phone)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO persons (first_name, middle_name, last_name, dob, gender, photo_url, email, phone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $personStmt->execute([
-                $personId,
                 $data['first_name'],
                 $data['middle_name'] ?? null,
                 $data['last_name'],
@@ -5231,16 +5201,15 @@ class StudentsAPI extends BaseAPI
                 $data['email'] ?? null,
                 $data['phone'] ?? null,
             ]);
+            $personId = (int) $this->db->lastInsertId();
 
-            $studentId = $this->nextId('students');
             $studentStmt = $this->db->prepare("
                 INSERT INTO students (
-                    id, person_id, admission_no, student_type_id, admission_date,
+                    person_id, admission_no, student_type_id, admission_date,
                     assessment_number, blood_group, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
             ");
             $studentStmt->execute([
-                $studentId,
                 $personId,
                 $data['admission_no'],
                 $data['student_type_id'] ?? 1,
@@ -5248,6 +5217,7 @@ class StudentsAPI extends BaseAPI
                 $data['assessment_number'] ?? null,
                 $data['blood_group'] ?? null,
             ]);
+            $studentId = (int) $this->db->lastInsertId();
 
             // Enroll into class/stream for the current year
             $enrollmentId = $this->ensureClassEnrollment($studentId, $streamId);

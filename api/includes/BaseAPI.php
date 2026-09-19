@@ -102,6 +102,52 @@ class BaseAPI extends FileLifecycleBase
         return $_REQUEST['user']['id'] ?? null;
     }
 
+    /**
+     * Contract-first accessor for the gRPC-style service contract layer.
+     * Mirrors BaseController::contract() for controllers that extend BaseAPI
+     * instead of BaseController. Controllers MUST obtain governed services
+     * through this accessor — never with bare "new X(...)".
+     *
+     * @param string $contractOrClass governed class FQCN or short alias.
+     * @param mixed  ...$args         forwarded to the real constructor.
+     * @return object
+     */
+    protected function contract(string $contractOrClass, ...$args)
+    {
+        return \App\API\Services\ServiceContractBroker::contract($contractOrClass, [
+            'user_id' => (int) ($this->user_id ?? 0),
+            'roles' => $this->currentUserRoleNames(),
+            'permissions' => $_SERVER['auth_user']['effective_permissions'] ?? [],
+            'request_id' => $_SERVER['REQUEST_ID'] ?? $this->request_id,
+        ], ...$args);
+    }
+
+    /**
+     * Role names from the authenticated session (mirrors the BaseController
+     * helper that reads $_SERVER['auth_user'] set by AuthMiddleware).
+     *
+     * @return array Lowercased role names.
+     */
+    protected function currentUserRoleNames()
+    {
+        $roles = $_SERVER['auth_user']['roles'] ?? [];
+        if (empty($roles)) {
+            return [];
+        }
+        if (is_string($roles[0] ?? null)) {
+            return array_map('strtolower', $roles);
+        }
+        $names = [];
+        foreach ($roles as $role) {
+            if (is_array($role) && isset($role['name'])) {
+                $names[] = strtolower($role['name']);
+            } elseif (is_object($role) && isset($role->name)) {
+                $names[] = strtolower($role->name);
+            }
+        }
+        return $names;
+    }
+
     protected function logRequest()
     {
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

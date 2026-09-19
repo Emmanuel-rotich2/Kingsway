@@ -56,7 +56,8 @@ final class TestAccountAccessService
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
 
-        $isTest = (int) $row['is_test_user'] === 1 || $row['account_type'] === 'test';
+        $isTest = strtolower((string) $row['account_type']) === 'test'
+            || (int) $row['is_test_user'] === 1;
 
         $phase = (new EnvironmentPhaseService($this->db))->current();
         // On the localhost host, any phase is a dev workspace: test accounts are
@@ -68,7 +69,10 @@ final class TestAccountAccessService
             && strtotime((string) $row['test_access_expires_at']) > time();
 
         $row['is_test_user'] = $isTest ? 1 : 0;
-        $row['data_scope'] = $isTest ? 'test' : 'live';
+        $row['data_scope'] = (string) ($row['data_scope'] ?? '');
+        if (!in_array($row['data_scope'], ['live', 'test', 'both'], true)) {
+            $row['data_scope'] = $isTest ? 'test' : 'live';
+        }
         $row['test_access_active'] = $grantActive;
         $row['test_access_required'] = $isTest && !$onLocalhost && $phase['test_accounts_allowed'];
         $row['operating_mode'] = $phase['phase'];

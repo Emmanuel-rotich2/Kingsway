@@ -3,6 +3,10 @@
  * System Administrator — Role Definitions
  * Controller: js/pages/manage_roles.js
  */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') $appBase = '';
+}
 ?>
 <div class="container-fluid py-4" id="manageRolesPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -85,11 +89,33 @@
                 </div>
             </div>
         </div>
+        <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-success" id="bulkActivateBtn">
+                    <i class="bi bi-check2-circle me-1"></i> Activate
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-warning" id="bulkDeactivateBtn">
+                    <i class="bi bi-x-circle me-1"></i> Deactivate
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
 
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead id="roleDefinitionsTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching roles"
+                            >
+                        </th>
                         <th scope="col">Role</th>
                         <th scope="col">Description</th>
                         <th scope="col">Scope</th>
@@ -118,65 +144,108 @@
         <div class="modal-content">
             <form id="roleDefinitionForm" novalidate>
                 <div class="modal-header">
-                    <h5 class="modal-title" id="roleDefinitionModalTitle">Role Definition</h5>
-                    <button
-                        type="button"
-                        class="btn-close"
-                        data-bs-dismiss="modal"
-                        aria-label="Close"
-                    ></button>
+                    <h5 class="modal-title" id="roleDefinitionModalTitle">Create Role</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="roleDefinitionId">
 
-                    <div class="mb-3">
-                        <label class="form-label" for="roleDefinitionName">Role name</label>
-                        <input
-                            class="form-control"
-                            id="roleDefinitionName"
-                            name="name"
-                            maxlength="50"
-                            required
-                            autocomplete="off"
-                        >
-                        <div class="invalid-feedback">Enter a role name of at most 50 characters.</div>
-                    </div>
+                    <ul class="nav nav-pills nav-justified mb-4" id="roleWizardSteps">
+                        <li class="nav-item">
+                            <button type="button" class="nav-link active" id="roleStep1Btn" data-role-step="1">
+                                <i class="bi bi-pencil-square me-1"></i>Details
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button type="button" class="nav-link" id="roleStep2Btn" data-role-step="2" disabled>
+                                <i class="bi bi-key me-1"></i>Permissions
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button type="button" class="nav-link" id="roleStep3Btn" data-role-step="3" disabled>
+                                <i class="bi bi-check2-circle me-1"></i>Confirm
+                            </button>
+                        </li>
+                    </ul>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="roleDefinitionDescription">Description</label>
-                        <textarea
-                            class="form-control"
-                            id="roleDefinitionDescription"
-                            name="description"
-                            rows="4"
-                            placeholder="Describe this role's responsibility"
-                        ></textarea>
-                    </div>
-
-                    <div class="mb-3" id="roleDefinitionScopeGroup">
-                        <label class="form-label" for="roleDefinitionScope">Scope</label>
-                        <select class="form-select" id="roleDefinitionScope" name="scope">
-                            <option value="school">School operations</option>
-                            <option value="system">System administration</option>
-                        </select>
-                        <div class="form-text">
-                            System scope is reserved for technical administration roles.
+                    <div id="roleStep1Content">
+                        <div class="mb-3">
+                            <label class="form-label" for="roleDefinitionName">Role name</label>
+                            <input
+                                class="form-control"
+                                id="roleDefinitionName"
+                                name="name"
+                                maxlength="50"
+                                required
+                                autocomplete="off"
+                            >
+                            <div class="invalid-feedback">Enter a role name of at most 50 characters.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="roleDefinitionDescription">Description</label>
+                            <textarea
+                                class="form-control"
+                                id="roleDefinitionDescription"
+                                name="description"
+                                rows="4"
+                                placeholder="Describe this role's responsibility"
+                            ></textarea>
+                        </div>
+                        <div class="mb-3" id="roleDefinitionScopeGroup">
+                            <label class="form-label" for="roleDefinitionScope">Scope</label>
+                            <select class="form-select" id="roleDefinitionScope" name="scope">
+                                <option value="school">School operations</option>
+                                <option value="system">System administration</option>
+                            </select>
+                            <div class="form-text">
+                                System scope is reserved for technical administration roles.
+                            </div>
                         </div>
                     </div>
 
-                    <div class="alert alert-secondary mb-0">
-                        <i class="bi bi-info-circle me-1"></i>
-                        Assign or revoke permissions after saving from the Role-Permission Matrix.
-                        Protected system roles are read-only and cannot be deactivated or deleted.
+                    <div id="roleStep2Content" class="d-none">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <p class="text-muted mb-0">Select the permissions this role should grant.</p>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="rolePermissionsSelectAll">Select all</button>
+                        </div>
+                        <input class="form-control mb-3" type="search"
+                               id="rolePermissionsSearch" placeholder="Search permissions..."
+                               autocomplete="off">
+                        <div class="border rounded p-3" id="rolePermissionsContainer"
+                             style="max-height:340px;overflow-y:auto">
+                            <div class="text-muted py-3" id="rolePermissionsLoading">
+                                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading permissions...
+                            </div>
+                            <div id="rolePermissionsList"></div>
+                            <div class="text-muted d-none py-3" id="rolePermissionsEmpty">No permissions match your search.</div>
+                        </div>
+                        <div class="form-text mt-2" id="rolePermissionsCount"></div>
+                    </div>
+
+                    <div id="roleStep3Content" class="d-none">
+                        <div class="alert alert-light border mb-3">
+                            <div class="mb-1"><strong>Role name:</strong> <span id="roleConfirmName"></span></div>
+                            <div class="mb-1"><strong>Scope:</strong> <span id="roleConfirmScope"></span></div>
+                            <div class="mb-0"><strong>Permissions:</strong> <span id="roleConfirmPermissions"></span></div>
+                        </div>
+                        <p class="text-muted mb-0" id="roleConfirmActionText">
+                            Review and save. The new role will be created with the permissions above.
+                        </p>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
-                        Cancel
+                    <button type="button" class="btn btn-outline-secondary" data-role-wiz="prev" id="roleWizardPrevBtn" disabled>
+                        <i class="bi bi-arrow-left me-1"></i>Back
                     </button>
-                    <button type="submit" class="btn btn-primary" id="saveRoleDefinitionBtn">
-                        Save role
-                    </button>
+                    <div class="ms-auto">
+                        <button type="button" class="btn btn-outline-secondary me-2" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="roleWizardNextBtn">
+                            Next<i class="bi bi-arrow-right ms-1"></i>
+                        </button>
+                        <button type="submit" class="btn btn-success d-none" id="roleWizardSaveBtn">
+                            <i class="bi bi-check-lg me-1"></i>Save role
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>

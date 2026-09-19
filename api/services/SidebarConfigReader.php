@@ -14,6 +14,45 @@ namespace App\API\Services;
 class SidebarConfigReader
 {
     /**
+     * Return whether the canonical sidebar for a role contains a route.
+     *
+     * role_sidebars.php is the source used by login/refresh. Authorization
+     * checks may use the database for explicit grants/denies, but an absent
+     * role_routes row must not make the authenticated shell disagree with its
+     * canonical menu.
+     */
+    public static function roleHasRoute(int $roleId, string $routeName): bool
+    {
+        $target = 'route:' . strtolower(trim($routeName));
+        $walk = static function (array $items) use (&$walk, $target): bool {
+            foreach ($items as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $url = (string) ($item['url'] ?? $item['route_url'] ?? '');
+                if ($url !== '') {
+                    if (strpos($url, 'route=') !== false) {
+                        $parts = parse_url($url);
+                        if (isset($parts['query'])) {
+                            parse_str($parts['query'], $query);
+                            $url = (string) ($query['route'] ?? $url);
+                        }
+                    }
+                    if ('route:' . strtolower(trim($url)) === $target) {
+                        return true;
+                    }
+                }
+                if ($walk((array) ($item['subitems'] ?? []))) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        return $walk(self::forRoles([$roleId]));
+    }
+
+    /**
      * Return the effective, fully-normalised menu for every configured role.
      * Administrative previews and dashboard APIs must use this method instead
      * of exposing the raw PHP array or the obsolete database menu tables.
@@ -407,7 +446,50 @@ class SidebarConfigReader
             ], $groupIndex);
         }
 
+        // Keep the canonical menu consistent with the normalized permission
+        // catalog. These roles do not have communication-management rights;
+        // exposing the links created a UI/policy mismatch and led users to a
+        // page that the route guard correctly denied. Their ordinary school
+        // workflows remain unchanged.
+        if (in_array($roleId, [14, 16, 21, 23], true)) {
+            $items = self::removeRoutes($items, ['manage_announcements', 'manage_email']);
+        }
+        // Menu administration is a system operation, not a catering role
+        // capability. The policy engine already denies it for role 16.
+        if ($roleId === 16) {
+            $items = self::removeRoutes($items, ['manage_menus']);
+        }
+        // These routes are protected by the system-domain policy. School
+        // Administrator and Deputy Discipline menus must not advertise links
+        // that the policy engine intentionally denies.
+        if ($roleId === 4) {
+            $items = self::removeRoutes($items, ['term_transition', 'year_rollover', 'manage_whatsapp']);
+        }
+        if ($roleId === 63) {
+            $items = self::removeRoutes($items, ['schemes_of_work', 'all_teachers', 'policy_violations']);
+        }
+        if ($roleId === 24) {
+            $items = self::removeRoutes($items, ['parent_meeting_records']);
+        }
+
         return $items;
+    }
+
+    /** Remove route links recursively while preserving non-empty menu groups. */
+    private static function removeRoutes(array $items, array $routes): array
+    {
+        $routes = array_fill_keys(array_map('strtolower', $routes), true);
+        $filtered = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) continue;
+            $url = strtolower(trim((string) ($item['url'] ?? '')));
+            if ($url !== '' && isset($routes[$url])) continue;
+            if (!empty($item['subitems']) && is_array($item['subitems'])) {
+                $item['subitems'] = self::removeRoutes($item['subitems'], array_keys($routes));
+            }
+            if ($url !== '' || !empty($item['subitems'])) $filtered[] = $item;
+        }
+        return $filtered;
     }
 
     /**
@@ -857,6 +939,7 @@ class SidebarConfigReader
             'manage_announcements' => 'Families & Communication',
             'manage_sms' => 'Families & Communication',
             'manage_communications' => 'Families & Communication',
+            'manage_email' => 'Families & Communication',
             'schedule_parent_meetings' => 'Families & Communication',
             'performance_analysis' => 'Reports & Analytics',
             'term_reports' => 'Reports & Analytics',

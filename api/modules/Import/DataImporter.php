@@ -296,11 +296,10 @@ class DataImporter
                 $gender = in_array($gender, ['f','female']) ? 'female' : 'male';
 
                 $personStmt = $this->db->prepare(
-                    'INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
-                     VALUES (:id,:fn,:mn,:ln,:dob,:g,:nid,:em,:ph)'
+                    'INSERT INTO persons (first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
+                     VALUES (:fn,:mn,:ln,:dob,:g,:nid,:em,:ph)'
                 );
                 $personStmt->execute([
-                    ':id'  => $this->nextId('persons'),
                     ':fn'  => $row['first_name'],
                     ':mn'  => $row['middle_name'] ?? null,
                     ':ln'  => $row['last_name'],
@@ -314,15 +313,14 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO students
-                     (id, person_id, admission_no, student_type_id, admission_date, status, blood_group, created_at, updated_at)
+                     (person_id, admission_no, student_type_id, admission_date, status, blood_group, created_at, updated_at)
                      VALUES
-                     (:id,:pid,:a,:st,:ad,:s,:bg,NOW(),NOW())
+                     (:pid,:a,:st,:ad,:s,:bg,NOW(),NOW())
                      ON DUPLICATE KEY UPDATE
                      person_id=VALUES(person_id), student_type_id=VALUES(student_type_id),
                      status=VALUES(status), updated_at=NOW()'
                 );
                 $stmt->execute([
-                    ':id'  => $this->nextId('students'),
                     ':pid' => $personId,
                     ':a'   => $row['admission_no'],
                     ':st'  => $this->resolveStudentTypeId($row['student_type'] ?? 'DAY'),
@@ -364,13 +362,12 @@ class DataImporter
                 }
                 $stmt = $this->db->prepare(
                     'INSERT INTO payments
-                     (id, student_id, receipt_no, amount, payment_date, method, reference, status, notes, created_at, updated_at)
+                     (student_id, receipt_no, amount, payment_date, method, reference, status, notes, created_at, updated_at)
                      VALUES
-                     (:id,:sid,:rno,:amt,:pd,:m,:ref,"confirmed",:notes,NOW(),NOW())
+                     (:sid,:rno,:amt,:pd,:m,:ref,"confirmed",:notes,NOW(),NOW())
                      ON DUPLICATE KEY UPDATE amount=VALUES(amount), status=VALUES(status)'
                 );
                 $stmt->execute([
-                    ':id'   => $this->nextId('payments'),
                     ':sid'  => $studentId,
                     ':rno'  => $row['receipt_no'] ?? $row['reference_number'] ?? null,
                     ':amt'  => (float)$row['amount'],
@@ -400,11 +397,10 @@ class DataImporter
                 $gender = in_array($gender, ['f','female']) ? 'female' : 'male';
 
                 $personStmt = $this->db->prepare(
-                    'INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
-                     VALUES (:id,:fn,:mn,:ln,:dob,:g,:nid,:em,:ph)'
+                    'INSERT INTO persons (first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
+                     VALUES (:fn,:mn,:ln,:dob,:g,:nid,:em,:ph)'
                 );
                 $personStmt->execute([
-                    ':id'  => $this->nextId('persons'),
                     ':fn'  => $row['first_name'],
                     ':mn'  => $row['middle_name'] ?? null,
                     ':ln'  => $row['last_name'],
@@ -418,15 +414,14 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO staff
-                     (id, person_id, staff_no, position, contract_type, employment_date, status, created_at, updated_at)
+                     (person_id, staff_no, position, contract_type, employment_date, status, created_at, updated_at)
                      VALUES
-                     (:id,:pid,:sn,:pos,:ct,:dj,:s,NOW(),NOW())
+                     (:pid,:sn,:pos,:ct,:dj,:s,NOW(),NOW())
                      ON DUPLICATE KEY UPDATE
                      person_id=VALUES(person_id), position=VALUES(position),
                      status=VALUES(status), updated_at=NOW()'
                 );
                 $stmt->execute([
-                    ':id'  => $this->nextId('staff'),
                     ':pid' => $personId,
                     ':sn'  => $row['staff_number'],
                     ':pos' => $row['designation'] ?? 'Teacher',
@@ -484,13 +479,12 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO academic_year_fee_schedules
-                     (id, academic_year_id, academic_year_term_id, academic_year_class_id,
+                     (academic_year_id, academic_year_term_id, academic_year_class_id,
                       student_type_id, fee_catalog_id, amount, status, created_at, updated_at)
-                     VALUES (:id,:ay,:ayt,:ayc,1,:fc,:amt,"active",NOW(),NOW())
+                     VALUES (:ay,:ayt,:ayc,1,:fc,:amt,"active",NOW(),NOW())
                      ON DUPLICATE KEY UPDATE amount=VALUES(amount), status=VALUES(status)'
                 );
                 $stmt->execute([
-                    ':id'  => $this->nextId('academic_year_fee_schedules'),
                     ':ay'  => $ayId,
                     ':ayt' => $aytId,
                     ':ayc' => $aycId,
@@ -641,9 +635,9 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO assessment_results
-                     (id, assessment_id, student_academic_enrollment_id, marks_obtained,
+                     (assessment_id, student_academic_enrollment_id, marks_obtained,
                       grade, points, remarks, is_submitted, is_approved, responder_type, created_at)
-                     VALUES (:id,:aid,:eid,:sc,:grade,:pts,:rem,1,0,"teacher",NOW())
+                     VALUES (:aid,:eid,:sc,:grade,:pts,:rem,1,0,"teacher",NOW())
                      ON DUPLICATE KEY UPDATE
                        marks_obtained=VALUES(marks_obtained),
                        grade=VALUES(grade),
@@ -651,7 +645,6 @@ class DataImporter
                        remarks=VALUES(remarks)'
                 );
                 $stmt->execute([
-                    ':id'    => $this->nextId('assessment_results'),
                     ':aid'   => $assessmentId,
                     ':eid'   => $enrollmentId,
                     ':sc'    => $score,
@@ -699,12 +692,11 @@ class DataImporter
                 }
                 $stmt = $this->db->prepare(
                     'INSERT INTO student_attendance
-                     (id, student_academic_enrollment_id, date, status, absence_reason, notes, register_type, created_at)
-                     VALUES (:id,:eid,:d,:st,:reason,:notes,"class",NOW())
+                     (student_academic_enrollment_id, date, status, absence_reason, notes, register_type, created_at)
+                     VALUES (:eid,:d,:st,:reason,:notes,"class",NOW())
                      ON DUPLICATE KEY UPDATE status=VALUES(status), notes=VALUES(notes)'
                 );
                 $stmt->execute([
-                    ':id'     => $this->nextId('student_attendance'),
                     ':eid'    => (int)$enrollmentId,
                     ':d'      => $row['date'],
                     ':st'     => $status,
@@ -733,12 +725,11 @@ class DataImporter
                 $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 10));
                 $stmt = $this->db->prepare(
                     'INSERT INTO classes
-                     (id, code, name, level_id, grade_level)
-                     VALUES (:id,:c,:n,:lv,:gl)
+                     (code, name, level_id, grade_level)
+                     VALUES (:c,:n,:lv,:gl)
                      ON DUPLICATE KEY UPDATE level_id=VALUES(level_id)'
                 );
                 $stmt->execute([
-                    ':id' => $this->nextId('classes'),
                     ':c'  => $code ?: ('C' . mt_rand(100, 999)),
                     ':n'  => $name,
                     ':lv' => $this->resolveLevelForClass($name),
@@ -907,11 +898,6 @@ class DataImporter
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    private function nextId(string $table): int
-    {
-        return (int)$this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM `$table`")->fetchColumn();
-    }
-
     private function splitName(string $full): array
     {
         $parts = preg_split('/\s+/', trim($full), 2);
@@ -960,19 +946,17 @@ class DataImporter
         $stmt->execute([':y' => (string)$year]);
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
-        $id = $this->nextId('academic_years');
         $stmt = $this->db->prepare(
-            'INSERT INTO academic_years (id, year_code, year_name, start_date, end_date, status)
-             VALUES (:id,:y,:n,:s,:e,"registration")'
+            'INSERT INTO academic_years (year_code, year_name, start_date, end_date, status)
+             VALUES (:y,:n,:s,:e,"registration")'
         );
         $stmt->execute([
-            ':id' => $id,
             ':y'  => (string)$year,
             ':n'  => $year . ' Academic Year',
             ':s'  => $year . '-01-01',
             ':e'  => $year . '-12-31',
         ]);
-        return $id;
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveTermId(int $termNo): int
@@ -982,10 +966,9 @@ class DataImporter
         $stmt->execute([':c' => $code]);
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
-        $id = $this->nextId('terms');
-        $stmt = $this->db->prepare('INSERT INTO terms (id, name, code) VALUES (:id,:n,:c)');
-        $stmt->execute([':id' => $id, ':n' => 'Term ' . $termNo, ':c' => $code]);
-        return $id;
+        $stmt = $this->db->prepare('INSERT INTO terms (name, code) VALUES (:n,:c)');
+        $stmt->execute([':n' => 'Term ' . $termNo, ':c' => $code]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveAcademicYearTermId(
@@ -1008,13 +991,12 @@ class DataImporter
             $up->execute([':o' => $opening, ':c' => $closing, ':hs' => $halfStart, ':he' => $halfEnd, ':id' => $id]);
             return (int)$id;
         }
-        $id = $this->nextId('academic_year_terms');
         $stmt = $this->db->prepare(
-            'INSERT INTO academic_year_terms (id, academic_year_id, term_id, opening_date, closing_date, half_term_start, half_term_end, status)
-             VALUES (:id,:a,:t,:o,:c,:hs,:he,"upcoming")'
+            'INSERT INTO academic_year_terms (academic_year_id, term_id, opening_date, closing_date, half_term_start, half_term_end, status)
+             VALUES (:a,:t,:o,:c,:hs,:he,"upcoming")'
         );
-        $stmt->execute([':id' => $id, ':a' => $ayId, ':t' => $termId, ':o' => $opening, ':c' => $closing, ':hs' => $halfStart, ':he' => $halfEnd]);
-        return $id;
+        $stmt->execute([':a' => $ayId, ':t' => $termId, ':o' => $opening, ':c' => $closing, ':hs' => $halfStart, ':he' => $halfEnd]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveAcademicYearClassId(int $ayId, int $classId): ?int
@@ -1023,12 +1005,11 @@ class DataImporter
         $stmt->execute([':a' => $ayId, ':c' => $classId]);
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
-        $id = $this->nextId('academic_year_classes');
         $stmt = $this->db->prepare(
-            'INSERT INTO academic_year_classes (id, academic_year_id, class_id, status) VALUES (:id,:a,:c,"planning")'
+            'INSERT INTO academic_year_classes (academic_year_id, class_id, status) VALUES (:a,:c,"planning")'
         );
-        $stmt->execute([':id' => $id, ':a' => $ayId, ':c' => $classId]);
-        return $id;
+        $stmt->execute([':a' => $ayId, ':c' => $classId]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveLearningAreaId(string $name): int
@@ -1053,13 +1034,12 @@ class DataImporter
         $stmt->execute([':c' => $aycsId, ':t' => $title, ':d' => $date]);
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
-        $id = $this->nextId('assessments');
         $stmt = $this->db->prepare(
-            'INSERT INTO assessments (id, academic_year_class_stream_id, academic_year_term_id, learning_area_id, title, max_marks, assessment_date, assigned_by, status)
-             VALUES (:id,:c,:t,:la,:title,:mm,:d,1,"pending_submission")'
+            'INSERT INTO assessments (academic_year_class_stream_id, academic_year_term_id, learning_area_id, title, max_marks, assessment_date, assigned_by, status)
+             VALUES (:c,:t,:la,:title,:mm,:d,1,"pending_submission")'
         );
-        $stmt->execute([':id' => $id, ':c' => $aycsId, ':t' => $aytId, ':la' => $laId, ':title' => $title, ':mm' => $maxMarks, ':d' => $date]);
-        return $id;
+        $stmt->execute([':c' => $aycsId, ':t' => $aytId, ':la' => $laId, ':title' => $title, ':mm' => $maxMarks, ':d' => $date]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveFeeCatalog(string $name, float $amount): int
@@ -1068,11 +1048,10 @@ class DataImporter
         $stmt->execute([':n' => trim($name)]);
         $id = $stmt->fetchColumn();
         if ($id) return (int)$id;
-        $id = $this->nextId('fee_catalog');
         $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', trim($name)), 0, 15));
-        $stmt = $this->db->prepare('INSERT INTO fee_catalog (id, code, name, default_amount, status) VALUES (:id,:c,:n,:a,"active")');
-        $stmt->execute([':id' => $id, ':c' => $code ?: ('FEE' . mt_rand(100, 999)), ':n' => trim($name), ':a' => $amount]);
-        return $id;
+        $stmt = $this->db->prepare('INSERT INTO fee_catalog (code, name, default_amount, status) VALUES (:c,:n,:a,"active")');
+        $stmt->execute([':c' => $code ?: ('FEE' . mt_rand(100, 999)), ':n' => trim($name), ':a' => $amount]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function resolveExpenseCategoryId(string $name): ?int
@@ -1158,19 +1137,19 @@ class DataImporter
             $personId = $stmt->fetchColumn();
         }
         if (!$personId) {
-            $personId = $this->nextId('persons');
             $stmt = $this->db->prepare(
-                'INSERT INTO persons (id, first_name, last_name, email, phone) VALUES (:id,:fn,:ln,:e,:p)'
+                'INSERT INTO persons (first_name, last_name, email, phone) VALUES (:fn,:ln,:e,:p)'
             );
-            $stmt->execute([':id' => $personId, ':fn' => $first, ':ln' => $last, ':e' => $email, ':p' => $phone]);
+            $stmt->execute([':fn' => $first, ':ln' => $last, ':e' => $email, ':p' => $phone]);
+            $personId = (int)$this->db->lastInsertId();
         }
 
         $stmt = $this->db->prepare(
-            'INSERT INTO parents (id, person_id, occupation, address, status, created_at, updated_at)
-             VALUES (:id,:pid,:occ,:addr,"active",NOW(),NOW())
+            'INSERT INTO parents (person_id, occupation, address, status, created_at, updated_at)
+             VALUES (:pid,:occ,:addr,"active",NOW(),NOW())
              ON DUPLICATE KEY UPDATE occupation=VALUES(occupation), updated_at=NOW()'
         );
-        $stmt->execute([':id' => $this->nextId('parents'), ':pid' => (int)$personId, ':occ' => $row['occupation'] ?? null, ':addr' => $row['address'] ?? null]);
+        $stmt->execute([':pid' => (int)$personId, ':occ' => $row['occupation'] ?? null, ':addr' => $row['address'] ?? null]);
         $parentId = (int)$this->db->lastInsertId();
         if (!$parentId) {
             $stmt = $this->db->prepare('SELECT id FROM parents WHERE person_id = :pid LIMIT 1');

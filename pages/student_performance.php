@@ -40,6 +40,9 @@ if (!isset($appBase)) {
                 </div>
 
                 <div class="btn-group">
+                    <button class="btn btn-outline-light btn-sm" id="queueAiSupportPlanningBtn" type="button">
+                        <i class="bi bi-stars me-1"></i> Prepare Support Review
+                    </button>
                     <button class="btn btn-light btn-sm" id="exportOverviewBtn">
                         <i class="bi bi-download"></i> Export
                     </button>
@@ -47,7 +50,23 @@ if (!isset($appBase)) {
                         <i class="bi bi-printer"></i> Print
                     </button>
                 </div>
+                <span id="aiSupportPlanningStatus" class="small text-white-50" role="status"></span>
             </div>
+        </div>
+
+        <div class="card-body border-bottom bg-light" id="aiSupportPlanningReviews" hidden>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div>
+                    <strong><i class="bi bi-shield-check me-1 text-success"></i>Support review drafts</strong>
+                    <div class="small text-muted">AI drafts are advisory, reviewable, and cannot change learner records.</div>
+                </div>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Support draft scope">
+                    <button type="button" class="btn btn-outline-secondary" id="loadOwnAiSupportReviewsBtn">My drafts</button>
+                    <button type="button" class="btn btn-outline-secondary" id="loadReviewAiSupportReviewsBtn">Pending review</button>
+                </div>
+            </div>
+            <div id="aiSupportPlanningReviewsStatus" class="small text-muted" role="status"></div>
+            <div id="aiSupportPlanningReviewsList" class="row g-2"></div>
         </div>
 
         <div class="card-body">

@@ -11,7 +11,7 @@ use App\API\Modules\finance\PayrollWorkflow;
 use App\API\Modules\finance\FeeApprovalWorkflow;
 use App\API\Modules\finance\BudgetApprovalWorkflow;
 use App\API\Modules\finance\ExpenseApprovalWorkflow;
-use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Services\ServiceContractBroker;
 
 /**
  * Finance Service - Central Integration Layer
@@ -61,7 +61,7 @@ class FinanceService
         $this->expenseApprovalWorkflow = new ExpenseApprovalWorkflow();
 
         // Initialize payroll manager for integration
-        $this->staffPayrollManager = new StaffPayrollManager();
+        $this->staffPayrollManager = ServiceContractBroker::contract('App\API\Modules\staff\StaffPayrollManager');
     }
 
     /**

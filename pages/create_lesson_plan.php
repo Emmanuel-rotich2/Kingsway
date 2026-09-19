@@ -23,7 +23,7 @@ if ($appBase === '.') $appBase = '';
     <div class="card-body clp-form">
       <form id="lessonPlanForm">
         <div class="row g-3">
-          <div class="col-12"><label>Approved Scheme Row *</label><select id="lpScheme" required><option value="">Loading approved scheme rows…</option></select><div id="lpSchemeHint" class="form-text">Choose the week and planned scheme row first. The lesson date must fall within that week.</div></div>
+          <div class="col-12"><label>Approved Scheme Row *</label><select id="lpScheme" required><option value="">Loading approved scheme rows…</option></select><div id="lpSchemeHint" class="form-text">Choose the week and planned scheme row first. The lesson date must fall within that week.</div><div class="card border-success-subtle bg-light mt-2"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Lesson-plan assistant</strong><div class="small text-muted">Drafts from the approved scheme context; teacher editing and academic approval remain required.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiLessonPlanDraft"><i class="bi bi-stars me-1"></i>Draft lesson plan</button></div><div id="aiLessonPlanDrafts" class="mt-2"></div></div></div></div>
           <div class="col-md-6"><label>Lesson Focus *</label><input type="text" name="topic" id="lpTopic" required></div>
           <div class="col-md-6"><label>Subtopic</label><input type="text" name="subtopic" id="lpSubtopic"></div>
           <div class="col-md-4">
@@ -67,3 +67,4 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <?php asset_script($appBase, 'js/pages/create_lesson_plan.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_lesson_plan_draft.js'); ?>

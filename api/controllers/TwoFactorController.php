@@ -35,9 +35,9 @@ class TwoFactorController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->tfa = new TwoFactorService();
-        $this->otpDelivery = new OTPDeliveryService();
-        $this->passkeys = new PasskeyService();
+        $this->tfa = $this->contract('App\API\Services\TwoFactorService');
+        $this->otpDelivery = $this->contract('App\API\Services\OTPDeliveryService');
+        $this->passkeys = $this->contract('App\API\Services\PasskeyService');
     }
 
     private function currentUser(): array
@@ -52,6 +52,44 @@ class TwoFactorController extends BaseController
             return $this->badRequest('Your current password is required to change 2FA settings.');
         }
         return null;
+    }
+
+    /**
+     * Parent Portal accounts (role 73 + active parents record) may only use
+     * TOTP, passkeys or email OTP — never SMS/WhatsApp. The decision is based
+     * on the account itself, not the presenting session, so it also holds for
+     * the anonymous login-challenge surface where auth_user is not attached.
+     */
+    private function isParentAccount(int $userId): bool
+    {
+        if ($userId < 1) {
+            return false;
+        }
+        if (!empty($_SERVER['auth_user']['parent_id'])) {
+            return true;
+        }
+        try {
+            $stmt = $this->db->getConnection()->prepare(
+                'SELECT pr.id
+                   FROM users u
+                   JOIN persons p ON p.id = u.person_id
+                   JOIN parents pr ON pr.person_id = p.id
+                   JOIN user_roles ur ON ur.user_id = u.id
+                   JOIN roles r ON r.id = ur.role_id
+                  WHERE u.id = ?
+                    AND u.status = \'active\'
+                    AND pr.status = \'active\'
+                    AND r.id = 73
+                    AND r.name = \'Parent\'
+                  LIMIT 1'
+            );
+            $stmt->execute([$userId]);
+
+            return (bool) $stmt->fetchColumn();
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('isParentAccount failed: ' . $error->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -196,6 +234,9 @@ class TwoFactorController extends BaseController
     {
         $userId = $this->getUserId();
         if (!$userId) return $this->unauthorized('Not authenticated');
+        if ($this->isParentAccount($userId)) {
+            return $this->forbidden('SMS 2FA is not available to Parent Portal accounts. Use an authenticator app, a passkey, or email verification.');
+        }
         if ($error = $this->requireReauthentication($userId, $data)) return $error;
 
         $user = $this->currentUser();
@@ -217,6 +258,9 @@ class TwoFactorController extends BaseController
     {
         $userId = $this->getUserId();
         if (!$userId) return $this->unauthorized('Not authenticated');
+        if ($this->isParentAccount($userId)) {
+            return $this->forbidden('WhatsApp 2FA is not available to Parent Portal accounts. Use an authenticator app, a passkey, or email verification.');
+        }
         if ($error = $this->requireReauthentication($userId, $data)) return $error;
         $user = $this->currentUser();
         $phone = $user['phone'] ?? $user['phone_1'] ?? '';
@@ -336,6 +380,10 @@ class TwoFactorController extends BaseController
         if ($method === 'totp') {
             return $this->success(['method' => 'totp', 'challenge_sent' => false],
                 'Enter the code from your authenticator app.');
+        }
+
+        if (in_array($method, ['sms', 'whatsapp'], true) && $this->isParentAccount($targetUserId)) {
+            return $this->forbidden('SMS/WhatsApp verification is not available to Parent Portal accounts. Use an authenticator app, a passkey, or email.');
         }
 
         $contact = $this->tfa->getUserContact($targetUserId);

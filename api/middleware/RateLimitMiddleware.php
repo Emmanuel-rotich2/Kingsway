@@ -14,6 +14,9 @@ class RateLimitMiddleware
     const REFRESH_REQUESTS_LIMIT = 60;
     const LOGIN_REQUESTS_LIMIT = 60;
     const TELEMETRY_REQUESTS_LIMIT = 60;
+    // Public AI is provider-backed and anonymous; keep its cost/abuse bucket
+    // separate from ordinary public website traffic.
+    const PUBLIC_AI_REQUESTS_LIMIT = 20;
     const TIME_WINDOW = 60; // seconds
 
     // Login endpoints that get a stricter rate limit.
@@ -102,6 +105,9 @@ class RateLimitMiddleware
         if (self::isTelemetryEndpoint()) {
             return self::TELEMETRY_REQUESTS_LIMIT;
         }
+        if (self::isPublicAiEndpoint()) {
+            return self::PUBLIC_AI_REQUESTS_LIMIT;
+        }
         if (self::isRefreshEndpoint()) {
             return self::REFRESH_REQUESTS_LIMIT;
         }
@@ -121,6 +127,12 @@ class RateLimitMiddleware
         return strpos($path, '/system/client-log') !== false
             || strpos($path, '/telemetry/data') !== false
             || strpos($path, '/telemetry/errors') !== false;
+    }
+
+    private static function isPublicAiEndpoint(): bool
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        return strpos($path, '/public/ai-faq') !== false;
     }
 
     private static function isLoginEndpoint()

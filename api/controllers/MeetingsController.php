@@ -25,7 +25,7 @@ class MeetingsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->manager = new StaffMeetingManager($this->db->getConnection());
+        $this->manager = $this->contract('App\API\Modules\communications\StaffMeetingManager', $this->db->getConnection());
     }
 
     private function guard(): ?array

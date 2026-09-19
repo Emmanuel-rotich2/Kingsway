@@ -1282,7 +1282,7 @@ class AttendanceManager extends BaseAPI
                         SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late,
                         SUM(CASE WHEN absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
                         MAX(CASE WHEN status = 'absent' OR absence_reason = 'permission' THEN date END) AS last_absent_date
-                    FROM vw_student_attendance_summary
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . "
                     WHERE date BETWEEN ? AND ?";
             $params = [$dateFrom, $dateTo];
 
@@ -1329,7 +1329,7 @@ class AttendanceManager extends BaseAPI
                             SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late,
                             SUM(CASE WHEN absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
                             COUNT(*) AS total
-                         FROM vw_student_attendance_summary
+                         FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . "
                          WHERE date BETWEEN ? AND ?";
             $trendParams = [$dateFrom, $dateTo];
 
@@ -2335,7 +2335,7 @@ class AttendanceManager extends BaseAPI
                         v.effective_status,
                         CASE WHEN v.leave_id IS NOT NULL AND v.leave_status = 'approved' THEN 1 ELSE 0 END AS is_on_leave,
                         CASE WHEN v.duty_code IN ('OFF', 'WEEKEND_OFF') THEN 1 ELSE 0 END AS is_off_day
-                    FROM vw_staff_daily_register v
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_daily_register') . " v
                     WHERE v.date = ?
                         AND " . implode(' AND ', $where) . "
                     ORDER BY v.department_name, v.last_name, v.first_name";
@@ -2419,7 +2419,7 @@ class AttendanceManager extends BaseAPI
 
                 $regStmt = $this->db->prepare(
                     "SELECT work_start_time, late_threshold_minutes
-                     FROM vw_staff_daily_register
+                     FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_daily_register') . "
                      WHERE staff_id = ? AND date = ?
                      LIMIT 1"
                 );
@@ -2570,7 +2570,7 @@ class AttendanceManager extends BaseAPI
                         v.pattern_off_id,
                         v.effective_status,
                         v.can_mark
-                    FROM vw_staff_daily_register v
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_daily_register') . " v
                     WHERE v.date = ?" . ($where ? ' AND ' . implode(' AND ', $where) : '') . "
                     ORDER BY v.department_name, v.staff_name";
             $stmt = $this->db->prepare($sql);
@@ -2737,7 +2737,7 @@ class AttendanceManager extends BaseAPI
                     v.leave_start,
                     v.leave_end,
                     v.effective_status
-                 FROM vw_staff_daily_register v
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_daily_register') . " v
                  WHERE v.date BETWEEN ? AND ?
                    AND v.staff_id IN ({$staffPlaceholders})"
             );

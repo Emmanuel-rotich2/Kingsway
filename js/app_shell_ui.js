@@ -758,6 +758,215 @@
       : '<p class="text-muted mb-0">No matching pages found.</p>';
   }
 
+  const aiWorkspaceRoutes = {
+    admissions: "manage_students_admissions",
+    academics: "schemes_of_work",
+    attendance: "daily_attendance",
+    finance: "finance/admin_finance",
+    communications: "manage_communications",
+    reports: "dashboard",
+    boarding: "boarding_reports",
+    counseling: "student_counseling",
+    health: "health_reports",
+    activities: "activity_reports",
+    curriculum: "curriculum_cbc",
+    inventory: "manage_inventory",
+    catering: "catering_boarding_students",
+    maintenance: "maintenance_mode",
+    transport: "transport",
+    staff: "staff",
+    system: "system_diagnostics",
+  };
+
+  async function loadAiAssistantCatalog() {
+    const content = $("#global-ai-assistant-content");
+    const context = $("#global-ai-assistant-context");
+    if (!content) return;
+
+    const route = String(window.REQUESTED_ROUTE || "");
+    if (context) {
+      context.textContent = route
+        ? `Current workspace: ${route.replace(/[_/-]+/g, " ")}`
+        : "Current workspace: dashboard";
+    }
+
+    try {
+      const payload = await window.API?.apiCall?.(
+        `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`,
+        "GET"
+      );
+      const workflows = Array.isArray(payload?.workflows)
+        ? payload.workflows
+        : [];
+      const queryForm = $("#global-ai-assistant-query");
+      const canAskReports = workflows.some((workflow) => workflow.id === "system.nlq_query");
+      if (queryForm) queryForm.hidden = !canAskReports;
+      const suggestions = $("#global-ai-assistant-suggestions");
+      if (suggestions && workflows.length) {
+        const questions = workflows.flatMap((workflow) => Array.isArray(workflow.suggested_questions) ? workflow.suggested_questions : []).slice(0, 5);
+        suggestions.innerHTML = questions.map((question) => `<button type="button" class="btn btn-sm btn-outline-secondary ai-question-suggestion">${escapeHtml(question)}</button>`).join("");
+        suggestions.querySelectorAll(".ai-question-suggestion").forEach((button) => button.addEventListener("click", () => {
+          const input = $("#global-ai-assistant-question");
+          if (input) { input.value = button.textContent; input.focus(); }
+        }));
+      }
+
+      if (!workflows.length) {
+        content.innerHTML = '<p class="text-muted">No assistance is currently available for your permissions.</p>';
+        return;
+      }
+
+      content.innerHTML = workflows.map((workflow) => {
+        const domain = String(workflow.domain || "system");
+        const target = aiWorkspaceRoutes[domain] || route || "dashboard";
+        const implemented = workflow.status === "implemented";
+        const status = implemented ? "Available" : "Not yet available";
+        const action = implemented
+          ? `<a class="btn btn-sm btn-outline-success" href="${escapeHtml((window.APP_BASE || "") + "/home.php?route=" + target)}">Open workspace</a>`
+          : '<span class="small text-muted">This capability is registered in the roadmap but is not yet enabled.</span>';
+        return `<div class="card border-0 shadow-sm mb-3">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <h6 class="mb-1">${escapeHtml(workflow.summary || workflow.id)}</h6>
+              <span class="badge text-bg-light">${escapeHtml(status)}</span>
+            </div>
+            <p class="small text-muted mb-2">${escapeHtml(domain)} · ${escapeHtml(workflow.action_level || "assist")}</p>
+            ${action}
+          </div>
+        </div>`;
+      }).join("");
+    } catch (error) {
+      content.innerHTML = '<p class="text-danger small">Contextual assistance is temporarily unavailable. Continue using the existing workflow.</p>';
+    }
+  }
+
+  let aiAssistantQueryBound = false;
+
+  function initAiAssistantQuery() {
+    const form = $("#global-ai-assistant-query");
+    if (!form || aiAssistantQueryBound) return;
+    aiAssistantQueryBound = true;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = $("#global-ai-assistant-question");
+      const answer = $("#global-ai-assistant-answer");
+      const question = String(input?.value || "").trim();
+      if (!question || !answer) return;
+      answer.innerHTML =
+        '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Working out the best governed report…</div>';
+      try {
+        const payload = await window.API?.reports?.askNlq?.(question);
+        const result = payload?.data !== undefined ? payload.data : payload;
+        answer.innerHTML = renderAiAnswer(result);
+      } catch (error) {
+        answer.innerHTML =
+          '<div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>';
+      }
+    });
+  }
+
+  function renderAiAnswer(result) {
+    if (!result || typeof result !== "object") {
+      return '<div class="alert alert-warning small mb-0">No answer was returned.</div>';
+    }
+    if (result.status === "unavailable") {
+      return `<div class="alert alert-warning small mb-0">${escapeHtml(
+        result.message || "The assistant is not available right now."
+      )}</div>`;
+    }
+    if (result.status !== "answered") {
+      return `<div class="alert alert-info small mb-0">${escapeHtml(
+        result.message || "That question is outside the reports available to you."
+      )}</div>`;
+    }
+    const answer = result.answer || {};
+    const explanation = result.explanation
+      ? `<p class="small mb-2">${escapeHtml(result.explanation)}</p>`
+      : "";
+    const warnings =
+      Array.isArray(answer.warnings) && answer.warnings.length
+        ? `<div class="alert alert-warning small mb-2">${answer.warnings
+            .map((warning) => escapeHtml(String(warning)))
+            .join("<br>")}</div>`
+        : "";
+    const limited = answer.preview_limited
+      ? '<p class="small text-muted mb-1">Showing the first rows. Open the report for the full result.</p>'
+      : "";
+    const link = `<a class="btn btn-sm btn-outline-success" href="${escapeHtml(
+      (window.APP_BASE || "") + "/home.php?route=governed_report"
+    )}">Open report</a>`;
+    return `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+        <h6 class="mb-0">${escapeHtml(answer.report_title || answer.report_code || "Answer")}</h6>
+        <span class="badge text-bg-light">${escapeHtml(answer.report_code || "")}</span>
+      </div>
+      ${explanation}
+      ${warnings}
+      ${renderAiSummary(answer.summary)}
+      ${limited}
+      ${renderAiRows(answer)}
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <small class="text-muted">${escapeHtml(String(answer.row_count ?? 0))} rows · as of ${escapeHtml(
+          String(answer.as_of || "")
+        )}</small>
+        ${link}
+      </div>
+    </div></div>`;
+  }
+
+  function renderAiSummary(summary) {
+    if (!summary || typeof summary !== "object") return "";
+    const items = [];
+    Object.entries(summary).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      let display;
+      if (typeof value === "object") {
+        const inner = Object.entries(value)
+          .filter(([, entry]) => entry === null || typeof entry !== "object")
+          .map(([innerKey, entry]) => `${escapeHtml(innerKey)}: ${escapeHtml(String(entry))}`)
+          .join(", ");
+        if (!inner) return;
+        display = inner;
+      } else {
+        display = escapeHtml(String(value));
+      }
+      items.push(
+        `<li class="list-group-item d-flex justify-content-between gap-3 px-0"><span class="text-muted">${escapeHtml(
+          key
+        )}</span><span class="fw-semibold text-end">${display}</span></li>`
+      );
+    });
+    if (!items.length) return "";
+    return `<ul class="list-group list-group-flush mb-2">${items.join("")}</ul>`;
+  }
+
+  function renderAiRows(answer) {
+    const rows = Array.isArray(answer.rows) ? answer.rows : [];
+    if (!rows.length) return "";
+    const columns =
+      Array.isArray(answer.columns) && answer.columns.length
+        ? answer.columns
+        : Object.keys(rows[0] || {});
+    const headers = columns.map((column) =>
+      column && typeof column === "object"
+        ? escapeHtml(column.label || column.key || "")
+        : escapeHtml(String(column))
+    );
+    const keys = columns.map((column) =>
+      column && typeof column === "object" ? column.key || column.label : column
+    );
+    const body = rows
+      .slice(0, 10)
+      .map((row) => {
+        const cells = keys.map((key) => `<td>${escapeHtml(String(row?.[key] ?? ""))}</td>`);
+        return `<tr>${cells.join("")}</tr>`;
+      })
+      .join("");
+    return `<div class="table-responsive"><table class="table table-sm table-striped mb-2"><thead><tr>${headers
+      .map((header) => `<th>${header}</th>`)
+      .join("")}</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
   function setTheme(dark) {
     document.body.classList.toggle(
       "app-dark",
@@ -892,6 +1101,14 @@
             180
           );
         }
+      }
+    );
+
+    $("#globalAiAssistantPanel")?.addEventListener(
+      "show.bs.offcanvas",
+      () => {
+        void loadAiAssistantCatalog();
+        initAiAssistantQuery();
       }
     );
 

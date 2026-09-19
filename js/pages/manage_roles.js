@@ -8,6 +8,8 @@ const ManageRolesController = {
     roles: [],
     filteredRoles: [],
     editingRoleId: null,
+    wizardStep: 1,
+    permissions: [],
     initialized: false,
     eventsBound: false,
     initializationPromise: null,
@@ -126,7 +128,25 @@ const ManageRolesController = {
       description: document.getElementById("roleDefinitionDescription"),
       scopeGroup: document.getElementById("roleDefinitionScopeGroup"),
       scope: document.getElementById("roleDefinitionScope"),
-      saveButton: document.getElementById("saveRoleDefinitionBtn"),
+      saveButton: document.getElementById("roleWizardSaveBtn"),
+      wizardStep1Btn: document.getElementById("roleStep1Btn"),
+      wizardStep2Btn: document.getElementById("roleStep2Btn"),
+      wizardStep3Btn: document.getElementById("roleStep3Btn"),
+      step1Content: document.getElementById("roleStep1Content"),
+      step2Content: document.getElementById("roleStep2Content"),
+      step3Content: document.getElementById("roleStep3Content"),
+      wizardNextBtn: document.getElementById("roleWizardNextBtn"),
+      wizardPrevBtn: document.getElementById("roleWizardPrevBtn"),
+      permissionsSelectAll: document.getElementById("rolePermissionsSelectAll"),
+      permissionsSearch: document.getElementById("rolePermissionsSearch"),
+      permissionsLoading: document.getElementById("rolePermissionsLoading"),
+      permissionsList: document.getElementById("rolePermissionsList"),
+      permissionsEmpty: document.getElementById("rolePermissionsEmpty"),
+      permissionsCount: document.getElementById("rolePermissionsCount"),
+      confirmName: document.getElementById("roleConfirmName"),
+      confirmScope: document.getElementById("roleConfirmScope"),
+      confirmPermissions: document.getElementById("roleConfirmPermissions"),
+      confirmActionText: document.getElementById("roleConfirmActionText"),
     };
 
     const required = [
@@ -152,6 +172,19 @@ const ManageRolesController = {
       "scopeGroup",
       "scope",
       "saveButton",
+      "wizardStep1Btn",
+      "wizardStep2Btn",
+      "wizardStep3Btn",
+      "step1Content",
+      "step2Content",
+      "step3Content",
+      "wizardNextBtn",
+      "wizardPrevBtn",
+      "permissionsList",
+      "permissionsLoading",
+      "confirmName",
+      "confirmScope",
+      "confirmPermissions",
     ];
 
     const missing = required.filter((key) => !this.elements[key]);
@@ -202,6 +235,21 @@ const ManageRolesController = {
     this.elements.createButton.addEventListener("click", () =>
       this.openCreateModal(),
     );
+    this.elements.wizardNextBtn.addEventListener("click", () =>
+      this.nextWizardStep(),
+    );
+    this.elements.wizardPrevBtn.addEventListener("click", () =>
+      this.prevWizardStep(),
+    );
+    this.elements.permissionsSearch.addEventListener("input", () =>
+      this.renderPermissions(),
+    );
+    this.elements.permissionsSelectAll.addEventListener("click", () =>
+      this.toggleSelectAllPermissions(),
+    );
+    this.elements.wizardStep1Btn.addEventListener("click", () => this.goToWizardStep(1));
+    this.elements.wizardStep2Btn.addEventListener("click", () => this.goToWizardStep(2));
+    this.elements.wizardStep3Btn.addEventListener("click", () => this.goToWizardStep(3));
     this.elements.form.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.saveRole();
@@ -224,7 +272,6 @@ const ManageRolesController = {
     this.elements.tableBody.addEventListener("change", (event) => {
       const toggle = event.target.closest?.("input[data-role-status]");
       if (!toggle) return;
-
       const roleId = Number(toggle.dataset.roleId);
       if (!Number.isInteger(roleId) || roleId <= 0) return;
 
@@ -483,11 +530,13 @@ const ManageRolesController = {
     }
 
     this.resetForm();
+    this.resetWizard();
     this.state.editingRoleId = null;
     this.elements.modalTitle.textContent = "Create Role";
-    this.elements.saveButton.textContent = "Create role";
     this.elements.scope.value = "school";
     this.elements.scopeGroup.hidden = !this.state.isSystemAdministrator;
+    this.goToWizardStep(1);
+    void this.ensurePermissionsLoaded();
     this.elements.modal.show();
   },
 
@@ -518,16 +567,15 @@ const ManageRolesController = {
       this.elements.scope.value = role.scope;
       this.elements.scopeGroup.hidden = !this.state.isSystemAdministrator;
       this.elements.modalTitle.textContent = "Edit Role";
-      this.elements.saveButton.textContent = "Save changes";
+      this.resetWizard();
+      this.goToWizardStep(1);
+      void this.ensurePermissionsLoaded();
       this.elements.modal.show();
     } catch (error) {
       console.error("[ManageRolesController] Failed to open role:", error);
       this.notify(error?.message || "Failed to load the role.", "error");
     } finally {
       this.setButtonBusy(this.elements.saveButton, false, "Save role");
-      this.elements.saveButton.textContent = this.state.editingRoleId
-        ? "Save changes"
-        : "Create role";
     }
   },
 
@@ -554,6 +602,7 @@ const ManageRolesController = {
     };
 
     const editingId = this.state.editingRoleId;
+    const selectedPermissionIds = this.selectedPermissionIds();
     this.setButtonBusy(
       this.elements.saveButton,
       true,
@@ -563,9 +612,14 @@ const ManageRolesController = {
     try {
       if (editingId) {
         await window.API.system.updateRole(editingId, payload);
+        await this.assignWizardPermissions(editingId, selectedPermissionIds);
         this.notify("Role updated successfully.", "success");
       } else {
-        await window.API.system.createRole(payload);
+        const created = await window.API.system.createRole(payload);
+        const newId = this.extractNewRoleId(created);
+        if (newId) {
+          await this.assignWizardPermissions(newId, selectedPermissionIds);
+        }
         this.notify("Role created successfully.", "success");
       }
 
@@ -809,8 +863,224 @@ const ManageRolesController = {
     this.elements.roleName.classList.remove("is-invalid");
     this.elements.scope.value = "school";
     this.elements.scopeGroup.hidden = !this.state.isSystemAdministrator;
-    this.elements.modalTitle.textContent = "Role Definition";
-    this.elements.saveButton.textContent = "Save role";
+    this.elements.modalTitle.textContent = "Create Role";
+    if (this.elements.permissionsList) {
+      this.elements.permissionsList.innerHTML = "";
+    }
+  },
+
+  resetWizard() {
+    this.state.wizardStep = 1;
+    if (this.elements.permissionsSearch) this.elements.permissionsSearch.value = "";
+    if (this.elements.confirmName) this.elements.confirmName.textContent = "";
+    if (this.elements.confirmScope) this.elements.confirmScope.textContent = "";
+    if (this.elements.confirmPermissions) this.elements.confirmPermissions.textContent = "";
+    if (this.elements.permissionsCount) this.elements.permissionsCount.textContent = "";
+  },
+
+  goToWizardStep(step) {
+    if (step < 1 || step > 3) return;
+    this.state.wizardStep = step;
+
+    this.elements.step1Content.classList.toggle("d-none", step !== 1);
+    this.elements.step2Content.classList.toggle("d-none", step !== 2);
+    this.elements.step3Content.classList.toggle("d-none", step !== 3);
+
+    this.elements.wizardStep1Btn.classList.toggle("active", step === 1);
+    this.elements.wizardStep2Btn.classList.toggle("active", step === 2);
+    this.elements.wizardStep3Btn.classList.toggle("active", step === 3);
+
+    // Steps 2 and 3 remain clickable once reached; step 1 always available.
+    this.elements.wizardStep2Btn.disabled = false;
+    this.elements.wizardStep3Btn.disabled = false;
+
+    this.elements.wizardPrevBtn.disabled = step === 1;
+    this.elements.wizardNextBtn.classList.toggle("d-none", step === 3);
+    this.elements.saveButton.classList.toggle("d-none", step !== 3);
+
+    if (step === 2) this.renderPermissions();
+    if (step === 3) this.renderConfirmStep();
+  },
+
+  nextWizardStep() {
+    const next = this.state.wizardStep + 1;
+    if (!this.isStepValid(this.state.wizardStep)) {
+      this.notify("Complete the current step before continuing.", "warning");
+      return;
+    }
+    this.goToWizardStep(next);
+  },
+
+  prevWizardStep() {
+    this.goToWizardStep(this.state.wizardStep - 1);
+  },
+
+  isStepValid(step) {
+    if (step === 1) {
+      const name = this.elements.roleName.value.trim();
+      if (!name || name.length > 50) {
+        this.elements.roleName.classList.add("is-invalid");
+        this.elements.roleName.focus();
+        return false;
+      }
+      this.elements.roleName.classList.remove("is-invalid");
+      return true;
+    }
+    return true;
+  },
+
+  selectedPermissionIds() {
+    if (!this.elements.permissionsList) return [];
+    return Array.from(
+      this.elements.permissionsList.querySelectorAll(
+        "input[data-perm-id]:checked",
+      ),
+    )
+      .map((checkbox) => Number(checkbox.dataset.permId))
+      .filter((id) => Number.isInteger(id) && id > 0);
+  },
+
+  async ensurePermissionsLoaded() {
+    if (this.state.permissions.length) {
+      this.renderPermissions();
+      return;
+    }
+    try {
+      if (this.elements.permissionsLoading) {
+        this.elements.permissionsLoading.hidden = false;
+      }
+      const response = await window.API.system.getPermissions();
+      const list = this.extractRows(response);
+      this.state.permissions = list.map((permission) => ({
+        id: Number(permission.id ?? permission.permission_id ?? 0),
+        code: permission.code || "",
+        description: permission.description || "",
+        entity: permission.entity || "",
+        action: permission.action || "",
+        module: permission.module || "",
+      }));
+      if (this.elements.permissionsLoading) {
+        this.elements.permissionsLoading.hidden = true;
+      }
+      this.renderPermissions();
+    } catch (error) {
+      console.error("[ManageRolesController] Failed to load permissions:", error);
+      if (this.elements.permissionsLoading) {
+        this.elements.permissionsLoading.hidden = true;
+      }
+      if (this.elements.permissionsList) {
+        this.elements.permissionsList.innerHTML = `<div class="text-danger py-2">Failed to load permissions.</div>`;
+      }
+    }
+  },
+
+  renderPermissions() {
+    if (!this.elements.permissionsList) return;
+    const query = (this.elements.permissionsSearch?.value || "").trim().toLowerCase();
+    const filtered = this.state.permissions.filter((permission) => {
+      if (!query) return true;
+      return [
+        permission.code,
+        permission.description,
+        permission.entity,
+        permission.action,
+        permission.module,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+
+    if (this.elements.permissionsEmpty) {
+      this.elements.permissionsEmpty.classList.toggle("d-none", filtered.length > 0);
+    }
+    if (this.elements.permissionsCount) {
+      const selected = this.selectedPermissionIds().length;
+      this.elements.permissionsCount.textContent = `${filtered.length} permission(s) shown · ${selected} selected`;
+    }
+    this.elements.permissionsList.innerHTML = filtered.length
+      ? filtered
+          .map((permission) => {
+            const label = permission.code || "unnamed";
+            const detail = [permission.description, permission.entity, permission.action, permission.module]
+              .filter(Boolean)
+              .join(" · ");
+            return `
+              <div class="form-check border-bottom py-1">
+                <input class="form-check-input" type="checkbox"
+                       value="${permission.id}" data-perm-id="${permission.id}"
+                       id="rolePerm_${permission.id}">
+                <label class="form-check-label d-flex flex-column" for="rolePerm_${permission.id}">
+                  <span class="fw-semibold">${this.escapeHtml(label)}</span>
+                  ${detail ? `<span class="small text-muted">${this.escapeHtml(detail)}</span>` : ""}
+                </label>
+              </div>`;
+          })
+          .join("")
+      : "";
+  },
+
+  toggleSelectAllPermissions() {
+    const list = this.elements.permissionsList;
+    if (!list) return;
+    const checkboxes = Array.from(list.querySelectorAll("input[data-perm-id]"));
+    const allChecked = checkboxes.length > 0 && checkboxes.every((cb) => cb.checked);
+    checkboxes.forEach((cb) => {
+      cb.checked = !allChecked;
+    });
+    this.renderPermissions();
+  },
+
+  renderConfirmStep() {
+    if (this.elements.confirmName) {
+      this.elements.confirmName.textContent =
+        this.elements.roleName.value.trim() || "—";
+    }
+    if (this.elements.confirmScope) {
+      this.elements.confirmScope.textContent =
+        this.state.isSystemAdministrator ? this.elements.scope.value : "school";
+    }
+    const names = this.state.permissions
+      .filter((permission) =>
+        this.selectedPermissionIds().includes(permission.id),
+      )
+      .map((permission) => permission.code)
+      .filter(Boolean);
+    if (this.elements.confirmPermissions) {
+      this.elements.confirmPermissions.textContent = names.length
+        ? names.join(", ")
+        : "None selected";
+    }
+    if (this.elements.confirmActionText) {
+      this.elements.confirmActionText.textContent = this.state.editingRoleId
+        ? "Review and save. The selected permissions will replace this role's current permission set."
+        : "Review and save. The new role will be created with the permissions above.";
+    }
+  },
+
+  async assignWizardPermissions(roleId, permissionIds) {
+    if (!this.state.canManage) return;
+    // Bulk endpoints accept a `permissions` id array and are server-side guarded.
+    await window.API.users.bulkAssignPermissionsToRole(roleId, permissionIds);
+    if (this.state.editingRoleId) {
+      // Clear any previously assigned permissions that were deselected.
+      const existing = await window.API.system.getRolePermissions(roleId);
+      const current = this.extractRows(existing)
+        .map((item) => Number(item.id ?? item.permission_id ?? 0))
+        .filter((id) => id > 0);
+      const toRemove = current.filter((id) => !permissionIds.includes(id));
+      if (toRemove.length) {
+        await window.API.users.bulkRevokePermissionsFromRole(roleId, toRemove);
+      }
+    }
+  },
+
+  extractNewRoleId(response) {
+    const record = this.extractSingleRecord(response);
+    if (record?.id) return Number(record.id);
+    const rows = this.extractRows(response);
+    if (rows.length && rows[0]?.id) return Number(rows[0].id);
+    return null;
   },
 
   setButtonBusy(button, busy, label) {

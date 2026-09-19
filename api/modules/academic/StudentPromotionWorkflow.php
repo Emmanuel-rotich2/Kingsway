@@ -330,12 +330,14 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 $scoreResult = $scoreStmt->fetch(PDO::FETCH_ASSOC);
                 $overallScore = $scoreResult['avg_score'] ? (float)$scoreResult['avg_score'] : 0;
 
-                // Get attendance percentage
+                // Get attendance percentage (replica-projection read, schema-qualified
+                // so production database renames remain transparent)
+                $attendanceRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_analytics');
                 $attendanceStmt = $this->db->prepare(
                     "SELECT
                         COALESCE(SUM(days_marked), 0) AS total_days,
                         COALESCE(SUM(present_marks + late_marks), 0) AS attended_days
-                    FROM vw_student_attendance_analytics
+                    FROM {$attendanceRef}
                     WHERE student_id = :student_id
                     AND academic_year = :year"
                 );

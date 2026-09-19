@@ -144,6 +144,7 @@ final class StaffDomainAccessService
         // Identity (first_name/last_name) now lives ONLY on persons; the payroll
         // Payroll identity and compensation are sourced from the normalized
         // payroll profile; staff is only the employment subtype.
+        [$scopeSql, $scopeParams] = DataScopeService::predicateFor('staff', 's');
         $staff = $this->db->query(
             'SELECT s.id, s.staff_no, s.status, COALESCE(spp.basic_salary,0) AS salary, s.employment_date,
                     p.first_name, p.last_name,
@@ -151,8 +152,8 @@ final class StaffDomainAccessService
              FROM staff s
              JOIN persons p ON p.id = s.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-             WHERE s.id = ? AND s.data_scope = ? LIMIT 1',
-            [$staffId, DataScopeService::current()]
+             WHERE s.id = ? AND ' . $scopeSql . ' LIMIT 1',
+            array_merge([$staffId], $scopeParams)
         )->fetch(PDO::FETCH_ASSOC);
 
         if (!$staff) {

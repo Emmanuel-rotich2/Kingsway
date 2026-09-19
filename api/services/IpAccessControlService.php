@@ -126,11 +126,11 @@ final class IpAccessControlService
                 r.cidr LIKE ?
                 OR r.description LIKE ?
                 OR cu.username LIKE ?
-                OR cu.first_name LIKE ?
-                OR cu.last_name LIKE ?
+                OR cp.first_name LIKE ?
+                OR cp.last_name LIKE ?
                 OR uu.username LIKE ?
-                OR uu.first_name LIKE ?
-                OR uu.last_name LIKE ?
+                OR up.first_name LIKE ?
+                OR up.last_name LIKE ?
             )';
             array_push(
                 $params,
@@ -157,7 +157,9 @@ final class IpAccessControlService
         $whereSql = implode(' AND ', $where);
         $joins = '
             LEFT JOIN users cu ON cu.id = r.created_by
+            LEFT JOIN persons cp ON cp.id = cu.person_id
             LEFT JOIN users uu ON uu.id = r.updated_by
+            LEFT JOIN persons up ON up.id = uu.person_id
         ';
 
         $statusExpression = $this->statusExpression();
@@ -218,14 +220,14 @@ final class IpAccessControlService
                 r.updated_at,
                 COALESCE(
                     NULLIF(
-                        TRIM(CONCAT_WS(' ', cu.first_name, cu.last_name)),
+                        TRIM(CONCAT_WS(' ', cp.first_name, cp.last_name)),
                         ''
                     ),
                     cu.username
                 ) AS created_by_name,
                 COALESCE(
                     NULLIF(
-                        TRIM(CONCAT_WS(' ', uu.first_name, uu.last_name)),
+                        TRIM(CONCAT_WS(' ', up.first_name, up.last_name)),
                         ''
                     ),
                     uu.username

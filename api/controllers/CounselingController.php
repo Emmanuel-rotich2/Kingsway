@@ -6,6 +6,9 @@ namespace App\API\Controllers;
 use App\API\Controllers\BaseController;
 use App\API\Modules\counseling\CounselingAPI;
 use Exception;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 
 /**
  * CounselingController
@@ -27,7 +30,7 @@ class CounselingController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new CounselingAPI();
+        $this->api = $this->contract('App\API\Modules\counseling\CounselingAPI');
     }
 
     private function guardCounseling(): ?array
@@ -54,6 +57,34 @@ class CounselingController extends BaseController
     {
         return $this->handleResponse($this->api->getSummary($_GET ?? []));
     }
+
+    public function postAiWelfareReviewQueue($id = null, $data = [], $segments = [])
+    {
+        $context = $this->aiWelfareContext();
+        try { $this->contract(AiWorkflowService::class)->authorize('counseling.welfare_review', $context); } catch (DomainException $e) { return $this->forbidden('Counselling AI assistance is not available for your account'); }
+        try {
+            $raw = $this->api->getSummary($data); $summary = is_array($raw['data'] ?? null) ? $raw['data'] : (is_array($raw) ? $raw : []);
+            $input = ['report_date' => date('Y-m-d'), 'total_cases' => (string) ($summary['total_cases'] ?? $summary['total'] ?? 0), 'open_cases' => (string) ($summary['open_cases'] ?? $summary['open'] ?? 0), 'urgent_cases' => (string) ($summary['urgent_cases'] ?? 0), 'follow_ups_due' => (string) ($summary['follow_ups_due'] ?? 0), 'sessions_count' => (string) ($summary['total_sessions'] ?? $summary['sessions'] ?? 0), 'student_case_count' => (string) ($summary['student_cases'] ?? 0), 'staff_case_count' => (string) ($summary['staff_cases'] ?? 0), 'follow_up_intent' => 'Prepare aggregate counselling follow-up; never expose identities, diagnoses, confidential notes, or make safeguarding decisions.'];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('counseling.welfare_review', $context, $input, ['subject_type' => 'counseling_welfare_review', 'scope' => 'authorized_counseling_aggregates']), 'Counselling welfare review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); } catch (Exception $e) { return $this->serverError('Counselling assistance is temporarily unavailable'); }
+    }
+
+    public function getAiWelfareReviews($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiWelfare()) return $this->forbidden('Counselling review permission is required');
+        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'counseling'), 'scope' => $review ? 'review' : 'own'], 'Counselling AI reviews retrieved');
+    }
+
+    public function postAiWelfareReviewApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiWelfare()) return $this->forbidden('Counselling review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0); if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try { $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'counseling.welfare_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Counselling review approved for guidance'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
+    }
+
+    private function aiWelfareContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
+    private function canApproveAiWelfare(): bool { return $this->userHasAny(['health_manage', 'health_view', 'counseling_manage'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'counselor', 'chaplain', 'admin']); }
 
     /**
      * GET /api/counseling/session

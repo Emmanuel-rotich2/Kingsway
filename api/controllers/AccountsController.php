@@ -11,7 +11,7 @@ class AccountsController extends BaseController
     public function __construct($request = null)
     {
         parent::__construct($request);
-        $this->api = new FinanceAPI();
+        $this->api = $this->contract('App\API\Modules\finance\FinanceAPI');
     }
 
     private function canView()

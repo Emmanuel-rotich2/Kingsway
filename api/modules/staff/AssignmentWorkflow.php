@@ -199,7 +199,7 @@ class AssignmentWorkflow extends WorkflowHandler
     public function getWorkloadAnalysis($staffId, $academicYearId = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT * FROM vw_staff_workload WHERE staff_id = ?");
+            $stmt = $this->db->prepare("SELECT * FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_workload') . " WHERE staff_id = ?");
             $stmt->execute([$staffId]);
             return formatResponse(true, $stmt->fetch(PDO::FETCH_ASSOC) ?: [], 'Workload analysis retrieved');
         } catch (Exception $e) {

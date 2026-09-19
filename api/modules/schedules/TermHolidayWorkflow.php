@@ -53,22 +53,18 @@ class TermHolidayWorkflow extends WorkflowHandler
                 );
                 $stmt->execute(['start_date' => $data['start_date'], 'end_date' => $data['end_date'], 'id' => $aytId]);
             } else {
-                $nextAytId = $this->db->query(
-                    "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_terms"
-                )->fetchColumn();
                 $stmt = $this->db->prepare(
                     "INSERT INTO academic_year_terms
-                        (id, academic_year_id, term_id, opening_date, closing_date, status)
-                     VALUES (:id, :year_id, :term_id, :start_date, :end_date, 'upcoming')"
+                        (academic_year_id, term_id, opening_date, closing_date, status)
+                     VALUES (:year_id, :term_id, :start_date, :end_date, 'upcoming')"
                 );
                 $stmt->execute([
-                    'id' => (int) $nextAytId,
                     'year_id' => $data['year_id'],
                     'term_id' => $termId,
                     'start_date' => $data['start_date'],
                     'end_date' => $data['end_date']
                 ]);
-                $aytId = $nextAytId;
+                $aytId = (int) $this->db->lastInsertId();
             }
 
             // Insert holidays into the term calendar
@@ -101,16 +97,12 @@ class TermHolidayWorkflow extends WorkflowHandler
                             'id' => $dayId
                         ]);
                     } else {
-                        $nextDayId = $this->db->query(
-                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_calendar_days"
-                        )->fetchColumn();
                         $stmt = $this->db->prepare(
                             "INSERT INTO academic_year_calendar_days
-                                (id, academic_year_calendar_id, date, calendar_day_type_id, title, description)
-                             VALUES (:id, :calendar_id, :date, :day_type_id, :title, :description)"
+                                (academic_year_calendar_id, date, calendar_day_type_id, title, description)
+                             VALUES (:calendar_id, :date, :day_type_id, :title, :description)"
                         );
                         $stmt->execute([
-                            'id' => (int) $nextDayId,
                             'calendar_id' => $calendarId,
                             'date' => $holidayDate,
                             'day_type_id' => $holidayTypeId,
@@ -185,20 +177,17 @@ class TermHolidayWorkflow extends WorkflowHandler
             return (int) $id;
         }
 
-        $nextId = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_calendar")->fetchColumn();
-
         $stmt = $this->db->prepare(
-            "INSERT INTO academic_year_calendar (id, academic_year_term_id, week_number, week_start, week_end)
-             VALUES (:id, :ayt_id, :week_number, :week_start, :week_end)"
+            "INSERT INTO academic_year_calendar (academic_year_term_id, week_number, week_start, week_end)
+             VALUES (:ayt_id, :week_number, :week_start, :week_end)"
         );
         $stmt->execute([
-            'id' => (int) $nextId,
             'ayt_id' => $aytId,
             'week_number' => (int) $weekNumber,
             'week_start' => $weekStart,
             'week_end' => $weekEnd
         ]);
-        return (int) $nextId;
+        return (int) $this->db->lastInsertId();
     }
 
     /**

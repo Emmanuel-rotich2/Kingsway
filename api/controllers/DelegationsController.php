@@ -12,8 +12,8 @@ class DelegationsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->delegationService = new DelegationService();
-        $this->permissionManager = new UserPermissionManager($this->db->getConnection());
+        $this->delegationService = $this->contract('App\API\Services\DelegationService');
+        $this->permissionManager = $this->contract('App\API\Modules\users\UserPermissionManager', $this->db->getConnection());
     }
 
     private function canManageDelegations(): bool

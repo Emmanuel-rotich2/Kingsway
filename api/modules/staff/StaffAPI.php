@@ -4,7 +4,6 @@ namespace App\API\Modules\staff;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
-use App\API\Modules\system\MediaManager;
 use App\API\Services\StaffMigrationService;
 use App\API\Services\DataScopeService;
 use PDO;
@@ -18,7 +17,7 @@ class StaffAPI extends BaseAPI {
     public function __construct() {
         parent::__construct('staff');
         $this->service = new StaffService();
-        $this->mediaManager = new MediaManager($this->db);
+        $this->mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
     }
 
     // --- Media Operations ---
@@ -112,8 +111,9 @@ class StaffAPI extends BaseAPI {
             ];
             $sort = $sortMap[$sort] ?? 's.id';
 
-            $where = ['s.data_scope = ?'];
-            $bindings = [DataScopeService::current()];
+            [$scopeQuery, $scopesBindings] = DataScopeService::predicateFor('staff', 's');
+            $where = [$scopeQuery];
+            $bindings = $scopesBindings;
             if (!empty($search)) {
                 $where[] = "(
                     s.staff_no LIKE ?
@@ -315,35 +315,37 @@ class StaffAPI extends BaseAPI {
         try {
             $today = date('Y-m-d');
 
-            $scope = DataScopeService::current();
-            $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND data_scope=?");
-            $totalStmt->execute([$scope]);
+             $scopePred = DataScopeService::predicateFor('staff', 's');
+[$scopeSql, $scopeParams] = $scopePred;
+            $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND $scopeSql");
+            $totalStmt->execute($scopeParams);
             $totalStaff = (int)$totalStmt->fetchColumn();
 
-            $teacherStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND staff_type_id = 1 AND data_scope=?");
-            $teacherStmt->execute([$scope]);
+            $teacherStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND staff_type_id = 1 AND $scopeSql");
+            $teacherStmt->execute($scopeParams);
             $teacherCount = (int)$teacherStmt->fetchColumn();
 
             $presentStmt = $this->db->prepare("
                 SELECT COUNT(DISTINCT sa.staff_id)
                 FROM staff_attendance sa
                 JOIN staff s ON s.id=sa.staff_id
-                WHERE sa.date = ? AND sa.status = 'present' AND s.data_scope=?
+                WHERE sa.date = ? AND sa.status = 'present' AND $scopeSql
             ");
-            $presentStmt->execute([$today, $scope]);
+            $presentStmt->execute(array_merge([$today], $scopeParams));
             $staffPresentToday = (int)$presentStmt->fetchColumn();
 
-            $deptStmt = $this->db->query("
+            $deptStmt = $this->db->prepare("
                 SELECT d.name AS department, COUNT(DISTINCT s.id) AS count
                 FROM staff s
                 LEFT JOIN staff_department_assignments sda
                     ON sda.staff_id = s.id
                    AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
-                WHERE s.status = 'active' AND s.data_scope = " . $this->db->quote($scope) . "
+                WHERE s.status = 'active' AND $scopeSql
                 GROUP BY sda.department_id, d.name
                 ORDER BY count DESC
             ");
+            $deptStmt->execute($scopeParams);
 
             return $this->response([
                 'status' => 'success',
@@ -372,19 +374,20 @@ class StaffAPI extends BaseAPI {
     public function keyContacts(): array
     {
         try {
-            $stmt = $this->db->prepare(
-                "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
-                        COALESCE(ur.name, s.position, st.name, 'Administration') AS role,
-                        p.phone AS phone,
-                        p.email AS email,
-                        s.id AS staff_id
-                   FROM staff s
-                   INNER JOIN persons p ON p.id = s.person_id
-                   LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                   LEFT JOIN users u ON u.person_id = s.person_id
-                   LEFT JOIN user_roles ul ON ul.user_id = u.id
-                   LEFT JOIN roles ur ON ur.id = ul.role_id
-                  WHERE s.status = 'active' AND s.data_scope = ?
+             [$scopeSqlKc, $scopeParamsKc] = DataScopeService::predicateFor('staff', 's');
+             $stmt = $this->db->prepare(
+                 "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
+                         COALESCE(ur.name, s.position, st.name, 'Administration') AS role,
+                         p.phone AS phone,
+                         p.email AS email,
+                         s.id AS staff_id
+                    FROM staff s
+                    INNER JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                    LEFT JOIN users u ON u.person_id = s.person_id
+                    LEFT JOIN user_roles ul ON ul.user_id = u.id
+                    LEFT JOIN roles ur ON ur.id = ul.role_id
+                   WHERE s.status = 'active' AND $scopeSqlKc
                     AND (
                            LOWER(COALESCE(ur.name, '')) IN (
                              'director', 'headteacher', 'school administrator',
@@ -399,15 +402,15 @@ class StaffAPI extends BaseAPI {
                                'deputy head - academic', 'deputy head - discipline'
                              )
                            )
-                         )
-                  ORDER BY FIELD(
-                             LOWER(COALESCE(ur.name, s.position, '')),
-                             'director', 'headteacher', 'school administrator',
-                             'deputy head - academic', 'deputy head - discipline'
-                           ),
-                           p.first_name, p.last_name"
-            );
-            $stmt->execute([DataScopeService::current()]);
+                          )
+                   ORDER BY FIELD(
+                              LOWER(COALESCE(ur.name, s.position, '')),
+                              'director', 'headteacher', 'school administrator',
+                              'deputy head - academic', 'deputy head - discipline'
+                            ),
+                            p.first_name, p.last_name"
+             );
+             $stmt->execute($scopeParamsKc);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rows as &$row) {
                 $row['icon'] = '👤';
@@ -433,8 +436,9 @@ class StaffAPI extends BaseAPI {
             ];
             $teachingRoleSql = implode(', ', array_map([$this->db, 'quote'], $teachingRoleNames));
 
+            [$scopeQuery, $scopeParams] = DataScopeService::predicateFor('staff', 's');
             $where = [
-                "s.data_scope = ?",
+                $scopeQuery,
                 "s.status <> 'inactive'",
                 "(
                     LOWER(COALESCE(st.name, '')) = 'teaching staff'
@@ -442,7 +446,7 @@ class StaffAPI extends BaseAPI {
                     OR COALESCE(role_summary.teaching_role_count, 0) > 0
                 )",
             ];
-            $params = [DataScopeService::current()];
+            $params = $scopeParams;
             if (!empty($filters['department_id'])) {
                 // Department membership now lives in staff_department_assignments (a staff may
                 // belong to several departments over time); match any active assignment.
@@ -818,7 +822,7 @@ class StaffAPI extends BaseAPI {
     private function getTeacherQualifications(int $staffId): array
     {
         $stmt = $this->db->prepare("
-            SELECT qualification_type, title, institution, year_obtained, description
+            SELECT id, qualification_type, qualification_level, source, verification_status, title, institution, year_obtained, description
             FROM staff_qualifications
             WHERE staff_id = ?
             ORDER BY year_obtained DESC, id DESC
@@ -958,16 +962,15 @@ class StaffAPI extends BaseAPI {
     public function listNonTeaching(array $filters = []): array
     {
         try {
-            $where = ["s.data_scope = ?", "s.status <> 'inactive'", "LOWER(COALESCE(st.name,'')) NOT LIKE '%teach%'"];
-            $params = [DataScopeService::current()];
+            [$scopeQuery, $scopeParams] = DataScopeService::predicateFor('staff', 's');
+            $where = [$scopeQuery, "s.status <> 'inactive'", "LOWER(COALESCE(st.name,'')) NOT LIKE '%teach%'"];
+            $params = $scopeParams;
             if (!empty($filters['department_id'])) {
                 $where[] = 'sda.department_id = ?';
                 $params[] = (int)$filters['department_id'];
             }
 
             $stmt = $this->db->prepare("
-                SELECT s.*, p.first_name, p.last_name, p.email, p.phone, p.gender,
-                       d.name AS department_name, st.name AS staff_type_name,
                        CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
                 FROM staff s
@@ -1003,7 +1006,11 @@ class StaffAPI extends BaseAPI {
             // Get staff qualifications
             $sql = "
                 SELECT 
+                    id,
                     qualification_type,
+                    qualification_level,
+                    source,
+                    verification_status,
                     title,
                     institution,
                     year_obtained,
@@ -1073,7 +1080,7 @@ class StaffAPI extends BaseAPI {
             // Delegate user+staff creation to UsersAPI (do not duplicate staff insert here)
 
             // Create user account via UsersAPI using canonical payload (role_ids + staff_info)
-            $usersApi = new UsersAPI();
+            $usersApi = $this->contract('App\API\Modules\users\UsersAPI');
             $roleIds = [];
             if (!empty($data['role_ids']) && is_array($data['role_ids'])) {
                 $roleIds = $data['role_ids'];
@@ -1273,49 +1280,53 @@ class StaffAPI extends BaseAPI {
             // staff document or photo is actually uploaded. No controller/module
             // constructs or copies upload paths.
 
-            // Ensure at least one placeholder qualification and experience row exist
-            $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_qualifications WHERE staff_id = ?");
-            $stmt->execute([$staffId]);
-            $qcount = (int) $stmt->fetchColumn();
-            if ($qcount === 0) {
-                $sql = "INSERT INTO staff_qualifications (staff_id, qualification_type, title, institution, year_obtained, description, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
-                $stmt = $this->db->prepare($sql);
-                // Use current year as a safe default for placeholder qualifications to satisfy NOT NULL constraint
-                $stmt->execute([$staffId, 'other', 'To be uploaded', 'N/A', date('Y'), null, null]);
-            }
-
-            $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_experience WHERE staff_id = ?");
-            $stmt->execute([$staffId]);
-            $ecount = (int) $stmt->fetchColumn();
-            if ($ecount === 0) {
-                $sql = "INSERT INTO staff_experience (staff_id, organization, position, start_date, end_date, responsibilities, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
-                $stmt = $this->db->prepare($sql);
-                // Use employment_date or today as a safe default for start_date (NOT NULL constraint)
-                $safeStart = $data['employment_date'] ?? ($staffInfo['employment_date'] ?? date('Y-m-d'));
-                $stmt->execute([$staffId, 'placeholder', 'To be updated', $safeStart, null, null, null]);
-            }
-
+            // Qualifications are real claims, not placeholder rows. They may be
+            // added later by the staff member, recruitment, or an administrator.
+            // A missing qualification must never be mistaken for evidence.
+            // Experience remains optional as well; no synthetic employment facts
+            // are created here.
             // Add qualifications if provided
             if (!empty($data['qualifications'])) {
+                    if (!is_array($data['qualifications']) || count($data['qualifications']) > 20) {
+                        throw new Exception('Qualifications must contain at most 20 records.');
+                    }
                     $sql = "
                         INSERT INTO staff_qualifications (
                             staff_id,
-                        qualification_type,
-                        title,
+                            qualification_type,
+                            qualification_level,
+                            source,
+                            verification_status,
+                            submitted_by,
+                            title,
                             institution,
-                        year_obtained,
-                        description,
-                        document_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            year_obtained,
+                            description,
+                            document_url
+                        ) VALUES (?, ?, ?, 'admin_entry', 'pending', ?, ?, ?, ?, ?, ?)
                     ";
                     $stmt = $this->db->prepare($sql);
+                $submittedBy = (int)($data['_admin_actor_user_id'] ?? 0) ?: null;
                 foreach ($data['qualifications'] as $qual) {
+                    if (!is_array($qual)) throw new Exception('Each qualification must be an object.');
+                    $level = (string)($qual['qualification_level'] ?? $qual['level'] ?? 'other');
+                    if (!in_array($level, ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'], true)) $level = 'other';
+                    $legacyType = in_array($level, ['certificate','diploma','degree'], true) ? $level : 'other';
+                    $title = trim((string)($qual['title'] ?? $qual['degree'] ?? ''));
+                    $institution = trim((string)($qual['institution'] ?? ''));
+                    if ($title === '' || $institution === '') throw new Exception('Qualification title and institution are required.');
+                    $year = $qual['year_obtained'] ?? $qual['year'] ?? null;
+                    if ($year !== null && $year !== '' && (!is_numeric($year) || (int)$year < 1900 || (int)$year > ((int)date('Y') + 1))) {
+                        throw new Exception('Qualification year is invalid.');
+                    }
                     $stmt->execute([
                         $staffId,
-                        $qual['type'],
-                        $qual['title'],
-                        $qual['institution'],
-                        $qual['year'],
+                        $legacyType,
+                        $level,
+                        $submittedBy,
+                        $title,
+                        $institution,
+                        $year === '' ? null : $year,
                         $qual['description'] ?? null,
                         $qual['document_url'] ?? null
                     ]);
@@ -1416,7 +1427,7 @@ class StaffAPI extends BaseAPI {
                              ->execute([$data['user_status'], $userId]);
                 }
                 if (!empty($data['role_id'])) {
-                    (new UsersAPI())->assignRoleToUser($userId, (int)$data['role_id']);
+                    $this->contract('App\API\Modules\users\UsersAPI')->assignRoleToUser($userId, (int)$data['role_id']);
                 }
             }
 
@@ -1537,10 +1548,9 @@ class StaffAPI extends BaseAPI {
                 $exists->execute([$personId, $contactName]);
                 if (!$exists->fetchColumn()) {
                     $this->db->prepare(
-                        'INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
-                         VALUES (?, ?, ?, ?, ?, NOW())'
+                        'INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                         VALUES (?, ?, ?, ?, NOW())'
                     )->execute([
-                        (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
                         $personId,
                         $contactName,
                         $data['emergency_contact_phone'] ?? null,
@@ -1564,41 +1574,42 @@ class StaffAPI extends BaseAPI {
                         "UPDATE staff_department_assignments SET effective_to = CURDATE()
                          WHERE staff_id = ? AND effective_to IS NULL"
                     )->execute([$id]);
-                    $deptNextId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_department_assignments")->fetchColumn();
                     $this->db->prepare(
-                        "INSERT INTO staff_department_assignments (id, staff_id, department_id, role, effective_from, created_at)
-                         VALUES (?, ?, ?, ?, CURDATE(), NOW())"
-                    )->execute([$deptNextId, $id, $newDept, $data['department_role'] ?? 'member']);
+                        "INSERT INTO staff_department_assignments (staff_id, department_id, role, effective_from, created_at)
+                         VALUES (?, ?, ?, CURDATE(), NOW())"
+                    )->execute([$id, $newDept, $data['department_role'] ?? 'member']);
                 }
             }
 
             // Update qualifications if provided
             if (!empty($data['qualification_details'])) {
-                // Remove existing qualifications
-                $stmt = $this->db->prepare("DELETE FROM staff_qualifications WHERE staff_id = ?");
-                $stmt->execute([$id]);
-
-                // Add new qualifications (4NF columns: qualification_type/title/year_obtained/description)
+                // Preserve existing qualification identity and evidence links. A changed
+                // record is returned to pending review; omitted records are not silently
+                // deleted because they may be referenced by specialization evidence.
+                $adminActor = (int)($data['_admin_actor_user_id'] ?? 0) ?: null;
                 foreach ($data['qualification_details'] as $qual) {
-                    $sql = "
-                        INSERT INTO staff_qualifications (
-                            staff_id,
-                            qualification_type,
-                            title,
-                            institution,
-                            year_obtained,
-                            description
-                        ) VALUES (?, ?, ?, ?, ?, ?)
-                    ";
-                    $stmt = $this->db->prepare($sql);
-                    $stmt->execute([
-                        $id,
-                        $qual['qualification_type'] ?? 'degree',
-                        $qual['title'] ?? $qual['degree'] ?? '',
-                        $qual['institution'],
-                        $qual['year_obtained'] ?? $qual['year'] ?? null,
-                        $qual['description'] ?? $qual['details'] ?? null
-                    ]);
+                    $level = (string)($qual['qualification_level'] ?? $qual['level'] ?? $qual['qualification_type'] ?? 'other');
+                    if (!in_array($level, ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'], true)) $level = 'other';
+                    $legacyType = in_array($level, ['certificate','diploma','degree'], true) ? $level : 'other';
+                    $qualificationId = (int)($qual['id'] ?? 0);
+                    $title = trim((string)($qual['title'] ?? $qual['degree'] ?? ''));
+                    $institution = trim((string)($qual['institution'] ?? ''));
+                    $year = $qual['year_obtained'] ?? $qual['year'] ?? null;
+                    $description = $qual['description'] ?? $qual['details'] ?? null;
+                    if ($title === '' || $institution === '') throw new Exception('Qualification title and institution are required.');
+                    if ($qualificationId) {
+                        $stmt = $this->db->prepare("UPDATE staff_qualifications SET qualification_type=?,qualification_level=?,source='admin_entry',submitted_by=?,verification_status=IF(NOT (qualification_level <=> ? AND title <=> ? AND institution <=> ? AND year_obtained <=> ? AND description <=> ?),'pending',verification_status),verified_by=IF(NOT (qualification_level <=> ? AND title <=> ? AND institution <=> ? AND year_obtained <=> ? AND description <=> ?),NULL,verified_by),verified_at=IF(NOT (qualification_level <=> ? AND title <=> ? AND institution <=> ? AND year_obtained <=> ? AND description <=> ?),NULL,verified_at),title=?,institution=?,year_obtained=?,description=? WHERE id=? AND staff_id=?");
+                        $params = [$legacyType,$level,$adminActor,$level,$title,$institution,$year ?: null,$description,$level,$title,$institution,$year ?: null,$description,$level,$title,$institution,$year ?: null,$description,$title,$institution,$year ?: null,$description,$qualificationId,$id];
+                        $stmt->execute($params);
+                        if ($stmt->rowCount() < 1) {
+                            $exists = $this->db->prepare('SELECT id FROM staff_qualifications WHERE id=? AND staff_id=? LIMIT 1');
+                            $exists->execute([$qualificationId, $id]);
+                            if (!$exists->fetchColumn()) throw new Exception('Qualification record not found for this staff member.');
+                        }
+                    } else {
+                        $stmt = $this->db->prepare("INSERT INTO staff_qualifications (staff_id,qualification_type,qualification_level,source,verification_status,submitted_by,title,institution,year_obtained,description) VALUES (?,?,?,'admin_entry','pending',?,?,?,?,?)");
+                        $stmt->execute([$id,$legacyType,$level,$adminActor,$title,$institution,$year ?: null,$description]);
+                    }
                 }
             }
 
@@ -2049,11 +2060,10 @@ class StaffAPI extends BaseAPI {
             if ($contextId <= 0) {
                 return $this->response(['status' => 'error', 'message' => 'Learning area is not configured for the selected class stream'], 400);
             }
-            $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-            $sql = "INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
-                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'scheduled')";
+            $sql = "INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, 'scheduled')";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$entryId, $classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
+            $stmt->execute([$classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
 
             return $this->response([
                 'status' => 'success',
@@ -2129,17 +2139,15 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            $attendanceId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_attendance")->fetchColumn();
             $sql = "
                 INSERT INTO staff_attendance (
-                    id,
                     staff_id,
                     date,
                     status,
                     check_in,
                     check_out,
                     notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     status = VALUES(status),
                     check_in = VALUES(check_in),
@@ -2149,7 +2157,6 @@ class StaffAPI extends BaseAPI {
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $attendanceId,
                 $data['staff_id'],
                 $data['date'],
                 $data['status'],
@@ -2311,6 +2318,7 @@ class StaffAPI extends BaseAPI {
     }
 
     private function getStaffWithUserData($id) {
+        [$scopeQuery, $scopeParams] = DataScopeService::predicateFor('staff', 's');
         $sql = "
             SELECT
                 s.*,
@@ -2379,11 +2387,11 @@ class StaffAPI extends BaseAPI {
             LEFT JOIN departments d ON d.id = sda.department_id
             LEFT JOIN staff_types st ON s.staff_type_id = st.id
             LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-            WHERE s.id = ? AND s.data_scope = ?
+            WHERE s.id = ? AND $scopeQuery
         ";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$id, DataScopeService::current()]);
+        $stmt->execute(array_merge([$id], $scopeParams));
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -2512,10 +2520,9 @@ class StaffAPI extends BaseAPI {
             $exists->execute([$personId, (string)$ecName]);
             if (!$exists->fetchColumn()) {
                 $this->db->prepare("
-                    INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
-                    VALUES (?, ?, ?, ?, ?, NOW())
+                    INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                    VALUES (?, ?, ?, ?, NOW())
                 ")->execute([
-                    (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
                     $personId,
                     $ecName ?: 'Emergency Contact',
                     $ecPhone,
@@ -2863,15 +2870,16 @@ class StaffAPI extends BaseAPI {
             // Reads the shipped vw_payslip_detailed (flattens payslips/payslip_items/payroll_runs
             // back to the legacy per-staff payroll row shape). payroll_period is derived in the view
             // as YYYY-MM, so it filters directly.
+            [$scopeQuery, $scopeParams] = DataScopeService::predicateFor('vw_scoped_payslip_detailed');
             $sql = "
                 SELECT *
                 FROM vw_scoped_payslip_detailed
-                WHERE payroll_period = ? AND data_scope = ?
+                WHERE payroll_period = ? AND $scopeQuery
                 ORDER BY staff_name
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$period, DataScopeService::current()]);
+            $stmt->execute(array_merge([$period], $scopeParams));
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -2894,6 +2902,7 @@ class StaffAPI extends BaseAPI {
             $year = (int) ($filters['year'] ?? date('Y'));
             $period = $filters['payroll_period'] ?? sprintf('%04d-%02d', $year, $month);
 
+            [$scopeQuery, $scopeParams] = DataScopeService::predicateFor('vw_scoped_payslip_detailed');
             $sql = "
                 SELECT
                     COUNT(*) as total_records,
@@ -2902,11 +2911,11 @@ class StaffAPI extends BaseAPI {
                     COALESCE(SUM(net_salary), 0) as net_payroll,
                     SUM(CASE WHEN payment_status <> 'paid' THEN 1 ELSE 0 END) as pending_approval
                 FROM vw_scoped_payslip_detailed
-                WHERE payroll_period = ? AND data_scope = ?
+                WHERE payroll_period = ? AND $scopeQuery
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$period, DataScopeService::current()]);
+            $stmt->execute(array_merge([$period], $scopeParams));
             $summary = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $this->response([

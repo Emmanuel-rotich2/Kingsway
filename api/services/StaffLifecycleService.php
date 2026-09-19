@@ -323,11 +323,10 @@ final class StaffLifecycleService
             "UPDATE staff_department_assignments SET effective_to = ? WHERE staff_id = ? AND effective_to IS NULL",
             [$effectiveDate, $staffId]
         );
-        $nextId = (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM staff_department_assignments')->fetchColumn();
         $this->db->query(
-            "INSERT INTO staff_department_assignments (id, staff_id, department_id, effective_from)
-             VALUES (?, ?, ?, ?)",
-            [$nextId, $staffId, $departmentId, $effectiveDate]
+            "INSERT INTO staff_department_assignments (staff_id, department_id, effective_from)
+             VALUES (?, ?, ?)",
+            [$staffId, $departmentId, $effectiveDate]
         );
     }
 

@@ -95,27 +95,79 @@
             </div>
         </div>
 
+        <div class="card-body border-bottom py-2 bg-light" id="activeSessionsBulkBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="activeSessionsBulkCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkRevokeSessionsBtn">
+                    <i class="bi bi-sign-stop me-1"></i> Revoke selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearSessionsBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead>
+                <thead id="activeSessionsTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching rows"
+                            >
+                        </th>
                         <th scope="col">User</th>
                         <th scope="col">Role</th>
                         <th scope="col">Source</th>
                         <th scope="col">Client</th>
                         <th scope="col">Last activity</th>
                         <th scope="col">Expires</th>
-                        <th class="text-end">Action</th>
+                        <th scope="col" class="text-end">Action</th>
                     </tr>
                 </thead>
                 <tbody id="activeSessionsTableBody">
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>
                     </tr>
                 </tbody>
             </table>
+            <template id="activeSessionsRowTemplate">
+                <tr>
+                    <td class="text-center">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            aria-label="Select this session"
+                        >
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <div>
+                                <div class="fw-semibold" data-row-fill="name"></div>
+                                <div class="small text-muted" data-row-fill="identity"></div>
+                            </div>
+                            <span class="badge bg-primary" data-row-fill="currentBadge" hidden>Current</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge bg-light text-dark border" data-row-fill="roleBadge"></span>
+                    </td>
+                    <td>
+                        <code data-row-fill="ip"></code>
+                    </td>
+                    <td class="small text-muted" data-row-fill="client"></td>
+                    <td>
+                        <div data-row-fill="lastActivity"></div>
+                        <div class="small text-muted" data-row-fill="idle"></div>
+                    </td>
+                    <td class="text-nowrap" data-row-fill="expires"></td>
+                    <td class="text-end" data-row-fill="actions"></td>
+                </tr>
+            </template>
         </div>
 
         <div

@@ -46,8 +46,6 @@ class DashboardRouter
         9  => 'intern_student_teacher_dashboard',
         10 => 'school_accountant_dashboard',
         14 => 'store_manager_dashboard',
-        71 => 'food_store_manager_dashboard',
-        72 => 'librarian_dashboard',
         16 => 'catering_manager_cook_lead_dashboard',
         18 => 'matron_housemother_dashboard',
         21 => 'hod_talent_development_dashboard',
@@ -241,7 +239,7 @@ private const ROUTE_ROLES = [
     'manage_boarding_fee_structure' => [10],  // 1 role(s)
     'manage_classes' => [3, 4, 5, 6],  // 4 role(s)
     'manage_communications' => [4, 63],  // 2 role(s)
-    'manage_email' => [3, 4, 6, 10],  // 4 role(s)
+    'manage_email' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],  // 21 role(s)
     'manage_email_configurations' => [2],  // 1 role(s)
     'manage_expenses' => [10],  // 1 role(s)
     'manage_extra_charges' => [3, 4, 10],  // 3 role(s)

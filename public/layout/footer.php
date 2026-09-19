@@ -89,7 +89,7 @@
 
   <div class="footer-bottom mt-5">
     <div class="container d-flex flex-wrap justify-content-between align-items-center gap-2">
-      <p>&copy; <?= date('Y') ?> Kingsway Preparatory School. All rights reserved.</p>
+      <p>&copy; <?= date('Y') ?> Kingsway Preparatory School. All rights reserved. Maintained by <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener">AngiSoft Technologies</a>.</p>
       <p>
         <a href="<?= $appBase ?>/index.php">Privacy Policy</a> &nbsp;·&nbsp;
         <a href="<?= $appBase ?>/index.php">Terms of Use</a> &nbsp;·&nbsp;
@@ -129,6 +129,7 @@
   })();
 </script>
 <?php asset_script($appBase, 'js/public.js'); ?>
+<?php asset_script($appBase, 'js/pages/public/ai_faq.js'); ?>
 <?php if (!empty($pageScript)): ?>
 <!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
      the dynamic sections through window.PublicSite. Falls back to SSR-only output

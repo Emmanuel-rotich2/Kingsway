@@ -6,6 +6,7 @@
 ?>
 
 <div class="container-fluid mt-3">
+  <div class="card border-success-subtle bg-light mb-3" id="aiActivitiesReviewPanel"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Activities and resources assistant</strong><div class="small text-muted">Aggregate programme/resource guidance only; no learner identity disclosure or record changes.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiActivitiesReview"><i class="bi bi-stars me-1"></i>Review activities</button></div><div id="aiActivitiesReviews" class="row g-2 mt-2"></div></div></div>
 
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
@@ -388,3 +389,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/manage_activities.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_activities_review.js'); ?>

@@ -38,7 +38,7 @@ class FinanceReportManager extends BaseAPI
                     COALESCE(SUM(fb.amount_due), 0) AS total_fees,
                     COALESCE(SUM(fb.amount_paid), 0) AS total_paid,
                     COALESCE(SUM(fb.balance), 0) AS total_outstanding
-                FROM vw_student_fee_balances fb
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                 LEFT JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
@@ -109,7 +109,7 @@ class FinanceReportManager extends BaseAPI
                     c.name AS class_name,
                     COUNT(DISTINCT fb.student_id) AS students_in_arrears,
                     COALESCE(SUM(fb.balance), 0) AS total_arrears
-                FROM vw_student_fee_balances fb
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                 LEFT JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id

@@ -1,0 +1,54 @@
+name: Strix AI Security Scan
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: strix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Strix
+        run: curl -sSL https://strix.ai/install | bash
+
+      - name: Require security-scan secrets
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          test -n "$STRIX_LLM" || { echo "Missing STRIX_LLM repository secret." >&2; exit 1; }
+          test -n "$LLM_API_KEY" || { echo "Missing LLM_API_KEY repository secret." >&2; exit 1; }
+
+      - name: Run diff-scoped Strix scan
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: strix -n -t ./ --scan-mode quick --scope-mode auto --max-budget 10
+
+      - name: Require a completed scan
+        if: always()
+        run: |
+          run_json=$(find strix_runs -type f -name run.json -print 2>/dev/null | sort | tail -1)
+          test -n "$run_json" || { echo "Strix did not produce run.json." >&2; exit 1; }
+          status=$(jq -r '.status // empty' "$run_json")
+          test "$status" = completed || { echo "Strix scan status was '$status'." >&2; exit 1; }
+
+      - name: Upload Strix SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: strix_runs

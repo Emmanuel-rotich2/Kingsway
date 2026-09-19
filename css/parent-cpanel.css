@@ -1,12 +1,316 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
 
-:root{--parent-green:#0b5135;--parent-green-2:#17865a;--parent-gold:#f2ba43;--parent-ink:#20332a;--parent-muted:#718078;--parent-paper:#fff;--parent-bg:#f3f5f2;--parent-line:#dfe7e1}
-body{font-family:"DM Sans",system-ui,sans-serif}.portal-authenticated .portal-layout{display:block;background:var(--parent-bg)}
-.portal-authenticated .portal-sidebar{position:sticky;top:0;z-index:40;display:flex;align-items:center;width:100%;height:auto;padding:.6rem clamp(1rem,4vw,3.5rem);overflow:visible;color:#fff;background:rgba(8,58,39,.97);box-shadow:0 6px 24px rgba(4,45,29,.18);backdrop-filter:blur(14px)}
-.portal-authenticated .portal-brand{flex:0 0 auto;padding:0 1.3rem 0 0;margin:0 1rem 0 0;border:0;border-right:1px solid rgba(255,255,255,.2)}.portal-authenticated .portal-brand img{width:38px;height:38px}.portal-authenticated .portal-nav{display:flex;align-items:center;gap:.15rem;min-width:0;overflow-x:auto;scrollbar-width:none}.portal-authenticated .portal-nav::-webkit-scrollbar{display:none}.portal-authenticated .portal-nav-label{display:none}.portal-authenticated .portal-nav .nav-link{flex:0 0 auto;padding:.62rem .7rem;border-radius:7px;color:rgba(255,255,255,.82);font-size:.75rem;white-space:nowrap}.portal-authenticated .portal-nav .nav-link i{color:#8dd8b5}.portal-authenticated .portal-nav .nav-link:hover,.portal-authenticated .portal-nav .nav-link.active{color:#fff;background:rgba(255,255,255,.13)}.portal-authenticated .portal-sidebar>.mt-auto{flex:0 0 auto;margin-left:auto!important;padding:0 0 0 .7rem!important}.portal-authenticated .portal-sidebar>.mt-auto .nav-link{color:#fff!important;font-size:0}.portal-authenticated .portal-sidebar>.mt-auto .nav-link i{font-size:1rem}
-.portal-main{background:var(--parent-bg)!important}.portal-header{top:58px!important;height:68px!important;padding:0 clamp(1rem,4vw,3.5rem)!important;border-color:var(--parent-line)!important}.portal-header h1{font-family:"Playfair Display",serif;font-size:1.3rem!important}.portal-content{max-width:1440px!important;padding:1.4rem clamp(1rem,4vw,3.5rem) 2.5rem!important}.portal-footer{padding-right:clamp(1rem,4vw,3.5rem)!important;padding-left:clamp(1rem,4vw,3.5rem)!important}
-.portal-welcome{position:relative;min-height:235px;padding:clamp(1.5rem,4vw,3.2rem)!important;overflow:hidden;border-radius:18px!important;background:linear-gradient(90deg,rgba(5,55,36,.94),rgba(8,75,49,.72)),url("../uploads/school_assets/bg_images/parents-login-hero_1.webp") center/cover!important;box-shadow:0 16px 38px rgba(8,70,44,.2)!important}.portal-welcome::after{position:absolute;right:-50px;bottom:-110px;width:300px;height:300px;border:1px solid rgba(255,255,255,.2);border-radius:50%;content:""}.portal-welcome h2{max-width:650px;font-family:"Playfair Display",serif;font-size:clamp(1.8rem,4vw,3rem)!important}.portal-welcome p{max-width:640px;font-size:1rem}.portal-kpi{border:1px solid var(--parent-line)!important;border-radius:12px!important;box-shadow:0 4px 16px rgba(25,70,48,.06)!important}.portal-kpi .card-body{padding:1rem!important}.child-card{border:1px solid var(--parent-line)!important;border-top:0!important;border-radius:13px!important;box-shadow:0 5px 18px rgba(25,70,48,.07)!important}.child-card::before{display:block;height:5px;border-radius:13px 13px 0 0;background:linear-gradient(90deg,var(--parent-green-2),var(--parent-gold));content:""}
-#view-auth{position:relative;display:none;place-items:center;min-height:100vh;padding:2rem;background:linear-gradient(90deg,rgba(5,47,32,.9),rgba(12,91,58,.64)),url("../uploads/school_assets/bg_images/parents-login-hero_1.webp") center/cover fixed}#view-auth.active{display:grid}.portal-card{width:min(100%,470px)}.portal-card>.card{overflow:hidden;background:rgba(255,255,255,.97);box-shadow:0 28px 70px rgba(0,30,18,.3)!important}.kw-auth-header{background:linear-gradient(135deg,#073e29,#13764f)!important}.kw-auth-name{font-family:"Playfair Display",serif}
-#view-student .portal-content>.card{border:1px solid var(--parent-line)!important;border-radius:14px!important;box-shadow:0 6px 22px rgba(25,70,48,.07)!important}.nav-tabs{gap:.15rem;flex-wrap:nowrap;overflow-x:auto}.nav-tabs .nav-link{white-space:nowrap;font-size:.77rem}
-@media(max-width:1050px){.portal-authenticated .portal-sidebar{align-items:flex-start;flex-wrap:wrap}.portal-authenticated .portal-brand{border:0}.portal-authenticated .portal-nav{order:3;width:100%;padding-top:.45rem}.portal-header{top:104px!important}.portal-mobile-toggle{display:none!important}}
-@media(max-width:650px){.portal-authenticated .portal-brand small{display:none!important}.portal-header{top:98px!important}.portal-header>div:last-child{gap:.35rem!important}.portal-header #btnApplyAdmission{font-size:0}.portal-header #btnApplyAdmission i{margin:0!important;font-size:.9rem}.portal-welcome{min-height:270px}.portal-user-label{display:none}.portal-content{padding-top:1rem!important}}
+/* =========================================================================
+   Kingsway Parent Portal — multi-page cpanel shell (top nav + footer +
+   per-page sidebar). Layout rules live here, never inline in page templates.
+   ========================================================================= */
+:root{
+  --parent-green:#0a4a30; --parent-green-2:#17865a; --parent-gold:#f2ba43;
+  --parent-ink:#20332a; --parent-muted:#718078; --parent-paper:#fff;
+  --parent-bg:#f3f5f2; --parent-line:#dfe7e1;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--parent-bg); color:var(--parent-ink);
+  font-family:"DM Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:.95rem; min-height:100vh; display:flex; flex-direction:column;
+}
+a{color:var(--parent-green-2)}
+a:hover{color:var(--parent-green)}
+
+/* ── Top navigation header (shared across every parent page) ───────────── */
+.pp-topbar{
+  position:sticky; top:0; z-index:900; display:flex; align-items:center;
+  gap:1rem; padding:.6rem clamp(1rem,4vw,2.6rem); color:#fff;
+  background:linear-gradient(90deg,#073e29,#0a5a3a);
+  box-shadow:0 4px 18px rgba(4,45,29,.22);
+}
+.pp-brand{
+  display:flex; align-items:center; gap:.6rem; flex:0 1 auto; min-width:0;
+  max-width:min(30vw, 16rem); text-decoration:none; color:#fff;
+}
+.pp-brand:hover{color:#fff}
+.pp-brand img{width:38px;height:38px;object-fit:contain; flex:0 0 auto}
+.pp-brand span{min-width:0; flex:1 1 auto}
+.pp-brand strong{
+  display:block; font-family:"Playfair Display",serif; font-size:.7rem;
+  letter-spacing:.3px; line-height:1.25; color:#fff; overflow-wrap:break-word;
+}
+.pp-brand small{display:block; color:rgba(255,255,255,.62); font-size:.62rem; letter-spacing:.08em}
+.pp-nav{
+  display:flex; align-items:center; justify-content:flex-end; gap:.15rem;
+  min-width:0; flex:1 1 auto; padding:.15rem 0;
+}
+.pp-nav-group{position:relative}
+.pp-nav-group > .pp-nav-toggle{
+  display:inline-flex; align-items:center; gap:.45rem; flex:0 0 auto; padding:.6rem .7rem;
+  border-radius:7px; background:transparent; border:0; cursor:pointer;
+  color:rgba(255,255,255,.85); font-size:.76rem; font-weight:600; font-family:inherit;
+  white-space:nowrap; text-decoration:none; text-align:left;
+}
+.pp-nav-toggle i{color:#8dd8b5; font-size:.9rem}
+.pp-nav-toggle:hover,.pp-nav-group.active > .pp-nav-toggle{color:#fff; background:rgba(255,255,255,.14)}
+.pp-nav-group.active > .pp-nav-toggle i{color:var(--parent-gold)}
+.pp-nav .dropdown-menu{
+  background:#0b3d29; border:1px solid rgba(255,255,255,.12); border-radius:10px; margin-top:.4rem;
+  box-shadow:0 14px 34px rgba(4,45,29,.35); padding:.4rem; min-width:230px; max-height:80vh; overflow-y:auto;
+}
+.pp-nav .dropdown-menu .dropdown-item{
+  display:flex; align-items:center; gap:.6rem; padding:.6rem .7rem; border-radius:8px;
+  color:rgba(255,255,255,.88); font-size:.82rem; font-weight:600; white-space:nowrap;
+}
+.pp-nav .dropdown-menu .dropdown-item i{color:#8dd8b5; width:1.05rem; text-align:center}
+.pp-nav .dropdown-menu .dropdown-item:hover{background:rgba(255,255,255,.14); color:#fff}
+.pp-nav .dropdown-menu .dropdown-item.active{background:var(--parent-green-2); color:#fff}
+.pp-nav .dropdown-menu .dropdown-item.active i{color:var(--parent-gold)}
+.pp-topbar-actions{display:flex; align-items:center; gap:.6rem; flex:0 0 auto}
+.pp-nav-burger{display:none}
+.pp-btn-label{white-space:nowrap}
+.pp-user-chip{position:relative}
+.pp-user-toggle{
+  display:flex; align-items:center; gap:.5rem; color:#fff; font-size:.78rem;
+  background:transparent; border:0; padding:.35rem .55rem; border-radius:8px;
+  font-family:inherit; cursor:pointer;
+}
+.pp-user-toggle:hover{background:rgba(255,255,255,.14)}
+.pp-user-toggle i{font-size:1.05rem; color:var(--parent-gold)}
+.pp-user-toggle .pp-user-name{max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.pp-user-menu{background:#0b3d29; border:1px solid rgba(255,255,255,.12); border-radius:10px; margin-top:.4rem; box-shadow:0 14px 34px rgba(4,45,29,.35); padding:.4rem; min-width:220px}
+.pp-user-menu .dropdown-item{
+  display:flex; align-items:center; gap:.6rem; padding:.6rem .7rem; border-radius:8px;
+  color:rgba(255,255,255,.88); font-size:.82rem; font-weight:600; white-space:nowrap;
+}
+.pp-user-menu .dropdown-item i{color:#8dd8b5; width:1.05rem; text-align:center}
+.pp-user-menu .dropdown-item:hover{background:rgba(255,255,255,.14); color:#fff}
+.pp-user-menu .dropdown-item.active{background:var(--parent-green-2); color:#fff}
+.pp-user-menu .dropdown-item.active i{color:var(--parent-gold)}
+
+/* ── Per-page left sidebar (child-scoped pages) ────────────────────────── */
+.pp-shell{display:flex; flex-direction:column; flex:1 1 auto}
+.pp-main{flex:1 1 auto; width:100%}
+.pp-container{width:100%; max-width:1440px; margin:0 auto; padding:1.4rem clamp(1rem,3vw,2.2rem) 2.4rem}
+.pp-sidebar{position:sticky; top:82px; background:#fff; border:1px solid var(--parent-line); border-radius:13px; padding:1rem;}
+.pp-sidebar-title{
+  font-size:.68rem; text-transform:uppercase; letter-spacing:.12em; color:var(--parent-muted);
+  padding:0 .4rem .5rem; margin:0; border-bottom:1px solid var(--parent-line);
+}
+.pp-child-list{max-height:300px; overflow-y:auto}
+.pp-child-item{
+  display:flex; align-items:center; gap:.6rem; width:100%; text-align:left;
+  padding:.58rem .6rem; margin:.25rem 0; border:0; border-radius:9px; background:transparent;
+  color:var(--parent-ink); font-size:.85rem; cursor:pointer;
+}
+.pp-child-item small{display:block; color:var(--parent-muted); font-size:.72rem}
+.pp-child-item:hover{background:#eef4ef}
+.pp-child-item.active{background:var(--parent-green-2); color:#fff}
+.pp-child-item.active small{color:rgba(255,255,255,.75)}
+.pp-child-avatar{
+  flex:0 0 auto; width:34px; height:34px; border-radius:50%;
+  display:grid; place-items:center; font-weight:700; font-size:.95rem;
+  background:var(--parent-green); color:#fff;
+}
+.pp-child-item.active .pp-child-avatar{background:rgba(255,255,255,.2)}
+.pp-page-nav{display:flex; flex-direction:column; gap:.1rem}
+.pp-page-nav .nav-link{
+  display:flex; align-items:center; gap:.55rem; padding:.55rem .68rem; border-radius:8px;
+  color:var(--parent-ink); font-size:.82rem; font-weight:600; text-decoration:none;
+}
+.pp-page-nav .nav-link i{color:var(--parent-green-2); width:1.05rem; text-align:center}
+.pp-page-nav .nav-link:hover{background:#eef4ef}
+.pp-page-nav .nav-link.active{background:var(--parent-green); color:#fff}
+.pp-page-nav .nav-link.active i{color:var(--parent-gold)}
+.pp-sidebar .pp-sidebar-actions{margin-top:.75rem; padding-top:.6rem; border-top:1px solid var(--parent-line)}
+
+/* ── Content cards shared across pages ─────────────────────────────────── */
+.pp-welcome{
+  position:relative; overflow:hidden; min-height:190px; border-radius:18px; padding:clamp(1.4rem,3vw,2.6rem);
+  color:#fff; background:linear-gradient(90deg,rgba(5,55,36,.94),rgba(8,75,49,.72)),url("../uploads/school_assets/bg_images/parents-login-hero_1.webp") center/cover;
+  box-shadow:0 16px 38px rgba(8,70,44,.2);
+}
+.pp-welcome h2{font-family:"Playfair Display",serif; font-size:clamp(1.7rem,3.4vw,2.5rem); font-weight:700; margin:0 0 .4rem}
+.pp-welcome p{margin:0; color:rgba(255,255,255,.8)}
+.pp-kpi-card{
+  border:1px solid var(--parent-line); border-radius:12px; box-shadow:0 4px 16px rgba(25,70,48,.06);
+  height:100%; background:#fff; display:flex; align-items:center; gap:.85rem; padding:1rem;
+}
+.pp-kpi-card .kpi-icon,.pp-kpi-icon{
+  flex:0 0 auto; width:42px;height:42px;border-radius:.8rem;display:grid;place-items:center;font-size:1.2rem;
+}
+.pp-card{background:#fff; border:1px solid var(--parent-line); border-radius:13px; box-shadow:0 5px 18px rgba(25,70,48,.07)}
+.pp-card-header{display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 1.25rem; border-bottom:1px solid var(--parent-line); flex-wrap:wrap}
+.pp-card-header h1,.pp-card-header h2,.pp-card-header h3{margin:0; font-family:"Playfair Display",serif; font-size:1.15rem}
+.pp-card-body{padding:1.25rem}
+
+.child-card{
+  border:1px solid var(--parent-line); border-top:0; border-radius:13px;
+  box-shadow:0 5px 18px rgba(25,70,48,.07); transition:transform .18s ease, box-shadow .18s ease;
+  background:#fff; height:100%; cursor:pointer;
+}
+.child-card::before{display:block;height:5px;border-radius:13px 13px 0 0;background:linear-gradient(90deg,var(--parent-green-2),var(--parent-gold));content:""}
+.child-card:hover{transform:translateY(-2px); box-shadow:0 10px 26px rgba(25,70,48,.14)}
+.pp-child-name{font-family:"Playfair Display",serif; font-weight:700}
+
+/* ── Bottom footer (shared across every parent page) ───────────────────── */
+.pp-footer{
+  margin-top:auto; padding:1.1rem clamp(1rem,4vw,2.6rem); color:var(--parent-muted);
+  font-size:.78rem; border-top:1px solid var(--parent-line); background:#fff;
+  display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5rem;
+}
+.pp-footer a{color:var(--parent-green-2); text-decoration:none}
+.pp-footer a:hover{text-decoration:underline}
+
+/* ── Login / auth page ──────────────────────────────────────────────────── */
+.pp-auth-page{background:linear-gradient(90deg,rgba(5,47,32,.88),rgba(12,91,58,.6)),url("../uploads/school_assets/bg_images/parents-login-hero_1.webp") center/cover fixed; min-height:100vh; display:grid; place-items:center; padding:1.5rem}
+.pp-login-card{width:min(100%,470px)}
+.pp-login-card .card{overflow:hidden; background:rgba(255,255,255,.97); box-shadow:0 28px 70px rgba(0,30,18,.3)}
+.kw-auth-header{
+  background:linear-gradient(135deg,#073e29,#13764f); color:#fff; text-align:center;
+  padding:2rem 1rem 1.5rem; position:relative; overflow:hidden; border-radius:0;
+}
+.kw-auth-header::after{content:""; position:absolute; left:0; right:0; bottom:0; height:4px; background:linear-gradient(90deg,var(--parent-gold),#ffe27a)}
+.kw-auth-logo{width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3))}
+.kw-auth-name{color:var(--parent-gold); font-weight:800; letter-spacing:.5px; font-family:"Playfair Display",serif}
+.kw-auth-motto{color:rgba(255,255,255,.85); font-style:italic; font-size:.85rem}
+
+/* ── Tables (CSV/print friendly) ───────────────────────────────────────── */
+.pp-table{background:#fff}
+.pp-table .table{margin-bottom:0}
+.pp-table .table thead th{background:#f0f5f1; color:var(--parent-ink); font-size:.78rem; text-transform:uppercase; letter-spacing:.05em}
+.pp-table .table td,.pp-table .table th{font-size:.84rem; vertical-align:middle}
+.pp-fab-actions{display:flex; gap:.4rem}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+.pp-mpesa-header{background:var(--parent-green-2)!important}
+
+/* ── Tabs (sub-navigation inside child pages) ──────────────────────────── */
+.nav-tabs{gap:.15rem; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none}
+.nav-tabs::-webkit-scrollbar{display:none}
+.nav-tabs .nav-link{white-space:nowrap; font-size:.78rem; color:var(--parent-ink)}
+.nav-tabs .nav-link.active{color:var(--parent-green)!important; border-color:var(--parent-line) var(--parent-line) #fff; font-weight:700}
+
+/* ── Statement / report-card screenlike blocks ─────────────────────────── */
+.pp-statement-table{background:#fff; border:1px solid #dfe7e1; border-radius:8px}
+
+/* ── Mobile navigation drawer ──────────────────────────────────────────── */
+.pp-drawer{width:min(320px,86vw); background:linear-gradient(180deg,#073e29,#0a5a3a); color:#fff}
+.pp-drawer .offcanvas-header{border-bottom:1px solid rgba(255,255,255,.14); color:#fff}
+.pp-drawer .offcanvas-title{display:flex; align-items:center; gap:.6rem; font-family:"Playfair Display",serif; font-weight:700}
+.pp-drawer .offcanvas-title i{color:var(--parent-gold); font-size:1.2rem}
+.pp-drawer-body{padding:.8rem .9rem 1.2rem; overflow-y:auto}
+.pp-drawer-group{margin-bottom:1rem}
+.pp-drawer-group-title{
+  display:flex; align-items:center; gap:.55rem; padding:.4rem .45rem; margin-bottom:.2rem;
+  font-size:.66rem; text-transform:uppercase; letter-spacing:.12em; color:var(--parent-gold);
+  border-bottom:1px solid rgba(255,255,255,.14);
+}
+.pp-drawer-group-title i{color:#8dd8b5; font-size:.85rem}
+.pp-drawer-item{
+  display:flex; align-items:center; gap:.6rem; padding:.55rem .6rem; margin:.15rem 0; border-radius:9px;
+  color:rgba(255,255,255,.9); font-size:.9rem; font-weight:600; text-decoration:none;
+}
+.pp-drawer-item i{color:#8dd8b5; width:1.1rem; text-align:center; font-size:.92rem}
+.pp-drawer-item:hover{background:rgba(255,255,255,.14); color:#fff}
+.pp-drawer-item.active{background:var(--parent-green-2); color:#fff}
+.pp-drawer-item.active i{color:var(--parent-gold)}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width:1199.98px){
+  .pp-nav{display:none}
+  .pp-nav-burger{display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px}
+  .pp-sidebar{position:static; max-height:none}
+  .pp-container{padding-top:1rem}
+  .pp-topbar{gap:.5rem .7rem}
+  .pp-brand{max-width:min(52vw,14rem)}
+  .pp-brand small{display:none}
+}
+@media (max-width:575.98px){
+  .pp-user-chip .pp-user-name{display:none}
+  .pp-card-header{gap:.5rem}
+  .pp-card-header{padding:.85rem 1rem}
+  .pp-card-header h1,.pp-card-header h2,.pp-card-header h3{font-size:1rem}
+  .pp-card-body{padding:1rem}
+  .pp-welcome{min-height:0; padding:1.3rem}
+  .pp-welcome h2{font-size:1.45rem}
+  .pp-kpi-card{padding:.7rem; gap:.6rem}
+  .pp-kpi-card .kpi-icon,.pp-kpi-icon{width:34px;height:34px;font-size:1rem}
+  .pp-brand img{width:32px;height:32px}
+  .pp-brand strong{font-size:.64rem}
+  .pp-btn-label{display:none}
+  .pp-footer{justify-content:center; text-align:center}
+  .pp-topbar{flex-wrap:wrap}
+}
+
+/* ── Uniform Store (catalogue + quick view + cart + checkout + orders) ── */
+#storeSearch{max-width:340px}
+#storeGrid .store-card{
+  background:#fff; border:1px solid var(--parent-line); border-radius:13px; overflow:hidden;
+  box-shadow:0 5px 18px rgba(25,70,48,.07); height:100%; display:flex; flex-direction:column;
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+#storeGrid .store-card:hover{transform:translateY(-3px); box-shadow:0 12px 28px rgba(25,70,48,.14)}
+.store-media{position:relative; aspect-ratio:4/3; background:#eef3ef}
+.store-media img{width:100%; height:100%; object-fit:cover; display:block}
+.store-state{
+  position:absolute; top:.6rem; right:.6rem; z-index:2; padding:.24rem .55rem; font-size:.64rem;
+  font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#fff;
+  background:rgba(10,74,48,.85); border-radius:999px; backdrop-filter:blur(4px);
+}
+.store-info{padding:.85rem 1rem 1rem; display:flex; flex-direction:column; gap:.3rem; flex:1 1 auto}
+.store-category{font-size:.63rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--parent-green-2)}
+.store-title{font-family:"Playfair Display",serif; font-size:1.02rem; font-weight:700; margin:0; color:var(--parent-ink); line-height:1.25}
+.store-desc{margin:0; color:var(--parent-muted); font-size:.78rem; flex:1 1 auto}
+.store-swatches{display:flex; gap:.3rem; margin:.15rem 0 .4rem}
+.store-swatch{width:16px; height:16px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 1px var(--parent-line)}
+.store-footer{display:flex; align-items:flex-end; justify-content:space-between; gap:.6rem; margin-top:.35rem}
+.store-footer small{font-size:.68rem}
+.store-price{font-weight:700; color:var(--parent-green); font-size:.92rem}
+
+/* quick-view size + variant pickers */
+.store-size-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(88px,1fr)); gap:.45rem}
+.store-size{position:relative; cursor:pointer}
+.store-size input{position:absolute; opacity:0; pointer-events:none}
+.store-size span{
+  display:flex; flex-direction:column; align-items:center; gap:.05rem; padding:.5rem .35rem;
+  border:1px solid var(--parent-line); border-radius:9px; background:#fff; color:var(--parent-ink);
+  font-size:.76rem; font-weight:600; text-align:center; transition:border-color .15s ease, background .15s ease;
+}
+.store-size span small{color:var(--parent-muted); font-weight:500; font-size:.64rem}
+.store-size:hover span{border-color:var(--parent-green-2)}
+.store-size input:focus-visible + span{outline:2px solid var(--parent-green-2); outline-offset:1px}
+.store-size.selected span{background:var(--parent-green); border-color:var(--parent-green); color:#fff}
+.store-size.selected span small{color:rgba(255,255,255,.8)}
+.store-variant{
+  display:inline-flex; flex-direction:column; align-items:center; gap:.3rem; min-width:76px;
+  padding:.5rem .6rem; border:1px solid var(--parent-line); border-radius:10px; background:#fff;
+  color:var(--parent-ink); font-size:.7rem; font-weight:600; cursor:pointer;
+}
+.store-variant span{width:26px; height:26px; border-radius:50%; border:2px solid rgba(255,255,255,.7); box-shadow:0 0 0 1px var(--parent-line)}
+.store-variant small{line-height:1.1}
+.store-variant:hover{border-color:var(--parent-green-2)}
+.store-variant.active{border-color:var(--parent-green); background:#eef6f0; color:var(--parent-green); box-shadow:inset 0 0 0 1px var(--parent-green)}
+
+/* cart offcanvas is re-themed light so prices and notes stay readable */
+#storeCartDrawer.pp-drawer{background:#fff; color:var(--parent-ink)}
+#storeCartDrawer .offcanvas-header{border-bottom:1px solid var(--parent-line); color:var(--parent-ink)}
+#storeCartDrawer .offcanvas-title{font-family:"Playfair Display",serif; font-weight:700; color:var(--parent-green)}
+#storeCartDrawer .offcanvas-title i{color:var(--parent-green-2); font-size:1.2rem}
+#storeCartDrawer .btn-close{filter:unset}
+#storeCartDrawer .pp-drawer-body{color:var(--parent-ink)}
+
+/* order cards */
+.store-order{background:#fff}
+.store-order .badge{font-weight:600; letter-spacing:.02em}
+
+/* ── Print: hide chrome, landscape for wide matrices ───────────────────── */
+@media print{
+  .no-print{display:none!important}
+  .pp-topbar,.pp-footer,.pp-sidebar,.btn,.pp-fab-actions,.portal-header{display:none!important}
+  body{background:#fff!important; display:block}
+  .pp-main{width:100%}
+  .pp-container{max-width:100%; padding:0}
+  .pp-card,.child-card,.pp-kpi-card{box-shadow:none!important; border:1px solid #333}
+  @page{margin:1.2cm}
+}
+body.pp-print-landscape @media print{ @page{size:A4 landscape; margin:1cm} }

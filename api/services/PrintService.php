@@ -3745,7 +3745,7 @@ final class PrintService
              JOIN terms t ON t.id = ayt.term_id
              LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
              LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
-             LEFT JOIN vw_student_fee_balances v
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
                ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id
               AND v.academic_year_term_id = sfo.academic_year_term_id
              WHERE sae.student_id = ? AND sfo.academic_year_id = ?

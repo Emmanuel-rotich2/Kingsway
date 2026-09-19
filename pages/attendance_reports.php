@@ -80,6 +80,20 @@
     </div>
   </div>
 
+  <div class="card border-success-subtle bg-light mb-4">
+    <div class="card-body py-2">
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <div><strong><i class="bi bi-stars text-success me-1"></i>Attendance follow-up assistant</strong><div class="small text-muted">Summarizes authorized register exceptions and suggests staff follow-up. It does not create or change attendance records.</div></div>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="btn btn-outline-success btn-sm" id="queueAiAttendanceSummary"><i class="bi bi-stars me-1"></i>Review today’s exceptions</button>
+          <button type="button" class="btn btn-outline-primary btn-sm" id="queueAiAttendanceLateness"><i class="bi bi-graph-up-arrow me-1"></i>Review lateness pattern</button>
+        </div>
+      </div>
+      <div id="aiAttendanceSummaries" class="row g-2 mt-2"></div>
+      <div id="aiAttendanceLatenessReviews" class="row g-2 mt-2"></div>
+    </div>
+  </div>
+
   <!-- Tabs -->
   <ul class="nav nav-tabs mb-0" id="arTabs">
     <li class="nav-item"><button class="nav-link active" data-tab="classes">By Class</button></li>
@@ -143,3 +157,4 @@
 
 </div>
 <?php asset_script($appBase, 'js/pages/attendance_reports.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_attendance_summary.js'); ?>

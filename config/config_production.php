@@ -67,6 +67,13 @@ define('DB_NAME', trim((string) ($_ENV['DB_NAME'] ?? '')));
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
 define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 
+// Auxiliary namespace schemas (roadmap §4.1). Optional overrides; when unset,
+// ConnectionManager falls back to the built-in defaults. Business logic never
+// hardcodes schema names, so production database renames only need these values.
+define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: 'KingsWayBuffers');
+define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: 'KingsWayReads');
+define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: 'KingsWayLogs');
+
 if (DB_USER === '' || DB_NAME === '' || DB_PASS === '') {
     throw new \RuntimeException('DB_USER, DB_NAME and DB_PASS must be configured in production.');
 }

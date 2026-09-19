@@ -19,13 +19,6 @@ class UniformSalesManager extends BaseAPI
         parent::__construct('inventory');
     }
 
-    private function nextId(string $table, string $column = 'id'): int
-    {
-        return (int)$this->dbQuery(
-            "SELECT COALESCE(MAX($column), 0) + 1 FROM $table"
-        )->fetchColumn();
-    }
-
     /**
      * Get all uniform items with size availability
      * @param array $params Filter parameters
@@ -837,29 +830,23 @@ return $this->formatError('An internal error occurred.', 500);
 
             $this->db->beginTransaction();
             try {
-                $reqId = $this->nextId('requisitions');
-                $reqNumber = 'PUR-' . $reqId;
-
-                $noteMeta = array_filter([
-                    'uniform_purchase' => true,
-                    'supplier_id'   => $supplierId ? (int)$supplierId : null,
-                    'supplier_name' => $supplierName ?: null,
-                    'invoice_number'=> $invoiceNo ?: null,
-                    'delivery_note' => $deliveryNote ?: null,
-                    'purchase_note' => $notes ?: null,
-                ], fn($v) => $v !== null);
-
-                // Create purchase header as a fulfilled requisition
+                // Create purchase header as a fulfilled requisition;
+                // requisition_number is unique, so derive it after insert from the generated id
                 $this->dbQuery(
                     "INSERT INTO requisitions
-                       (id, requisition_number, requisition_date, required_date,
+                       (requisition_number, requisition_date, required_date,
                         priority, status, requested_by, approved_by, approved_at,
                         fulfilled_at, notes, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, 'medium', 'fulfilled', ?, ?, NOW(), NOW(), ?, NOW(), NOW())",
-                    [$reqId, $reqNumber, $purchaseDate, $purchaseDate,
+                     VALUES (NULL, ?, ?, 'medium', 'fulfilled', ?, ?, NOW(), NOW(), ?, NOW(), NOW())",
+                    [$purchaseDate, $purchaseDate,
                      $userId ?: null, $userId ?: null, json_encode($noteMeta)]
                 );
-                $purchaseId = $reqId;
+                $purchaseId = (int)$this->db->lastInsertId();
+                $reqNumber = 'PUR-' . $purchaseId;
+                $this->dbQuery(
+                    "UPDATE requisitions SET requisition_number = ? WHERE id = ?",
+                    [$reqNumber, $purchaseId]
+                );
 
                 foreach ($items as $line) {
                     $itemId   = (int)($line['item_id'] ?? 0);

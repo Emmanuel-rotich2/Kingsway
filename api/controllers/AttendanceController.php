@@ -8,6 +8,9 @@ use App\API\Modules\attendance\AttendanceStudentService;
 use App\API\Modules\attendance\AttendanceStaffService;
 use App\API\Modules\attendance\AttendancePermissionService;
 use App\API\Services\StaffDomainAccessService;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 use RuntimeException;
 use Exception;
 
@@ -23,12 +26,12 @@ class AttendanceController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new AttendanceAPI();
-        $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->studentAttendanceService = new AttendanceStudentService($this->api);
-        $this->staffAttendanceService = new AttendanceStaffService($this->api);
-        $this->permissionService = new AttendancePermissionService($this->api);
-        $this->manager = new AttendanceManager();
+        $this->api = $this->contract('App\API\Modules\attendance\AttendanceAPI');
+        $this->staffAccess = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->studentAttendanceService = $this->contract('App\API\Modules\attendance\AttendanceStudentService', $this->api);
+        $this->staffAttendanceService = $this->contract('App\API\Modules\attendance\AttendanceStaffService', $this->api);
+        $this->permissionService = $this->contract('App\API\Modules\attendance\AttendancePermissionService', $this->api);
+        $this->manager = $this->contract('App\API\Modules\attendance\AttendanceManager');
     }
     public function guardStaffAttendance(string $permission, array $roles = [])
     {
@@ -90,7 +93,7 @@ class AttendanceController extends BaseController
     public function getTrends($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new \App\API\Services\DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $trends = $service->getAttendanceTrends();
             if (!is_array($trends)) {
                 return $this->serverError('Attendance trends not available');
@@ -559,12 +562,131 @@ return $this->serverError('An internal error occurred.');
             if (!empty($scope['restricted'])) {
                 $data['stream_ids'] = $scope['stream_ids'];
             }
-            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection());
             return $this->success($service->list($data), 'Expected attendance registers retrieved');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AttendanceController] expected registers failed: ' . $e->getMessage());
             return $this->serverError('Expected attendance registers unavailable');
         }
+    }
+
+    /** POST /api/attendance/ai-exception-summary-queue */
+    public function postAiExceptionSummaryQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiAttendance()) return $this->forbidden('Attendance AI assistance is not available for your account');
+        $date = (string) ($data['date'] ?? date('Y-m-d'));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return $this->badRequest('A valid attendance date is required');
+        try {
+            $scope = $this->manager->getAccessibleClassScope();
+            $filters = ['date' => $date];
+            if (!empty($scope['restricted'])) $filters['stream_ids'] = array_values(array_map('intval', (array) ($scope['stream_ids'] ?? [])));
+            $result = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection())->list($filters);
+            $registers = is_array($result['registers'] ?? null) ? $result['registers'] : [];
+            $counts = ['completed' => 0, 'open' => 0, 'overdue' => 0, 'not_marked' => 0];
+            $types = [];
+            foreach ($registers as $register) {
+                $status = (string) ($register['status'] ?? '');
+                if (array_key_exists($status, $counts)) $counts[$status]++;
+                if ($status !== '' && $status !== 'completed') $types[$status] = true;
+            }
+            $input = [
+                'report_date' => $date,
+                'register_count' => (string) count($registers),
+                'completed_count' => (string) $counts['completed'],
+                'open_count' => (string) $counts['open'],
+                'overdue_count' => (string) $counts['overdue'],
+                'not_marked_count' => (string) $counts['not_marked'],
+                'scope_stream_count' => (string) count(array_unique(array_filter(array_map(
+                    static fn(array $register): int => (int) ($register['stream_id'] ?? 0),
+                    $registers
+                )))),
+                'exception_types' => array_keys($types),
+                'follow_up_intent' => 'Prepare register-review follow-up for authorized staff; do not alter attendance records.',
+            ];
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'attendance.exception_summary',
+                $this->aiAttendanceContext(),
+                $input,
+                ['subject_type' => 'attendance_exception_summary', 'scope' => 'authorized_attendance_registers']
+            );
+            return $this->accepted($queued, 'Attendance exception summary queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AttendanceController] AI exception summary failed: ' . $e->getMessage());
+            return $this->serverError('Attendance assistance is temporarily unavailable');
+        }
+    }
+
+    /** POST /api/attendance/ai-lateness-pattern-queue */
+    public function postAiLatenessPatternQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiAttendanceWorkflow('attendance.lateness_pattern_review')) return $this->forbidden('Attendance AI assistance is not available for your account');
+        $from = (string) ($data['date_from'] ?? date('Y-m-d', strtotime('-30 days'))); $to = (string) ($data['date_to'] ?? date('Y-m-d'));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) || $from > $to) return $this->badRequest('A valid date range is required');
+        try {
+            $scope = $this->manager->getAccessibleClassScope(); $filters = ['date_from' => $from, 'date_to' => $to];
+            if (!empty($scope['restricted'])) $filters['stream_ids'] = array_values(array_map('intval', (array) ($scope['stream_ids'] ?? [])));
+            $raw = $this->manager->getAcademicSummary($filters); $summary = is_array($raw['data'] ?? null) ? $raw['data'] : $raw;
+            $present = (int) ($summary['present'] ?? $summary['students']['present'] ?? 0); $absent = (int) ($summary['absent'] ?? $summary['students']['absent'] ?? 0); $late = (int) ($summary['late'] ?? $summary['students']['late'] ?? 0); $total = $present + $absent + $late;
+            $input = ['date_from' => $from, 'date_to' => $to, 'present_count' => (string) $present, 'absent_count' => (string) $absent, 'late_count' => (string) $late, 'late_rate' => $total > 0 ? (string) round($late / $total * 100, 2) : '0', 'follow_up_intent' => 'Verify authorized register details and speak with responsible staff before action.'];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('attendance.lateness_pattern_review', $this->aiAttendanceContext(), $input, ['subject_type' => 'attendance_lateness_pattern', 'scope' => 'authorized_attendance_aggregate']), 'Attendance lateness review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (\Throwable $e) { return $this->serverError('Attendance lateness review is temporarily unavailable'); }
+    }
+
+    /** GET /api/attendance/ai-exception-summaries?scope=own|review */
+    public function getAiExceptionSummaries($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiAttendance()) return $this->forbidden('Attendance review permission is required');
+        try {
+            return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview(
+                $this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'attendance'
+            ), 'scope' => $review ? 'review' : 'own'], 'Attendance AI summaries retrieved');
+        } catch (\Throwable $e) {
+            return $this->serverError('Attendance assistance is temporarily unavailable');
+        }
+    }
+
+    /** POST /api/attendance/ai-exception-summary-approve/{id} */
+    public function postAiExceptionSummaryApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiAttendance()) return $this->forbidden('Attendance review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try {
+            $stmt = $this->getDb()->getConnection()->prepare('SELECT workflow_id FROM ai_workflow_drafts WHERE id = ? LIMIT 1');
+            $stmt->execute([$draftId]);
+            $workflow = (string) ($stmt->fetchColumn() ?: '');
+            if (!in_array($workflow, ['attendance.exception_summary', 'attendance.lateness_pattern_review'], true)) {
+                return $this->respond(null, 'This draft does not belong to an attendance review workflow.', 409, false);
+            }
+            $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), $workflow);
+            return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Attendance summary approved for staff guidance');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        }
+    }
+
+    private function aiAttendanceContext(): array
+    {
+        return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId];
+    }
+
+    private function canUseAiAttendance(): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize('attendance.exception_summary', $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    private function canUseAiAttendanceWorkflow(string $workflow): bool
+    {
+        try { $this->contract(AiWorkflowService::class)->authorize($workflow, $this->aiAttendanceContext()); return true; } catch (DomainException $e) { return false; }
+    }
+
+    private function canApproveAiAttendance(): bool
+    {
+        return $this->userHasAny(['attendance_manage', 'attendance_approve', 'attendance_update'], [3, 4, 5, 10], ['headteacher', 'deputy headteacher', 'school administrator', 'director']);
     }
 
     /** Internal worker endpoint for cron/systemd register reminders. */
@@ -576,7 +698,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Invalid worker credential');
         }
         try {
-            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection());
             return $this->success($service->process($data['date'] ?? null), 'Attendance registers reconciled');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AttendanceController] register worker failed: ' . $e->getMessage());
@@ -594,7 +716,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Invalid gate device signature');
         }
         try {
-            $service = new \App\API\Services\StaffGateAttendanceService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\StaffGateAttendanceService', $this->getDb()->getConnection());
             return $this->success($service->record($data), 'Gate attendance event processed');
         } catch (\InvalidArgumentException $e) {
             return $this->badRequest($e->getMessage());

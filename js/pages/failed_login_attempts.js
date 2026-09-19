@@ -223,7 +223,7 @@ const FailedLoginAttemptsController = {
     }
 
     this.state.loading = true;
-    if (!quiet) {
+    if (!quiet && this.state.attempts.length === 0) {
       this.elements.refreshButton.disabled = true;
       this.elements.previousButton.disabled = true;
       this.elements.nextButton.disabled = true;
@@ -433,71 +433,65 @@ const FailedLoginAttemptsController = {
       return;
     }
 
-    this.elements.tableBody.innerHTML = this.state.attempts
-      .map((attempt) => {
-        const accountName =
-          [attempt.firstName, attempt.lastName].filter(Boolean).join(" ") ||
-          attempt.username ||
-          attempt.attemptedIdentifier ||
-          "Unknown account";
-        const identifier =
-          [
-            attempt.username ? `@${attempt.username}` : "",
-            attempt.email,
-          ]
-            .filter(Boolean)
-            .join(" · ") ||
-          attempt.attemptedIdentifier ||
-          "Unmatched identifier";
-        const showAttemptedIdentifier = Boolean(
-          attempt.attemptedIdentifier &&
-            ![attempt.username, attempt.email].includes(
-              attempt.attemptedIdentifier,
-            ),
-        );
-        const client = this.truncate(
-          attempt.userAgent || "Not recorded",
-          72,
-        );
+    const template = document.getElementById("failedLoginAttemptsRowTemplate");
+    const rows = this.state.attempts.map((attempt) =>
+      this.buildAttemptRow(template, attempt),
+    );
+    this.elements.tableBody.replaceChildren(...rows);
+  },
 
-        return `
-          <tr>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(attempt.createdAt))}
-            </td>
-            <td>
-              <div class="fw-semibold">${this.escapeHtml(accountName)}</div>
-              <div class="small text-muted">${this.escapeHtml(identifier)}</div>
-              ${
-                showAttemptedIdentifier
-                  ? `<div class="small text-muted">Attempted: ${this.escapeHtml(
-                      attempt.attemptedIdentifier,
-                    )}</div>`
-                  : ""
-              }
-            </td>
-            <td>
-              <code>${this.escapeHtml(attempt.ipAddress || "Not recorded")}</code>
-            </td>
-            <td>
-              ${this.escapeHtml(
-                attempt.failureReason
-                  ? this.humanize(attempt.failureReason)
-                  : "Not recorded",
-              )}
-            </td>
-            <td>${this.renderAccountSecurity(attempt)}</td>
-            <td
-              class="small text-muted"
-              title="${this.escapeAttribute(
-                attempt.userAgent || "Not recorded",
-              )}"
-            >
-              ${this.escapeHtml(client)}
-            </td>
-          </tr>`;
-      })
-      .join("");
+  buildAttemptRow(template, attempt) {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const accountName =
+      [attempt.firstName, attempt.lastName].filter(Boolean).join(" ") ||
+      attempt.username ||
+      attempt.attemptedIdentifier ||
+      "Unknown account";
+    const identifier =
+      [
+        attempt.username ? `@${attempt.username}` : "",
+        attempt.email,
+      ]
+        .filter(Boolean)
+        .join(" · ") ||
+      attempt.attemptedIdentifier ||
+      "Unmatched identifier";
+    const showAttemptedIdentifier = Boolean(
+      attempt.attemptedIdentifier &&
+        ![attempt.username, attempt.email].includes(
+          attempt.attemptedIdentifier,
+        ),
+    );
+    const client = this.truncate(
+      attempt.userAgent || "Not recorded",
+      72,
+    );
+
+    cell("createdAt").textContent = this.formatDateTime(attempt.createdAt);
+    cell("accountName").textContent = accountName;
+    cell("identifier").textContent = identifier;
+
+    const attempted = cell("attemptedIdentifier");
+    if (showAttemptedIdentifier) {
+      attempted.textContent = `Attempted: ${attempt.attemptedIdentifier}`;
+    } else {
+      attempted.hidden = true;
+    }
+
+    cell("ip").textContent = attempt.ipAddress || "Not recorded";
+    cell("failureReason").textContent = attempt.failureReason
+      ? this.humanize(attempt.failureReason)
+      : "Not recorded";
+    cell("accountSecurity").innerHTML = this.renderAccountSecurity(attempt);
+
+    const clientCell = cell("client");
+    clientCell.textContent = client;
+    clientCell.title = attempt.userAgent || "Not recorded";
+
+    return row;
   },
 
   renderAccountSecurity(attempt) {

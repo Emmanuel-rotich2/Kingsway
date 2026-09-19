@@ -150,6 +150,22 @@
                     </tr>
                 </tbody>
             </table>
+            <template id="failedLoginAttemptsRowTemplate">
+                <tr>
+                    <td class="text-nowrap" data-row-fill="createdAt"></td>
+                    <td>
+                        <div class="fw-semibold" data-row-fill="accountName"></div>
+                        <div class="small text-muted" data-row-fill="identifier"></div>
+                        <div class="small text-muted" data-row-fill="attemptedIdentifier"></div>
+                    </td>
+                    <td>
+                        <code data-row-fill="ip"></code>
+                    </td>
+                    <td data-row-fill="failureReason"></td>
+                    <td data-row-fill="accountSecurity"></td>
+                    <td class="small text-muted" data-row-fill="client"></td>
+                </tr>
+            </template>
         </div>
 
         <div

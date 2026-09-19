@@ -14,6 +14,7 @@ use App\API\Services\payments\KcbWebhookVerifier;
 use App\API\Services\payments\ReferenceNormalizer;
 use App\API\Services\FinancialPostingCoordinator;
 use Exception;
+use App\API\Services\ServiceContractBroker;
 use App\API\Includes\BaseAPI;
 use \App\API\Modules\communications\CommunicationsAPI;
 
@@ -26,7 +27,17 @@ class PaymentsAPI extends BaseAPI
     public function __construct()
     {
         parent::__construct('payments');
-        $this->commAPI = new CommunicationsAPI();
+        $this->commAPI = $this->contract('App\API\Modules\communications\CommunicationsAPI');
+    }
+
+    private function contractContext(): array
+    {
+        return [
+            'user_id' => (int) ($this->user_id ?? 0),
+            'roles' => $this->currentUserRoleNames(),
+            'permissions' => $_SERVER['auth_user']['effective_permissions'] ?? [],
+            'request_id' => $this->request_id,
+        ];
     }
 
     /**
@@ -371,14 +382,22 @@ class PaymentsAPI extends BaseAPI
                             "UPDATE admission_payments SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW() WHERE id = :id"
                         )->execute(['student_id' => $studentIdForDuplicate, 'id' => (int) $duplicatePayment['id']]);
                         try {
-                            (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                            ServiceContractBroker::call(
+                                'admission.api.advance_after_payment',
+                                ['application_id' => $applicationId],
+                                $this->contractContext()
+                            );
                         } catch (\Throwable $workflowError) {
                             \App\API\Services\Logger::legacyError('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
                         }
                         return ['ResultCode' => 0, 'ResultDesc' => 'Payment was already received and has now been allocated to the student account'];
                     }
                     try {
-                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                        ServiceContractBroker::call(
+                            'admission.api.advance_after_payment',
+                            ['application_id' => $applicationId],
+                            $this->contractContext()
+                        );
                     } catch (\Throwable $workflowError) {
                         \App\API\Services\Logger::legacyError('[PaymentsAPI] duplicate payment workflow advancement deferred: ' . $workflowError->getMessage());
                     }
@@ -422,7 +441,11 @@ class PaymentsAPI extends BaseAPI
                 }
 
                 try {
-                    (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                    ServiceContractBroker::call(
+                        'admission.api.advance_after_payment',
+                        ['application_id' => $applicationId],
+                        $this->contractContext()
+                    );
                 } catch (\Throwable $workflowError) {
                     \App\API\Services\Logger::legacyError('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
                 }
@@ -835,7 +858,7 @@ class PaymentsAPI extends BaseAPI
                     'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
                 ];
             }
-            $stmt = $this->db->prepare("SELECT s.id, s.admission_no, CONCAT(p.first_name, ' ', p.last_name) as full_name, s.status, COALESCE((SELECT SUM(v.balance) FROM vw_student_fee_balances v WHERE v.student_id = s.id), 0) as current_balance FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1");
+            $stmt = $this->db->prepare("SELECT s.id, s.admission_no, CONCAT(p.first_name, ' ', p.last_name) as full_name, s.status, COALESCE((SELECT SUM(v.balance) FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " v WHERE v.student_id = s.id), 0) as current_balance FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1");
             $stmt->execute(['admission_no' => $customerReference]);
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$student) {
@@ -1410,7 +1433,7 @@ class PaymentsAPI extends BaseAPI
         if ($portalUrl !== '/parents/') $message .= ' View statement: ' . $portalUrl;
 
         try {
-            $manager = new \App\API\Modules\communications\CommunicationsManager($this->db);
+            $manager = $this->contract('App\API\Modules\communications\CommunicationsManager', $this->db);
             foreach (['sms', 'whatsapp'] as $channel) {
                 $manager->createCommunication([
                     'sender_id' => 1,
@@ -1716,12 +1739,13 @@ class PaymentsAPI extends BaseAPI
             $monthly = $monthlyStmt->fetch(\PDO::FETCH_ASSOC);
             $monthlyCollected = (float) ($monthly['monthly_collected'] ?? 0);
 
+            $feeLedgerRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_ledger');
             $overdue = $this->db->query(
                 "SELECT COUNT(DISTINCT e.student_id) AS overdue_count
                  FROM student_fee_obligations sfo
                  JOIN student_academic_enrollments e ON e.id = sfo.student_academic_enrollment_id
                  WHERE sfo.due_date < NOW()
-                   AND COALESCE((SELECT MAX(l.balance) FROM vw_student_fee_ledger l
+                   AND COALESCE((SELECT MAX(l.balance) FROM {$feeLedgerRef} l
                                  WHERE l.student_academic_enrollment_id = sfo.student_academic_enrollment_id), 0) > 0"
             )->fetch(\PDO::FETCH_ASSOC);
             $overdueCount = (int) ($overdue['overdue_count'] ?? 0);
@@ -1745,7 +1769,7 @@ class PaymentsAPI extends BaseAPI
 
             $outstanding = $this->db->query(
                 "SELECT COALESCE(SUM(l.balance), 0) AS outstanding
-                 FROM vw_student_fee_ledger l"
+                 FROM {$feeLedgerRef} l"
             )->fetch(\PDO::FETCH_ASSOC);
             $outstandingTotal = (float) ($outstanding['outstanding'] ?? 0);
 
@@ -1976,18 +2000,29 @@ class PaymentsAPI extends BaseAPI
             $accountType = ($data['account_type'] ?? 'school_fees') === 'transport' ? 'transport' : 'school_fees';
             $notes = $data['notes'] ?? 'Quick reconcile from dashboard';
 
-            $stmt = $this->db->prepare('SELECT * FROM mpesa_transactions WHERE id = ? LIMIT 1');
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('SELECT * FROM mpesa_transactions WHERE id = ? LIMIT 1 FOR UPDATE');
             $stmt->execute([$mpesaId]);
             $mp = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$mp) {
+                $this->db->rollBack();
                 return $this->errorResponse('MPESA transaction not found', 404);
+            }
+            if (($mp['status'] ?? '') === 'reconciled') {
+                $this->db->commit();
+                return $this->successResponse([
+                    'payment_id' => null,
+                    'student_id' => $mp['student_id'] ?? null,
+                    'amount' => (float) ($mp['amount'] ?? 0),
+                    'fee_allocated' => true,
+                    'replayed' => true,
+                ], 'M-Pesa transaction was already reconciled.');
             }
 
             if (!$studentId && !empty($mp['student_id'])) {
                 $studentId = $mp['student_id'];
             }
-
-            $this->db->beginTransaction();
 
             $amount = (float)($mp['amount'] ?? $mp['amt'] ?? 0);
             $mpesaCode = $mp['mpesa_code'] ?? $mp['trans_id'] ?? $mp['code'] ?? null;
@@ -2031,6 +2066,7 @@ class PaymentsAPI extends BaseAPI
                     FROM transport_monthly_bills b
                     WHERE b.student_id = ?
                     ORDER BY b.billing_month ASC
+                    FOR UPDATE
                 ");
                 $billStmt->execute([$studentId]);
                 $bills = $billStmt->fetchAll(\PDO::FETCH_ASSOC);

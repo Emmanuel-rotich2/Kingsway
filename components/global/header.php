@@ -21,6 +21,18 @@
 
     <div class="app-header-actions">
         <button
+            class="app-icon-button position-relative"
+            id="header-ai-assistant-button"
+            type="button"
+            aria-label="Open staff assistant"
+            title="Staff assistant"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#globalAiAssistantPanel"
+            aria-controls="globalAiAssistantPanel"
+        >
+            <i class="bi bi-stars" aria-hidden="true"></i>
+        </button>
+        <button
             class="app-icon-button"
             id="header-search-button"
             type="button"
@@ -226,6 +238,52 @@
             <p class="text-muted mb-0">
                 Start typing to search available navigation pages.
             </p>
+        </div>
+    </div>
+</div>
+
+<div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="globalAiAssistantPanel"
+    aria-labelledby="globalAiAssistantPanelLabel"
+>
+    <div class="offcanvas-header border-bottom">
+        <div>
+            <h5 class="mb-1" id="globalAiAssistantPanelLabel">
+                <i class="bi bi-stars text-success me-2"></i>Staff assistant
+            </h5>
+            <small class="text-muted">Contextual help from the existing school workflows</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <div class="alert alert-info small">
+            The assistant prepares explanations, recommendations, and drafts for staff review. It does not approve admissions, post finance entries, change grades, or send messages by itself.
+        </div>
+        <form id="global-ai-assistant-query" class="mb-3" autocomplete="off" hidden>
+            <label class="form-label small text-muted" for="global-ai-assistant-question">Ask about school data</label>
+            <div class="input-group input-group-sm">
+                <input
+                    type="text"
+                    class="form-control"
+                    id="global-ai-assistant-question"
+                    maxlength="500"
+                    placeholder="e.g. Attendance rate by level this term"
+                    aria-label="Ask the staff assistant"
+                >
+                <button class="btn btn-success" type="submit">Ask</button>
+            </div>
+            <div class="form-text">Answers use only reports you are already authorized to run.</div>
+            <div id="global-ai-assistant-suggestions" class="d-flex flex-wrap gap-1 mt-2" aria-label="Suggested questions"></div>
+        </form>
+        <div id="global-ai-assistant-answer" class="mb-3" aria-live="polite"></div>
+        <div id="global-ai-assistant-context" class="small text-muted mb-3"></div>
+        <div id="global-ai-assistant-content">
+            <div class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                Loading available assistance…
+            </div>
         </div>
     </div>
 </div>

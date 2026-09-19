@@ -2,7 +2,7 @@
 namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\Staff\StaffPerformanceManager;
+use App\API\Services\ServiceContractBroker;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -27,7 +27,7 @@ class EvaluationWorkflow extends WorkflowHandler
     public function __construct()
     {
         parent::__construct($this->workflowType);
-        $this->performanceManager = new StaffPerformanceManager();
+        $this->performanceManager = ServiceContractBroker::contract('App\API\Modules\staff\StaffPerformanceManager');
     }
 
     /**

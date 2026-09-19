@@ -357,7 +357,7 @@ class ExaminationWorkflow extends WorkflowHandler {
             }
 
             // Upload question paper file via MediaManager into uploads/academic/assessments/{assessment_id}
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $mediaId = $mediaManager->upload($file, 'academic/assessments', $assessment_id, null, $this->user_id, 'question paper');
             $preview = $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
 

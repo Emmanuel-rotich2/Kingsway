@@ -9,6 +9,7 @@ use App\API\Includes\WorkflowHandler;
 use App\API\Services\ExtraChargeService;
 use PDO;
 use Exception;
+use InvalidArgumentException;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -65,7 +66,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $targetTermId = $this->resolveTargetTermId($data);
             $intake = $this->requireOpenAdmissionWindow($targetTermId, $normalizedGrade, $admissionCategory);
             $targetTermId = (int) $intake['academic_year_term_id'];
-            $academicYear = (int) substr((string) $intake['year_code'], -4);
+            // The normalized academic_year value is the start year used by
+            // ExtraChargeService and the legacy application-number index.
+            // For a code such as 2026/2027, using the trailing year makes the
+            // application impossible to resolve back to academic_years.id.
+            $academicYear = (int) preg_replace('/[^0-9].*$/', '', (string) $intake['year_code']);
             $admissionCategory = $intake['default_admission_category'] ?: $admissionCategory;
             $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
             $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
@@ -112,8 +117,6 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'application_source' => $applicationSource,
                 'admission_category' => $admissionCategory,
                 'target_term_id' => $targetTermId,
-                'admission_window_id' => (int) $intake['id'],
-                'academic_year' => $intake['year_code'],
                 'requires_interview' => $requiresInterview,
                 'interview_policy_reason' => $interviewReason,
                 'prev_school' => $data['previous_school'] ?? $data['child_prev_school'] ?? null,
@@ -238,14 +241,22 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $params[] = $email;
             }
             $stmt = $this->db->prepare(
-                "SELECT pr.id FROM parents pr JOIN persons pe ON pe.id = pr.person_id
+                "SELECT pr.id AS parent_id, pe.id AS person_id
+                 FROM parents pr JOIN persons pe ON pe.id = pr.person_id
                  WHERE " . implode(' OR ', $criteria) . " LIMIT 1"
             );
             $stmt->execute($params);
-            $existing = $stmt->fetchColumn();
-            if ($existing) {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
                 $this->parentPreExisting = true;
-                return (int) $existing;
+                if ($phone !== '' || $nationalId !== '' || $email !== '') {
+                    $this->backfillPersonIdentity((int) $row['person_id'], [
+                        'phone' => $phone,
+                        'national_id_no' => $nationalId,
+                        'email' => $email,
+                    ]);
+                }
+                return (int) $row['parent_id'];
             }
         }
 
@@ -271,6 +282,13 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt->execute($params);
             $personId = $stmt->fetchColumn();
             if ($personId) {
+                if ($phone !== '' || $nationalId !== '' || $email !== '') {
+                    $this->backfillPersonIdentity((int) $personId, [
+                        'phone' => $phone,
+                        'national_id_no' => $nationalId,
+                        'email' => $email,
+                    ]);
+                }
                 return $this->createParentForPerson((int) $personId, $address);
             }
         }
@@ -283,31 +301,68 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $firstName = $nameParts[0] ?? '';
         $lastName = $nameParts[1] ?? $firstName;
 
-        $personId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM persons");
         $stmt = $this->db->prepare(
-            "INSERT INTO persons (id, first_name, last_name, email, phone, national_id_no)
-             VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO persons (first_name, last_name, email, phone, national_id_no, data_scope)
+             VALUES (?, ?, ?, ?, ?, 'live')"
         );
         $stmt->execute([
-            $personId,
             $firstName,
             $lastName,
             $email !== '' ? $email : null,
             $phone !== '' ? $phone : null,
             $nationalId !== '' ? $nationalId : null,
         ]);
+        $personId = (int) $this->db->lastInsertId();
 
         return $this->createParentForPerson($personId, $address);
     }
 
+    /**
+     * Backfill the submitted public-form identity onto an existing person.
+     *
+     * The public application may match an existing parent/person on a single
+     * criterion (typically email). The freshly-typed phone / national ID /
+     * email is persisted ONLY where the stored column is currently empty, so
+     * partial records (historically common in admissions) self-heal without
+     * silently overwriting existing values.
+     */
+    private function backfillPersonIdentity(int $personId, array $identity): void
+    {
+        $sets  = [];
+        $params = [];
+        foreach (['phone', 'national_id_no', 'email'] as $column) {
+            $value = trim((string) ($identity[$column] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $sets[]  = "{$column} = COALESCE(NULLIF({$column}, ''), ?)";
+            $params[] = $value;
+        }
+        if ($sets === [] || $personId <= 0) {
+            return;
+        }
+        $params[] = $personId;
+        $this->db->prepare(
+            'UPDATE persons SET ' . implode(', ', $sets) . ' WHERE id = ?'
+        )->execute($params);
+    }
+
     private function createParentForPerson(int $personId, string $address = ''): int
     {
-        $parentId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM parents");
         $stmt = $this->db->prepare(
-            "INSERT INTO parents (id, person_id, address, status)
-             VALUES (?, ?, ?, 'active')"
+            "INSERT INTO parents (person_id, address, status)
+             VALUES (?, ?, 'active')"
         );
-        $stmt->execute([$parentId, $personId, $address !== '' ? $address : null]);
+        $stmt->execute([$personId, $address !== '' ? $address : null]);
+        $parentId = (int) $this->db->lastInsertId();
+        $this->db->prepare(
+            "INSERT INTO user_roles (user_id, role_id)
+             SELECT u.id, 73
+             FROM users u
+             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
+             WHERE u.person_id = ?
+             ON DUPLICATE KEY UPDATE user_id = user_id"
+        )->execute([$personId]);
         return $parentId;
     }
 
@@ -461,7 +516,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             'other'                  => ['label' => 'Other (e.g. Student Portfolio)'],
         ];
 
-        $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+        $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
         $docInsert = $this->db->prepare(
             "INSERT INTO admission_documents
              (application_id, document_type, document_path, is_mandatory, verification_status, created_at)
@@ -556,7 +611,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $preferredBaseName = $this->buildAdmissionDocumentFilenameBase($application, $document_type);
 
             // Upload admission documents under uploads/students/documents/{application_id}
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $mediaId = $mediaManager->upload(
                 $file,
                 'students/documents',
@@ -1145,6 +1200,25 @@ return formatResponse(false, null, 'An internal error occurred.');
         return true;
     }
 
+    /**
+     * RPC-shaped contract surface for the cross-module payment advancement boundary.
+     *
+     * @see admission.api.advance_after_payment in ServiceContractRegistry
+     */
+    public function advanceApplicationAfterConfirmedPayment(array $raw): array
+    {
+        $applicationId = $raw['application_id'] ?? null;
+        if (!is_numeric($applicationId) || (int) $applicationId <= 0) {
+            throw new InvalidArgumentException('application_id must be a positive integer.');
+        }
+        $applicationId = (int) $applicationId;
+        $advanced = $this->advanceAfterConfirmedPayment($applicationId);
+        return [
+            'advanced' => $advanced,
+            'application_id' => $applicationId,
+        ];
+    }
+
     /** Confirm a bank/M-Pesa record after staff have matched it to the statement/reconciliation feed. */
     public function confirmManualPayment(int $applicationId, int $paymentId, array $data = []): array
     {
@@ -1424,7 +1498,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1");
+            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1 FOR UPDATE");
             $stmt->execute(['id' => $applicationId]);
             $application = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$application) {
@@ -1524,7 +1598,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('No student record linked to this application');
             }
 
-            $cardGenerator = new \App\API\Modules\students\StudentIDCardGenerator();
+            $cardGenerator = $this->contract('App\API\Modules\students\StudentIDCardGenerator');
             $qrResult = $cardGenerator->generateEnhancedQRCode($studentId);
             $qrToken = is_array($qrResult) && !empty($qrResult['data']['qr_token']) ? $qrResult['data']['qr_token'] : null;
             if (!$qrToken) {
@@ -1611,7 +1685,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             // Get application details
-            $sql = "SELECT * FROM admission_applications WHERE id = :id";
+            $sql = "SELECT * FROM admission_applications WHERE id = :id FOR UPDATE";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['id' => $application_id]);
             $application = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1833,9 +1907,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     // ========================================================================
 
     private function generateApplicationNumber($year) {
-        $sql = "SELECT COUNT(*) + 1 as next_num 
-                FROM admission_applications 
-                WHERE academic_year = :year";
+        // COUNT(*) is not a safe sequence source after rolled-back/deleted
+        // applications or older records imported with the same year. Use the
+        // greatest persisted suffix and keep the unique application number
+        // invariant under retries and historical data.
+        $sql = "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(application_no, '/', -1) AS UNSIGNED)), 0) + 1 AS next_num
+                FROM admission_applications
+                WHERE application_no LIKE CONCAT('ADM/', :year, '/%')";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['year' => $year]);
         $num = $stmt->fetchColumn();

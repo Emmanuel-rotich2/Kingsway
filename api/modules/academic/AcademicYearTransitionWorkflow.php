@@ -79,17 +79,6 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         return (int) ($stmt->fetchColumn() ?: 0);
     }
 
-    /**
-     * Tables in the normalized schema use explicit integer ids (no AUTO_INCREMENT).
-     * Mirrors the sp_generate_year_calendar approach: COALESCE(MAX(id), 0) + 1.
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
     /** Complete the setup stages performed by setupNewYear in one resumable action. */
     private function advanceNewYearSetupStages(int $instanceId, array $data, string $summary): void
     {
@@ -110,9 +99,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $stmt->execute([$code]);
         $id = (int) ($stmt->fetchColumn() ?: 0);
         if (!$id) {
-            $id = $this->nextId('terms');
-            $stmt = $this->db->prepare("INSERT INTO terms (id, name, code) VALUES (?, ?, ?)");
-            $stmt->execute([$id, $termName, $code]);
+            $stmt = $this->db->prepare("INSERT INTO terms (name, code) VALUES (?, ?)");
+            $stmt->execute([$termName, $code]);
+            $id = (int) $this->db->lastInsertId();
         }
         return $id;
     }
@@ -139,9 +128,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $streamId = $row ? (int) $row['id'] : 0;
 
         if (!$streamId) {
-            $streamId = $this->nextId('streams');
-            $stmt = $this->db->prepare("INSERT INTO streams (id, name, code, capacity) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$streamId, $name, $code, $capacity]);
+            $stmt = $this->db->prepare("INSERT INTO streams (name, code, capacity) VALUES (?, ?, ?)");
+            $stmt->execute([$name, $code, $capacity]);
+            $streamId = (int) $this->db->lastInsertId();
         } elseif ((int) $row['capacity'] !== $capacity) {
             $stmt = $this->db->prepare("UPDATE streams SET code = ?, capacity = ? WHERE id = ?");
             $stmt->execute([$code, $capacity, $streamId]);
@@ -156,12 +145,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $aycsId = (int) ($stmt->fetchColumn() ?: 0);
 
         if (!$aycsId) {
-            $aycsId = $this->nextId('academic_year_class_streams');
             $stmt = $this->db->prepare("
-                INSERT INTO academic_year_class_streams (id, academic_year_class_id, stream_id, room_id, class_teacher_id, status)
-                VALUES (?, ?, ?, NULL, NULL, 'active')
+                INSERT INTO academic_year_class_streams (academic_year_class_id, stream_id, room_id, class_teacher_id, status)
+                VALUES (?, ?, NULL, NULL, 'active')
             ");
-            $stmt->execute([$aycsId, $aycId, $streamId]);
+            $stmt->execute([$aycId, $streamId]);
+            $aycsId = (int) $this->db->lastInsertId();
         }
 
         return $aycsId;
@@ -285,18 +274,17 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             }
 
             // Create academic year record
-            $academicYearId = $this->nextId('academic_years');
             $yearStmt = $this->db->prepare(
-                "INSERT INTO academic_years (id, year_code, year_name, start_date, end_date, status, is_current)
-                 VALUES (:id, :year, :name, :start_date, :end_date, 'planning', 0)"
+                "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, is_current)
+                 VALUES (:year, :name, :start_date, :end_date, 'planning', 0)"
             );
             $yearStmt->execute([
-                'id' => $academicYearId,
                 'year' => $toYearCode,
                 'name' => 'Academic Year ' . $toYearCode,
                 'start_date' => $calendar['year_start_date'],
                 'end_date' => $calendar['year_end_date'],
             ]);
+            $academicYearId = (int) $this->db->lastInsertId();
 
             // Create academic year terms for new year
             $termIds = [];
@@ -307,14 +295,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     $termNumber
                 );
 
-                $aytId = $this->nextId('academic_year_terms');
                 $termStmt = $this->db->prepare(
                     "INSERT INTO academic_year_terms
-                        (id, academic_year_id, term_id, opening_date, half_term_start, half_term_end, closing_date, status)
-                     VALUES (:id, :year_id, :term_id, :start_date, :half_term_start, :half_term_end, :end_date, 'upcoming')"
+                        (academic_year_id, term_id, opening_date, half_term_start, half_term_end, closing_date, status)
+                     VALUES (:year_id, :term_id, :start_date, :half_term_start, :half_term_end, :end_date, 'upcoming')"
                 );
                 $termStmt->execute([
-                    'id' => $aytId,
                     'year_id' => $academicYearId,
                     'term_id' => $termId,
                     'start_date' => $term['start_date'],
@@ -322,6 +308,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     'half_term_end' => $term['half_term_end'],
                     'end_date' => $term['end_date'],
                 ]);
+                $aytId = (int) $this->db->lastInsertId();
                 $termIds[] = $aytId;
             }
 
@@ -582,12 +569,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $existing->execute([(int) $row['student_id'], $toYearId]);
                 $targetEnrollmentId = (int) ($existing->fetchColumn() ?: 0);
                 if (!$targetEnrollmentId) {
-                    $targetEnrollmentId = $this->nextId('student_academic_enrollments');
                     $this->db->prepare(
                         "INSERT INTO student_academic_enrollments
-                            (id, student_id, academic_year_id, academic_year_class_stream_id, enrolled_on, enrollment_status)
-                         VALUES (?, ?, ?, ?, CURDATE(), 'active')"
-                    )->execute([$targetEnrollmentId, (int) $row['student_id'], $toYearId, $targetStreamId]);
+                            (student_id, academic_year_id, academic_year_class_stream_id, enrolled_on, enrollment_status)
+                         VALUES (?, ?, ?, CURDATE(), 'active')"
+                    )->execute([(int) $row['student_id'], $toYearId, $targetStreamId]);
+                    $targetEnrollmentId = (int) $this->db->lastInsertId();
                     $promotionSummary['enrollments_created']++;
                 }
 
@@ -601,11 +588,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 if (!$transition->fetchColumn()) {
                     $this->db->prepare(
                         "INSERT INTO student_transitions
-                            (id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                            (student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                              academic_year_id, transition_type, reason, decided_by, decided_at, executed_at)
-                         VALUES (?, ?, ?, ?, ?, 'promotion', 'Automatic academic-year rollover', ?, NOW(), NOW())"
+                         VALUES (?, ?, ?, ?, 'promotion', 'Automatic academic-year rollover', ?, NOW(), NOW())"
                     )->execute([
-                        $this->nextId('student_transitions'), (int) $row['student_id'],
+                        (int) $row['student_id'],
                         (int) $row['source_enrollment_id'], $targetEnrollmentId, $toYearId, $this->user_id
                     ]);
                 }
@@ -818,12 +805,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     $this->db->prepare("UPDATE student_academic_enrollments SET academic_year_class_stream_id = ?, enrollment_status = 'active' WHERE id = ?")
                         ->execute([$targetAycsId, $targetEnrollmentId]);
                 } else {
-                    $targetEnrollmentId = $this->nextId('student_academic_enrollments');
                     $this->db->prepare(
                         "INSERT INTO student_academic_enrollments
-                            (id, student_id, academic_year_id, academic_year_class_stream_id, enrolled_on, enrollment_status)
-                         VALUES (?, ?, ?, ?, CURDATE(), 'active')"
-                    )->execute([$targetEnrollmentId, $studentId, $toYearId, $targetAycsId]);
+                            (student_id, academic_year_id, academic_year_class_stream_id, enrolled_on, enrollment_status)
+                         VALUES (?, ?, ?, CURDATE(), 'active')"
+                    )->execute([$studentId, $toYearId, $targetAycsId]);
+                    $targetEnrollmentId = (int) $this->db->lastInsertId();
                 }
                 $this->db->prepare("UPDATE student_academic_enrollments SET enrollment_status = 'completed' WHERE id = ?")
                     ->execute([(int) $sourceRow['id']]);
@@ -835,10 +822,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 if (!$transition->fetchColumn()) {
                     $this->db->prepare(
                         "INSERT INTO student_transitions
-                            (id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                            (student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                              academic_year_id, transition_type, reason, decided_by, decided_at, executed_at)
-                         VALUES (?, ?, ?, ?, ?, 'promotion', 'Administrator stream assignment', ?, NOW(), NOW())"
-                    )->execute([$this->nextId('student_transitions'), $studentId, (int) $sourceRow['id'], $targetEnrollmentId, $toYearId, $this->user_id]);
+                         VALUES (?, ?, ?, ?, 'promotion', 'Administrator stream assignment', ?, NOW(), NOW())"
+                    )->execute([$studentId, (int) $sourceRow['id'], $targetEnrollmentId, $toYearId, $this->user_id]);
                 }
                 $saved++;
             }
@@ -868,10 +855,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 if (!$exists->fetchColumn()) {
                     $this->db->prepare(
                         "INSERT INTO student_transitions
-                            (id, student_id, from_student_academic_enrollment_id, academic_year_id,
+                            (student_id, from_student_academic_enrollment_id, academic_year_id,
                              transition_type, reason, decided_by, decided_at, executed_at)
-                         VALUES (?, ?, ?, ?, 'graduation', 'End of CBC progression', ?, NOW(), NOW())"
-                    )->execute([$this->nextId('student_transitions'), (int) $graduate['student_id'], (int) $graduate['id'], $toYearId, $this->user_id]);
+                         VALUES (?, ?, ?, 'graduation', 'End of CBC progression', ?, NOW(), NOW())"
+                    )->execute([(int) $graduate['student_id'], (int) $graduate['id'], $toYearId, $this->user_id]);
                 }
             }
 
@@ -1193,18 +1180,18 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             ]);
             $targetAreaId = (int) ($existing->fetchColumn() ?: 0);
             if (!$targetAreaId) {
-                $targetAreaId = $this->nextId('academic_year_class_learning_areas');
                 $this->db->prepare(
                     "INSERT INTO academic_year_class_learning_areas
-                        (id, academic_year_class_id, learning_area_id, strand_id,
+                        (academic_year_class_id, learning_area_id, strand_id,
                          sub_strand_id, status, planned_weeks, notes)
-                     VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)
+                     VALUES (?, ?, ?, ?, 'planned', ?, ?)
                      "
                 )->execute([
-                    $targetAreaId, $targetAycId, (int) $area['learning_area_id'],
+                    $targetAycId, (int) $area['learning_area_id'],
                     $area['strand_id'], $area['sub_strand_id'],
                     $area['planned_weeks'], $area['notes']
                 ]);
+                $targetAreaId = (int) $this->db->lastInsertId();
             }
             $learningAreaMap[(int) $area['id']] = $targetAreaId;
         }
@@ -1281,10 +1268,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             if ($exists->fetchColumn()) continue;
             $this->db->prepare(
                 "INSERT INTO academic_year_class_learning_area_teachers
-                    (id, academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
-                 VALUES (?, ?, ?, ?, ?)"
+                    (academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
+                 VALUES (?, ?, ?, ?)"
             )->execute([
-                $this->nextId('academic_year_class_learning_area_teachers'),
                 $targetAreaId, $targetTermId, (int) $teacher['staff_id'], $teacher['role']
             ]);
             $subjectTeacherCount++;
@@ -1316,11 +1302,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             if ($exists->fetchColumn()) continue;
             $this->db->prepare(
                 "INSERT INTO timetable_entries
-                    (id, academic_year_class_stream_id, academic_year_term_id, day_of_week,
+                    (academic_year_class_stream_id, academic_year_term_id, day_of_week,
                      time_slot_id, learning_area_id, teacher_id, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
             )->execute([
-                $this->nextId('timetable_entries'), $targetStreamId, $targetTermId,
+                $targetStreamId, $targetTermId,
                 $entry['day_of_week'], $entry['time_slot_id'], $entry['learning_area_id'],
                 $entry['teacher_id'], $entry['status']
             ]);
@@ -1352,12 +1338,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             if ($exists->fetchColumn()) continue;
             $this->db->prepare(
                 "INSERT INTO academic_year_fee_schedules
-                    (id, academic_year_id, academic_year_term_id, academic_year_class_id,
+                    (academic_year_id, academic_year_term_id, academic_year_class_id,
                      student_type_id, fee_catalog_id, amount, due_date, status, created_at, updated_at)
-                 SELECT ?, ?, ?, ?, ?, ?, ?, closing_date, 'draft', NOW(), NOW()
+                 SELECT ?, ?, ?, ?, ?, ?, closing_date, 'draft', NOW(), NOW()
                  FROM academic_year_terms WHERE id = ?"
             )->execute([
-                $this->nextId('academic_year_fee_schedules'), $toYearId, $targetTermId,
+                $toYearId, $targetTermId,
                 $targetAycId, $fee['student_type_id'], $fee['fee_catalog_id'], $fee['amount'], $targetTermId
             ]);
             $feeCount++;
@@ -1394,12 +1380,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     {
         $aycId = $existingTarget[$classId] ?? 0;
         if ($aycId <= 0) {
-            $aycId = $this->nextId('academic_year_classes');
             $aycStmt = $this->db->prepare(
-                "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
-                 VALUES (?, ?, ?, 'active')"
+                "INSERT INTO academic_year_classes (academic_year_id, class_id, status)
+                 VALUES (?, ?, 'active')"
             );
-            $aycStmt->execute([$aycId, $toYearId, $classId]);
+            $aycStmt->execute([$toYearId, $classId]);
+            $aycId = (int) $this->db->lastInsertId();
             $existingTarget[$classId] = $aycId;
         }
 
@@ -1445,17 +1431,16 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $classStmt->execute([$levelId, $levelName]);
             $classId = (int) ($classStmt->fetchColumn() ?: 0);
             if ($classId <= 0) {
-                $classId = $this->nextId('classes');
                 $classInsert = $this->db->prepare(
-                    "INSERT INTO classes (id, code, name, level_id, grade_level)
-                     VALUES (:id, :code, :name, :level_id, NULL)"
+                    "INSERT INTO classes (code, name, level_id, grade_level)
+                     VALUES (:code, :name, :level_id, NULL)"
                 );
                 $classInsert->execute([
-                    'id' => $classId,
                     'code' => $levelCode,
                     'name' => $levelName,
                     'level_id' => $levelId,
                 ]);
+                $classId = (int) $this->db->lastInsertId();
             }
 
             // Link class to academic year idempotently.
@@ -1465,12 +1450,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $aycLookup->execute([$academicYearId, $classId]);
             $aycId = (int) ($aycLookup->fetchColumn() ?: 0);
             if ($aycId <= 0) {
-                $aycId = $this->nextId('academic_year_classes');
                 $aycStmt = $this->db->prepare(
-                    "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
-                     VALUES (:id, :year_id, :class_id, 'active')"
+                    "INSERT INTO academic_year_classes (academic_year_id, class_id, status)
+                     VALUES (:year_id, :class_id, 'active')"
                 );
-                $aycStmt->execute(['id' => $aycId, 'year_id' => $academicYearId, 'class_id' => $classId]);
+                $aycStmt->execute(['year_id' => $academicYearId, 'class_id' => $classId]);
+                $aycId = (int) $this->db->lastInsertId();
             }
 
             // Create/link streams for this class

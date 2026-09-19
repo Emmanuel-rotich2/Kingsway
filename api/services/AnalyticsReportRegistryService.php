@@ -304,6 +304,12 @@ final class AnalyticsReportRegistryService
     public function roleIds(array $user): array
     {
         $ids = [];
+        foreach ((array) ($user['role_ids'] ?? []) as $roleId) {
+            if (is_numeric($roleId)) $ids[] = (int) $roleId;
+        }
+        if ($ids !== []) {
+            return array_values(array_unique(array_filter($ids)));
+        }
         foreach (($user['roles'] ?? []) as $role) {
             if (is_numeric($role)) {
                 $ids[] = (int) $role;

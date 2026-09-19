@@ -47,6 +47,7 @@
     </div>
 
     <div class="card-body">
+        <div class="card border-success-subtle bg-light mb-4"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Inventory replenishment assistant</strong><div class="small text-muted">Reviews aggregate stock signals and suggests verification steps. It does not change stock or approve procurement.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiInventoryReview"><i class="bi bi-stars me-1"></i>Review replenishment</button></div><div id="aiInventoryReviews" class="row g-2 mt-2"></div></div></div>
         <!-- Inventory Stats - Visible to all with view permission -->
         <div class="row mb-4" data-permission="inventory_view">
             <div class="col-md-3">
@@ -202,3 +203,4 @@
     </div>
 </div>
 <?php asset_script($appBase, 'js/pages/manage_inventory.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_inventory_review.js'); ?>

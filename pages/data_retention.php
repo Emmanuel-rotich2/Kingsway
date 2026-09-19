@@ -1,70 +1,60 @@
 <?php
 /** Kingsway System Administrator: Data Retention. */
 ?>
-<div class="container-fluid py-4"
-     data-system-admin-page
-     data-resource="retention"
-     data-mode="crud"
-     data-title="Data Retention">
+<div class="container-fluid py-4" id="dataRetentionPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h2 class="h3 mb-1">Data Retention</h2>
-            <p class="text-muted mb-0">Maintain retention periods and disposal actions.</p>
+            <p class="text-muted mb-0">Retention periods that govern how long school records are kept before purging.</p>
         </div>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-secondary" data-system-refresh>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-secondary" id="dataRetentionExportCsvBtn" title="Export to CSV">
+                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="dataRetentionPrintBtn" title="Print / save as PDF">
+                <i class="bi bi-printer me-1"></i> Print / PDF
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="dataRetentionRefreshBtn">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
-            <button type="button" class="btn btn-primary" data-system-create>
-                <i class="bi bi-plus-lg me-1"></i> Add record
-            </button>
         </div>
     </div>
 
-    <div class="row g-3 mb-4" data-system-summary></div>
-
-    <div class="alert alert-info" data-system-state role="status">
-        Loading data retention...
+    <div class="alert alert-info" id="dataRetentionState" role="status" aria-live="polite">
+        Loading retention settings...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>Data Retention</strong>
-            <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input class="form-control" data-system-search placeholder="Search records">
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h3 class="h6 mb-0">Retention periods</h3>
+                    <span class="badge text-bg-light border" id="dataRetentionStatus">Not loaded</span>
+                </div>
+                <div class="card-body">
+                    <div class="text-center py-5 text-muted" id="dataRetentionFormContainer">
+                        Loading retention settings...
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead data-system-head>
-                    <tr><th scope="col">Loading</th></tr>
-                </thead>
-                <tbody data-system-body>
-                    <tr><td class="text-center py-5 text-muted">Loading...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="card-footer bg-white text-muted small" data-system-count></div>
-    </div>
-</div>
-
-<div class="modal fade" id="systemAdminRecordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <form data-system-form>
-                <div class="modal-header">
-                    <h5 class="modal-title" data-system-modal-title>Data Retention</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white">
+                    <h3 class="h6 mb-0">About retention</h3>
                 </div>
-                <div class="modal-body" data-system-form-fields></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" data-system-save>Save</button>
+                <div class="card-body small text-muted">
+                    <p class="mb-2">Retention periods are expressed in months. The purge job applies the period
+                        from the record's last activity date, subject to expiry controls.</p>
+                    <ul class="mb-0 list-unstyled">
+                        <li class="mb-1"><i class="bi bi-shield-check text-success me-2"></i>Learner records retain at least the DPA-prescribed period.</li>
+                        <li class="mb-1"><i class="bi bi-shield-check text-success me-2"></i>Financial records are never auto-purged.</li>
+                        <li class="mb-1"><i class="bi bi-shield-check text-success me-2"></i>Journal files have their own file-level lifecycle.</li>
+                    </ul>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 </div>
 
-<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/system_admin_console.js?v=<?= asset_version('js/pages/system/system_admin_console.js') ?>"></script>
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/data_retention.js?v=<?= asset_version('js/pages/system/data_retention.js') ?>"></script>

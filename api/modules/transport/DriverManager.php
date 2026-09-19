@@ -20,18 +20,18 @@ class DriverManager
         }
         $this->db->beginTransaction();
         try {
-            $personId = $this->nextId('persons');
             $this->db->prepare(
-                "INSERT INTO persons (id, first_name, middle_name, last_name, phone)
-                 VALUES (?, ?, NULL, ?, ?)"
-            )->execute([$personId, $data['first_name'], $data['last_name'] ?? null, $data['phone'] ?? null]);
+                "INSERT INTO persons (first_name, middle_name, last_name, phone)
+                 VALUES (?, ?, NULL, ?)"
+            )->execute([$data['first_name'], $data['last_name'] ?? null, $data['phone'] ?? null]);
+            $personId = (int) $this->db->lastInsertId();
 
-            $staffId = $this->nextId('staff');
             $staffNo = $data['staff_no'] ?? $this->nextStaffNumber();
             $this->db->prepare(
-                "INSERT INTO staff (id, person_id, staff_no, position, employment_date, status)
-                 VALUES (?, ?, ?, 'Driver', CURDATE(), ?)"
-            )->execute([$staffId, $personId, $staffNo, $data['status'] ?? 'active']);
+                "INSERT INTO staff (person_id, staff_no, position, employment_date, status)
+                 VALUES (?, ?, 'Driver', CURDATE(), ?)"
+            )->execute([$personId, $staffNo, $data['status'] ?? 'active']);
+            $staffId = (int) $this->db->lastInsertId();
 
             if (!empty($data['license_number'])) {
                 $this->saveLicense($staffId, $data['license_number']);
@@ -148,16 +148,15 @@ class DriverManager
         $stmt->execute([$driverId, $routeId]);
         return $stmt->rowCount() > 0;
     }
-    // Attendance tracking (basic) — staff_attendance rows (manual id)
+    // Attendance tracking (basic) — staff_attendance rows
     public function recordAttendance($driverId, $date, $status)
     {
-        $id = $this->nextId('staff_attendance');
         $stmt = $this->db->prepare(
-            "INSERT INTO staff_attendance (id, staff_id, date, status, created_at)
-             VALUES (?, ?, ?, ?, NOW())"
+            "INSERT INTO staff_attendance (staff_id, date, status, created_at)
+             VALUES (?, ?, ?, NOW())"
         );
-        $stmt->execute([$id, $driverId, $date, $status]);
-        return $id;
+        $stmt->execute([$driverId, $date, $status]);
+        return (int) $this->db->lastInsertId();
     }
     public function getAttendance($driverId)
     {
@@ -175,12 +174,6 @@ class DriverManager
             "INSERT INTO staff_qualifications (staff_id, qualification_type, title, institution, year_obtained, description)
              VALUES (?, 'certificate', 'Driving License', 'N/A', YEAR(CURDATE()), ?)"
         )->execute([$staffId, $licenseNumber]);
-    }
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `{$table}`");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
     }
     private function nextStaffNumber(): string
     {

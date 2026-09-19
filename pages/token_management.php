@@ -112,10 +112,29 @@
             </div>
         </div>
 
+        <div class="card-body border-bottom py-2 bg-light" id="tokenManagementBulkBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="tokenManagementBulkCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkRevokeTokensBtn">
+                    <i class="bi bi-ban me-1"></i> Revoke selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearTokensBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead>
+                <thead id="tokenManagementTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching rows"
+                            >
+                        </th>
                         <th scope="col">Type</th>
                         <th scope="col">Owner</th>
                         <th scope="col">Credential</th>
@@ -123,17 +142,47 @@
                         <th scope="col">Created</th>
                         <th scope="col">Last used</th>
                         <th scope="col">Expires</th>
-                        <th class="text-end">Action</th>
+                        <th scope="col" class="text-end">Action</th>
                     </tr>
                 </thead>
                 <tbody id="tokenManagementTableBody">
                     <tr>
-                        <td colspan="8" class="text-center py-5 text-muted">
+                        <td colspan="9" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>
                     </tr>
                 </tbody>
             </table>
+            <template id="tokenManagementRowTemplate">
+                <tr>
+                    <td class="text-center">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            aria-label="Select this token"
+                        >
+                    </td>
+                    <td>
+                        <span class="badge" data-row-fill="typeBadge"></span>
+                    </td>
+                    <td>
+                        <div class="fw-semibold" data-row-fill="ownerName"></div>
+                        <div class="small text-muted" data-row-fill="ownerIdentity"></div>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-semibold" data-row-fill="credentialLabel"></span>
+                            <span class="badge bg-primary" data-row-fill="credentialCurrent" hidden>Current</span>
+                        </div>
+                        <div class="small text-muted" data-row-fill="credentialDetail"></div>
+                    </td>
+                    <td data-row-fill="statusBadge"></td>
+                    <td class="text-nowrap" data-row-fill="createdAt"></td>
+                    <td class="text-nowrap" data-row-fill="lastUsedAt"></td>
+                    <td class="text-nowrap" data-row-fill="expiresAt"></td>
+                    <td class="text-end" data-row-fill="actions"></td>
+                </tr>
+            </template>
         </div>
 
         <div

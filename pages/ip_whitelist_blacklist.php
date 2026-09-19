@@ -3,6 +3,10 @@
  * System Administrator — IP Whitelist/Blacklist
  * Controller: js/pages/ip_whitelist_blacklist.js
  */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') $appBase = '';
+}
 ?>
 <div class="container-fluid py-4" id="ipAccessControlPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
@@ -133,10 +137,29 @@
             </div>
         </div>
 
+        <div class="card-body border-bottom py-2 bg-light" id="ipRulesBulkBar" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold small" id="ipRulesBulkCount">0 selected</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkDeleteIpRulesBtn">
+                    <i class="bi bi-trash me-1"></i> Delete selected
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearIpRulesBtn">
+                    Clear selection
+                </button>
+            </div>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
-                <thead>
+                <thead id="ipRuleTableHead">
                     <tr>
+                        <th class="text-center" style="width: 40px">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                data-select-all
+                                aria-label="Select all matching rows"
+                            >
+                        </th>
                         <th scope="col">Type</th>
                         <th scope="col">CIDR</th>
                         <th scope="col">Description</th>
@@ -148,12 +171,36 @@
                 </thead>
                 <tbody id="ipRuleTableBody">
                     <tr>
-                        <td colspan="7" class="text-center py-5 text-muted">
+                        <td colspan="8" class="text-center py-5 text-muted">
                             Waiting for authentication...
                         </td>
                     </tr>
                 </tbody>
             </table>
+            <template id="ipRuleRowTemplate">
+                <tr>
+                    <td class="text-center">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            aria-label="Select this rule"
+                        >
+                    </td>
+                    <td data-row-fill="typeBadge"></td>
+                    <td>
+                        <div class="fw-semibold font-monospace" data-row-fill="cidr"></div>
+                        <span class="badge bg-info text-dark mt-1" data-row-fill="matchesCurrentIp" hidden>Matches current IP</span>
+                    </td>
+                    <td data-row-fill="description"></td>
+                    <td data-row-fill="statusBadge"></td>
+                    <td class="small text-nowrap" data-row-fill="schedule"></td>
+                    <td>
+                        <div data-row-fill="updatedByName"></div>
+                        <div class="small text-muted" data-row-fill="updatedAt"></div>
+                    </td>
+                    <td class="text-end" data-row-fill="actions"></td>
+                </tr>
+            </template>
         </div>
 
         <div

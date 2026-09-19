@@ -11,7 +11,7 @@ class AlertsController extends BaseController
     public function __construct($request = null)
     {
         parent::__construct($request);
-        $this->api = new SystemAPI();
+        $this->api = $this->contract('App\API\Modules\system\SystemAPI');
     }
 
     /**

@@ -417,7 +417,7 @@ final class FinanceCrudService
                     v.total_amount, v.budget_status AS status,
                     COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS created_by_name,
                     v.total_spent, v.total_allocated, v.total_committed, v.utilization_pct
-             FROM vw_budget_utilization v
+             FROM " . ReadReplicaService::qualifiedRef('budget_utilization') . " v
              LEFT JOIN budgets b ON b.id = v.budget_id
              LEFT JOIN users u ON u.id = b.created_by
              LEFT JOIN persons up ON up.id = u.person_id
@@ -533,7 +533,7 @@ final class FinanceCrudService
                         (SELECT MIN(sfo.id) FROM student_fee_obligations sfo
                          JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
                          WHERE sae.student_id=? AND sfo.academic_year_term_id=v.academic_year_term_id) AS obligation_id
-                 FROM vw_student_fee_balances v
+                 FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
                  WHERE v.student_id=? AND v.academic_year=? AND v.balance>0
                  ORDER BY v.academic_year_term_id"
             );
