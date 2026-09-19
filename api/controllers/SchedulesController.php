@@ -20,7 +20,7 @@ class SchedulesController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new SchedulesAPI();
+        $this->api = $this->contract('App\API\Modules\schedules\SchedulesAPI');
     }
 
     private function guardSchedules(): ?array
@@ -97,7 +97,7 @@ class SchedulesController extends BaseController
             || strpos($role, 'headteacher') !== false || strpos($role, 'deputy') !== false;
         if ($isManagement) return $data;
 
-        $scope = (new TeacherScopeService($this->db->getConnection()))->forUser(
+        $scope = ($this->contract('App\API\Services\TeacherScopeService', $this->db->getConnection()))->forUser(
             $this->user ?: [],
             !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null,
             !empty($data['academic_year_term_id']) ? (int)$data['academic_year_term_id'] : null
@@ -228,6 +228,7 @@ class SchedulesController extends BaseController
      */
     public function getTimetableCheckConflicts($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->checkTimetableConflicts($data);
         return $this->handleResponse($result);
     }
@@ -846,6 +847,90 @@ class SchedulesController extends BaseController
         $payload = $data['data'] ?? [];
         $result = $this->api->advanceSchedulingWorkflow($workflowId, $action, $payload);
         return $this->handleResponse($result);
+    }
+
+    /** POST /api/schedules/ai-timetable-planning-queue */
+    public function postAiTimetablePlanningQueue($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $ownerId = $this->currentUserId();
+        $context = [
+            'user_id' => $ownerId,
+            'permissions' => array_values(array_unique(array_merge((array)($this->user['permissions'] ?? []), (array)($this->user['permission_codes'] ?? [])))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+        ];
+        try {
+            $conversation = $this->contract(
+                'App\\API\\Services\\TimetablePlanningConversationService',
+                $this->db->getConnection()
+            );
+            $sessionId = (int)($data['session_id'] ?? 0);
+            if ($sessionId < 1) {
+                $sessionId = $conversation->create($ownerId, [
+                    'scope' => (string)($data['class_band'] ?? 'upper_primary'),
+                    'academic_year_id' => $data['academic_year_id'] ?? null,
+                    'academic_year_term_id' => $data['academic_year_term_id'] ?? null,
+                ]);
+            }
+            $message = substr(trim((string)($data['message'] ?? '')), 0, 2000);
+            if ($message === '') $message = 'Review the timetable planning context, ask for missing constraints, and propose the next safe planning step.';
+            $constraints = [
+            'class_band' => substr(trim((string)($data['class_band'] ?? '')), 0, 80),
+            'class_count' => (string)max(0, min(200, (int)($data['class_count'] ?? 0))),
+            'learning_areas' => array_slice(array_map('strval', (array)($data['learning_areas'] ?? [])), 0, 100),
+            'candidate_counts' => array_slice(array_map('strval', (array)($data['candidate_counts'] ?? [])), 0, 100),
+            'assignment_candidates' => array_values(array_filter(array_map(static function ($candidate): ?array {
+                if (!is_array($candidate)) return null;
+                return [
+                    'academic_year_class_stream_id' => max(0, (int) ($candidate['academic_year_class_stream_id'] ?? 0)),
+                    'learning_area_id' => max(0, (int) ($candidate['learning_area_id'] ?? 0)),
+                    'teacher_id' => max(0, (int) ($candidate['teacher_id'] ?? 0)),
+                    'day_of_week' => max(0, (int) ($candidate['day_of_week'] ?? 0)),
+                    'time_slot_id' => max(0, (int) ($candidate['time_slot_id'] ?? 0)),
+                ];
+            }, array_slice((array) ($data['assignment_candidates'] ?? []), 0, 60)), static fn (?array $candidate): bool => $candidate !== null)),
+            'period_count' => (string)max(0, min(200, (int)($data['period_count'] ?? 0))),
+            'availability_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['availability_constraints'] ?? [])), 0, 20),
+            'workload_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['workload_constraints'] ?? [])), 0, 20),
+            'room_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['room_constraints'] ?? [])), 0, 20),
+            'double_periods' => array_slice(array_map('strval', (array)($data['double_periods'] ?? [])), 0, 20),
+            'user_constraints' => array_slice(array_map(static fn($v) => substr(trim((string)$v), 0, 500), (array)($data['user_constraints'] ?? [])), 0, 20),
+            ];
+            $conversation->appendUserMessage($sessionId, $ownerId, $message, $constraints);
+            [, $input] = $conversation->input($sessionId, $ownerId, $message);
+            $queued = $this->contract('App\\API\\Services\\AiDraftService')->queue(
+                    'academics.timetable_planning',
+                    $context,
+                    $input,
+                    ['subject_type' => 'academic_timetable_planning', 'scope' => 'authorized_timetable_constraints', 'session_id' => $sessionId]
+                );
+            $conversation->recordQueuedJob($sessionId, $ownerId, (int)$queued['job_id']);
+            $queued['session_id'] = $sessionId;
+            return $this->accepted(
+                $queued,
+                'Timetable planning questions queued for review'
+            );
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[SchedulesController] AI timetable planning queue failed: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/schedules/ai-timetable-planning-session/{id} */
+    public function getAiTimetablePlanningSession($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        try {
+            $sessionId = (int)($id ?? ($data['id'] ?? 0));
+            return $this->success(
+                $this->contract(
+                    'App\\API\\Services\\TimetablePlanningConversationService',
+                    $this->db->getConnection()
+                )->get($sessionId, $this->currentUserId())
+            );
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
     }
     public function getSchedulingWorkflowStatus($id = null, $data = [], $segments = [])
     {

@@ -38,6 +38,13 @@
           <div class="col-12 mt-3">
             <h5 class="border-bottom pb-2">Contact &amp; Emergency</h5>
           </div>
+
+          <div class="col-12 mt-3">
+            <h5 class="border-bottom pb-2">Qualifications &amp; Certifications</h5>
+            <p class="text-muted small">Add all relevant qualifications. Submitted records remain pending until the school verifies the evidence.</p>
+            <div id="spQualifications"></div>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="spAddQualification">Add qualification</button>
+          </div>
           <div class="col-md-6">
             <label class="form-label">Communication Email <span class="text-danger">*</span></label>
             <input name="communication_email" type="email" class="form-control" required>

@@ -16,7 +16,7 @@ class DeviceSessionController extends BaseController
     public function __construct($request = null)
     {
         parent::__construct($request);
-        $this->manager = new DeviceSessionManager();
+        $this->manager = $this->contract('App\API\Services\auth\DeviceSessionManager');
     }
 
     /**

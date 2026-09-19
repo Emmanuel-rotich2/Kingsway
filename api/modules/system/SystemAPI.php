@@ -15,7 +15,7 @@ class SystemAPI extends BaseAPI
     public function __construct()
     {
         parent::__construct();
-        $this->mediaManager = new MediaManager($this->db);
+        $this->mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
     }
     // === Media Management ===
     public function uploadMedia($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '')

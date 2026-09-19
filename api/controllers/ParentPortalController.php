@@ -6,6 +6,7 @@ namespace App\API\Controllers;
 use App\API\Modules\parent\ParentPortalManager;
 use App\Database\Database;
 use App\API\Services\payments\UniformCatalogService;
+use App\API\Services\ParentAiAssistantService;
 
 /**
  * ParentPortalController — thin endpoint exposer for the parent portal.
@@ -15,8 +16,8 @@ use App\API\Services\payments\UniformCatalogService;
  * This controller only: reads input, validates required fields, delegates and
  * formats the response via handleApiResponse().
  *
- * Uses ParentAuthMiddleware instead of staff JWT auth; the middleware sets
- * $_SERVER['parent_auth'] (parent_id/user_id/session_id/session_token).
+ * Auth is enforced centrally in AuthMiddleware (parent sessions validated via
+ * AuthSessionService); AuthMiddleware sets $_SERVER['auth_user']['parent_id'].
  *
  * ROUTES (all under /api/parent-portal/):
  * POST /api/parent-portal/login                    → postLogin()
@@ -36,11 +37,11 @@ class ParentPortalController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->parent = new ParentPortalManager();
+        $this->parent = $this->contract('App\API\Modules\parent\ParentPortalManager');
     }
 
     // ============================================================
-    // AUTH ENDPOINTS (no ParentAuthMiddleware required)
+    // AUTH ENDPOINTS (public — no session required)
     // ============================================================
 
     /**
@@ -79,7 +80,7 @@ class ParentPortalController extends BaseController
     }
 
     // ============================================================
-    // AUTHENTICATED ENDPOINTS (require ParentAuthMiddleware)
+    // AUTHENTICATED ENDPOINTS (require the shared AuthMiddleware JWT path)
     // ============================================================
 
     /**
@@ -90,56 +91,73 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->getDashboard());
     }
 
+    /** POST /api/parent-portal/ai-assistant */
+    public function postAiAssistant($id = null, $data = [], $segments = [])
+    {
+        $parentId = (int) ($_SERVER['auth_user']['parent_id'] ?? 0);
+        if ($parentId < 1) {
+            return $this->unauthorized('Parent authentication is required');
+        }
+        try {
+            return $this->handleApiResponse((new ParentAiAssistantService())->ask($this->parent, $parentId, (string) ($data['question'] ?? '')));
+        } catch (\DomainException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalController] AI assistant failed: ' . $e->getMessage());
+            return $this->handleApiResponse(['success' => false, 'message' => 'The parent assistant is temporarily unavailable.', 'code' => 503]);
+        }
+    }
+
     /** GET /api/parent-portal/community */
     public function getCommunity($id = null, $data = [], $segments = [])
     { return $this->handleApiResponse($this->parent->getCommunity()); }
 
     /** GET /api/parent-portal/uniform-catalog */
     public function getUniformCatalog($id = null, $data = [], $segments = [])
-    { return $this->handleApiResponse(['success'=>true,'data'=>['products'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->list($data)]]); }
+    { return $this->handleApiResponse(['success'=>true,'data'=>['products'=>($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->list($data)]]); }
 
     /** GET /api/parent-portal/uniform-cart */
     public function getUniformCart($id = null, $data = [], $segments = [])
-    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->cart('parent',$parentId)]); }
+    { $parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->cart('parent',$parentId)]); }
 
     public function getUniformPaymentOptions($id = null, $data = [], $segments = [])
-    { return $this->handleApiResponse(['success'=>true,'data'=>['options'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->paymentOptions(false)]]); }
+    { return $this->handleApiResponse(['success'=>true,'data'=>['options'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->paymentOptions(false)]]); }
 
     /** POST /api/parent-portal/uniform-cart */
     public function postUniformCart($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->addCart('parent',$parentId,$data)]); }catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->addCart('parent',$parentId,$data)]); }catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function putUniformCart($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->updateCart('parent',$parentId,(int)$id,(int)($data['quantity']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->updateCart('parent',$parentId,(int)$id,(int)($data['quantity']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function deleteUniformCart($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->removeCart('parent',$parentId,(int)$id)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->removeCart('parent',$parentId,(int)$id)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     /** POST /api/parent-portal/uniform-wishlist */
     public function postUniformWishlist($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->addWishlist('parent',$parentId,(int)($data['product_id']??0))]]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->addWishlist('parent',$parentId,(int)($data['product_id']??0))]]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function getUniformWishlist($id = null, $data = [], $segments = [])
-    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->wishlist('parent',$parentId)]]); }
+    { $parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->wishlist('parent',$parentId)]]); }
 
     public function deleteUniformWishlist($id = null, $data = [], $segments = [])
-    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->removeWishlist('parent',$parentId,(int)$id)]]); }
+    { $parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['items'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->removeWishlist('parent',$parentId,(int)$id)]]); }
 
     /** POST /api/parent-portal/uniform-checkout-payment */
     public function postUniformCheckoutPayment($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->checkout('parent',$parentId,$data,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->checkout('parent',$parentId,$data,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function getUniformOrders($id = null, $data = [], $segments = [])
-    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['orders'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->orders('parent',$parentId)]]); }
+    { $parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>['orders'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->orders('parent',$parentId)]]); }
 
     public function deleteUniformOrders($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->cancel((int)$id,'parent',$parentId,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->cancel((int)$id,'parent',$parentId,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function postUniformOrderPaymentRetry($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->retryPayment((int)$id,'parent',$parentId,$data,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->retryPayment((int)$id,'parent',$parentId,$data,0)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function postUniformReviews($id = null, $data = [], $segments = [])
-    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new \App\API\Services\catalog\CatalogCommerceService(Database::getInstance()->getConnection()))->saveReview('parent',$parentId,$data)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { try{$parentId=(int)(($_SERVER['auth_user']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>($this->contract('App\API\Services\catalog\CatalogCommerceService', Database::getInstance()->getConnection()))->saveReview('parent',$parentId,$data)]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     /**
      * GET /api/parent-portal/student-fees/{id}
@@ -230,6 +248,80 @@ class ParentPortalController extends BaseController
     {
         if (!$id) return $this->badRequest('student_id required');
         return $this->handleApiResponse($this->parent->getStudentLearningPlan((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-learning/{id} */
+    public function getStudentLearning($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentLearning((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-coverage/{id} */
+    public function getStudentCoverage($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentCoverage((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-analytics/{id} */
+    public function getStudentAnalytics($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentAnalytics((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-competencies/{id} */
+    public function getStudentCompetencies($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentCompetencies((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-health/{id} */
+    public function getStudentHealth($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentHealth((int)$id));
+    }
+
+    /** GET /api/parent-portal/student-activities/{id} */
+    public function getStudentActivities($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentActivities((int)$id));
+    }
+
+    /** GET /api/parent-portal/updates */
+    public function getUpdates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->getParentUpdates());
+    }
+
+    /** GET /api/parent-portal/downloads/{id} */
+    public function getDownloads($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getDownloads((int)$id));
+    }
+
+    /** POST /api/parent-portal/download-statement/{id} */
+    public function postDownloadStatement($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->postDownloadStatement((int)$id));
+    }
+
+    /** POST /api/parent-portal/download-receipt */
+    public function postDownloadReceipt($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->postDownloadReceipt($data));
+    }
+
+    /** POST /api/parent-portal/payment */
+    public function postPortalPayment($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->postPortalPayment($data));
     }
 
     /**

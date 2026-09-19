@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\website\WebsiteManager;
 use App\Database\Database;
 use App\API\Services\payments\UniformCatalogService;
+use DomainException;
 
 /**
  * PublicController - Unauthenticated write endpoints for the public website
@@ -26,7 +27,7 @@ class PublicController extends BaseAPI
     public function __construct()
     {
         parent::__construct('public');
-        $this->manager = new WebsiteManager();
+        $this->manager = $this->contract('App\API\Modules\website\WebsiteManager');
     }
 
     public function postJobApplications($id = null, $data = [], $segments = [])
@@ -119,7 +120,7 @@ class PublicController extends BaseAPI
             'special_needs'        => trim($data['special_needs'] ?? ''),
         ];
 
-        $workflow = new \App\API\Modules\admission\StudentAdmissionWorkflow();
+        $workflow = $this->contract('App\API\Modules\admission\StudentAdmissionWorkflow');
         $result = $workflow->submitApplication($payload, $mappedFiles);
 
         if (($result['code'] ?? 0) < 400) {
@@ -148,11 +149,78 @@ class PublicController extends BaseAPI
         return $this->manager->createSubscriber($email, trim($data['name'] ?? ''));
     }
 
+    /** POST /api/public/ai-faq */
+    public function postAiFaq($id = null, $data = [], $segments = [])
+    {
+        try {
+            $content = $this->manager->getContent();
+            $payload = is_array($content['data'] ?? null) ? $content['data'] : (is_array($content) ? $content : []);
+            $corpus = [];
+            foreach ($payload as $key => $value) {
+                $sourceKey = preg_replace('/[^a-z0-9_]+/i', '_', (string) $key);
+                if (is_scalar($value) && trim((string) $value) !== '') {
+                    $corpus[] = ['id' => 'public_' . $sourceKey, 'title' => (string) $key, 'content' => (string) $value];
+                    continue;
+                }
+                if (!is_array($value)) continue;
+                foreach (array_slice($value, 0, 40) as $index => $item) {
+                    if (!is_array($item)) continue;
+                    // WebsiteManager exposes published blocks as content_key /
+                    // content_value, while normalized public sections use
+                    // description/name/title. Include only public prose fields;
+                    // never send IDs, ordering, flags, or internal metadata.
+                    $parts = [];
+                    foreach (['content_value', 'content', 'description', 'level_range', 'event_title', 'bio', 'setting_value'] as $field) {
+                        $text = trim((string) ($item[$field] ?? ''));
+                        if ($text !== '') $parts[] = $text;
+                    }
+                    if ($parts === []) continue;
+                    $title = (string) ($item['title'] ?? $item['content_key'] ?? $item['name'] ?? $item['event_title'] ?? $key);
+                    $corpus[] = [
+                        'id' => 'public_' . $sourceKey . '_' . (int) $index,
+                        'title' => $title,
+                        'content' => implode("\n", array_unique($parts)),
+                    ];
+                }
+            }
+            // This is a public fact already displayed in the shared website
+            // footer/login pages. Keep it explicit so a technology question
+            // cannot be answered with the unrelated school-founder record.
+            $corpus[] = [
+                'id' => 'public_system_maintainer',
+                'title' => 'School system maintenance',
+                'content' => 'The Kingsway school management system is maintained by AngiSoft Technologies. Public company information is available at https://www.angisoft.co.ke. The published school information does not claim that the founders developed the software.',
+            ];
+            $corpus[] = [
+                'id' => 'public_system_maintainer_contact',
+                'title' => 'AngiSoft Technologies contact',
+                'content' => 'To contact AngiSoft Technologies, visit https://www.angisoft.co.ke/contact, call or send SMS/WhatsApp to +254710398690, or email info@angisoft.co.ke. AngiSoft Technologies is based in Nairobi, Kenya.',
+            ];
+            $result = $this->contract('App\\API\\Services\\PublicAiAssistantService')->ask(
+                (string) ($data['question'] ?? ''),
+                $corpus,
+                is_array($data['conversation'] ?? null) ? $data['conversation'] : []
+            );
+            return $this->successResponse($result, 'Public assistant response prepared');
+        } catch (DomainException $e) {
+            return $this->errorResponse($e->getMessage(), (int) ($e->getCode() ?: 422));
+        } catch (\Throwable $e) {
+            // Keep the public response generic, but preserve the actionable
+            // provider/normalization failure in structured logs for diagnosis.
+            \App\API\Services\Logger::error('ai_generation', 'Public FAQ request failed', [
+                'exception' => get_class($e),
+                'error' => $e->getMessage(),
+                'request_id' => $_SERVER['REQUEST_ID'] ?? null,
+            ]);
+            return $this->errorResponse('The public assistant is temporarily unavailable.', 503);
+        }
+    }
+
     /** GET /api/public/uniform-catalog OR /api/public/uniform-catalog/{id} */
     public function getUniformCatalog($id = null, $data = [], $segments = [])
     {
         $pdo = Database::getInstance()->getConnection();
-        $svc = new UniformCatalogService($pdo);
+        $svc = $this->contract('App\API\Services\payments\UniformCatalogService', $pdo);
 
         // Single product — includes all images and sizes
         if ($id !== null && is_numeric($id)) {
@@ -164,7 +232,7 @@ class PublicController extends BaseAPI
             $imgSt = $pdo->prepare('SELECT id, variant_id, url, alt_text, view_type, is_primary, display_order FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, display_order, id');
             $imgSt->execute([(int) $id]);
             $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
-            $uploadService = new \App\API\Services\UploadService();
+            $uploadService = $this->contract('App\API\Services\UploadService');
             foreach ($product['images'] as &$image) {
                 $image['url'] = $uploadService->publicUrl($image['url'] ?? null);
             }
@@ -176,7 +244,7 @@ class PublicController extends BaseAPI
             $szSt = $pdo->prepare('SELECT us.id AS size_id,NULL AS variant_id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved AS available FROM uniform_sizes us WHERE us.item_id=? AND us.quantity_available>us.quantity_reserved UNION ALL SELECT us.id,v.id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.product_id=? AND v.status=\'active\' AND us.quantity_available>us.quantity_reserved ORDER BY variant_id,unit_price,size');
             $szSt->execute([$product['item_id'],(int)$id]);
             $product['sizes'] = $szSt->fetchAll(\PDO::FETCH_ASSOC);
-            $product['reviews'] = (new \App\API\Services\catalog\CatalogCommerceService($pdo))->reviews((int)$id);
+            $product['reviews'] = ($this->contract('App\API\Services\catalog\CatalogCommerceService', $pdo))->reviews((int)$id);
 
             return $this->successResponse(['product' => $product], 'Product details');
         }

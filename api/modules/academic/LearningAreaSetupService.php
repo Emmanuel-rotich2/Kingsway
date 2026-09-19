@@ -21,16 +21,6 @@ class LearningAreaSetupService
     }
 
     /**
-     * Tables in the normalized schema use explicit integer ids (no AUTO_INCREMENT).
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
-    /**
      * Map a classes.name to the grade label used by learning_areas.levels.
      * Returns null for grades without CBC curriculum (Playgroup).
      */
@@ -128,13 +118,12 @@ class LearningAreaSetupService
                 continue; // already covered - idempotent
             }
 
-            $id = $this->nextId('academic_year_class_learning_areas');
             $ins = $this->db->prepare(
                 "INSERT INTO academic_year_class_learning_areas
-                    (id, academic_year_class_id, learning_area_id, status, planned_weeks)
-                 VALUES (?, ?, ?, 'planned', NULL)"
+                    (academic_year_class_id, learning_area_id, status, planned_weeks)
+                 VALUES (?, ?, 'planned', NULL)"
             );
-            $ins->execute([$id, $aycId, $learningAreaId]);
+            $ins->execute([$aycId, $learningAreaId]);
             $result['created']++;
         }
 

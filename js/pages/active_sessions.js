@@ -30,6 +30,7 @@ const ActiveSessionsController = {
     reloadQueued: false,
     searchTimer: null,
     revokingSessionId: null,
+    selectedIds: new Set(),
   },
 
   elements: {},
@@ -132,6 +133,11 @@ const ActiveSessionsController = {
         "resetActiveSessionFiltersBtn",
       ),
       refreshButton: document.getElementById("refreshActiveSessionsBtn"),
+      bulkBar: document.getElementById("activeSessionsBulkBar"),
+      bulkSelectedCount: document.getElementById("activeSessionsBulkCount"),
+      bulkRevokeBtn: document.getElementById("bulkRevokeSessionsBtn"),
+      bulkClearBtn: document.getElementById("bulkClearSessionsBtn"),
+      tableHead: document.getElementById("activeSessionsTableHead"),
       tableBody: document.getElementById("activeSessionsTableBody"),
       count: document.getElementById("activeSessionsCount"),
       previousButton: document.getElementById(
@@ -205,6 +211,18 @@ const ActiveSessionsController = {
         void this.revokeSession(sessionId);
       }
     });
+    this.elements.tableBody.addEventListener("change", (event) => {
+      this.handleRowSelection(event);
+    });
+    this.elements.tableHead.addEventListener("change", (event) => {
+      this.handleSelectAll(event);
+    });
+    this.elements.bulkRevokeBtn.addEventListener("click", () => {
+      void this.applyBulkRevoke();
+    });
+    this.elements.bulkClearBtn.addEventListener("click", () => {
+      this.clearSelection();
+    });
 
     this.state.eventsBound = true;
   },
@@ -219,8 +237,11 @@ const ActiveSessionsController = {
     this.elements.refreshButton.disabled = true;
     this.elements.previousButton.disabled = true;
     this.elements.nextButton.disabled = true;
-    this.showState("Loading active sessions...", "info");
-    this.showTableLoading();
+
+    if (this.state.sessions.length === 0) {
+      this.showState("Loading active sessions...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const response = await window.API.system.getActiveSessions({
@@ -432,98 +453,207 @@ const ActiveSessionsController = {
           ? "No active sessions match the selected filters."
           : "There are no active authenticated sessions.",
       );
+      this.syncSelectAll();
       return;
     }
 
-    this.elements.tableBody.innerHTML = this.state.sessions
-      .map((session) => {
-        const displayName =
-          [session.firstName, session.lastName].filter(Boolean).join(" ") ||
-          session.username ||
-          session.email ||
-          `User ${session.userId}`;
-        const identity = [session.username, session.email]
-          .filter(Boolean)
-          .join(" · ");
-        const isCurrent =
-          session.isCurrent || session.id === this.state.currentSessionId;
-        const isRevoking = this.state.revokingSessionId === session.id;
-        const canRevoke = this.canManage() && !isCurrent;
-        const client = this.truncate(
-          session.userAgent || "Not recorded",
-          68,
-        );
+    const template = document.getElementById("activeSessionsRowTemplate");
+    const rows = this.state.sessions.map((session) =>
+      this.buildSessionRow(template, session),
+    );
+    this.elements.tableBody.replaceChildren(...rows);
+    this.syncSelectAll();
+  },
 
-        return `
-          <tr>
-            <td>
-              <div class="d-flex align-items-center gap-2">
-                <div>
-                  <div class="fw-semibold">${this.escapeHtml(displayName)}</div>
-                  <div class="small text-muted">${this.escapeHtml(
-                    identity || `User ID ${session.userId}`,
-                  )}</div>
-                </div>
-                ${
-                  isCurrent
-                    ? '<span class="badge bg-primary">Current</span>'
-                    : ""
-                }
-              </div>
-            </td>
-            <td>
-              <span class="badge bg-light text-dark border">
-                ${this.escapeHtml(session.roleName || "Unknown")}
-              </span>
-            </td>
-            <td>
-              <code>${this.escapeHtml(
-                session.ipAddress || "Not recorded",
-              )}</code>
-            </td>
-            <td
-              class="small text-muted"
-              title="${this.escapeAttribute(
-                session.userAgent || "Not recorded",
-              )}"
-            >
-              ${this.escapeHtml(client)}
-            </td>
-            <td>
-              <div>${this.escapeHtml(
-                this.formatDateTime(session.lastActivity),
-              )}</div>
-              <div class="small text-muted">
-                ${this.escapeHtml(this.formatIdleDuration(session.idleSeconds))}
-              </div>
-            </td>
-            <td class="text-nowrap">
-              ${this.escapeHtml(this.formatDateTime(session.expiresAt))}
-            </td>
-            <td class="text-end">
-              ${
-                isCurrent
-                  ? '<span class="text-muted small">Use Log out</span>'
-                  : canRevoke
-                    ? `<button
-                        type="button"
-                        class="btn btn-sm btn-outline-danger"
-                        data-revoke-session="${session.id}"
-                        ${isRevoking ? "disabled" : ""}
-                      >
-                        ${
-                          isRevoking
-                            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
-                            : '<i class="fas fa-sign-out-alt me-1"></i>'
-                        }
-                        Revoke
-                      </button>`
-                    : '<span class="text-muted small">View only</span>'
-              }
-            </td>
-          </tr>`;
-      })
-      .join("");
+  visibleSessionIds() {
+    return this.state.sessions.map((session) => session.id);
+  },
+
+  handleRowSelection(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-session-id]");
+    if (!checkbox) return;
+    const sessionId = Number(checkbox.dataset.sessionId || 0);
+    if (checkbox.checked) {
+      this.state.selectedIds.add(sessionId);
+    } else {
+      this.state.selectedIds.delete(sessionId);
+    }
+    this.updateBulkBar();
+  },
+
+  handleSelectAll(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-select-all]");
+    if (!checkbox) return;
+    const visible = new Set(this.visibleSessionIds());
+    if (checkbox.checked) {
+      visible.forEach((id) => this.state.selectedIds.add(id));
+    } else {
+      this.state.selectedIds.forEach((id) => {
+        if (visible.has(id)) this.state.selectedIds.delete(id);
+      });
+    }
+    this.updateBulkBar();
+  },
+
+  clearSelection() {
+    this.state.selectedIds.clear();
+    this.updateBulkBar();
+  },
+
+  updateBulkBar() {
+    const count = this.state.selectedIds.size;
+    this.elements.bulkSelectedCount.textContent = `${count} selected`;
+    this.elements.bulkBar.hidden = count === 0;
+    this.elements.tableBody.querySelectorAll("input[type=checkbox][data-session-id]").forEach((checkbox) => {
+      checkbox.checked = this.state.selectedIds.has(Number(checkbox.dataset.sessionId || 0));
+    });
+    this.syncSelectAll();
+  },
+
+  selectedSessions() {
+    return this.state.sessions.filter((session) =>
+      this.state.selectedIds.has(session.id),
+    );
+  },
+
+  syncSelectAll() {
+    const selectAll = this.elements.tableHead?.querySelector("input[data-select-all]");
+    if (!selectAll) return;
+    const visible = this.visibleSessionIds();
+    const selectedVisible = visible.filter((id) =>
+      this.state.selectedIds.has(id),
+    ).length;
+    selectAll.checked = visible.length > 0 && selectedVisible === visible.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
+  },
+
+  async applyBulkRevoke() {
+    const selected = this.selectedSessions();
+    if (!selected.length) return;
+
+    const revocable = selected.filter(
+      (session) =>
+        !session.isCurrent && session.id !== this.state.currentSessionId,
+    );
+    if (!revocable.length) {
+      this.showState(
+        "None of the selected sessions can be revoked. Your current session must be ended from Log out.",
+        "warning",
+      );
+      return;
+    }
+
+    const confirmed = await window.confirmAction(
+      "Revoke Selected Sessions",
+      `Revoke ${revocable.length} active session${revocable.length === 1 ? "" : "s"}? The affected user${revocable.length === 1 ? "" : "s"} will need to sign in again on those client${revocable.length === 1 ? "" : "s"}.${
+        selected.length > revocable.length ? ` ${selected.length - revocable.length} current session${selected.length - revocable.length === 1 ? "" : "s"} will be skipped.` : ""
+      }`,
+      { confirmText: "Revoke", danger: true },
+    );
+    if (!confirmed) return;
+
+    this.showState("Revoking the selected sessions...", "info");
+    let revoked = 0;
+    let failed = 0;
+    for (const session of revocable) {
+      try {
+        await window.API.system.revokeSession(session.id);
+        revoked += 1;
+      } catch (error) {
+        console.error(
+          "[ActiveSessionsController] Bulk session revocation failed:",
+          error,
+        );
+        failed += 1;
+      }
+    }
+    this.clearSelection();
+    await this.loadSessions();
+    this.showState(
+      failed
+        ? `${revoked} session${revoked === 1 ? "" : "s"} revoked; ${failed} failed.`
+        : `${revoked} session${revoked === 1 ? "" : "s"} revoked successfully.`,
+      failed ? "warning" : "success",
+    );
+  },
+
+  buildSessionRow(template, session) {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const displayName =
+      [session.firstName, session.lastName].filter(Boolean).join(" ") ||
+      session.username ||
+      session.email ||
+      `User ${session.userId}`;
+    const identity = [session.username, session.email]
+      .filter(Boolean)
+      .join(" · ");
+    const isCurrent =
+      session.isCurrent || session.id === this.state.currentSessionId;
+    const isRevoking = this.state.revokingSessionId === session.id;
+    const canRevoke = this.canManage() && !isCurrent;
+    const client = this.truncate(
+      session.userAgent || "Not recorded",
+      68,
+    );
+
+    const checkbox = row.querySelector("input[type=checkbox]");
+    checkbox.dataset.sessionId = String(session.id);
+    checkbox.checked = this.state.selectedIds.has(session.id);
+    checkbox.setAttribute("aria-label", `Select session for ${displayName}`);
+    if (!canRevoke) {
+      checkbox.disabled = true;
+    }
+
+    cell("name").textContent = displayName;
+    cell("identity").textContent = identity || `User ID ${session.userId}`;
+    cell("currentBadge").hidden = !isCurrent;
+
+    const roleBadge = cell("roleBadge");
+    roleBadge.textContent = session.roleName || "Unknown";
+
+    cell("ip").textContent = session.ipAddress || "Not recorded";
+
+    const clientCell = cell("client");
+    clientCell.textContent = client;
+    clientCell.title = session.userAgent || "Not recorded";
+
+    cell("lastActivity").textContent = this.formatDateTime(session.lastActivity);
+    cell("idle").textContent = this.formatIdleDuration(session.idleSeconds);
+    cell("expires").textContent = this.formatDateTime(session.expiresAt);
+
+    cell("actions").innerHTML = this.buildSessionActions(session, {
+      isCurrent,
+      isRevoking,
+      canRevoke,
+    });
+
+    return row;
+  },
+
+  buildSessionActions(session, { isCurrent, isRevoking, canRevoke }) {
+    if (isCurrent) {
+      return '<span class="text-muted small">Use Log out</span>';
+    }
+    if (!canRevoke) {
+      return '<span class="text-muted small">View only</span>';
+    }
+    return `
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-danger"
+        data-revoke-session="${session.id}"
+        ${isRevoking ? "disabled" : ""}
+      >
+        ${
+          isRevoking
+            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>'
+            : '<i class="fas fa-sign-out-alt me-1"></i>'
+        }
+        Revoke
+      </button>`;
   },
 
   renderPagination() {
@@ -589,7 +719,7 @@ const ActiveSessionsController = {
     const content = allowMarkup ? message : this.escapeHtml(message);
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="7" class="text-center py-5 ${className}">
+        <td colspan="8" class="text-center py-5 ${className}">
           ${content}
         </td>
       </tr>`;

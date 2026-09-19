@@ -23,6 +23,24 @@
                 <button class="btn btn-success btn-sm" id="composeMessageBtn">
                     <i class="bi bi-envelope me-1"></i>Compose
                 </button>
+                <button class="btn btn-outline-success btn-sm" id="aiDraftMessageBtn">
+                    <i class="bi bi-stars me-1"></i>Draft with assistant
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="app-panel border-success-subtle">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div>
+                    <h6 class="mb-1"><i class="bi bi-stars me-2 text-success"></i>Communication assistant</h6>
+                    <small class="text-muted">AI drafts are saved into the existing communications workflow and require a second staff approval.</small>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary" id="refreshAiCommunicationDrafts">Refresh</button>
+            </div>
+            <div id="aiCommunicationDrafts" class="row g-3">
+                <div class="col-12 text-muted small">No assistant drafts loaded.</div>
             </div>
         </div>
     </div>
@@ -179,6 +197,29 @@
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="aiCommunicationDraftModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-stars text-success me-2"></i>Prepare communication draft</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info small">Provide approved facts only. Do not enter learner names, phone numbers, email addresses, medical information, or confidential case details.</div>
+                <form id="aiCommunicationDraftForm" class="row g-3">
+                    <div class="col-md-6"><label class="form-label">Purpose</label><input class="form-control" name="purpose" maxlength="200" placeholder="e.g. term opening reminder" required></div>
+                    <div class="col-md-6"><label class="form-label">Audience</label><select class="form-select" name="audience" required><option value="all_parents">All parents</option><option value="selected_parents">Selected parents</option><option value="selected_class">Selected class</option><option value="all_staff">All staff</option><option value="selected_staff">Selected staff</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Channel</label><select class="form-select" name="channel"><option value="email">Email</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option><option value="internal">Internal</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Tone</label><select class="form-select" name="tone"><option value="professional">Professional</option><option value="warm">Warm</option><option value="urgent">Urgent</option><option value="brief">Brief</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Deadline</label><input class="form-control" name="deadline" maxlength="120" placeholder="Optional date or deadline"></div>
+                    <div class="col-12"><label class="form-label">Approved facts</label><textarea class="form-control" name="facts" rows="6" maxlength="4000" placeholder="Facts the assistant may use; no identifying or sensitive data." required></textarea></div>
+                </form>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="queueAiCommunicationDraft"><i class="bi bi-stars me-1"></i>Queue draft</button></div>
         </div>
     </div>
 </div>

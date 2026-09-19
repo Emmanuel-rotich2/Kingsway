@@ -312,6 +312,14 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                             <label class="form-label">Address</label>
                             <textarea class="form-control" id="address" rows="2"></textarea>
                         </div>
+                        <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label mb-0">Qualifications &amp; Certifications</label>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="addStaffQualificationBtn">Add qualification</button>
+                            </div>
+                            <div id="staffQualificationRows"></div>
+                            <div class="form-text">Administrator entries and edits remain pending until qualification evidence is verified.</div>
+                        </div>
                     </div>
                 </form>
             </div>

@@ -13,11 +13,11 @@
  * - System Policies
  * - Config Sync
  * 
- * @package App\API\Modules\System
+ * @package App\API\Modules\system
  * @since 2025-12-28
  */
 
-namespace App\API\Modules\System;
+namespace App\API\Modules\system;
 
 use App\API\Services\SystemConfigService;
 use App\API\Services\MenuBuilderService;

@@ -109,7 +109,7 @@ class DeputyAcademicAnalyticsService
         $row = $this->db->query("SELECT
                 SUM(classes_assigned > 8) AS alert_count,
                 SUM(classes_assigned > 12) AS critical_count
-            FROM vw_staff_workload")->fetch(PDO::FETCH_ASSOC) ?: [];
+            FROM " . ReadReplicaService::qualifiedRef('staff_workload') . "")->fetch(PDO::FETCH_ASSOC) ?: [];
         return ['count' => (int) ($row['alert_count'] ?? 0), 'critical' => (int) ($row['critical_count'] ?? 0)];
     }
 

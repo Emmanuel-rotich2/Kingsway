@@ -9,6 +9,7 @@ use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\IpAccessControlMiddleware;
 use App\API\Middleware\RBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
+use App\API\Middleware\ResponseCacheMiddleware;
 use App\API\Middleware\RouteAuthorization;
 use Exception;
 
@@ -24,6 +25,10 @@ class Router
     public function handle()
     {
         try {
+            $payloadGuard = $this->enforcePayloadLimits();
+            if ($payloadGuard !== null) {
+                return $payloadGuard;
+            }
             // ===== MIDDLEWARE PIPELINE =====
             // 1. CORS - Check origin and handle preflight
             CORSMiddleware::handle();
@@ -60,15 +65,22 @@ class Router
             // 8. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
-            // ===== DELEGATE TO CONTROLLER ROUTER =====
-            // ControllerRouter handles all RESTful routing and controller dispatch
-            return $this->controllerRouter->route();
+            // 9. Response cache (g4) - sits AFTER auth so entries are keyed on
+            // the authenticated user. All guards above still run on a cache HIT;
+            // only the controller dispatch below is skipped. Non-GET and
+            // non-allowlisted paths pass straight through with zero overhead.
+            return ResponseCacheMiddleware::handle(
+                function (): array {
+                    return $this->controllerRouter->route();
+                }
+            );
 
         } catch (Exception $e) {
             $code = (int) $e->getCode();
             if ($code < 400 || $code > 599) {
                 $code = 500;
             }
+            \App\API\Services\Logger::legacyError('[Router] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             http_response_code($code);
             return [
                 "success" => false,
@@ -79,5 +91,29 @@ class Router
                 "code" => $code
             ];
         }
+    }
+
+    /** Reject oversized anonymous AI bodies before JSON parsing/provider work. */
+    private function enforcePayloadLimits(): ?array
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        if (strpos($path, '/public/ai-faq') === false) {
+            return null;
+        }
+
+        $length = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($length <= 65536) {
+            return null;
+        }
+
+        http_response_code(413);
+        return [
+            'success' => false,
+            'status' => 'error',
+            'data' => null,
+            'message' => 'The public assistant request is too large.',
+            'errors' => [],
+            'code' => 413,
+        ];
     }
 }

@@ -5,6 +5,7 @@ namespace App\API\Modules\finance;
 
 use App\Database\Database;
 use App\API\Modules\transport\StudentTransportEntitlementManager;
+use App\API\Services\ServiceContractBroker;
 use Exception;
 
 /**
@@ -19,7 +20,7 @@ class TransportBillingManager
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
-        $this->entitlements = new StudentTransportEntitlementManager($this->db);
+        $this->entitlements = ServiceContractBroker::contract('App\API\Modules\transport\StudentTransportEntitlementManager', [], $this->db);
     }
 
     /**

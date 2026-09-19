@@ -459,7 +459,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             // 3NF: derive from student_fee_obligations via vw_student_fee_balances (amount_due - amount_paid - waivers)
             $stmt = $this->db->prepare("
                 SELECT COALESCE(SUM(balance), 0) as outstanding
-                FROM vw_student_fee_balances
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
                 WHERE student_id = ? AND balance > 0
             ");
             $stmt->execute([$studentId]);

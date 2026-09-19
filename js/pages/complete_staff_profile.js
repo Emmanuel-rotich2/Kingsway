@@ -60,7 +60,8 @@ const staffProfileController = {
                 throw new Error('Staff Migration API is unavailable.');
             }
 
-            this.setupEventListeners();
+        this.setupEventListeners();
+            this.setupQualificationRows();
             await this.loadProfile();
 
             this.initialized = true;
@@ -89,6 +90,36 @@ const staffProfileController = {
                 void this.saveProfile();
             });
         }
+        document.getElementById('spAddQualification')?.addEventListener('click', () => this.addQualificationRow());
+    },
+
+    setupQualificationRows() {
+        const container = document.getElementById('spQualifications');
+        if (container && !container.children.length) this.addQualificationRow();
+    },
+
+    renderQualificationClaims(claims) {
+        const container = document.getElementById('spQualifications');
+        if (!container) return;
+        container.innerHTML = '';
+        claims.forEach((claim) => this.addQualificationRow(claim, true));
+        this.addQualificationRow();
+    },
+
+    addQualificationRow(claim = {}, readOnly = false) {
+        const container = document.getElementById('spQualifications');
+        if (!container) return;
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 align-items-end';
+        const status = claim.verification_status ? ` <span class="badge ${claim.verification_status === 'verified' ? 'bg-success' : 'bg-warning text-dark'}">${this._escH(claim.verification_status)}</span>` : '';
+        row.innerHTML = `<div class="col-md-2"><label class="form-label small">Level${status}</label><select data-q="qualification_level" class="form-select" ${readOnly ? 'disabled' : ''}><option value="certificate">Certificate</option><option value="diploma">Diploma</option><option value="degree">Degree</option><option value="postgraduate_diploma">PG Diploma</option><option value="masters">Masters</option><option value="phd">PhD</option><option value="professional">Professional</option><option value="other">Other</option></select></div><div class="col-md-3"><label class="form-label small">Title</label><input data-q="title" class="form-control" maxlength="255" ${readOnly ? 'disabled' : ''}></div><div class="col-md-3"><label class="form-label small">Institution</label><input data-q="institution" class="form-control" maxlength="255" ${readOnly ? 'disabled' : ''}></div><div class="col-md-2"><label class="form-label small">Year</label><input data-q="year_obtained" type="number" min="1950" max="2100" class="form-control" ${readOnly ? 'disabled' : ''}></div><div class="col-md-2"><button type="button" class="btn btn-outline-${readOnly ? 'secondary' : 'danger'} w-100">${readOnly ? 'Recorded' : 'Remove'}</button></div>`;
+        row.dataset.readOnly = readOnly ? '1' : '0';
+        row.querySelector('[data-q="qualification_level"]').value = claim.qualification_level || 'degree';
+        row.querySelector('[data-q="title"]').value = claim.title || '';
+        row.querySelector('[data-q="institution"]').value = claim.institution || '';
+        row.querySelector('[data-q="year_obtained"]').value = claim.year_obtained || '';
+        if (!readOnly) row.querySelector('button').addEventListener('click', () => row.remove());
+        container.appendChild(row);
     },
 
     // ==================== TOAST NOTIFICATIONS ====================
@@ -132,6 +163,7 @@ const staffProfileController = {
             this.renderHeader(profile);
             this.renderReadOnlySections(profile);
             this.populateForm(profile);
+            this.renderQualificationClaims(profile.qualification_claims || []);
 
             state.className = 'alert alert-warning';
             state.textContent =
@@ -254,6 +286,7 @@ const staffProfileController = {
 
         try {
             const data = Object.fromEntries(new FormData(form).entries());
+            data.qualifications = Array.from(document.querySelectorAll('#spQualifications > .row[data-read-only="0"]')).map((row) => Object.fromEntries(Array.from(row.querySelectorAll('[data-q]')).map((el) => [el.dataset.q, el.value.trim()]))).filter((q) => q.title || q.institution);
             await window.API.staffMigration.completeProfile(data);
             state.className = 'alert alert-success';
             state.textContent = 'Profile completed. Redirecting\u2026';

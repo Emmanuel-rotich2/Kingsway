@@ -145,7 +145,7 @@ class MaintenanceAPI extends BaseAPI
     {
         // This will be called from MaintenanceController
         // Actual implementation is in SystemAPI
-        $systemAPI = new \App\API\Modules\system\SystemAPI();
+        $systemAPI = $this->contract('App\API\Modules\system\SystemAPI');
         return $systemAPI->readLogs($data);
     }
 
@@ -156,7 +156,7 @@ class MaintenanceAPI extends BaseAPI
     {
         // This will be called from MaintenanceController
         // Actual implementation is in SystemAPI
-        $systemAPI = new \App\API\Modules\system\SystemAPI();
+        $systemAPI = $this->contract('App\API\Modules\system\SystemAPI');
         return $systemAPI->clearLogs();
     }
 
@@ -167,7 +167,7 @@ class MaintenanceAPI extends BaseAPI
     {
         // This will be called from MaintenanceController
         // Actual implementation is in SystemAPI
-        $systemAPI = new \App\API\Modules\system\SystemAPI();
+        $systemAPI = $this->contract('App\API\Modules\system\SystemAPI');
         return $systemAPI->archiveLogs();
     }
 
@@ -180,7 +180,7 @@ class MaintenanceAPI extends BaseAPI
     {
         // This will be called from MaintenanceController
         // Actual implementation is in SystemAPI
-        $systemAPI = new \App\API\Modules\system\SystemAPI();
+        $systemAPI = $this->contract('App\API\Modules\system\SystemAPI');
         return $systemAPI->getSchoolConfig($id);
     }
 
@@ -192,7 +192,7 @@ class MaintenanceAPI extends BaseAPI
     {
         // This will be called from MaintenanceController
         // Actual implementation is in SystemAPI
-        $systemAPI = new \App\API\Modules\system\SystemAPI();
+        $systemAPI = $this->contract('App\API\Modules\system\SystemAPI');
         return $systemAPI->setSchoolConfig($data);
     }
 

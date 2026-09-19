@@ -1,73 +1,72 @@
 <?php
-/** Kingsway System Administrator: Activity Logs. */
+/** Kingsway System Administrator: Activity Audit Logs (timeline). */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') { $appBase = ''; }
+}
 ?>
-<div class="container-fluid py-4"
-     data-system-admin-page
-     data-resource="audit-logs"
-     data-mode="readonly"
-     data-title="Activity Logs">
+<div class="container-fluid py-4" id="activityAuditLogsPage">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
-            <h2 class="h3 mb-1">Activity Logs</h2>
-            <p class="text-muted mb-0">Search immutable system activity records.</p>
+            <h2 class="h2 fw-bold mb-1">Activity Audit Logs</h2>
+            <p class="text-muted mb-0">Immutable system activity as a chronological timeline.</p>
         </div>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-secondary" data-system-live>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsExportCsvBtn" title="Export to CSV">
+                <i class="bi bi-filetype-csv me-1"></i> Export CSV
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsPrintBtn" title="Print / save as PDF">
+                <i class="bi bi-printer me-1"></i> Print / PDF
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="activityAuditLogsLiveBtn">
                 <i class="bi bi-broadcast me-1"></i> Live
             </button>
-            <button type="button" class="btn btn-outline-secondary" data-system-refresh>
+            <button type="button" class="btn btn-primary" id="activityAuditLogsRefreshBtn">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
-            <button type="button" class="btn btn-primary" data-system-create>
-                <i class="bi bi-plus-lg me-1"></i> Add record
-            </button>
         </div>
     </div>
 
-    <div class="row g-3 mb-4" data-system-summary></div>
-
-    <div class="alert alert-info" data-system-state role="status">
-        Loading activity logs...
+    <div class="alert alert-info" id="activityAuditLogsState" role="status" aria-live="polite">
+        Loading activity audit logs...
     </div>
 
-    <div class="card border-0 shadow-sm">
-        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
-            <strong>Activity Logs</strong>
-            <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input class="form-control" data-system-search placeholder="Search records">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <div class="input-group input-group-sm" style="max-width: 340px">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input class="form-control" id="activityAuditLogsSearch" type="search" maxlength="200" placeholder="User, action, resource or IP" autocomplete="off">
+        </div>
+        <span class="text-muted small ms-auto" id="activityAuditLogsCount">No activity records loaded</span>
+    </div>
+
+    <div id="activityAuditLogsTimeline">
+        <div class="text-center py-5 text-muted">Loading activity...</div>
+    </div>
+</div>
+
+<template id="activityAuditLogsEntryTemplate">
+    <div class="d-flex gap-3">
+        <div class="audit-node d-flex flex-column align-items-center">
+            <span class="rounded-circle border bg-white d-inline-block" style="width:12px;height:12px"></span>
+            <span class="flex-grow-1 border-start"></span>
+        </div>
+        <div class="card border-0 shadow-sm flex-grow-1 mb-3">
+            <div class="card-body py-3">
+                <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <span class="fw-semibold" data-fill="user_name"></span>
+                        <code class="small" data-fill="action"></code>
+                    </div>
+                    <span class="small text-muted" data-fill="created_at"></span>
+                </div>
+                <div class="small text-muted d-flex flex-wrap gap-3 mt-1">
+                    <span><i class="bi bi-box me-1"></i><span data-fill="resource_type"></span></span>
+                    <span><i class="bi bi-hash me-1"></i><span data-fill="resource_id"></span></span>
+                    <span><i class="bi bi-globe2 me-1"></i><code data-fill="ip_address"></code></span>
+                </div>
             </div>
         </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead data-system-head>
-                    <tr><th scope="col">Loading</th></tr>
-                </thead>
-                <tbody data-system-body>
-                    <tr><td class="text-center py-5 text-muted">Loading...</td></tr>
-                </tbody>
-            </table>
-        </div>
-        <div class="card-footer bg-white text-muted small" data-system-count></div>
     </div>
-</div>
+</template>
 
-<div class="modal fade" id="systemAdminRecordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-            <form data-system-form>
-                <div class="modal-header">
-                    <h5 class="modal-title" data-system-modal-title>Activity Logs</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body" data-system-form-fields></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" data-system-save>Save</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/system_admin_console.js?v=<?= asset_version('js/pages/system/system_admin_console.js') ?>"></script>
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/activity_audit_logs.js?v=<?= asset_version('js/pages/system/activity_audit_logs.js') ?>"></script>

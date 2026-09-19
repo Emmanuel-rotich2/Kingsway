@@ -21,7 +21,7 @@ class ScanController extends BaseController {
     public function __construct() {
         parent::__construct();
         $this->pdo = $this->db;
-        $this->transportEntitlements = new StudentTransportEntitlementManager(Database::getInstance()->getConnection());
+        $this->transportEntitlements = $this->contract('App\API\Modules\transport\StudentTransportEntitlementManager', Database::getInstance()->getConnection());
     }
 
     /* =========================================================

@@ -17,7 +17,7 @@ class WebsiteController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->manager = new WebsiteManager();
+        $this->manager = $this->contract('App\API\Modules\website\WebsiteManager');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

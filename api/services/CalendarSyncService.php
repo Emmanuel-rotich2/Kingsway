@@ -451,11 +451,6 @@ class CalendarSyncService
         return $row ?: null;
     }
 
-    private function nextEventId(): int
-    {
-        return (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events")->fetchColumn();
-    }
-
     private function defaultTitle(string $dayType): string
     {
         $labels = [
@@ -499,12 +494,10 @@ class CalendarSyncService
             return;
         }
 
-        $id = $this->nextEventId();
         $this->db->prepare(
-            "INSERT INTO school_events (id, title, description, start_at, end_at, type, location, status, calendar_day_id, source)
-             VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, 'calendar')"
+            "INSERT INTO school_events (title, description, start_at, end_at, type, location, status, calendar_day_id, source)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'calendar')"
         )->execute([
-            $id,
             $title,
             $day['description'] ?? null,
             $day['date'] . ' 00:00:00',

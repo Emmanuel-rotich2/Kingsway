@@ -1424,21 +1424,19 @@ class AcademicAPI extends BaseAPI
             }
             $startAt = $meetingDate . ' ' . $startTime;
 
-            $nextEventId = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events")->fetchColumn();
             $stmt = $this->db->prepare("
                 INSERT INTO school_events
-                    (id, title, description, type, location, start_at, end_at, status)
-                VALUES (?, ?, ?, 'parent_meeting', ?, ?, NULL, 'upcoming')
+                    (title, description, type, location, start_at, end_at, status)
+                VALUES (?, ?, 'parent_meeting', ?, ?, NULL, 'upcoming')
             ");
             $stmt->execute([
-                $nextEventId,
                 $title,
                 $description ?: $purpose,
                 $venue,
                 $startAt,
             ]);
 
-            $meetingId = $nextEventId;
+            $meetingId = (int) $this->db->lastInsertId();
             $targetStmt = $this->db->prepare("INSERT IGNORE INTO parent_meeting_targets (meeting_id, target_type, target_id, created_by) VALUES (?, ?, ?, ?)");
             if ($classId) $targetStmt->execute([$meetingId, 'class', $classId, $userId]);
             if ($studentId) $targetStmt->execute([$meetingId, 'student', $studentId, $userId]);
@@ -3628,7 +3626,7 @@ return errorResponse($e->getMessage(), 400);
 
         $this->db->beginTransaction();
         try {
-            $next = $this->db->prepare('SELECT COALESCE(MAX(revision_number),0)+1 FROM scheme_workbooks WHERE academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND teacher_id=?');
+            $next = $this->db->prepare('SELECT COALESCE(MAX(revision_number),0)+1 FROM scheme_workbooks WHERE academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND teacher_id=? FOR UPDATE');
             $next->execute([(int)$source['academic_year_term_id'], (int)$source['academic_year_class_stream_learning_area_id'], (int)$source['teacher_id']]);
             $revision = (int)$next->fetchColumn();
             $insert = $this->db->prepare("INSERT INTO scheme_workbooks (parent_workbook_id,academic_year_id,academic_year_term_id,academic_year_class_stream_learning_area_id,teacher_id,title,payload,status,revision_number,revision_reason,revision_requested_by,revision_requested_at) VALUES (?,?,?,?,?,?,?,'draft',?,?,?,NOW())");
@@ -7911,6 +7909,7 @@ return errorResponse($e->getMessage(), 400);
 
             $attendanceJoin = "";
             $attendanceBindings = [];
+            $attendanceRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_analytics');
             if ($termNumber !== null) {
                 $attendanceJoin = "
                     LEFT JOIN (
@@ -7919,7 +7918,7 @@ return errorResponse($e->getMessage(), 400);
                             MAX(attendance_rate_pct) AS attendance_percentage,
                             MAX(present_marks) AS days_present,
                             MAX(days_marked - present_marks) AS days_absent
-                        FROM vw_student_attendance_analytics
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                           AND term_number = ?
                         GROUP BY student_id
@@ -7934,7 +7933,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(SUM(present_marks) * 100.0 / NULLIF(SUM(days_marked), 0), 2) AS attendance_percentage,
                             SUM(present_marks) AS days_present,
                             SUM(days_marked - present_marks) AS days_absent
-                        FROM vw_student_attendance_analytics
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                         GROUP BY student_id
                     ) att ON att.student_id = s.id
@@ -8214,7 +8213,7 @@ return errorResponse($e->getMessage(), 400);
                     SELECT
                         student_id,
                         COALESCE(SUM(balance), 0) AS balance
-                    FROM vw_student_fee_balances
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
                     WHERE academic_year_term_id IN (
                         SELECT id FROM academic_year_terms WHERE academic_year_id = ?
                     )
@@ -8225,6 +8224,7 @@ return errorResponse($e->getMessage(), 400);
 
             $attendanceJoin = '';
             $attendanceBindings = [];
+            $attendanceRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_analytics');
             if ($termNumber !== null) {
                 $attendanceJoin = "
                     LEFT JOIN (
@@ -8233,7 +8233,7 @@ return errorResponse($e->getMessage(), 400);
                             MAX(attendance_rate_pct) AS attendance_rate,
                             MAX(present_marks) AS days_present,
                             MAX(days_marked - present_marks) AS days_absent
-                        FROM vw_student_attendance_analytics
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                           AND term_number = ?
                         GROUP BY student_id
@@ -8248,7 +8248,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(SUM(present_marks) * 100.0 / NULLIF(SUM(days_marked), 0), 2) AS attendance_rate,
                             SUM(present_marks) AS days_present,
                             SUM(days_marked - present_marks) AS days_absent
-                        FROM vw_student_attendance_analytics
+                        FROM {$attendanceRef}
                         WHERE academic_year = ?
                         GROUP BY student_id
                     ) att ON att.student_id = s.id

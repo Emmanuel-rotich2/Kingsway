@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 use App\Database\Database;
 use Exception;
 use App\API\Core\FileLifecycleBase;
+use App\API\Services\ServiceContractBroker;
 
 /**
  * BaseController - Enhanced RESTful API base class
@@ -364,6 +365,30 @@ abstract class BaseController extends FileLifecycleBase
     public function getUserId()
     {
         return $this->user['user_id'] ?? $this->user['id'] ?? null;
+    }
+
+    /**
+     * Contract-first accessor for the gRPC-style service contract layer.
+     *
+     * Controllers MUST obtain governed business-logic services through this
+     * accessor — never with bare "new X(...)". The ServiceContractBroker
+     * validates the class is governed, journals the touchpoint to the file
+     * journal, and returns the REAL service instance so existing call sites
+     * keep working unchanged. scripts/contract_coverage.php fails loudly in
+     * development when a controller bypasses this accessor.
+     *
+     * @param string $contractOrClass governed class or short alias.
+     * @param mixed  ...$args         forwarded to the real constructor.
+     * @return object
+     */
+    protected function contract(string $contractOrClass, ...$args)
+    {
+        return ServiceContractBroker::contract($contractOrClass, [
+            'user_id' => $this->getUserId(),
+            'roles' => $this->getUserRoleNames(),
+            'permissions' => $this->user['effective_permissions'] ?? [],
+            'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId,
+        ], ...$args);
     }
 
     /**

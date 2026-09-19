@@ -2,7 +2,7 @@
 namespace App\API\Modules\finance;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Services\ServiceContractBroker;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -27,7 +27,7 @@ class PayrollWorkflow extends WorkflowHandler
     public function __construct()
     {
         parent::__construct('PAYROLL');
-        $this->payrollManager = new StaffPayrollManager();
+        $this->payrollManager = ServiceContractBroker::contract('App\API\Modules\staff\StaffPayrollManager');
     }
 
     /**

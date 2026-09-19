@@ -155,6 +155,14 @@ class StudentParentService
     }
 
     // TODO: Delegate to StudentParentService
+    public function getFamilyGroupsStats($id, $data, $segments, BaseController $controller) {
+        if ($auth = $controller->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view family group statistics')) {
+            return $auth;
+        }
+        return $controller->handleResponse($this->familyGroupsManager->getFamilyGroupStats());
+    }
+
+    // TODO: Delegate to StudentParentService
     public function getFamilyGroup($id, $data, $segments, BaseController $controller) {
         if (!$controller->getUser()) { return $controller->unauthorized('Authentication required'); }
         $parentId = $id !== null ? (int)$id : null;

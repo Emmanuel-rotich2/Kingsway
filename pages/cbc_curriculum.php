@@ -14,6 +14,34 @@
         </div>
     </div>
 
+    <section class="card border-success-subtle mb-3" aria-labelledby="academicAiReviewTitle">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <h5 class="mb-1" id="academicAiReviewTitle"><i class="bi bi-stars text-success me-1"></i>Academic review assistant</h5>
+                    <p class="small text-muted mb-0">AI output is advisory, aggregate or curriculum-scoped, and requires human approval. It never edits official curriculum or learner records.</p>
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-end">
+                    <label class="small text-muted">Class ID for coverage
+                        <input class="form-control form-control-sm" id="aiCoverageClassId" type="number" min="1" placeholder="Authorized class ID" aria-label="Authorized academic year class ID">
+                    </label>
+                    <button class="btn btn-outline-success btn-sm" id="queueAiCoverageReview" type="button">Review coverage</button>
+                    <button class="btn btn-outline-success btn-sm" id="queueAiLearningGapReview" type="button">Review learning gaps</button>
+                </div>
+            </div>
+            <div class="row g-2 mt-2">
+                <div class="col-md-6">
+                    <label class="small text-muted" for="aiRubricOutcomeId">Learning outcome ID for rubric draft</label>
+                    <div class="input-group input-group-sm">
+                        <input class="form-control" id="aiRubricOutcomeId" type="number" min="1" placeholder="Use an authorized outcome ID">
+                        <button class="btn btn-outline-success" id="queueAiRubricDraft" type="button">Draft rubric</button>
+                    </div>
+                </div>
+                <div class="col-12"><div id="aiAcademicReviews" class="row g-2" aria-live="polite"><div class="col-12 small text-muted">No academic assistant reviews loaded.</div></div></div>
+            </div>
+        </div>
+    </section>
+
     <ul class="nav nav-tabs mb-3" id="cbcTabs">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ssTab">Sub-Strands</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#loTab">Learning Outcomes</button></li>
@@ -346,3 +374,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/cbc_curriculum.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_academic_reviews.js'); ?>

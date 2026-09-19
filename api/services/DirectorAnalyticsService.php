@@ -3,6 +3,8 @@ namespace App\API\Services;
 
 use App\Database\Database;
 
+// Same namespace (App\API\Services) — ReadReplicaService resolves without a use import.
+
 class DirectorAnalyticsService
 {
 
@@ -58,18 +60,25 @@ class DirectorAnalyticsService
         $stmt = $this->db->query($query);
         $result['collected'] = $stmt->fetch()['collected'] ?? 0;
 
-        // Total outstanding fees (normalized: vw_student_fee_balances)
-        $query = "SELECT COALESCE(SUM(balance), 0) as outstanding FROM vw_student_fee_balances";
+        // Total outstanding fees (normalized: vw_student_fee_balances, served
+        // from the realtime read replica when deployed)
+        $query = "SELECT COALESCE(SUM(balance), 0) as outstanding FROM " . ReadReplicaService::qualifiedRef('student_fee_balances');
         $stmt = $this->db->query($query);
         $result['outstanding'] = $stmt->fetch()['outstanding'] ?? 0;
 
-        // Fee collection rate from vw_collection_rate_by_class
+        // Fee collection rate from the realtime read replica (mv_collection_rate_by_class)
         try {
-            $stmt = $this->db->query(
-                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
-                 FROM vw_collection_rate_by_class"
+            $rows = ReadReplicaService::query(
+                'collection_rate_by_class',
+                ['total_fees_paid', 'total_fees_due']
             );
-            $result['collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+            $paid = 0.0;
+            $due = 0.0;
+            foreach ($rows as $row) {
+                $paid += (float) $row['total_fees_paid'];
+                $due += (float) $row['total_fees_due'];
+            }
+            $result['collection_rate'] = $due > 0 ? round($paid / $due * 100, 1) : 0;
         } catch (\Exception $e) {
             $total = $result['collected'] + $result['outstanding'];
             $result['collection_rate'] = $total > 0 ? round(($result['collected'] / $total) * 100, 1) : 0;
@@ -265,7 +274,7 @@ class DirectorAnalyticsService
         // First try vw_student_fee_balances, fall back to fee_catalog estimate
         $outstandingQuery = "
             SELECT COALESCE(SUM(balance), 0) as outstanding
-            FROM vw_student_fee_balances
+            FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
         ";
         $stmt = $this->db->query($outstandingQuery);
         $outstanding = $stmt->fetch()['outstanding'] ?? 0;
@@ -296,13 +305,19 @@ class DirectorAnalyticsService
         }
         $result['fees_outstanding'] = $outstanding;
 
-        // Fee Collection Rate from vw_collection_rate_by_class
+        // Fee Collection Rate from the realtime read replica (mv_collection_rate_by_class)
         try {
-            $stmt = $this->db->query(
-                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
-                 FROM vw_collection_rate_by_class"
+            $rows = ReadReplicaService::query(
+                'collection_rate_by_class',
+                ['total_fees_paid', 'total_fees_due']
             );
-            $result['fee_collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+            $paid = 0.0;
+            $due = 0.0;
+            foreach ($rows as $row) {
+                $paid += (float) $row['total_fees_paid'];
+                $due += (float) $row['total_fees_due'];
+            }
+            $result['fee_collection_rate'] = $due > 0 ? round($paid / $due * 100, 1) : 0;
         } catch (\Exception $e) {
             $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
             $result['fee_collection_rate'] = $total_fees > 0 ? round(($result['fees_collected_ytd'] / $total_fees) * 100, 1) : 0;
@@ -853,7 +868,7 @@ class DirectorAnalyticsService
                 DATE_FORMAT(p.payment_date, '%Y-%m') as term,
                 SUM(p.amount) as collected,
                 (SELECT COALESCE(SUM(fb.balance), 0)
-                 FROM vw_student_fee_balances fb
+                 FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                  JOIN student_academic_enrollments sae2 ON sae2.id = fb.student_academic_enrollment_id
                  JOIN academic_year_class_streams aycs2 ON sae2.academic_year_class_stream_id = aycs2.id
                  JOIN academic_year_classes ayc2 ON aycs2.academic_year_class_id = ayc2.id
@@ -873,31 +888,34 @@ class DirectorAnalyticsService
     }
 
     /**
-     * Get collection rates by class level and term from vw_collection_rate_by_class
-     * Returns per-level, per-term breakdown with fee totals, payment statuses, and collection rate.
+     * Get collection rates by class level and term from the read replica
+     * (mv_collection_rate_by_class). Returns per-level, per-term breakdown
+     * with fee totals, payment statuses, and collection rate.
      */
     public function getCollectionRatesByClass()
     {
         try {
-            $query = "
-                SELECT
-                    level_name,
-                    level_code,
-                    academic_term,
-                    total_students,
-                    total_fees_due,
-                    total_fees_paid,
-                    total_fees_waived,
-                    collection_rate_percent,
-                    students_paid_in_full,
-                    students_partial_payment,
-                    students_no_payment,
-                    average_payment_per_student
-                FROM vw_collection_rate_by_class
-                ORDER BY level_name, academic_term
-            ";
-            $stmt = $this->db->query($query);
-            return $stmt->fetchAll();
+            return ReadReplicaService::query(
+                'collection_rate_by_class',
+                [
+                    'level_name',
+                    'level_code',
+                    'academic_term',
+                    'total_students',
+                    'total_fees_due',
+                    'total_fees_paid',
+                    'total_fees_waived',
+                    'collection_rate_percent',
+                    'students_paid_in_full',
+                    'students_partial_payment',
+                    'students_no_payment',
+                    'average_payment_per_student',
+                ],
+                [],
+                500,
+                0,
+                ['level_name' => 'ASC', 'academic_term' => 'ASC']
+            );
         } catch (\Exception $e) {
             return [];
         }

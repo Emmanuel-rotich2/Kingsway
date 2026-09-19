@@ -78,9 +78,9 @@ class FamilyGroupsManager
                     p.created_at,
                     COUNT(DISTINCT sp.student_id) AS children_count,
                     COALESCE(
-                        (SELECT SUM(vfb.balance) 
-                         FROM vw_student_fee_balances vfb 
-                         JOIN student_parents sp2 ON vfb.student_id = sp2.student_id 
+                        (SELECT SUM(vfb.balance)
+                         FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
+                         JOIN student_parents sp2 ON vfb.student_id = sp2.student_id
                          WHERE sp2.parent_id = p.id),
                         0
                     ) AS total_fee_balance
@@ -401,13 +401,11 @@ class FamilyGroupsManager
         try {
             $this->pdo->beginTransaction();
 
-            $personId = $this->nextId('persons');
             $stmt = $this->pdo->prepare("
-                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO persons (first_name, middle_name, last_name, dob, gender, national_id_no, email, phone, data_scope)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live')
             ");
             $stmt->execute([
-                $personId,
                 $data['first_name'] ?? '',
                 $data['middle_name'] ?? null,
                 $data['last_name'] ?? '',
@@ -417,18 +415,20 @@ class FamilyGroupsManager
                 $data['email'] ?? null,
                 $data['phone_1'] ?? null,
             ]);
+            $personId = (int) $this->pdo->lastInsertId();
 
-            $parentId = $this->nextId('parents');
             $stmt = $this->pdo->prepare("
-                INSERT INTO parents (id, person_id, occupation, address, status)
-                VALUES (?, ?, ?, ?, 'active')
+                INSERT INTO parents (person_id, occupation, address, status)
+                VALUES (?, ?, ?, 'active')
             ");
             $stmt->execute([
-                $parentId,
                 $personId,
                 $data['occupation'] ?? null,
                 $data['address'] ?? null,
             ]);
+            $parentId = (int) $this->pdo->lastInsertId();
+
+            $this->ensureParentRoleForPerson($personId);
 
             $this->pdo->commit();
 
@@ -447,6 +447,18 @@ class FamilyGroupsManager
                 'message' => 'An internal error occurred.'
             ];
         }
+    }
+
+    private function ensureParentRoleForPerson(int $personId): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO user_roles (user_id, role_id)
+             SELECT u.id, 73
+             FROM users u
+             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
+             WHERE u.person_id = ?
+             ON DUPLICATE KEY UPDATE user_id = user_id"
+        )->execute([$personId]);
     }
 
     /**
@@ -993,13 +1005,4 @@ class FamilyGroupsManager
         }
     }
 
-    /**
-     * Manual primary key for tables without AUTO_INCREMENT.
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->pdo->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
 }

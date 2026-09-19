@@ -63,6 +63,12 @@ define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
 // WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? 'CHANGE_ME_IN_ENV_FILE');
 
+// Auxiliary namespace schemas (roadmap §4.1). Optional overrides for local
+// environments that use renamed/prefixed schemas; defaults match ConnectionManager.
+define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: 'KingsWayBuffers');
+define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: 'KingsWayReads');
+define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: 'KingsWayLogs');
+
 /*
 |--------------------------------------------------------------------------
 | Academic year and term — read from database, fall back to calendar
@@ -421,9 +427,14 @@ define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SI
 define('DEFAULT_PAGE_SIZE', 10);
 define('MAX_PAGE_SIZE', 100);
 
-ini_set('session.cookie_httponly', '1');
-ini_set('session.use_only_cookies', '1');
-ini_set('session.cookie_secure', '0');
+// PHP rejects session INI changes after a request has started its session.
+// Keep the development defaults for fresh requests without polluting the
+// browser/API response with warnings for already-initialized sessions.
+if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_secure', '0');
+}
 
 error_reporting(E_ALL);
 ini_set('display_errors', '1');

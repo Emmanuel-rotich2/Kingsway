@@ -66,30 +66,48 @@ class StockTransferWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Source and destination locations must be different');
             }
 
-            // Validate stock availability at source
+            // Lock source rows before checking and decrementing stock. The
+            // generated quantity_on_hand column mirrors current_quantity.
+            $lockedItems = [];
+            $requestedItems = [];
             foreach ($data['items'] as $index => $itemId) {
-                $quantity = $data['quantities'][$index];
+                $requestedItems[] = [
+                    'item_id' => (int) $itemId,
+                    'quantity' => (int) ($data['quantities'][$index] ?? 0)
+                ];
+            }
+            usort($requestedItems, static function (array $left, array $right): int {
+                return $left['item_id'] <=> $right['item_id'];
+            });
+
+            foreach ($requestedItems as $requestedItem) {
+                $itemId = $requestedItem['item_id'];
+                $quantity = $requestedItem['quantity'];
+                if ($quantity <= 0) {
+                    $this->db->rollBack();
+                    return formatResponse(false, null, "Quantity for item #{$itemId} must be positive");
+                }
 
                 $stmt = $this->db->prepare("
-                    SELECT quantity_on_hand 
+                    SELECT id, current_quantity
                     FROM inventory_items 
                     WHERE id = ? AND location_id = ?
+                    LIMIT 1
+                    FOR UPDATE
                 ");
                 $stmt->execute([$itemId, $data['source_location_id']]);
                 $item = $stmt->fetch(PDO::FETCH_ASSOC);
 
-                if (!$item || $item['quantity_on_hand'] < $quantity) {
+                if (!$item || (int) $item['current_quantity'] < $quantity) {
                     $this->db->rollBack();
                     return formatResponse(false, null, "Insufficient stock for item #{$itemId} at source location");
                 }
+                $lockedItems[] = ['item_id' => (int) $itemId, 'quantity' => $quantity];
             }
 
-            // Generate transfer number
-            $transferNumber = 'TR-' . date('Y') . '-' . str_pad($this->db->query("SELECT COUNT(*) + 1 FROM inventory_transactions WHERE reference_type = 'transfer'")->fetchColumn(), 6, '0', STR_PAD_LEFT);
-
-            // Transfer ledger: one 'out' transaction per item at the source location.
-            // The transfer id is shared as reference_id so the receiving side can post 'in' rows.
-            $transferId = $this->nextId('inventory_transactions');
+            // Transfer ledger: insert the first row without a reference, use its
+            // database-generated ID as the transfer identity, then attach it to
+            // the first row and all subsequent rows.
             $outStmt = $this->db->prepare("
                 INSERT INTO inventory_transactions (
                     item_id, transaction_type, quantity, transaction_date,
@@ -97,18 +115,43 @@ class StockTransferWorkflow extends WorkflowHandler
                 ) VALUES (?, 'out', ?, CURDATE(), 'transfer', ?, ?)
             ");
             $decStmt = $this->db->prepare(
-                "UPDATE inventory_items SET current_quantity = current_quantity - ? WHERE id = ?"
+                "UPDATE inventory_items
+                 SET current_quantity = current_quantity - ?
+                 WHERE id = ? AND current_quantity >= ?"
             );
-            foreach ($data['items'] as $index => $itemId) {
-                $quantity = $data['quantities'][$index];
+            $transferId = null;
+            foreach ($lockedItems as $lockedItem) {
+                $itemId = $lockedItem['item_id'];
+                $quantity = $lockedItem['quantity'];
+                $decStmt->execute([$quantity, $itemId, $quantity]);
+                if ($decStmt->rowCount() !== 1) {
+                    throw new Exception("Stock changed while transferring item #{$itemId}");
+                }
                 $outStmt->execute([
                     $itemId,
                     $quantity,
-                    $transferId,
-                    'Transfer ' . $transferNumber . ' from ' . $data['source_location_id'] . ' to ' . $data['destination_location_id']
+                    null,
+                    'Transfer from ' . $data['source_location_id'] . ' to ' . $data['destination_location_id']
                 ]);
-                $decStmt->execute([$quantity, $itemId]);
+                if ($transferId === null) {
+                    $transferId = (int) $this->db->lastInsertId();
+                    $this->db->prepare(
+                        "UPDATE inventory_transactions
+                         SET reference_id = ?, notes = ?
+                         WHERE id = ?"
+                    )->execute([
+                        $transferId,
+                        'Transfer ' . $transferId . ' from ' . $data['source_location_id'] .
+                            ' to ' . $data['destination_location_id'],
+                        $transferId
+                    ]);
+                } else {
+                    $this->db->prepare(
+                        "UPDATE inventory_transactions SET reference_id = ? WHERE id = ?"
+                    )->execute([$transferId, (int) $this->db->lastInsertId()]);
+                }
             }
+            $transferNumber = 'TR-' . date('Y') . '-' . str_pad((string) $transferId, 6, '0', STR_PAD_LEFT);
 
             // Start workflow
             $workflowData = [
@@ -592,12 +635,5 @@ class StockTransferWorkflow extends WorkflowHandler
             \App\API\Services\Logger::legacyError('[StockTransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'message' => 'An internal error occurred.'];
         }
-    }
-
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `{$table}`");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
     }
 }

@@ -70,6 +70,13 @@ const StudentPerformanceController = {
       resetFiltersBtn: $("resetFiltersBtn"),
       exportOverviewBtn: $("exportOverviewBtn"),
       printOverviewBtn: $("printOverviewBtn"),
+      queueAiSupportPlanningBtn: $("queueAiSupportPlanningBtn"),
+      aiSupportPlanningStatus: $("aiSupportPlanningStatus"),
+      aiSupportPlanningReviews: $("aiSupportPlanningReviews"),
+      loadOwnAiSupportReviewsBtn: $("loadOwnAiSupportReviewsBtn"),
+      loadReviewAiSupportReviewsBtn: $("loadReviewAiSupportReviewsBtn"),
+      aiSupportPlanningReviewsStatus: $("aiSupportPlanningReviewsStatus"),
+      aiSupportPlanningReviewsList: $("aiSupportPlanningReviewsList"),
 
       summaryStudents: $("summaryStudents"),
       summaryAverage: $("summaryAverage"),
@@ -139,6 +146,9 @@ const StudentPerformanceController = {
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
     this.ui.printOverviewBtn?.addEventListener("click", () => this.printOverviewReport());
     this.ui.exportOverviewBtn?.addEventListener("click", () => this.exportOverview());
+    this.ui.queueAiSupportPlanningBtn?.addEventListener("click", () => this.queueAiSupportPlanning());
+    this.ui.loadOwnAiSupportReviewsBtn?.addEventListener("click", () => this.loadAiSupportReviews("own"));
+    this.ui.loadReviewAiSupportReviewsBtn?.addEventListener("click", () => this.loadAiSupportReviews("review"));
 
     this.ui.studentSearch?.addEventListener(
       "input",
@@ -197,6 +207,88 @@ const StudentPerformanceController = {
       this.state.streams = [];
       this.state.academicYears = [];
       this.state.terms = [];
+    }
+  },
+
+  queueAiSupportPlanning: async function () {
+    const button = this.ui.queueAiSupportPlanningBtn;
+    const status = this.ui.aiSupportPlanningStatus;
+    if (!button) return;
+    button.disabled = true;
+    if (status) status.textContent = "Preparing aggregate support review…";
+    try {
+      const response = await this.api("/students/ai-support-planning-queue", "POST", {
+        context: "oversight",
+        view_mode: this.ui.viewMode?.value || "students",
+        academic_year: this.ui.academicYearFilter?.value || "",
+        term_id: this.ui.termFilter?.value || "",
+        class_id: this.ui.classFilter?.value || "",
+        stream_id: this.ui.streamFilter?.value || "",
+        gender: this.ui.genderFilter?.value || "",
+        month: this.ui.monthFilter?.value || "",
+      });
+      if (status) status.textContent = response?.message || "Support review queued for authorized staff review.";
+      await this.loadAiSupportReviews("own");
+    } catch (error) {
+      if (status) status.textContent = error?.message || "Support review could not be queued.";
+    } finally {
+      button.disabled = false;
+    }
+  },
+
+  loadAiSupportReviews: async function (scope = "own") {
+    const panel = this.ui.aiSupportPlanningReviews;
+    const status = this.ui.aiSupportPlanningReviewsStatus;
+    const list = this.ui.aiSupportPlanningReviewsList;
+    if (!panel || !status || !list) return;
+    panel.hidden = false;
+    status.textContent = scope === "review" ? "Loading pending support reviews…" : "Loading your support drafts…";
+    list.replaceChildren();
+    try {
+      const response = await this.api(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET");
+      const drafts = Array.isArray(response?.drafts) ? response.drafts : (Array.isArray(response?.data?.drafts) ? response.data.drafts : []);
+      if (!drafts.length) {
+        status.textContent = scope === "review" ? "No support drafts are awaiting review." : "You have no support drafts yet.";
+        return;
+      }
+      status.textContent = `${drafts.length} support draft${drafts.length === 1 ? "" : "s"} loaded.`;
+      drafts.forEach((row) => {
+        const draft = row?.draft || {};
+        const card = document.createElement("div");
+        card.className = "col-12 col-lg-6";
+        const box = document.createElement("div");
+        box.className = "border rounded p-3 h-100 bg-white";
+        const title = document.createElement("strong");
+        title.textContent = String(draft.title || row.workflow_id || "Support review");
+        const body = document.createElement("p");
+        body.className = "small text-muted mt-2 mb-2";
+        body.textContent = String(draft.body || "No draft summary available.");
+        box.append(title, body);
+        if (scope === "review" && row.status === "pending_approval") {
+          const approve = document.createElement("button");
+          approve.type = "button";
+          approve.className = "btn btn-sm btn-success";
+          approve.textContent = "Approve for staff guidance";
+          approve.addEventListener("click", async () => {
+            approve.disabled = true;
+            approve.textContent = "Approving…";
+            try {
+              await this.api(`/students/ai-support-planning-approve/${Number(row.id)}`, "POST", {});
+              status.textContent = "Support review approved for staff guidance.";
+              await this.loadAiSupportReviews("review");
+            } catch (error) {
+              approve.disabled = false;
+              approve.textContent = "Approve for staff guidance";
+              status.textContent = error?.message || "Approval failed.";
+            }
+          });
+          box.append(approve);
+        }
+        card.append(box);
+        list.append(card);
+      });
+    } catch (error) {
+      status.textContent = error?.message || "Support reviews are unavailable.";
     }
   },
 

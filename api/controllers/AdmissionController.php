@@ -4,6 +4,8 @@ namespace App\API\Controllers;
 use App\API\Modules\admission\AdmissionAdminManager;
 use App\API\Modules\admission\AdmissionPolicy;
 use App\API\Modules\payments\PaymentsAPI;
+use App\API\Services\AiDraftService;
+use DomainException;
 use Exception;
 
 /**
@@ -26,8 +28,8 @@ class AdmissionController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->admin = new AdmissionAdminManager();
-        $this->policy = new AdmissionPolicy();
+        $this->admin = $this->contract('App\API\Modules\admission\AdmissionAdminManager');
+        $this->policy = $this->contract('App\API\Modules\admission\AdmissionPolicy');
     }
 
     public function index()
@@ -264,7 +266,7 @@ class AdmissionController extends BaseController
         }
 
         try {
-            $result = (new PaymentsAPI())->triggerStkPush([
+            $result = ($this->contract('App\API\Modules\payments\PaymentsAPI'))->triggerStkPush([
                 'account_reference' => (string) ($application['application_no'] ?? ''),
                 'phone' => $phone,
                 'amount' => $amount,
@@ -515,6 +517,200 @@ class AdmissionController extends BaseController
         }
 
         return $this->handleApiResponse($this->admin->getApplication((int) $id, $this->buildAdmissionContext()));
+    }
+
+    /** POST /api/admission/ai-followup-draft-queue */
+    public function postAiFollowupDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to prepare admissions assistance');
+        }
+
+        $applicationId = (int) ($data['application_id'] ?? $id ?? 0);
+        if ($applicationId < 1) {
+            return $this->badRequest('application_id is required');
+        }
+
+        $context = $this->buildAdmissionContext();
+        $application = $this->admin->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) {
+            return $this->notFound('Application not found');
+        }
+
+        $prepared = $this->admin->getAiFollowupContext(
+            $applicationId,
+            $context,
+            (string) ($data['channel'] ?? 'email')
+        );
+        if (($prepared['success'] ?? false) !== true) {
+            return $this->handleApiResponse($prepared);
+        }
+
+        $workflowContext = [
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_merge(
+                (array) ($context['effective_permissions'] ?? []),
+                (array) ($context['permission_codes'] ?? [])
+            ))),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? '',
+        ];
+
+        try {
+            $service = $this->contract(AiDraftService::class);
+            $queued = $service->queue(
+                'admissions.application_followup_draft',
+                $workflowContext,
+                (array) ($prepared['data']['input'] ?? []),
+                [
+                    'subject_type' => 'admission_application',
+                    'subject_id' => $applicationId,
+                ]
+            );
+            return $this->accepted($queued, 'Admissions follow-up draft queued for review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI draft queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue admissions assistance');
+        }
+    }
+
+    /** POST /api/admission/ai-interview-preparation-queue */
+    public function postAiInterviewPreparationQueue($id = null, $data = [], $segments = [])
+    {
+        return $this->queueAdmissionsAi($id, $data, 'admissions.interview_preparation', 'admission_interview_preparation', function (array $application, array $data): array {
+            return ['stage' => (string) ($application['current_stage'] ?? $application['stage'] ?? ''), 'grade_band' => (string) ($application['grade_applying'] ?? $application['grade'] ?? ''), 'days_waiting' => (string) max(0, (int) ($application['days_waiting'] ?? 0)), 'missing_items' => array_values(array_map('strval', (array) ($application['missing_items'] ?? []))), 'interview_focus' => mb_substr(trim((string) ($data['interview_focus'] ?? 'Verify readiness, communication, and age-appropriate learning context.')), 0, 500)];
+        });
+    }
+
+    /** POST /api/admission/ai-placement-review-queue */
+    public function postAiPlacementReviewQueue($id = null, $data = [], $segments = [])
+    {
+        return $this->queueAdmissionsAi($id, $data, 'admissions.placement_review', 'admission_placement_review', function (array $application, array $data): array {
+            $score = isset($application['interview_score']) ? (float) $application['interview_score'] : null;
+            return ['stage' => (string) ($application['current_stage'] ?? $application['stage'] ?? ''), 'grade_band' => (string) ($application['grade_applying'] ?? $application['grade'] ?? ''), 'interview_status' => (string) ($application['interview_status'] ?? 'not_available'), 'placement_signal_band' => $score === null ? 'not_available' : ($score >= 75 ? 'strong' : ($score >= 50 ? 'review' : 'needs_review')), 'capacity_signal' => mb_substr(trim((string) ($data['capacity_signal'] ?? 'verify_with_authorized_capacity_service')), 0, 100), 'follow_up_intent' => 'Verify policy, assessment evidence, and class capacity before any official placement decision.'];
+        });
+    }
+
+    private function queueAdmissionsAi($id, array $data, string $workflow, string $subjectType, callable $builder): array
+    {
+        if (!$this->hasAdmissionPermission('view_any')) return $this->forbidden('Admissions AI permission is required');
+        $applicationId = (int) ($data['application_id'] ?? $id ?? 0);
+        if ($applicationId < 1) return $this->badRequest('application_id is required');
+        $context = $this->buildAdmissionContext(); $application = $this->admin->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->admin->canViewApplicationRecord($application, $context)) return $this->notFound('Application not found');
+        $workflowContext = ['user_id' => (int) ($context['user_id'] ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($context['effective_permissions'] ?? []), (array) ($context['permission_codes'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? ''];
+        try { return $this->accepted($this->contract(AiDraftService::class)->queue($workflow, $workflowContext, $builder($application, $data), ['subject_type' => $subjectType, 'subject_id' => $applicationId, 'scope' => 'authorized_admission_application']), 'Admissions AI review queued'); }
+        catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (Exception $e) { return $this->serverError('Unable to queue admissions AI review'); }
+    }
+
+    /** GET /api/admission/ai-drafts?scope=own|review */
+    public function getAiDrafts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admissions assistance');
+        }
+
+        $scope = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own'));
+        $review = $scope === 'review';
+        if ($review && !$this->hasAdmissionPermission('review_application')) {
+            return $this->forbidden('Admissions approval permission is required to review AI drafts');
+        }
+
+        try {
+            $service = $this->contract(AiDraftService::class);
+            return $this->success([
+                'drafts' => $service->listForReview(
+                    $this->getDb()->getConnection(),
+                    (int) ($this->getUserId() ?? 0),
+                    $review,
+                    'admissions'
+                ),
+                'scope' => $review ? 'review' : 'own',
+            ], 'Admissions AI drafts retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI draft list failed: ' . $e->getMessage());
+            return $this->serverError('Unable to load admissions assistance');
+        }
+    }
+
+    /** POST /api/admission/ai-drafts/{id}/approve */
+    public function postAiDraftApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('review_application')) {
+            return $this->forbidden('Admissions approval permission is required to approve AI drafts');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) {
+            return $this->badRequest('draft_id is required');
+        }
+        $workflow = (string) ($data['workflow_id'] ?? '');
+        if (!in_array($workflow, $this->admissionsAiApprovalWorkflows(), true)) {
+            return $this->badRequest('An explicit admissions AI workflow is required for approval');
+        }
+        return $this->approveAdmissionsAiDraft($draftId, $workflow);
+    }
+
+    /** POST /api/admission/ai-followup-draft-approve/{id} */
+    public function postAiFollowupDraftApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAdmissionsAiDraftFromRequest($id, $data, $segments, 'admissions.application_followup_draft');
+    }
+
+    /** POST /api/admission/ai-interview-preparation-approve/{id} */
+    public function postAiInterviewPreparationApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAdmissionsAiDraftFromRequest($id, $data, $segments, 'admissions.interview_preparation');
+    }
+
+    /** POST /api/admission/ai-placement-review-approve/{id} */
+    public function postAiPlacementReviewApprove($id = null, $data = [], $segments = [])
+    {
+        return $this->approveAdmissionsAiDraftFromRequest($id, $data, $segments, 'admissions.placement_review');
+    }
+
+    private function approveAdmissionsAiDraftFromRequest($id, array $data, array $segments, string $workflow): array
+    {
+        if (!$this->hasAdmissionPermission('review_application')) {
+            return $this->forbidden('Admissions approval permission is required to approve AI drafts');
+        }
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        return $this->approveAdmissionsAiDraft($draftId, $workflow);
+    }
+
+    private function approveAdmissionsAiDraft(int $draftId, string $workflow): array
+    {
+        try {
+            $approved = $this->contract(AiDraftService::class)->approve(
+                $this->getDb()->getConnection(),
+                $draftId,
+                (int) ($this->getUserId() ?? 0),
+                $workflow
+            );
+            return $this->success([
+                'draft_id' => $draftId,
+                'workflow_id' => $workflow,
+                'status' => 'approved',
+                'review_only' => true,
+                'draft' => $approved['draft'] ?? [],
+            ], 'Admissions AI draft approved for staff review');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionController] AI draft approval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to approve admissions assistance');
+        }
+    }
+
+    private function admissionsAiApprovalWorkflows(): array
+    {
+        return [
+            'admissions.application_followup_draft',
+            'admissions.interview_preparation',
+            'admissions.placement_review',
+        ];
     }
 
     /**

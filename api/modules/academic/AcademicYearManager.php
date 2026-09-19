@@ -23,17 +23,6 @@ class AcademicYearManager
     }
 
     /**
-     * Tables in the normalized schema use explicit integer ids (no AUTO_INCREMENT).
-     * Mirrors the sp_generate_year_calendar approach: COALESCE(MAX(id), 0) + 1.
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
-    /**
      * Get current active academic year
      */
     public function getCurrentAcademicYear(): ?array
@@ -97,20 +86,19 @@ class AcademicYearManager
             throw new \InvalidArgumentException("Academic year {$data['year_code']} already exists");
         }
 
-        $yearId = $this->nextId('academic_years');
         $sql = "INSERT INTO academic_years (
-            id, year_code, year_name, start_date, end_date, status, is_current
-        ) VALUES (?, ?, ?, ?, ?, ?, 0)";
+            year_code, year_name, start_date, end_date, status, is_current
+        ) VALUES (?, ?, ?, ?, ?, 0)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $yearId,
             $data['year_code'],
             $data['year_name'],
             $data['start_date'],
             $data['end_date'],
             $data['status'] ?? 'planning'
         ]);
+        $yearId = (int) $this->db->lastInsertId();
 
         // Automatically create 3 terms for this academic year
         $this->createTermsForYear($yearId, $data['start_date'], $data['end_date']);
@@ -156,13 +144,12 @@ class AcademicYearManager
             ]
         ];
 
-        $sql = "INSERT INTO academic_year_terms (id, academic_year_id, term_id, opening_date, closing_date, status)
-                VALUES (?, ?, ?, ?, ?, 'upcoming')";
+        $sql = "INSERT INTO academic_year_terms (academic_year_id, term_id, opening_date, closing_date, status)
+                VALUES (?, ?, ?, ?, 'upcoming')";
 
         foreach ($terms as $term) {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $this->nextId('academic_year_terms'),
                 $yearId,
                 $this->ensureTermId($term['name'], $term['term_number']),
                 $term['start'],
@@ -215,10 +202,9 @@ class AcademicYearManager
             return $termId;
         }
 
-        $termId = $this->nextId('terms');
-        $ins = $this->db->prepare("INSERT INTO terms (id, name, code) VALUES (?, ?, ?)");
-        $ins->execute([$termId, $name, $code]);
-        return $termId;
+        $ins = $this->db->prepare("INSERT INTO terms (name, code) VALUES (?, ?)");
+        $ins->execute([$name, $code]);
+        return (int) $this->db->lastInsertId();
     }
 
     /**

@@ -22,7 +22,7 @@ class CommunicationPlatformService
     public function __construct(PDO $db)
     {
         $this->db = $db;
-        $this->legacyTemplates = new TemplateLoader();
+        $this->legacyTemplates = ServiceContractBroker::contract('App\API\Modules\communications\templates\TemplateLoader');
     }
 
     public function queueForStudentParents(

@@ -13,7 +13,7 @@ class StaffAppointmentsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->service = new StaffAppointmentsService();
+        $this->service = $this->contract('App\API\Services\StaffAppointmentsService');
     }
 
     public function get($id = null, $data = [], $segments = [])

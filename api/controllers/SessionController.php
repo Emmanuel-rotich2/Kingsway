@@ -22,8 +22,8 @@ class SessionController extends BaseAPI
     public function __construct()
     {
         parent::__construct('session');
-        $this->usersApi = new UsersAPI();
-        $this->permissionManager = new PermissionManager($this->db);
+        $this->usersApi = $this->contract('App\API\Modules\users\UsersAPI');
+        $this->permissionManager = $this->contract('App\API\Modules\users\PermissionManager', $this->db);
     }
 
     /**

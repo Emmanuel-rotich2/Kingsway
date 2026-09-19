@@ -34,15 +34,19 @@ class AuthAPI extends BaseAPI
     // TEMPORARILY DISABLED due to performance issues in buildLoginResponseFromDatabase
     private bool $useDatabaseConfig = false;
 
+    /** Parent role id in the roles table (single-role parent accounts). */
+    private const PARENT_ROLE_ID = 73;
+    private const ONBOARDING_TTL_SECONDS = 900;
+
     public function __construct()
     {
         parent::__construct('auth');
-        $this->usersApi = new UsersAPI();
-        $this->roleManager = new RoleManager($this->db);
-        $this->permissionManager = new PermissionManager($this->db);
-        $this->userRoleManager = new UserRoleManager($this->db);
-        $this->userPermissionManager = new UserPermissionManager($this->db);
-        $this->communicationsApi = new CommunicationsAPI();
+        $this->usersApi = $this->contract('App\API\Modules\users\UsersAPI');
+        $this->roleManager = $this->contract('App\API\Modules\users\RoleManager', $this->db);
+        $this->permissionManager = $this->contract('App\API\Modules\users\PermissionManager', $this->db);
+        $this->userRoleManager = $this->contract('App\API\Modules\users\UserRoleManager', $this->db);
+        $this->userPermissionManager = $this->contract('App\API\Modules\users\UserPermissionManager', $this->db);
+        $this->communicationsApi = $this->contract('App\API\Modules\communications\CommunicationsAPI');
         $this->authSessionService = new AuthSessionService($this->db);
 
         // Sidebar navigation is file-driven through SidebarConfigReader.
@@ -306,6 +310,11 @@ class AuthAPI extends BaseAPI
             // verification modal, call POST /api/2fa/challenge, then POST
             // /api/2fa/verify, and finally re-submit login with
             // {2fa_verified: true, user_id: <id>}.
+            //
+            // Parent-only accounts run through the SAME shared flow (the Parent
+            // Portal posts here too, so no early redirect). The response carries
+            // parent_portal_only so the staff sign-in page can route a parent to
+            // the Parent Portal afterwards; the portal page ignores it.
             $tfa = new \App\API\Services\TwoFactorService();
             $userId = (int) ($userData['id'] ?? 0);
             $isTestUser = (int) ($userData['is_test_user'] ?? 0) === 1;
@@ -322,13 +331,19 @@ class AuthAPI extends BaseAPI
                     return [
                         'success' => true,
                         'status' => 'success',
-                        'data' => [
-                            'user_id' => $userId,
-                            'requires_2fa' => true,
-                            'requires_2fa_setup' => true,
-                            'setup_required' => true,
-                            'method' => null,
-                        ],
+                        'data' => array_merge(
+                            [
+                                'user_id' => $userId,
+                                'requires_2fa' => true,
+                                'requires_2fa_setup' => true,
+                                'setup_required' => true,
+                                'method' => null,
+                                'onboarding_token' => $this->generateOnboardingToken($userId, $userData),
+                                'onboarding_expires_in' => self::ONBOARDING_TTL_SECONDS,
+                                'csrf_token' => $this->generateCsrfToken($userId),
+                            ],
+                            $this->parentPortalLoginMarker($userData)
+                        ),
                         'message' => 'Two-factor authentication must be enabled before you can sign in.',
                     ];
                 }
@@ -337,13 +352,16 @@ class AuthAPI extends BaseAPI
                 return [
                     'success' => true,
                     'status' => 'success',
-                    'data' => [
-                        'user_id' => $userId,
-                        'requires_2fa' => true,
+                    'data' => array_merge(
+                        [
+                            'user_id' => $userId,
+                            'requires_2fa' => true,
                             'method' => $requiredMethod,
                             'challenge_token' => $challengeToken,
                             'available_methods' => $tfa->getEnabledMethods($userId),
-                    ],
+                        ],
+                        $this->parentPortalLoginMarker($userData)
+                    ),
                     'message' => 'Two-factor verification required.',
                 ];
             }
@@ -365,6 +383,7 @@ class AuthAPI extends BaseAPI
                 'user_id' => $userData['id'],
                 'username' => $userData['username'],
                 'email' => $userData['email'],
+                'parent_id' => $this->parentIdForUser((int) $userData['id']),
                 'roles' => $userData['roles'] ?? [],
                 'display_name' => $userData['first_name'] . ' ' . $userData['last_name']
                 // NO permissions in token!
@@ -427,6 +446,10 @@ class AuthAPI extends BaseAPI
                  (int) $userData['id']
              );
              $loginData['data']['test_mfa_bypassed'] = $testMfaBypassAllowed;
+             $loginData['data'] = array_merge(
+                 $loginData['data'],
+                 $this->parentPortalLoginMarker($userData)
+             );
 
             try {
                 if (!empty($userData['force_password_change'])) {
@@ -544,6 +567,7 @@ class AuthAPI extends BaseAPI
             'user_id' => $userData['id'],
             'username' => $userData['username'],
             'email' => $userData['email'],
+            'parent_id' => $this->parentIdForUser($userId),
             'roles' => $userData['roles'],
             'display_name' => trim(($userData['first_name'] ?? '') . ' ' . ($userData['last_name'] ?? '')),
         ]);
@@ -569,6 +593,10 @@ class AuthAPI extends BaseAPI
 
             $loginData['data']['two_factor_verified'] = true;
             $loginData['data']['csrf_token'] = $this->generateCsrfToken($userId);
+            $loginData['data'] = array_merge(
+                $loginData['data'],
+                $this->parentPortalLoginMarker($userData)
+            );
 
             $result = $this->attachTrackedSession($loginData, $userId, $token);
             unset($result['data']['refresh_token']);
@@ -1110,6 +1138,83 @@ class AuthAPI extends BaseAPI
         return JWT::encode($payload, JWT_SECRET, 'HS256');
     }
 
+    /**
+     * Restricted, short-lived token that only proves the user passed the
+     * password step but still owes MFA enrollment (policy-forced). AuthMiddleware
+     * allows it ONLY on the /twofactor/* onboarding endpoints and default-denies
+     * every other route while the onboarding claim is present.
+     */
+    private function generateOnboardingToken(int $userId, array $userData): string
+    {
+        $issuedAt = time();
+        $payload = [
+            'user_id' => $userId,
+            'username' => $userData['username'] ?? '',
+            'email' => $userData['email'] ?? '',
+            'parent_id' => $this->parentIdForUser($userId),
+            'display_name' => trim((($userData['first_name'] ?? '') . ' ' . ($userData['last_name'] ?? ''))),
+            'onboarding' => true,
+            'iat' => $issuedAt,
+            'exp' => $issuedAt + self::ONBOARDING_TTL_SECONDS,
+            'iss' => JWT_ISSUER,
+            'aud' => JWT_AUDIENCE,
+        ];
+
+        return JWT::encode($payload, JWT_SECRET, 'HS256');
+    }
+
+    /**
+     * Resolve the active parent record bound to a user, mirroring
+     * ParentPortalManager::getParentByUserId(). Returns null for staff-only
+     * accounts so the parent_id claim is only ever set for real parents.
+     */
+    private function parentIdForUser(int $userId): ?int
+    {
+        if ($userId < 1) {
+            return null;
+        }
+        try {
+            $stmt = $this->db->prepare(
+                'SELECT pr.id
+                   FROM users u
+                   JOIN persons p ON p.id = u.person_id
+                   JOIN parents pr ON pr.person_id = p.id
+                   JOIN user_roles ur ON ur.user_id = u.id
+                   JOIN roles r ON r.id = ur.role_id
+                  WHERE u.id = ?
+                    AND u.status = \'active\'
+                    AND pr.status = \'active\'
+                    AND r.id = ' . self::PARENT_ROLE_ID . '
+                    AND r.name = \'Parent\'
+                  LIMIT 1'
+            );
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            return $row ? (int) $row['id'] : null;
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('parentIdForUser failed: ' . $error->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Markers that let the staff sign-in page (public.js / sign_in.js) route a
+     * parent-only account to the Parent Portal after a successful shared login.
+     * Empty when the account holds any other role.
+     */
+    private function parentPortalLoginMarker(array $userData): array
+    {
+        if (!$this->isParentOnlyAccount($userData)) {
+            return [];
+        }
+
+        return [
+            'parent_portal_only' => true,
+            'parent_portal_url' => $this->parentPortalUrl(),
+        ];
+    }
+
     // Generate refresh token (stored in DB, expires in 7 days)
     private function generateRefreshToken($userId, int $ttlSeconds = 604800)
     {
@@ -1231,6 +1336,7 @@ class AuthAPI extends BaseAPI
                 'user_id' => $userData['id'],
                 'username' => $userData['username'],
                 'email' => $userData['email'],
+                'parent_id' => $this->parentIdForUser((int) $userData['id']),
                 'roles' => $userData['roles'] ?? [],
                 'display_name' => $userData['first_name'] . ' ' . $userData['last_name'],
             ]);
@@ -1447,6 +1553,11 @@ class AuthAPI extends BaseAPI
 
     private function passwordSetupUrl(string $token): string
     {
+        return $this->appBaseUrl() . '/reset_default_password.php?token=' . rawurlencode($token);
+    }
+
+    private function appBaseUrl(): string
+    {
         $baseUrl = defined('BASE_URL') ? rtrim(BASE_URL, '/') : '';
         if ($baseUrl === '') {
             $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
@@ -1457,7 +1568,42 @@ class AuthAPI extends BaseAPI
             $baseUrl = $scheme . '://' . $host . $appBase;
         }
 
-        return $baseUrl . '/reset_default_password.php?token=' . rawurlencode($token);
+        return rtrim($baseUrl, '/');
+    }
+
+    private function parentPortalUrl(): string
+    {
+        return $this->appBaseUrl() . '/parent_portal.php';
+    }
+
+    /**
+     * True when the account holds ONLY the Parent role (id 73) and nothing
+     * else. Roles come from the login user payload; when missing (some code
+     * paths return a bare user row), they are resolved lazily from the user
+     * roles table so the guard is always decided from the full role set.
+     */
+    private function isParentOnlyAccount(array $userData): bool
+    {
+        $roles = $userData['roles'] ?? null;
+        if (!is_array($roles) || $roles === []) {
+            $userId = (int) ($userData['id'] ?? 0);
+            if ($userId > 0) {
+                $roleResult = $this->userRoleManager->getUserRoles($userId);
+                $roles = $roleResult['success'] ? ($roleResult['data'] ?? []) : [];
+            }
+        }
+
+        $roleIds = [];
+        foreach ((array) $roles as $role) {
+            $roleId = is_array($role)
+                ? (int) ($role['role_id'] ?? $role['id'] ?? 0)
+                : (int) $role;
+            if ($roleId > 0) {
+                $roleIds[$roleId] = true;
+            }
+        }
+
+        return count($roleIds) === 1 && isset($roleIds[self::PARENT_ROLE_ID]);
     }
 
     private function staffProfileCompletionRequired(int $userId): bool

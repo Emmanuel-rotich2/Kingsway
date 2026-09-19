@@ -2,7 +2,7 @@
 
 namespace App\API\Services\payments;
 
-use App\API\Modules\payments\PaymentsAPI;
+use App\API\Services\ServiceContractBroker;
 use App\Database\Database;
 use PDO;
 use RuntimeException;
@@ -25,7 +25,7 @@ class KcbTransferReconciliationService
         $this->db = $db ?: Database::getInstance()->getConnection();
         $this->client = $client ?: new KcbFundsTransferService();
         $this->finalizer = $finalizer ?: static function (array $payload): array {
-            return (new PaymentsAPI())->processKcbTransferCallback($payload, ['__source' => 'status_inquiry']);
+            return ServiceContractBroker::contract('App\API\Modules\payments\PaymentsAPI')->processKcbTransferCallback($payload, ['__source' => 'status_inquiry']);
         };
     }
 

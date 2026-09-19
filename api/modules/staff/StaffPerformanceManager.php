@@ -80,19 +80,16 @@ class StaffPerformanceManager extends BaseAPI
                 return formatResponse(false, null, 'A review already exists for this period');
             }
 
-            // Create review. The id is MANUAL on performance_reviews (no
-            // AUTO_INCREMENT); review_period maps to period, reviewer_id to
+            // Create review. review_period maps to period, reviewer_id to
             // reviewed_by, overall_rating to rating, comments to notes, and the
             // legacy 'pending' status maps to the live 'draft' enum.
-            $reviewId = $this->nextReviewId();
             $sql = "INSERT INTO performance_reviews (
-                id, staff_id, period, rating, reviewed_by,
+                staff_id, period, rating, reviewed_by,
                 review_date, status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)";
+            ) VALUES (?, ?, ?, ?, ?, 'draft', ?)";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $reviewId,
                 $data['staff_id'],
                 $data['review_period'],
                 $data['overall_rating'] ?? null,
@@ -100,6 +97,7 @@ class StaffPerformanceManager extends BaseAPI
                 $data['review_date'] ?? date('Y-m-d'),
                 $data['comments'] ?? null
             ]);
+            $reviewId = (int) $this->db->lastInsertId();
 
             // Auto-populate KPIs from templates based on staff category
             if (!empty($staff['staff_category_id'])) {
@@ -472,15 +470,6 @@ class StaffPerformanceManager extends BaseAPI
             'E' => 'E - Does Not Meet Expectations'
         ];
         return $grades[$grade] ?? 'E - Does Not Meet Expectations';
-    }
-
-    /**
-     * performance_reviews.id is a MANUAL primary key (no AUTO_INCREMENT in the
-     * 4NF schema), so the next id is derived like the other manual-id tables.
-     */
-    private function nextReviewId(): int
-    {
-        return (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM performance_reviews')->fetchColumn();
     }
 
     /**

@@ -16,6 +16,20 @@
  *      BroadcastChannel so every tab in the same origin reacts without each
  *      tab hammering PHP.
  *
+ * Failure & recovery protocol (g8):
+ *   - Handshake failures back off exponentially (20s→320s, max 5 retries);
+ *     only explicit 401/403 auth rejections fail fast (genuinely nothing to
+ *     poll). A transient failure no longer silently disables delivery for
+ *     the whole 6-hour interval.
+ *   - The worker signals BUFFER_ROTATED when every buffer 404s (daily slug
+ *     rotation or 48h purge); the manager immediately re-runs the handshake.
+ *   - The worker asks REQUEST_BUFFERS on activate (it survived an idle
+ *     termination with wiped in-memory state); the manager answers from its
+ *     cached URLs at zero API cost.
+ *   - The listener binds on visibilitychange (tab focus re-registers held
+ *     URLs, or handshakes if none), and the 6-hour interval refreshes the
+ *     handshake well before the daily slug rotation.
+ *
  * This keeps the polling loop entirely off PHP (static file reads), avoiding
  * the thundering-herd that ~1000 concurrent users polling a PHP endpoint would
  * create on HostAfrica's limited PHP process pool.
@@ -30,6 +44,14 @@ const RealtimeManager = (() => {
   let registeredScopeUrls = [];
   let channel = null;
   const lastSeenByScope = new Map();
+
+  // Handshake retry state. Transient handshake failures (network drop, 5xx,
+  // rate limit) back off exponentially so event delivery recovers on its own
+  // instead of silently waiting for the next 6-hour refresh; explicit auth
+  // rejections (401/403) never retry — there is genuinely nothing to poll.
+  let handshakeRetries = 0;
+  let handshakeRetryTimer = 0;
+  const HANDSHAKE_MAX_RETRIES = 5;
 
   try {
     if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(CHANNEL_NAME);
@@ -117,25 +139,74 @@ const RealtimeManager = (() => {
 
     // Buffer URLs rotate daily. Refresh the authenticated handshake well
     // before an epoch boundary can leave a long-lived dashboard on an old URL.
-    window.setInterval(registerBuffers, 6 * 60 * 60 * 1000);
+    window.setInterval(() => {
+      clearHandshakeRetry(); // The 6h tick is a fresh cycle: give it full retries.
+      registerBuffers();
+    }, 6 * 60 * 60 * 1000);
   }
 
   /**
    * Authenticated handshake: learn the current user's role-scoped buffer URLs.
    * Returns only paths (never payloads); scope authorization happens server-side.
+   *
+   * Failure policy (mirrors api.js token-refresh philosophy: only an explicit
+   * authentication rejection proves the session is dead):
+   *   - 401/403 → stop retrying; the user is logged out and genuinely has
+   *     nothing to poll. The next full handshake (page load / 6h interval /
+   *     SW BUFFER_ROTATED signal) retries naturally.
+   *   - anything else (network drop, 5xx, rate limit, malformed response)
+   *     is transient → exponential backoff 20s→40s→80s→160s→320s, reset on
+   *     success. Without this, a single failed handshake silently disables
+   *     event delivery for up to 6 hours.
    */
   async function registerBuffers() {
     let response;
     try {
       response = await window.API?.apiCall('/realtime/my-buffer', 'GET');
-    } catch (ignored) {
-      return; // Unauthenticated or session error: nothing to poll.
+    } catch (error) {
+      if (error?.code === 401 || error?.code === 403) {
+        clearHandshakeRetry();
+        return; // Explicit auth rejection: nothing to poll, no retry.
+      }
+      scheduleHandshakeRetry();
+      return;
     }
+
     const buffers = Array.isArray(response?.data?.buffers) ? response.data.buffers : [];
-    registeredScopeUrls = buffers.map((b) => b.url).filter((u) => typeof u === 'string' && u);
+    const urls = buffers.map((b) => b.url).filter((u) => typeof u === 'string' && u);
+    if (!urls.length) {
+      // Authenticated but no buffers (e.g. role without scopes): not an
+      // error, but also nothing to retry for — stop any pending backoff.
+      clearHandshakeRetry();
+      registeredScopeUrls = [];
+      return;
+    }
+
+    handshakeRetries = 0;
+    if (handshakeRetryTimer) {
+      window.clearTimeout(handshakeRetryTimer);
+      handshakeRetryTimer = 0;
+    }
+    registeredScopeUrls = urls;
     const worker = navigator.serviceWorker?.controller;
-    if (worker && registeredScopeUrls.length) {
+    if (worker) {
       worker.postMessage({ type: 'REGISTER_BUFFERS', urls: registeredScopeUrls });
+    }
+  }
+
+  function scheduleHandshakeRetry() {
+    if (handshakeRetries >= HANDSHAKE_MAX_RETRIES) return; // 6h interval retries later anyway.
+    const delay = 20000 * Math.pow(2, handshakeRetries); // 20s, 40s, 80s, 160s, 320s
+    handshakeRetries += 1;
+    if (handshakeRetryTimer) window.clearTimeout(handshakeRetryTimer);
+    handshakeRetryTimer = window.setTimeout(registerBuffers, delay);
+  }
+
+  function clearHandshakeRetry() {
+    handshakeRetries = 0;
+    if (handshakeRetryTimer) {
+      window.clearTimeout(handshakeRetryTimer);
+      handshakeRetryTimer = 0;
     }
   }
 
@@ -159,6 +230,28 @@ const RealtimeManager = (() => {
    */
   function onServiceWorkerMessage(event) {
     const data = event.data || {};
+    if (data?.type === 'BUFFER_ROTATED') {
+      // The worker hit 404s on every buffer (daily slug rotation crossed
+      // midnight, or a purge removed the epoch's files). It has stopped
+      // polling; only the authenticated handshake can mint current URLs.
+      clearHandshakeRetry();
+      registerBuffers();
+      return;
+    }
+    if (data?.type === 'REQUEST_BUFFERS') {
+      // The worker restarted after idle termination with in-memory state
+      // wiped. Answer with the URLs we already hold (no API cost), or run
+      // the handshake if we have none either.
+      if (registeredScopeUrls.length) {
+        navigator.serviceWorker?.controller?.postMessage({
+          type: 'REGISTER_BUFFERS',
+          urls: registeredScopeUrls,
+        });
+      } else {
+        registerBuffers();
+      }
+      return;
+    }
     if (data?.type !== 'BUFFER_POLL' || !Array.isArray(data.data)) return;
     for (const item of data.data) {
       if (item?.type === 'UPDATE' && item?.payload) {

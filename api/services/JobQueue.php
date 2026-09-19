@@ -2,23 +2,27 @@
 
 namespace App\API\Services;
 
-use App\Database\Database;
+use App\Database\ConnectionManager;
 use PDO;
+use RuntimeException;
 
 /**
- * JobQueue - Laravel-like background job dispatcher for shared hosting.
+ * JobQueue - background job dispatcher for shared hosting (roadmap §4.1/§4.8).
  *
- * Writers push jobs onto the jobs_queue table with status 'pending'. A cron
- * worker (scripts/cron/worker.php, run every minute via HostAfrica's
- * DirectAdmin cron) claims, processes and finalises them, keeping heavy work
- * (report-card/PDF generation, bulk SMS, provider callbacks) out of the
- * request path.
+ * Every queue row lives in the KingsWayBuffers offload schema, switched on the
+ * single PDO through ConnectionManager::run(). The transactional KingsWayAcademy
+ * database is never touched for queue bookkeeping, so background churn cannot
+ * slow down primary reads/writes.
  *
- * The worker claims jobs with a single UPDATE ... WHERE status='pending' so
- * concurrent / overlapping cron invocations on shared hosting cannot claim the
- * same row twice.
+ * Writers push jobs with status 'pending'. The cron worker
+ * (scripts/cron/worker.php, or the HTTP fallback at POST /api/realtime/worker)
+ * claims, processes and finalises them. Claims use a guarded UPDATE so
+ * concurrent / overlapping workers cannot double-process a row. Failed jobs
+ * retry with per-job exponential backoff ($max_attempts / $backoff_seconds)
+ * and, once exhausted, are copied to the dead-letter registry for review and
+ * safe requeue.
  */
-class JobQueue
+final class JobQueue
 {
     public const STATUS_PENDING = 'pending';
     public const STATUS_PROCESSING = 'processing';
@@ -26,152 +30,514 @@ class JobQueue
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    private const MAX_ATTEMPTS = 20;
+    private const MAX_BACKOFF = 3600;
+    private const MAX_PAYLOAD_BYTES = 131072;
+
     /**
      * Enqueue a background job.
      *
-     * @param string $jobType Stable job type key consumed by the worker switch.
-     * @param array  $payload Arbitrary worker payload.
-     * @param int    $delaySeconds Optional delay before the job is available.
+     * @param string $jobType       Stable job type key consumed by the worker switch.
+     * @param array  $payload       Arbitrary worker payload.
+     * @param int    $delaySeconds  Optional delay before the job is available.
+     * @param int    $maxAttempts   Attempt limit before the job is dead-lettered (1-20).
+     * @param int    $backoffSeconds Base backoff for the first retry (5-3600); doubles each retry.
      * @return int New job id.
      */
-    public static function push(PDO $pdo, string $jobType, array $payload = [], int $delaySeconds = 0): int
-    {
+    public static function push(
+        string $jobType,
+        array $payload = [],
+        int $delaySeconds = 0,
+        int $maxAttempts = 3,
+        int $backoffSeconds = 60
+    ): int {
         if (!preg_match('/^[a-z][a-z0-9_.-]{2,99}$/', $jobType)) {
             throw new \InvalidArgumentException('Invalid background job type.');
         }
-        $availableAt = date('Y-m-d H:i:s', time() + max(0, $delaySeconds));
-        $encodedPayload = json_encode(
+        $maxAttempts = self::clampAttempts($maxAttempts);
+        $backoffSeconds = self::clampBackoff($backoffSeconds);
+        $availableAt = date('Y-m-d H:i:s', time() + max(0, (int) $delaySeconds));
+        $encoded = json_encode(
             $payload,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         );
-        $stmt = $pdo->prepare(
-            "INSERT INTO jobs_queue (job_type, payload, status, available_at) VALUES (?, ?, ?, ?)"
-        );
-        $stmt->execute([
+        if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) {
+            throw new \InvalidArgumentException('Background job payload exceeds the 128 KB limit.');
+        }
+
+        $idempotencyKey = trim((string) ($payload['idempotency_key'] ?? ''));
+        if ($idempotencyKey !== '' && (strlen($idempotencyKey) > 128 || preg_match('/^[A-Za-z0-9._:-]+$/', $idempotencyKey) !== 1)) {
+            throw new \InvalidArgumentException('Background job idempotency key is invalid.');
+        }
+
+        return ConnectionManager::run(static function (PDO $pdo) use (
             $jobType,
-            $encodedPayload,
-            self::STATUS_PENDING,
+            $encoded,
+            $idempotencyKey,
             $availableAt,
-        ]);
-        return (int) $pdo->lastInsertId();
+            $maxAttempts,
+            $backoffSeconds
+        ): int {
+            $lockName = '';
+            if ($idempotencyKey !== '') {
+                // MySQL named locks serialize only the same idempotency key and
+                // are released in finally, including worker/request failure.
+                $lockName = 'KingswayJob:' . hash('sha256', $jobType . ':' . $idempotencyKey);
+                $lock = $pdo->prepare('SELECT GET_LOCK(?, 5)');
+                $lock->execute([$lockName]);
+                if ((int) $lock->fetchColumn() !== 1) {
+                    throw new RuntimeException('Unable to acquire the job idempotency lock.');
+                }
+                try {
+                    $existing = $pdo->prepare(
+                        "SELECT id FROM jobs_queue
+                         WHERE job_type = ?
+                           AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.idempotency_key')) = ?
+                           AND status IN (?, ?, ?)
+                         ORDER BY id DESC LIMIT 1"
+                    );
+                    $existing->execute([$jobType, $idempotencyKey, self::STATUS_PENDING, self::STATUS_PROCESSING, self::STATUS_DONE]);
+                    $existingId = $existing->fetchColumn();
+                    if ($existingId !== false) return (int) $existingId;
+
+                    $stmt = $pdo->prepare(
+                        "INSERT INTO jobs_queue
+                            (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                         VALUES (?, ?, 0, ?, ?, ?, ?)"
+                    );
+                    $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
+                    return (int) $pdo->lastInsertId();
+                } finally {
+                    $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+                    $release->execute([$lockName]);
+                }
+            }
+
+            $stmt = $pdo->prepare(
+                "INSERT INTO jobs_queue
+                    (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                 VALUES (?, ?, 0, ?, ?, ?, ?)"
+            );
+            $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
+            return (int) $pdo->lastInsertId();
+        }, ConnectionManager::NS_BUFFERS);
     }
 
     /**
      * Atomically claim a batch of pending jobs for processing.
      *
-     * Each row is transitioned pending -> processing with a guarded UPDATE so
-     * concurrent or overlapping cron workers cannot process the same job twice.
-     *
      * @return int[] Claimed (now processing) job ids.
      */
-    public static function claimBatch(PDO $pdo, int $limit = 10): array
+    public static function claimBatch(int $limit = 10): array
     {
-        $ids = [];
-        // LIMIT cannot be bound as a parameter in MySQL/MariaDB (it must be a
-        // literal), and $limit has already been cast to int so it is safe to
-        // inline. The value is re-cast and clamped here as a defensive measure.
         $limit = max(1, min(500, $limit));
-        // Atomic claim per row so concurrent workers never double-process.
-        $stmt = $pdo->prepare(
-            "SELECT id FROM jobs_queue
-             WHERE status = ? AND available_at <= NOW()
-             ORDER BY id ASC
-             LIMIT {$limit}"
-        );
-        $stmt->execute([self::STATUS_PENDING]);
-        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        foreach ($rows as $id) {
-            $claim = $pdo->prepare(
-                "UPDATE jobs_queue
-                 SET status = ?, updated_at = NOW()
-                 WHERE id = ? AND status = ?"
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit): array {
+            $ids = [];
+            // LIMIT is bound as a prepared literal ($limit is already int-clamped).
+            $stmt = $pdo->prepare(
+                "SELECT id FROM jobs_queue
+                 WHERE status = ? AND available_at <= NOW()
+                 ORDER BY id ASC
+                 LIMIT {$limit}"
             );
-            $claim->execute([self::STATUS_PROCESSING, $id, self::STATUS_PENDING]);
-            if ($claim->rowCount() === 1) {
-                $ids[] = (int) $id;
+            $stmt->execute([self::STATUS_PENDING]);
+            $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            foreach ($rows as $rawId) {
+                $id = (int) $rawId;
+                $claim = $pdo->prepare(
+                    "UPDATE jobs_queue
+                     SET status = ?, updated_at = NOW()
+                     WHERE id = ? AND status = ?"
+                );
+                $claim->execute([self::STATUS_PROCESSING, $id, self::STATUS_PENDING]);
+                if ($claim->rowCount() === 1) {
+                    $ids[] = $id;
+                }
             }
-        }
-        return $ids;
+            return $ids;
+        }, ConnectionManager::NS_BUFFERS);
     }
 
     /**
-     * Recover jobs abandoned by a worker crash or hosting timeout.
+     * Fetch one queued job for dispatch.
      *
-     * Normal jobs are expected to finish within the worker's 55-second HTTP
-     * ceiling. A 15-minute lease therefore leaves ample room for slow work
-     * while preventing rows from remaining in `processing` forever.
+     * @return array{id:int, job_type:string, payload:array, status:string,
+     *               attempts:int, max_attempts:int, backoff_seconds:int,
+     *               available_at:string, created_at:string, updated_at:string,
+     *               failed_reason:?string, dead_letter_reason:?string}|null
      */
-    public static function recoverStale(PDO $pdo, int $leaseMinutes = 15, int $maxAttempts = 3): int
+    public static function fetchJob(int $id): ?array
     {
-        $leaseMinutes = max(5, min(1440, $leaseMinutes));
-        $maxAttempts = max(1, min(20, $maxAttempts));
-        $stmt = $pdo->prepare(
-            "UPDATE jobs_queue
-             SET attempts = attempts + 1,
-                 status = CASE WHEN attempts + 1 >= ? THEN ? ELSE ? END,
-                 available_at = NOW(),
-                 failed_reason = CASE
-                     WHEN attempts + 1 >= ? THEN 'Worker lease expired too many times'
-                     ELSE 'Recovered after worker lease expired'
-                 END,
-                 updated_at = NOW()
-             WHERE status = ?
-               AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE"
-        );
-        $stmt->execute([
-            $maxAttempts,
-            self::STATUS_FAILED,
-            self::STATUS_PENDING,
-            $maxAttempts,
-            self::STATUS_PROCESSING,
-        ]);
-        return $stmt->rowCount();
+        return ConnectionManager::run(static function (PDO $pdo) use ($id): ?array {
+            $stmt = $pdo->prepare(
+                "SELECT id, job_type, payload, status, attempts, max_attempts, backoff_seconds,
+                        available_at, created_at, updated_at, failed_reason, dead_letter_reason
+                 FROM jobs_queue WHERE id = ?"
+            );
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return null;
+            }
+            $decoded = json_decode((string) $row['payload'], true);
+            $row['payload'] = is_array($decoded) ? $decoded : [];
+            $row['id'] = (int) $row['id'];
+            $row['attempts'] = (int) $row['attempts'];
+            $row['max_attempts'] = (int) $row['max_attempts'];
+            $row['backoff_seconds'] = (int) $row['backoff_seconds'];
+            return $row;
+        }, ConnectionManager::NS_BUFFERS);
     }
 
     /**
      * Mark a job as completed.
      */
-    public static function markDone(PDO $pdo, int $id): void
+    public static function markDone(int $id): void
     {
-        $stmt = $pdo->prepare(
-            "UPDATE jobs_queue SET status = ?, failed_reason = NULL, updated_at = NOW() WHERE id = ?"
-        );
-        $stmt->execute([self::STATUS_DONE, $id]);
-    }
-
-    public static function markFailed(PDO $pdo, int $id, string $reason = '', int $maxAttempts = 3): string
-    {
-        $maxAttempts = max(1, min(20, $maxAttempts));
-        $retryDelay = 60;
-        $stmt = $pdo->prepare(
-            "UPDATE jobs_queue
-             SET status = CASE WHEN attempts + 1 >= ? THEN ? ELSE ? END,
-                 attempts = attempts + 1,
-                 available_at = CASE
-                     WHEN attempts + 1 >= ? THEN available_at
-                     ELSE DATE_ADD(NOW(), INTERVAL {$retryDelay} SECOND)
-                 END,
-                 failed_reason = ?, updated_at = NOW()
-             WHERE id = ? AND status = ?"
-        );
-        $stmt->execute([
-            $maxAttempts,
-            self::STATUS_FAILED,
-            self::STATUS_PENDING,
-            $maxAttempts,
-            self::truncate($reason),
-            $id,
-            self::STATUS_PROCESSING,
-        ]);
-        $status = $pdo->prepare('SELECT status FROM jobs_queue WHERE id = ?');
-        $status->execute([$id]);
-        return (string) ($status->fetchColumn() ?: self::STATUS_FAILED);
+        ConnectionManager::run(static function (PDO $pdo) use ($id): void {
+            $stmt = $pdo->prepare(
+                "UPDATE jobs_queue
+                 SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW()
+                 WHERE id = ?"
+            );
+            $stmt->execute([self::STATUS_DONE, $id]);
+        }, ConnectionManager::NS_BUFFERS);
     }
 
     /**
-     * Safely truncate a free-text reason to the DB column width.
+     * Record a job failure. While attempts remain the job returns to 'pending'
+     * with exponential backoff; at exhaustion it becomes 'failed' and a copy is
+     * registered in the dead-letter queue.
+     *
+     * @return string Final status (STATUS_PENDING for retry, STATUS_FAILED when dead-lettered).
      */
+    public static function markFailed(int $id, string $reason = ''): string
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $reason): string {
+            $row = self::findRow($pdo, $id);
+            if ($row === null || $row['status'] !== self::STATUS_PROCESSING) {
+                return self::STATUS_FAILED;
+            }
+
+            $maxAttempts = self::clampAttempts((int) $row['max_attempts']);
+            $backoffSeconds = self::clampBackoff((int) $row['backoff_seconds']);
+            $attempts = (int) $row['attempts'] + 1;
+            $reason = self::truncate((string) $reason);
+
+            if ($attempts >= $maxAttempts) {
+                return self::finishAsFailed($pdo, $row, $attempts, $reason);
+            }
+
+            $delay = min(self::MAX_BACKOFF, $backoffSeconds * (int) pow(2, $attempts - 1));
+            $stmt = $pdo->prepare(
+                "UPDATE jobs_queue
+                 SET attempts = ?, status = ?, available_at = DATE_ADD(NOW(), INTERVAL ? SECOND),
+                     failed_reason = ?, dead_letter_reason = NULL, updated_at = NOW()
+                 WHERE id = ? AND status = ?"
+            );
+            $stmt->execute([$attempts, self::STATUS_PENDING, $delay, $reason, $id, self::STATUS_PROCESSING]);
+            return self::STATUS_PENDING;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Recover jobs abandoned by a worker crash or hosting timeout. A failed job
+     * lease re-queues until its attempt budget is exhausted, then dead-letters.
+     */
+    public static function recoverStale(int $leaseMinutes = 15): int
+    {
+        $leaseMinutes = max(5, min(1440, $leaseMinutes));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($leaseMinutes): int {
+            $stmt = $pdo->prepare(
+                "SELECT id FROM jobs_queue
+                 WHERE status = ? AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE"
+            );
+            $stmt->execute([self::STATUS_PROCESSING]);
+            $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $recovered = 0;
+            foreach ($ids as $rawId) {
+                $id = (int) $rawId;
+                $row = self::findRow($pdo, $id);
+                if ($row === null || $row['status'] !== self::STATUS_PROCESSING) {
+                    continue;
+                }
+                $maxAttempts = self::clampAttempts((int) $row['max_attempts']);
+                $attempts = (int) $row['attempts'] + 1;
+
+                if ($attempts >= $maxAttempts) {
+                    self::finishAsFailed($pdo, $row, $attempts, 'Recovered after worker lease expired too many times');
+                } else {
+                    $stmt = $pdo->prepare(
+                        "UPDATE jobs_queue
+                         SET attempts = ?, status = ?, available_at = NOW(),
+                             failed_reason = ?, dead_letter_reason = NULL, updated_at = NOW()
+                         WHERE id = ? AND status = ?"
+                    );
+                    $stmt->execute([
+                        $attempts,
+                        self::STATUS_PENDING,
+                        'Recovered after worker lease expired',
+                        $id,
+                        self::STATUS_PROCESSING,
+                    ]);
+                }
+                $recovered++;
+            }
+            return $recovered;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Bounded retention maintenance for the offload schema.
+     *
+     * @return array{jobs_purged:int, failed_jobs_purged:int, dead_letter_purged:int}
+     */
+    public static function purgeOld(int $doneHours = 24, int $failedDays = 7, int $deadLetterDays = 90): array
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use (
+            $doneHours,
+            $failedDays,
+            $deadLetterDays
+        ): array {
+            $doneHours = max(1, min(336, (int) $doneHours));
+            $failedDays = max(1, min(90, (int) $failedDays));
+            $deadLetterDays = max(1, min(365, (int) $deadLetterDays));
+
+            $report = [];
+            $stmt = $pdo->prepare(
+                "DELETE FROM jobs_queue
+                 WHERE status IN (?, ?) AND updated_at < NOW() - INTERVAL {$doneHours} HOUR"
+            );
+            $stmt->execute([self::STATUS_DONE, self::STATUS_CANCELLED]);
+            $report['jobs_purged'] = $stmt->rowCount();
+
+            $stmt = $pdo->prepare(
+                "DELETE FROM jobs_queue
+                 WHERE status = ? AND updated_at < NOW() - INTERVAL {$failedDays} DAY"
+            );
+            $stmt->execute([self::STATUS_FAILED]);
+            $report['failed_jobs_purged'] = $stmt->rowCount();
+
+            $stmt = $pdo->prepare(
+                "DELETE FROM dead_letter_queue
+                 WHERE dead_lettered_at < NOW() - INTERVAL {$deadLetterDays} DAY"
+            );
+            $stmt->execute();
+            $report['dead_letter_purged'] = $stmt->rowCount();
+
+            return $report;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Recent jobs for the System Administrator console.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function listRecent(int $limit = 200): array
+    {
+        $limit = max(1, min(500, $limit));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit): array {
+            $stmt = $pdo->prepare(
+                "SELECT id, job_type, status, attempts, max_attempts, backoff_seconds,
+                        available_at, created_at, updated_at, failed_reason, dead_letter_reason
+                 FROM jobs_queue ORDER BY id DESC LIMIT {$limit}"
+            );
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Deterministic queue-health snapshot for observability surfaces.
+     *
+     * Returns counts by status plus dead-letter totals and staleness signals.
+     * Stale = a pending/processing job whose updated_at predates the lease
+     * window (15 minutes) and is therefore presumed orphaned.
+     *
+     * @return array{
+     *      generated_at:string, statuses:array<string,int>,
+     *      deadline_letter_total:int, dead_letter_24h:int,
+     *      stale_processing:int, stale_pending:int,
+     *      oldest_processing_minutes:int, oldest_pending_minutes:int,
+     *      jobs_total:int
+     * }
+     */
+    public static function statusSummary(): array
+    {
+        return ConnectionManager::run(static function (PDO $pdo): array {
+            $statuses = [
+                self::STATUS_PENDING => 0,
+                self::STATUS_PROCESSING => 0,
+                self::STATUS_DONE => 0,
+                self::STATUS_FAILED => 0,
+                self::STATUS_CANCELLED => 0,
+            ];
+            foreach ($pdo->query('SELECT status, COUNT(*) AS total FROM jobs_queue GROUP BY status')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $status = (string) $row['status'];
+                if (isset($statuses[$status])) {
+                    $statuses[$status] = (int) $row['total'];
+                }
+            }
+
+            $staleQ = $pdo->prepare(
+                "SELECT
+                    SUM(CASE WHEN status = 'processing' AND updated_at < NOW() - INTERVAL 15 MINUTE THEN 1 ELSE 0 END) AS stale_processing,
+                    SUM(CASE WHEN status = 'pending' AND available_at <= NOW() AND updated_at < NOW() - INTERVAL 15 MINUTE THEN 1 ELSE 0 END) AS stale_pending,
+                    MAX(CASE WHEN status = 'processing' THEN TIMESTAMPDIFF(MINUTE, updated_at, NOW()) ELSE 0 END) AS oldest_processing_minutes,
+                    MAX(CASE WHEN status = 'pending' AND available_at <= NOW() THEN TIMESTAMPDIFF(MINUTE, updated_at, NOW()) ELSE 0 END) AS oldest_pending_minutes
+                 FROM jobs_queue"
+            );
+            $staleQ->execute();
+            $stale = $staleQ->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $dl = $pdo->prepare(
+                "SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN dead_lettered_at >= NOW() - INTERVAL 24 HOUR THEN 1 ELSE 0 END) AS last_24h
+                 FROM dead_letter_queue"
+            );
+            $dl->execute();
+            $deadLetter = $dl->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            return [
+                'generated_at' => date('Y-m-d H:i:s'),
+                'statuses' => $statuses,
+                'jobs_total' => array_sum($statuses),
+                'dead_letter_total' => (int) ($deadLetter['total'] ?? 0),
+                'dead_letter_24h' => (int) ($deadLetter['last_24h'] ?? 0),
+                'stale_processing' => (int) ($stale['stale_processing'] ?? 0),
+                'stale_pending' => (int) ($stale['stale_pending'] ?? 0),
+                'oldest_processing_minutes' => max(0, (int) ($stale['oldest_processing_minutes'] ?? 0)),
+                'oldest_pending_minutes' => max(0, (int) ($stale['oldest_pending_minutes'] ?? 0)),
+            ];
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Dead-lettered (poisoned) jobs for review and safe requeue.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function listDeadLetter(int $limit = 200): array
+    {
+        $limit = max(1, min(500, $limit));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit): array {
+            $stmt = $pdo->prepare(
+                "SELECT id, job_id, job_type, attempts, max_attempts, reason, dead_lettered_at
+                 FROM dead_letter_queue ORDER BY id DESC LIMIT {$limit}"
+            );
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Cancel a pending or processing job.
+     */
+    public static function cancelJob(int $id): bool
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id): bool {
+            $stmt = $pdo->prepare(
+                "UPDATE jobs_queue
+                 SET status = ?, updated_at = NOW()
+                 WHERE id = ? AND status IN (?, ?)"
+            );
+            $stmt->execute([self::STATUS_CANCELLED, $id, self::STATUS_PENDING, self::STATUS_PROCESSING]);
+            return $stmt->rowCount() === 1;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Re-queue a dead-lettered job as a fresh pending job (dead-letter history
+     * is kept). Returns the new job id.
+     */
+    public static function requeueDeadLetter(int $deadLetterId): int
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($deadLetterId): int {
+            $stmt = $pdo->prepare(
+                "SELECT id, job_id, job_type, payload, attempts, max_attempts FROM dead_letter_queue WHERE id = ?"
+            );
+            $stmt->execute([$deadLetterId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                throw new RuntimeException('Dead-lettered job not found.');
+            }
+            $decoded = json_decode((string) ($row['payload'] ?? '{}'), true);
+            $payload = is_array($decoded) ? $decoded : [];
+            $backoffSeconds = self::clampBackoff(60);
+            $maxAttempts = self::clampAttempts((int) $row['max_attempts']);
+
+            $insert = $pdo->prepare(
+                "INSERT INTO jobs_queue
+                    (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                 VALUES (?, ?, 0, ?, ?, ?, NOW())"
+            );
+            $insert->execute([
+                (string) $row['job_type'],
+                json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                $maxAttempts,
+                $backoffSeconds,
+                self::STATUS_PENDING,
+            ]);
+            return (int) $pdo->lastInsertId();
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    // ───────────────────────── internals ─────────────────────────
+
+    private static function findRow(PDO $pdo, int $id): ?array
+    {
+        $stmt = $pdo->prepare(
+            "SELECT id, job_type, payload, status, attempts, max_attempts, backoff_seconds
+             FROM jobs_queue WHERE id = ?"
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    private static function finishAsFailed(PDO $pdo, array $row, int $attempts, string $reason): string
+    {
+        $id = (int) $row['id'];
+        $stmt = $pdo->prepare(
+            "UPDATE jobs_queue
+             SET attempts = ?, status = ?, failed_reason = ?, dead_letter_reason = ?, updated_at = NOW()
+             WHERE id = ? AND status = ?"
+        );
+        $stmt->execute([$attempts, self::STATUS_FAILED, $reason, $reason, $id, self::STATUS_PROCESSING]);
+
+        $insert = $pdo->prepare(
+            "INSERT INTO dead_letter_queue (job_id, job_type, payload, attempts, max_attempts, reason)
+             VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        $insert->execute([
+            $id,
+            (string) $row['job_type'],
+            (string) $row['payload'],
+            $attempts,
+            (int) $row['max_attempts'],
+            self::truncate($reason),
+        ]);
+        return self::STATUS_FAILED;
+    }
+
+    private static function clampAttempts(int $value): int
+    {
+        return max(1, min(self::MAX_ATTEMPTS, $value));
+    }
+
+    private static function clampBackoff(int $value): int
+    {
+        return max(5, min(self::MAX_BACKOFF, $value));
+    }
+
     private static function truncate(string $text): string
     {
         return mb_strlen($text) > 490 ? mb_substr($text, 0, 490) : $text;

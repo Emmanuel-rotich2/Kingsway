@@ -1,5 +1,5 @@
 /** Kingsway service worker: safe static caching only. */
-const CACHE_VERSION = 'v10.4-catalog-image-recovery';
+const CACHE_VERSION = 'v10.5-realtime-backoff-recovery';
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [
@@ -27,6 +27,17 @@ self.addEventListener('activate', (event) => {
     await Promise.all(names.filter((name) => name.startsWith('kingsway-') && name !== STATIC_CACHE)
       .map((name) => caches.delete(name)));
     await self.clients.claim();
+    // The worker's in-memory buffer list died with the previous instance
+    // (browsers terminate idle SWs after ~30s). Ask whichever client is open
+    // to re-send its registered URLs; realtime_manager answers REGISTER_BUFFERS,
+    // which re-arms the poll loop. If no client answers, polling resumes on
+    // the next page load's registration — same as pre-g8 behavior.
+    if (!self.__kingswayBuffers?.length) {
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of clients) {
+        client.postMessage({ type: 'REQUEST_BUFFERS' });
+      }
+    }
   })());
 });
 
@@ -119,14 +130,24 @@ self.addEventListener('message', (event) => {
       .filter((u) => typeof u === 'string' && u.startsWith('http'))
       .map((u) => new URL(u, self.location.origin).href);
     self.__kingswayBufferState = {};
+    self.__kingswayFailedTicks = 0; // new URLs: reset the backoff cycle
     if (self.__kingswayBuffers.length && !self.__kingswayPollTimer) {
       const schedulePoll = async () => {
-        await pollRealTimeBuffers();
-        // Jitter spreads clients across the interval instead of producing a
-        // synchronized static-file spike after login or page refresh. Fifteen
-        // seconds is responsive enough for dashboards without turning 1,000
-        // browsers into a shared-hosting denial of service.
-        const delay = 12000 + Math.floor(Math.random() * 6001);
+        const outcome = await pollRealTimeBuffers();
+        let delay = 12000 + Math.floor(Math.random() * 6001);
+        if (outcome === 'all_failed' || outcome === 'rotated') {
+          // Every buffer failed or 404'd: back off exponentially (30s→5min
+          // cap) so a dead origin or purged epoch is not hammered by every
+          // browser at once. Keep trying though — a 404 epoch rotation
+          // self-heals as soon as the client re-runs the authenticated
+          // handshake and re-registers current URLs.
+          self.__kingswayFailedTicks = (self.__kingswayFailedTicks || 0) + 1;
+          delay = Math.min(300000, 30000 * Math.pow(2, self.__kingswayFailedTicks - 1));
+        } else {
+          // Any (even partial) success resets the backoff: one dead buffer
+          // must not slow polling of the healthy ones.
+          self.__kingswayFailedTicks = 0;
+        }
         self.__kingswayPollTimer = setTimeout(schedulePoll, delay);
       };
       schedulePoll();
@@ -138,17 +159,33 @@ self.addEventListener('message', (event) => {
 // fetch(no-store) plus the no-store server headers, so each poll returns the
 // freshest buffer the web server has written (zero PHP). Clients receive a
 // change-detected event with the current scope's payloads.
+//
+// Returns an outcome for the scheduler's backoff decision:
+//   'ok'        — at least one buffer answered (partial failures tolerated)
+//   'all_failed'— every fetch threw (network drop / origin down)
+//   'rotated'   — every buffer answered but with 404 (daily slug rotation
+//                 crossed midnight, or the 48h purge removed this epoch). The
+//                 worker cannot mint new URLs itself — only the client's
+//                 authenticated handshake can — so it asks clients to
+//                 re-register, then backs off until they do.
 async function pollRealTimeBuffers() {
   const buffers = self.__kingswayBuffers || [];
-  if (!buffers.length) return;
+  if (!buffers.length) return 'ok';
   const results = [];
+  let successes = 0;
+  let notFound = 0;
   await Promise.all(buffers.map(async (href) => {
     try {
       const res = await fetch(href, { cache: 'no-store' });
+      if (res.status === 404) {
+        notFound += 1;
+        return;
+      }
       if (!res.ok) return;
       const body = await res.text();
       let payload;
       try { payload = JSON.parse(body); } catch { return; }
+      successes += 1;
       const key = href;
       const previous = self.__kingswayBufferState?.[key];
       const signature = body; // raw text diff, not a security boundary
@@ -160,7 +197,7 @@ async function pollRealTimeBuffers() {
         results.push({ url: href, type: 'NO_CHANGE' });
       }
     } catch (ignored) {
-      /* transient network error: skip this tick */
+      /* transient network error: counted as a failure for backoff */
     }
   }));
 
@@ -170,6 +207,18 @@ async function pollRealTimeBuffers() {
       client.postMessage({ type: 'BUFFER_POLL', data: results });
     }
   }
+
+  if (notFound > 0 && successes === 0) {
+    // Rotation/purge confirmed: tell controlled clients to re-handshake. The
+    // realtime manager answers with fresh REGISTER_BUFFERS, which resets
+    // __kingswayBufferState and this backoff cycle.
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      client.postMessage({ type: 'BUFFER_ROTATED' });
+    }
+    return 'rotated';
+  }
+  return successes > 0 ? 'ok' : 'all_failed';
 }
 
 self.addEventListener('push', (event) => {

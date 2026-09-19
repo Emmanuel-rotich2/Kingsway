@@ -173,26 +173,23 @@ class RequisitionsManager extends BaseAPI
             }
 
             // Create requisition
-            $id = $this->nextId('requisitions');
             $priority = ['low' => 'low', 'normal' => 'medium', 'medium' => 'medium', 'high' => 'high', 'urgent' => 'urgent'];
             $priority = $priority[$data['priority'] ?? 'normal'] ?? 'medium';
             $sql = "
                 INSERT INTO requisitions (
-                    id, requisition_number, requested_by, requisition_date, status, notes,
+                    requisition_number, requested_by, requisition_date, status, notes,
                     priority
-                ) VALUES (?, ?, ?, NOW(), 'pending', ?, ?)
+                ) VALUES (?, ?, NOW(), 'pending', ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $id,
-                'REQ-' . $id,
+                'REQ-' . uniqid(),
                 $userId,
                 $data['justification'] ?? '',
                 $priority
             ]);
-
-            $requisitionId = $id;
+            $requisitionId = (int) $this->db->lastInsertId();
 
             // Create requisition items
             $sql = "
@@ -334,12 +331,5 @@ class RequisitionsManager extends BaseAPI
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[RequisitionsManager] Notification push failed: ' . $e->getMessage());
         }
-    }
-
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `{$table}`");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
     }
 }

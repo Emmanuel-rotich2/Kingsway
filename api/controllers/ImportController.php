@@ -24,7 +24,7 @@ class ImportController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->importer = new DataImporter($this->db);
+        $this->importer = $this->contract('App\API\Modules\Import\DataImporter', $this->db);
     }
 
     // ── GET /api/import/types ───────────────────────────────────────────────

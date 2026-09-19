@@ -240,7 +240,7 @@ class StudentInsightsService
                     COALESCE(SUM(amount_paid), 0) as total_paid,
                     COALESCE(SUM(amount_waived), 0) as total_waived,
                     COALESCE(SUM(balance), 0) as balance
-             FROM vw_student_fee_balances
+             FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
              WHERE student_id = ?",
             [$studentId]
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];

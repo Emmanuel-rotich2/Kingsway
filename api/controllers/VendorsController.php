@@ -10,7 +10,7 @@ class VendorsController extends BaseController
     public function __construct($request = null)
     {
         parent::__construct($request);
-        $this->api = new InventoryAPI();
+        $this->api = $this->contract('App\API\Modules\inventory\InventoryAPI');
     }
 
     // GET /api/vendors - list vendors

@@ -145,7 +145,7 @@ return [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_system_announcements'],
                 ['label' => 'SMS', 'url' => 'manage_sms_configurations'],
-                ['label' => 'Email', 'url' => 'manage_email_configurations'],
+                ['label' => 'Email Config', 'url' => 'manage_email_configurations'],
                 ['label' => 'WhatsApp', 'url' => 'manage_whatsapp_configurations'],
             ]
         ],
@@ -358,8 +358,8 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'Email', 'url' => 'manage_email'],
+                ['label' => 'SMS', 'url' => 'manage_sms'],
             ]
         ],
 
@@ -632,8 +632,8 @@ return [
                 ['label' => 'Manage Messages', 'url' => 'manage_communications'],
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'Email', 'url' => 'manage_email'],
+                ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'WhatsApp', 'url' => 'manage_whatsapp'],
             ]
         ],
@@ -851,6 +851,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
             ]
         ],
@@ -1051,7 +1052,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Parent Messaging', 'url' => 'manage_email'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -1219,6 +1220,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1358,6 +1360,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1468,6 +1471,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1610,8 +1614,8 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'Email', 'url' => 'manage_email'],
+                ['label' => 'SMS', 'url' => 'manage_sms'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1679,6 +1683,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
@@ -1722,6 +1727,7 @@ return [
             ]
         ],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
@@ -1742,6 +1748,7 @@ return [
             ]
         ],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
@@ -1807,6 +1814,7 @@ return [
         ],
 
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email', 'icon' => 'fas fa-envelope', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -1902,6 +1910,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
                 ['label' => 'Parent Notifications', 'url' => 'send_parent_notifications'],
             ]
         ],
@@ -1968,6 +1977,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2035,6 +2045,7 @@ return [
         ],
 
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2118,6 +2129,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2154,6 +2166,7 @@ return [
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2177,6 +2190,7 @@ return [
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2193,6 +2207,7 @@ return [
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
@@ -2338,6 +2353,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
 
@@ -2379,6 +2395,7 @@ return [
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'Email', 'url' => 'manage_email'],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],

@@ -392,6 +392,9 @@ final class StaffMigrationService
         ");
         $stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
         if(!$row)throw new RuntimeException('Staff onboarding profile not found.');
+        $qualificationStmt=$this->db->prepare("SELECT id,qualification_level,source,verification_status,title,institution,year_obtained,description,document_url FROM staff_qualifications WHERE staff_id=? ORDER BY year_obtained DESC,id DESC");
+        $qualificationStmt->execute([(int)$row['staff_id']]);
+        $row['qualification_claims']=$qualificationStmt->fetchAll(PDO::FETCH_ASSOC);
         return $row;
     }
 
@@ -422,8 +425,32 @@ final class StaffMigrationService
                 $this->db->prepare("DELETE FROM emergency_contacts WHERE person_id=?")->execute([$pid]);
             }
             if(!empty($data['emergency_contact_name'])){
-                $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
-                    ->execute([$this->nextId('emergency_contacts'),$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
+                $this->db->prepare("INSERT INTO emergency_contacts(person_id,name,phone,created_at) VALUES(?,?,?,NOW())")
+                    ->execute([$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
+            }
+            if (array_key_exists('qualifications', $data)) {
+                if (!is_array($data['qualifications']) || count($data['qualifications']) > 20) {
+                    throw new RuntimeException('Qualifications must be an array containing at most 20 records.');
+                }
+                $allowedLevels = ['certificate','diploma','degree','postgraduate_diploma','masters','phd','professional','other'];
+                $qualificationStmt = $this->db->prepare("INSERT INTO staff_qualifications
+                    (staff_id, qualification_type, qualification_level, source, verification_status, submitted_by, title, institution, year_obtained, description, document_url)
+                    VALUES (?, ?, ?, 'self_reported', 'pending', ?, ?, ?, ?, ?, ?)");
+                foreach ($data['qualifications'] as $qualification) {
+                    if (!is_array($qualification)) throw new RuntimeException('Each qualification must be an object.');
+                    $title = trim((string)($qualification['title'] ?? ''));
+                    $institution = trim((string)($qualification['institution'] ?? ''));
+                    if ($title === '' || $institution === '') throw new RuntimeException('Each qualification requires a title and institution.');
+                    $level = (string)($qualification['qualification_level'] ?? $qualification['level'] ?? 'other');
+                    if (!in_array($level, $allowedLevels, true)) throw new RuntimeException('Invalid qualification level.');
+                    $legacyType = in_array($level, ['certificate','diploma','degree'], true) ? $level : 'other';
+                    $year = $qualification['year_obtained'] ?? $qualification['year'] ?? null;
+                    $description = trim((string)($qualification['description'] ?? '')) ?: null;
+                    $documentUrl = trim((string)($qualification['document_url'] ?? '')) ?: null;
+                    $duplicateStmt=$this->db->prepare("SELECT id FROM staff_qualifications WHERE staff_id=? AND source='self_reported' AND verification_status='pending' AND qualification_level=? AND title=? AND institution=? AND (year_obtained <=> ?) AND (description <=> ?) AND (document_url <=> ?) LIMIT 1");
+                    $duplicateStmt->execute([$sid,$level,$title,$institution,$year ?: null,$description,$documentUrl]);
+                    if (!$duplicateStmt->fetchColumn()) $qualificationStmt->execute([$sid, $legacyType, $level, $userId, $title, $institution, $year ?: null, $description, $documentUrl]);
+                }
             }
             $this->db->prepare("UPDATE users SET profile_completed_at=NOW() WHERE id=?")->execute([$userId]);
             $this->audit($userId,'staff_profile_completed','staff',$sid);$this->db->commit();return $this->onboardingForUser($userId);
@@ -439,12 +466,12 @@ final class StaffMigrationService
         $roleIds=$this->roleIdsForStaff($role,$r['role_name'],$type);
         $username=UsernameService::generate($this->db,$r['email'],$r['first_name'],$r['last_name']);
         $temporary=$this->generateTemporaryPassword();
-        $pid=$this->nextId('persons');
-        $this->db->prepare("INSERT INTO persons(id,first_name,middle_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?,?)")
-            ->execute([$pid,$r['first_name'],$this->null($r,'middle_name'),$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
-        $uid=$this->nextId('users');
-        $this->db->prepare("INSERT INTO users(id,person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,?,'active',1,NOW(),NOW())")
-            ->execute([$uid,$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
+        $this->db->prepare("INSERT INTO persons(first_name,middle_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?)")
+            ->execute([$r['first_name'],$this->null($r,'middle_name'),$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
+        $pid=(int)$this->db->lastInsertId();
+        $this->db->prepare("INSERT INTO users(person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,'active',1,NOW(),NOW())")
+            ->execute([$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
+        $uid=(int)$this->db->lastInsertId();
         $roleStmt=$this->db->prepare("INSERT INTO user_roles(user_id,role_id,created_at) VALUES(?,?,NOW())");
         foreach($roleIds as $roleId)$roleStmt->execute([$uid,$roleId]);
         // Auto-generate staff_no when blank; validate format when provided.
@@ -455,12 +482,12 @@ final class StaffMigrationService
         } elseif (!$staffNoSvc->isValid($staffNo)) {
             throw new RuntimeException("Row: staff_no '$staffNo' does not match the configured format");
         }
-        $sid=$this->nextId('staff');
         $supervisorId=$this->supervisorId($r['supervisor_staff_no']??'');
-        $this->db->prepare("INSERT INTO staff(id,person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,supervisor_id,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?)")
-            ->execute([$sid,$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$supervisorId,$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
-        $this->db->prepare("INSERT INTO staff_department_assignments(id,staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
-            ->execute([$this->nextId('staff_department_assignments'),$sid,$dept,$r['position'],$r['employment_date']]);
+        $this->db->prepare("INSERT INTO staff(person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,supervisor_id,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?)")
+            ->execute([$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$supervisorId,$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
+        $sid=(int)$this->db->lastInsertId();
+        $this->db->prepare("INSERT INTO staff_department_assignments(staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
+            ->execute([$sid,$dept,$r['position'],$r['employment_date']]);
         $this->db->prepare("INSERT INTO staff_employment_profiles(staff_id,department_id,position,employment_date,contract_type,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',NOW(),NOW())")
             ->execute([$sid,$dept,$r['position'],$r['employment_date'],strtolower($r['contract_type'])]);
         $this->db->prepare("INSERT INTO staff_attendance_profiles(staff_id,work_start_time,work_end_time,late_threshold_minutes,is_active,created_at,updated_at) VALUES(?,?,?,?,1,NOW(),NOW())")
@@ -490,8 +517,8 @@ final class StaffMigrationService
                 ->execute([$pid,trim($r['communication_phone'])]);
         }
         if(!empty($r['emergency_contact_name']??'')){
-            $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
-                ->execute([$this->nextId('emergency_contacts'),$pid,$r['emergency_contact_name'],$r['emergency_contact_phone']??null]);
+            $this->db->prepare("INSERT INTO emergency_contacts(person_id,name,phone,created_at) VALUES(?,?,?,NOW())")
+                ->execute([$pid,$r['emergency_contact_name'],$r['emergency_contact_phone']??null]);
         }
         $token=$this->createInvitation($uid,$sid,$r['email'],$actorId);
         $baseUrl=(defined('BASE_URL')?BASE_URL:(defined('APP_URL')?APP_URL:''));$url=rtrim($baseUrl,'/').'/reset_default_password.php?token='.rawurlencode($token);
@@ -659,7 +686,6 @@ final class StaffMigrationService
     private function decimal(array$r,string$k):?float{$v=trim((string)($r[$k]??''));return$v===''?null:(float)$v;}
     private function yes(string$v):bool{return in_array(strtolower(trim($v)),['1','yes','true','y'],true);}
     private function generateTemporaryPassword(): string{return 'Kwps-'.substr(bin2hex(random_bytes(4)),0,8).'!';}
-    private function nextId(string $table): int{$s=$this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `$table`");$s->execute();return(int)$s->fetchColumn();}
     private function templateSample(): array
     {
         return [

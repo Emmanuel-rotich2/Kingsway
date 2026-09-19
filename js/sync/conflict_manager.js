@@ -276,7 +276,7 @@ const ConflictManager = (function() {
       
       for (const conflict of allConflicts) {
         if (conflict.resolved_at && conflict.resolved_at < cutoffDate) {
-          await KingswayDB.delete('sync_conflicts', conflict.id);
+          await KingswayDB.remove('sync_conflicts', conflict.id);
           clearedCount++;
         }
       }

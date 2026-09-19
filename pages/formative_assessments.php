@@ -195,6 +195,7 @@
               <option value="">— Select learning outcome —</option>
             </select>
           </div>
+          <div class="col-md-12"><div class="card border-success-subtle bg-light"><div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Assessment assistant</strong><div class="small text-muted">Creates an editable assessment brief and optional question suggestions from the authorized CBC outcome.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiAssessmentDraft"><i class="bi bi-stars me-1"></i>Draft assessment</button></div><div id="aiAssessmentDrafts" class="mt-2"></div></div></div></div>
           <div class="col-md-3">
             <label class="form-label fw-semibold">Max Marks <span class="text-danger">*</span></label>
             <input type="number" id="faMaxMarks" class="form-control" value="100" min="1">
@@ -215,4 +216,5 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/formative_assessments.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_assessment_draft.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>

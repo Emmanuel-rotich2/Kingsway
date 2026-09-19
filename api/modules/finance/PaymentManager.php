@@ -49,6 +49,7 @@ class PaymentManager
      */
     public function processPayment($data)
     {
+        $transactionStarted = false;
         try {
             $required = ['student_id', 'amount', 'payment_method'];
             $missing = array_diff($required, array_keys($data));
@@ -57,9 +58,11 @@ class PaymentManager
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            // NOTE: Do NOT use $this->db->beginTransaction() here
-            // The stored procedure sp_process_student_payment manages its own transaction
-            // Nested transactions cause "There is no active transaction" errors
+            // The procedure inserts the payment row but does not own a transaction.
+            // Keep the payment row, financial-account assignment, ledger posting,
+            // and provider detail in one atomic unit.
+            $this->db->beginTransaction();
+            $transactionStarted = true;
 
             // Verify student exists
             $stmt = $this->db->prepare("SELECT id FROM students WHERE id = ?");
@@ -67,6 +70,8 @@ class PaymentManager
             $studentRow = $stmt->fetch();
 
             if (!$studentRow) {
+                $this->db->rollBack();
+                $transactionStarted = false;
                 return formatResponse(false, null, 'Student not found');
             }
 
@@ -110,6 +115,8 @@ class PaymentManager
             $paymentId = $paymentResult['transaction_id'] ?? null;
 
             if (!$paymentId) {
+                $this->db->rollBack();
+                $transactionStarted = false;
                 return formatResponse(false, null, 'Payment was processed but ID could not be retrieved');
             }
 
@@ -138,7 +145,8 @@ class PaymentManager
                 $this->recordBankTransaction($paymentId, $bankData);
             }
 
-            // No need for $this->db->commit() - the stored procedure already committed
+            $this->db->commit();
+            $transactionStarted = false;
 
             return formatResponse(true, [
                 'payment_id' => $paymentId,
@@ -146,7 +154,9 @@ class PaymentManager
             ]);
 
         } catch (Exception $e) {
-            // No need to rollback - the stored procedure handles its own rollback on error
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
         }
@@ -234,7 +244,11 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Verify payment exists
             $stmt = $this->db->prepare("
-                SELECT id, amount, student_id FROM payments WHERE id = ?
+                SELECT id, amount, student_id, status
+                FROM payments
+                WHERE id = ?
+                LIMIT 1
+                FOR UPDATE
             ");
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -242,6 +256,10 @@ return formatResponse(false, null, 'An internal error occurred.');
             if (!$payment) {
                 $this->db->rollBack();
                 return formatResponse(false, null, 'Payment not found');
+            }
+            if ($payment['status'] === 'reversed') {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'A reversed payment cannot be allocated');
             }
 
             // The live schema represents allocations as the payments rows themselves, so
@@ -270,6 +288,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     LEFT JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
                     WHERE sfo.id = ?
                     LIMIT 1
+                    FOR UPDATE
                 ");
                 $obligationStmt->execute([$obligationId]);
                 $obligation = $obligationStmt->fetch(PDO::FETCH_ASSOC);
@@ -566,7 +585,12 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Verify payment exists and is not already reversed
             $stmt = $this->db->prepare("
-                SELECT * FROM payments WHERE id = ? AND status != 'reversed'
+                SELECT *
+                FROM payments
+                WHERE id = ?
+                  AND status != 'reversed'
+                LIMIT 1
+                FOR UPDATE
             ");
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);

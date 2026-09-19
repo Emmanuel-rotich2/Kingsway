@@ -330,6 +330,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                 // Get attendance if included
                 $attendance = [];
                 if ($includeAttendance) {
+                    $attendanceRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_analytics');
                     $attendanceStmt = $this->db->prepare(
                         "SELECT
                             days_marked AS total_days,
@@ -337,7 +338,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                             unexcused_marks + excused_marks AS days_absent,
                             late_marks AS days_late,
                             attendance_rate_pct
-                        FROM vw_student_attendance_analytics
+                        FROM {$attendanceRef}
                         WHERE student_id = :student_id
                         AND academic_year = :year
                         AND term_number = :term_number"

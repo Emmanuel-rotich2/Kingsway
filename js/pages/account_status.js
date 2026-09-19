@@ -7,10 +7,13 @@ const AccountStatusController = {
   state: {
     accounts: [],
     selectedAccountId: null,
+    selectedIds: new Set(),
     initialized: false,
     eventsBound: false,
     initializationPromise: null,
     loading: false,
+    currentPage: 1,
+    pageSize: 10,
   },
 
   elements: {},
@@ -75,6 +78,17 @@ const AccountStatusController = {
       tableHead: document.getElementById("accountStatusTableHead"),
       tableBody: document.getElementById("accountStatusTableBody"),
       count: document.getElementById("accountStatusCount"),
+      pageSizeSelect: document.getElementById("accountsPageSize"),
+      prevPageBtn: document.getElementById("accountsPrevBtn"),
+      nextPageBtn: document.getElementById("accountsNextBtn"),
+      pageInfo: document.getElementById("accountsPageInfo"),
+      bulkBar: document.getElementById("accountStatusBulkBar"),
+      bulkSelectedCount: document.getElementById("accountStatusBulkCount"),
+      bulkActivateBtn: document.getElementById("bulkActivateAccountsBtn"),
+      bulkSuspendBtn: document.getElementById("bulkSuspendAccountsBtn"),
+      bulkUnlockBtn: document.getElementById("bulkUnlockAccountsBtn"),
+      bulkForcePwBtn: document.getElementById("bulkForcePwAccountsBtn"),
+      bulkClearBtn: document.getElementById("bulkClearAccountsBtn"),
       modalElement: document.getElementById("accountStatusModal"),
       modalTitle: document.getElementById("accountStatusModalTitle"),
       form: document.getElementById("accountStatusForm"),
@@ -117,13 +131,41 @@ const AccountStatusController = {
   bindEvents() {
     if (this.state.eventsBound) return;
 
-    this.elements.search.addEventListener("input", () => this.renderTable());
+    this.elements.search.addEventListener("input", () => {
+      this.state.currentPage = 1;
+      this.renderTable();
+    });
+    this.elements.pageSizeSelect.addEventListener("change", () => {
+      this.state.pageSize = Number(this.elements.pageSizeSelect.value);
+      this.state.currentPage = 1;
+      this.renderTable();
+    });
+    this.elements.prevPageBtn.addEventListener("click", () => {
+      if (this.state.currentPage > 1) { this.state.currentPage--; this.renderTable(); }
+    });
+    this.elements.nextPageBtn.addEventListener("click", () => {
+      const totalPages = this.totalPages();
+      if (this.state.currentPage < totalPages) { this.state.currentPage++; this.renderTable(); }
+    });
     this.elements.refreshButton.addEventListener("click", () => {
       void this.loadData();
     });
     this.elements.tableBody.addEventListener("click", (event) => {
       this.handleTableAction(event);
     });
+    this.elements.tableBody.addEventListener("change", (event) => {
+      this.handleRowSelection(event);
+    });
+    this.elements.tableHead.addEventListener("change", (event) => {
+      this.handleSelectAll(event);
+    });
+    this.elements.bulkActivateBtn.addEventListener("click", () => void this.applyBulkStatus("active"));
+    this.elements.bulkSuspendBtn.addEventListener("click", () => void this.applyBulkStatus("suspended"));
+    this.elements.bulkUnlockBtn.addEventListener("click", () => void this.applyBulkUnlock());
+    this.elements.bulkForcePwBtn.addEventListener("click", () => {
+      void this.applyBulkForcePassword(true);
+    });
+    this.elements.bulkClearBtn.addEventListener("click", () => this.clearSelection());
     this.elements.form.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.saveAccountStatus();
@@ -153,8 +195,11 @@ const AccountStatusController = {
 
     this.state.loading = true;
     this.setControlsDisabled(true);
-    this.showState("Loading account status...", "info");
-    this.showTableLoading();
+
+    if (this.state.accounts.length === 0) {
+      this.showState("Loading account status...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const response = await window.API.system.getAccountStatuses();
@@ -224,9 +269,10 @@ const AccountStatusController = {
       .join("");
   },
 
-  renderTable() {
+  visibleAccounts() {
     const query = this.elements.search.value.trim().toLowerCase();
-    const visibleAccounts = this.state.accounts.filter((account) =>
+    if (!query) return this.state.accounts;
+    return this.state.accounts.filter((account) =>
       [
         account.username,
         account.email,
@@ -239,86 +285,298 @@ const AccountStatusController = {
           .includes(query),
       ),
     );
+  },
 
-    this.elements.tableHead.innerHTML = `
-      <tr>
-        <th>Account</th>
-        <th>Status</th>
-        <th>Failed logins</th>
-        <th>Lock</th>
-        <th>Password change</th>
-        <th>Last login</th>
-        <th class="text-end">Action</th>
-      </tr>`;
+  handleRowSelection(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-account-id]");
+    if (!checkbox) return;
+    const accountId = Number(checkbox.dataset.accountId);
+    if (checkbox.checked) {
+      this.state.selectedIds.add(accountId);
+    } else {
+      this.state.selectedIds.delete(accountId);
+    }
+    this.updateBulkBar();
+  },
 
+  handleSelectAll(event) {
+    const checkbox = event.target.closest("input[type=checkbox][data-select-all]");
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      this.visibleAccounts().forEach((account) =>
+        this.state.selectedIds.add(Number(account.id ?? account.user_id ?? 0)),
+      );
+    } else {
+      const visible = new Set(
+        this.visibleAccounts().map((account) => Number(account.id ?? account.user_id ?? 0)),
+      );
+      this.state.selectedIds.forEach((id) => {
+        if (visible.has(id)) this.state.selectedIds.delete(id);
+      });
+    }
+    this.updateBulkBar();
+  },
+
+  clearSelection() {
+    this.state.selectedIds.clear();
+    this.updateBulkBar();
+  },
+
+  updateBulkBar() {
+    const count = this.state.selectedIds.size;
+    this.elements.bulkSelectedCount.textContent = `${count} selected`;
+    this.elements.bulkBar.hidden = count === 0;
+    this.elements.tableBody.querySelectorAll("input[type=checkbox][data-account-id]").forEach((checkbox) => {
+      checkbox.checked = this.state.selectedIds.has(Number(checkbox.dataset.accountId));
+    });
+    this.syncSelectAll();
+  },
+
+  syncSelectAll() {
+    const selectAll = this.elements.tableHead?.querySelector("input[data-select-all]");
+    if (!selectAll) return;
+    const visible = this.visibleAccounts();
+    const selectedVisible = visible.filter((account) =>
+      this.state.selectedIds.has(Number(account.id ?? account.user_id ?? 0)),
+    ).length;
+    selectAll.checked = visible.length > 0 && selectedVisible === visible.length;
+    selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
+  },
+
+  selectedAccounts() {
+    return this.state.accounts.filter((account) =>
+      this.state.selectedIds.has(Number(account.id ?? account.user_id ?? 0)),
+    );
+  },
+
+  async applyBulkStatus(status) {
+    const accounts = this.selectedAccounts();
+    if (!accounts.length) return;
+    const currentUser = this.currentUserId();
+    const target = accounts.filter(
+      (account) => Number(account.id ?? account.user_id ?? 0) !== currentUser,
+    );
+    if (!target.length) {
+      this.notify("You cannot change the status of your own account.", "warning");
+      return;
+    }
+    const label = status === "active" ? "Activate" : "Suspend";
+    const confirmed = await window.confirmAction?.(
+      `${label} ${target.length} account${target.length === 1 ? "" : "s"}`,
+      `${label} the selected accounts? This takes effect immediately.`,
+      { confirmText: label },
+    );
+    if (!confirmed) return;
+    let succeeded = 0;
+    let failed = 0;
+    for (const account of target) {
+      try {
+        await window.API.system.updateAccountStatus(
+          Number(account.id ?? account.user_id ?? 0),
+          { status },
+        );
+        succeeded += 1;
+      } catch (error) {
+        failed += 1;
+      }
+    }
+    this.notify(
+      failed
+        ? `${label}d ${succeeded} account${succeeded === 1 ? "" : "s"}; ${failed} failed.`
+        : `${label}d ${succeeded} account${succeeded === 1 ? "" : "s"}.`,
+      failed ? "warning" : "success",
+    );
+    this.clearSelection();
+    await this.loadData();
+  },
+
+  async applyBulkUnlock() {
+    const accounts = this.selectedAccounts();
+    if (!accounts.length) return;
+    const confirmed = await window.confirmAction?.(
+      `Unlock ${accounts.length} account${accounts.length === 1 ? "" : "s"}`,
+      "Clear locks and reset failed login attempts on the selected accounts?",
+      { confirmText: "Unlock" },
+    );
+    if (!confirmed) return;
+    let succeeded = 0;
+    let failed = 0;
+    for (const account of accounts) {
+      try {
+        await window.API.system.updateAccountStatus(
+          Number(account.id ?? account.user_id ?? 0),
+          {
+            failed_login_attempts: 0,
+            account_locked_until: null,
+            unlock_reason: "Unlocked from Account Status (bulk)",
+          },
+        );
+        succeeded += 1;
+      } catch (error) {
+        failed += 1;
+      }
+    }
+    this.notify(
+      failed
+        ? `Unlocked ${succeeded} account${succeeded === 1 ? "" : "s"}; ${failed} failed.`
+        : `Unlocked ${succeeded} account${succeeded === 1 ? "" : "s"}.`,
+      failed ? "warning" : "success",
+    );
+    this.clearSelection();
+    await this.loadData();
+  },
+
+  async applyBulkForcePassword(required) {
+    const accounts = this.selectedAccounts();
+    if (!accounts.length) return;
+    if (required) {
+      const confirmed = await window.confirmAction?.(
+        `Require password change for ${accounts.length} account${accounts.length === 1 ? "" : "s"}`,
+        "The selected accounts will be forced to change their password at next login.",
+        { confirmText: "Require change" },
+      );
+      if (!confirmed) return;
+    }
+    let succeeded = 0;
+    let failed = 0;
+    for (const account of accounts) {
+      try {
+        await window.API.system.updateAccountStatus(
+          Number(account.id ?? account.user_id ?? 0),
+          { force_password_change: required },
+        );
+        succeeded += 1;
+      } catch (error) {
+        failed += 1;
+      }
+    }
+    this.notify(
+      failed
+        ? `Updated ${succeeded} account${succeeded === 1 ? "" : "s"}; ${failed} failed.`
+        : `Updated ${succeeded} account${succeeded === 1 ? "" : "s"}.`,
+      failed ? "warning" : "success",
+    );
+    this.clearSelection();
+    await this.loadData();
+  },
+
+  renderTable() {
+    const filteredAccounts = this.visibleAccounts();
+    const totalFiltered = filteredAccounts.length;
+    const pageSize = Number(this.state.pageSize);
+    if (pageSize > 0) {
+      const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+      if (this.state.currentPage > totalPages) this.state.currentPage = totalPages;
+      const start = (this.state.currentPage - 1) * pageSize;
+      this.elements.pageSizeSelect.value = String(pageSize);
+      this.renderPager();
+      return this.renderTableRows(filteredAccounts.slice(start, start + pageSize), totalFiltered);
+    }
+    this.elements.pageSizeSelect.value = "0";
+    this.renderPager();
+    return this.renderTableRows(filteredAccounts, totalFiltered);
+  },
+
+  totalPages() {
+    const filtered = this.visibleAccounts().length;
+    const pageSize = Number(this.state.pageSize);
+    if (!filtered) return 1;
+    if (!pageSize || pageSize <= 0) return 1;
+    return Math.ceil(filtered / pageSize);
+  },
+
+  renderPager() {
+    const filtered = this.visibleAccounts().length;
+    const pageSize = Number(this.state.pageSize);
+    const totalPages = this.totalPages();
+    if (this.state.currentPage > totalPages) this.state.currentPage = totalPages;
+    const page = Math.max(1, Math.min(this.state.currentPage, totalPages));
+    this.state.currentPage = page;
+    this.elements.prevPageBtn.disabled = page <= 1;
+    this.elements.nextPageBtn.disabled = page >= totalPages;
+    this.elements.pageInfo.textContent = pageSize > 0
+      ? `Page ${page} of ${totalPages}`
+      : `All ${filtered}`;
+  },
+
+  renderTableRows(visibleAccounts, totalFiltered) {
     if (visibleAccounts.length === 0) {
       const message = this.state.accounts.length
         ? "No accounts match the current search."
         : "No accounts found.";
       this.showTableMessage(message);
       this.elements.count.textContent = `0 of ${this.state.accounts.length} accounts`;
+      this.syncSelectAll();
       return;
     }
 
-    this.elements.tableBody.innerHTML = visibleAccounts
-      .map((account) => {
-        const accountId = Number(account.id ?? account.user_id ?? 0);
-        const name =
-          `${account.first_name || ""} ${account.last_name || ""}`.trim() ||
-          account.username ||
-          "Unnamed account";
-        const locked = this.isLocked(account);
+    const template = document.getElementById("accountStatusRowTemplate");
+    const rows = visibleAccounts.map((account) => this.buildAccountRow(template, account));
+    this.elements.tableBody.replaceChildren(...rows);
 
-        return `
-          <tr>
-            <td>
-              <strong>${this.escapeHtml(name)}</strong>
-              <div class="small text-muted">
-                @${this.escapeHtml(account.username || "")}
-                · ${this.escapeHtml(account.email || "No email")}
-              </div>
-            </td>
-            <td>
-              <span class="badge text-bg-${this.statusColor(account.status)}">
-                ${this.escapeHtml(this.formatStatus(account.status))}
-              </span>
-            </td>
-            <td>${Number(account.failed_login_attempts || 0)}</td>
-            <td>
-              ${
-                locked
-                  ? `<span class="text-danger">
-                      Locked until ${this.escapeHtml(
-                        this.formatDateTime(account.account_locked_until),
-                      )}
-                    </span>`
-                  : '<span class="text-success">Unlocked</span>'
-              }
-            </td>
-            <td>
-              ${
-                Number(account.force_password_change)
-                  ? '<span class="badge text-bg-warning">Required</span>'
-                  : '<span class="text-muted">Not required</span>'
-              }
-            </td>
-            <td>${this.escapeHtml(this.formatDateTime(account.last_login, "Never"))}</td>
-            <td class="text-end">
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-primary"
-                data-account-action="manage"
-                data-account-id="${accountId}"
-              >
-                <i class="fas fa-user-shield me-1"></i>Manage
-              </button>
-            </td>
-          </tr>`;
-      })
-      .join("");
-
+    const pageSize = Number(this.state.pageSize);
+    const start = pageSize > 0
+      ? (this.state.currentPage - 1) * pageSize + 1
+      : 1;
+    const end = pageSize > 0 ? start + visibleAccounts.length - 1 : totalFiltered;
     this.elements.count.textContent =
-      `${visibleAccounts.length} of ${this.state.accounts.length} accounts`;
+      `Showing ${start}–${end} of ${totalFiltered} accounts`;
+    this.syncSelectAll();
+  },
+
+  buildAccountRow(template, account) {
+    const accountId = Number(account.id ?? account.user_id ?? 0);
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("tr");
+    const cell = (name) => row.querySelector(`[data-row-fill="${name}"]`);
+
+    const name =
+      `${account.first_name || ""} ${account.last_name || ""}`.trim() ||
+      account.username ||
+      "Unnamed account";
+    const locked = this.isLocked(account);
+
+    const checkbox = row.querySelector("input[type=checkbox]");
+    checkbox.dataset.accountId = String(accountId);
+    checkbox.checked = this.state.selectedIds.has(accountId);
+    checkbox.setAttribute("aria-label", `Select ${name}`);
+
+    cell("name").textContent = name;
+    cell("meta").textContent =
+      `@${account.username || ""} · ${account.email || "No email"}`;
+
+    const statusBadge = cell("statusBadge");
+    statusBadge.className = `badge text-bg-${this.statusColor(account.status)}`;
+    statusBadge.textContent = this.formatStatus(account.status);
+
+    cell("failedLogins").textContent = String(Number(account.failed_login_attempts || 0));
+
+    const lockCell = cell("lockState");
+    lockCell.innerHTML = locked
+      ? `<span class="text-danger">Locked until ${this.escapeHtml(
+          this.formatDateTime(account.account_locked_until),
+        )}</span>`
+      : '<span class="text-success">Unlocked</span>';
+
+    const pwCell = cell("passwordChange");
+    pwCell.innerHTML = Number(account.force_password_change)
+      ? '<span class="badge text-bg-warning">Required</span>'
+      : '<span class="text-muted">Not required</span>';
+
+    cell("lastLogin").textContent = this.formatDateTime(account.last_login, "Never");
+
+    const actionsCell = cell("actions");
+    actionsCell.innerHTML = `
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-primary"
+        data-account-action="manage"
+        data-account-id="${accountId}"
+      >
+        <i class="fas fa-user-shield me-1"></i>Manage
+      </button>`;
+
+    return row;
   },
 
   handleTableAction(event) {
@@ -494,18 +752,11 @@ const AccountStatusController = {
   },
 
   showTableLoading() {
-    if (
-      !this.elements.tableHead ||
-      !this.elements.tableBody ||
-      !this.elements.count
-    ) {
-      return;
-    }
+    if (!this.elements.tableBody || !this.elements.count) return;
 
-    this.elements.tableHead.innerHTML = "<tr><th>Loading</th></tr>";
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td class="text-center py-5 text-muted">
+        <td colspan="8" class="text-center py-5 text-muted">
           <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
           Loading account status...
         </td>
@@ -518,7 +769,7 @@ const AccountStatusController = {
 
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="7" class="text-center py-5 ${className}">
+        <td colspan="8" class="text-center py-5 ${className}">
           ${this.escapeHtml(message)}
         </td>
       </tr>`;

@@ -4,6 +4,9 @@ namespace App\API\Controllers;
 use App\API\Modules\activities\ActivitiesAPI;
 use App\API\Modules\activities\SportsManager;
 use Exception;
+use App\API\Services\AiDraftService;
+use App\API\Services\AiWorkflowService;
+use DomainException;
 
 /**
  * ActivitiesController - REST endpoints for all activity operations
@@ -19,14 +22,52 @@ class ActivitiesController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new ActivitiesAPI();
-        $this->sports = new SportsManager();
+        $this->api = $this->contract('App\API\Modules\activities\ActivitiesAPI');
+        $this->sports = $this->contract('App\API\Modules\activities\SportsManager');
     }
 
     public function index()
     {
         return $this->success(['message' => 'Activities API is running']);
     }
+
+    public function postAiResourceReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiResourceReview()) return $this->forbidden('Activities AI assistance is not available for your account');
+        try {
+            $result = $this->api->getActivityStatistics($data);
+            $summary = is_array($result['data'] ?? null) ? $result['data'] : (is_array($result) ? $result : []);
+            $input = ['report_date' => date('Y-m-d'), 'activity_count' => (string) ($summary['total_activities'] ?? $summary['total'] ?? 0), 'active_activity_count' => (string) ($summary['active_activities'] ?? $summary['active'] ?? 0), 'upcoming_activity_count' => (string) ($summary['upcoming_activities'] ?? $summary['upcoming'] ?? 0), 'participant_count' => (string) ($summary['total_participants'] ?? $summary['participants'] ?? 0), 'resource_count' => (string) ($summary['resource_count'] ?? 0), 'follow_up_intent' => 'Prepare aggregate programme and resource follow-up; do not identify learners or change activity records.'];
+            return $this->accepted($this->contract(AiDraftService::class)->queue('activities.resource_review', $this->aiResourceContext(), $input, ['subject_type' => 'activities_resource_review', 'scope' => 'authorized_activity_aggregates']), 'Activities resource review queued');
+        } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); }
+        catch (\Throwable $e) { return $this->serverError('Activities assistance is temporarily unavailable'); }
+    }
+
+    public function postAiLibraryReviewQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canUseAiResourceReview()) return $this->forbidden('Library AI assistance is not available for your account');
+        try { $raw = $this->api->getResourceStatistics($data); $summary = is_array($raw['data'] ?? null) ? $raw['data'] : (is_array($raw) ? $raw : []); $input = ['report_date' => date('Y-m-d'), 'resource_count' => (string) ($summary['resource_count'] ?? $summary['total_resources'] ?? 0), 'resource_type_count' => (string) count((array) ($summary['by_type'] ?? [])), 'available_count' => (string) ($summary['available_count'] ?? 0), 'assigned_count' => (string) ($summary['assigned_count'] ?? 0), 'follow_up_intent' => 'Prepare aggregate library/resource utilization guidance; do not identify borrowers or change resource records.']; return $this->accepted($this->contract(AiDraftService::class)->queue('activities.library_review', $this->aiResourceContext(), $input, ['subject_type' => 'activities_library_review', 'scope' => 'authorized_library_aggregates']), 'Library review queued'); } catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false); } catch (\Throwable $e) { return $this->serverError('Library assistance is temporarily unavailable'); }
+    }
+
+    public function getAiResourceReviews($id = null, $data = [], $segments = [])
+    {
+        $review = strtolower((string) ($_GET['scope'] ?? $data['scope'] ?? 'own')) === 'review';
+        if ($review && !$this->canApproveAiResourceReview()) return $this->forbidden('Activities review permission is required');
+        return $this->success(['drafts' => $this->contract(AiDraftService::class)->listForReview($this->getDb()->getConnection(), (int) ($this->getUserId() ?? 0), $review, 'activities'), 'scope' => $review ? 'review' : 'own'], 'Activities AI reviews retrieved');
+    }
+
+    public function postAiResourceReviewApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canApproveAiResourceReview()) return $this->forbidden('Activities review permission is required');
+        $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
+        if ($draftId < 1) return $this->badRequest('draft_id is required');
+        try { $approved = $this->contract(AiDraftService::class)->approve($this->getDb()->getConnection(), $draftId, (int) ($this->getUserId() ?? 0), 'activities.resource_review'); return $this->success(['draft_id' => $draftId, 'status' => 'approved', 'review_only' => true, 'draft' => $approved['draft'] ?? []], 'Activities review approved for staff guidance'); }
+        catch (DomainException $e) { return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 409), false); }
+    }
+
+    private function aiResourceContext(): array { return ['user_id' => (int) ($this->getUserId() ?? 0), 'permissions' => array_values(array_unique(array_merge((array) ($this->user['effective_permissions'] ?? []), (array) ($this->user['permissions'] ?? [])))), 'request_id' => $_SERVER['REQUEST_ID'] ?? '']; }
+    private function canUseAiResourceReview(): bool { try { $this->contract(AiWorkflowService::class)->authorize('activities.resource_review', $this->aiResourceContext()); return true; } catch (DomainException $e) { return false; } }
+    private function canApproveAiResourceReview(): bool { return $this->userHasAny(['activities_manage', 'activities_view'], [3, 4, 5, 10], ['school administrator', 'headteacher', 'activities coordinator', 'admin']); }
 
     /**
      * GET /api/activities/list - Get recent activities for dashboard

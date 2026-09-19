@@ -16,5 +16,10 @@
             Secure portal
         </span>
         <span class="d-none d-md-inline">Version 2.0</span>
+        <span>
+            <a href="https://www.angisoft.co.ke" target="_blank" rel="noopener" class="text-reset text-decoration-none">
+                Maintained by AngiSoft Technologies
+            </a>
+        </span>
     </div>
 </footer>

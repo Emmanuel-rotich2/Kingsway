@@ -394,13 +394,11 @@ final class StaffRecordsService
             return $v !== null && $v !== '';
         }));
 
-        $reviewId = (int)$this->db->query('SELECT COALESCE(MAX(id),0)+1 FROM performance_reviews')->fetchColumn();
         $this->db->query(
             "INSERT INTO performance_reviews
-             (id, staff_id, period, rating, reviewed_by, review_date, status, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (staff_id, period, rating, reviewed_by, review_date, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                $reviewId,
                 (int)$data['staff_id'],
                 $period,
                 $data['overall_rating'] ?? null,
@@ -411,7 +409,7 @@ final class StaffRecordsService
             ]
         );
 
-        return $reviewId;
+        return (int)$this->db->lastInsertId();
     }
 
     public function updatePerformanceReview(int $id, array $data): array

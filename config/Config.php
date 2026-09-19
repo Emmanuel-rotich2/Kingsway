@@ -182,6 +182,7 @@ class Config
     private static array $immutableKeys = [
         'JWT_SECRET', 'JWT_EXPIRY', 'JWT_ISSUER', 'JWT_AUDIENCE',
         'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS',
+        'AI_ENABLED', 'AI_PROVIDER_NAME', 'AI_PROVIDER_BASE_URL', 'AI_PROVIDER_KIND', 'AI_MODEL', 'AI_API_KEY', 'AI_PROVIDER_FALLBACKS', 'AI_RESPONSE_FORMAT', 'AI_REASONING_EFFORT', 'AI_VISION_ENABLED', 'AI_FORCE_IPV4',
     ];
 
     public static function set(string $key, $value)

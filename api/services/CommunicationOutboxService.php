@@ -102,13 +102,19 @@ class CommunicationOutboxService
     private function deliver(array $communication, array $endpoint)
     {
         $type = $communication['type'];
+        // Apply DB-stored provider configuration (System Admin pages) as an
+        // overlay over the environment-config defaults.
+        $commsConfig = new SystemCommsConfigService($this->db);
+        $whatsappGateway = new WhatsAppGateway($commsConfig->effectiveWhatsAppConfig());
+        $smsGateway = new SMSGateway($commsConfig->effectiveSmsConfig());
         if ($type === 'email') {
             $service = new MessageService($this->db);
+            $service->applySmtpOverlay($commsConfig->effectiveSmtp());
             $body = $service->renderEmail($communication['subject'], $communication['body'], $communication['sender_signature'] ?? '', '');
             $attachmentStmt = $this->db->prepare("SELECT file_path FROM communication_attachments WHERE communication_id = ? AND file_path IS NOT NULL");
             $attachmentStmt->execute([(int) $communication['id']]);
             $attachments = array_values(array_filter($attachmentStmt->fetchAll(PDO::FETCH_COLUMN)));
-            if (!$service->sendEmail([$endpoint['address'] => ''], $communication['subject'], $body, $attachments)) {
+            if (!$service->sendEmail([$endpoint['address'] => ''], $communication['subject'], $body, $attachments, (bool) ($communication['audit_bcc'] ?? 0))) {
                 throw new \RuntimeException('Email provider rejected the message');
             }
             return ['status' => 'sent'];
@@ -131,12 +137,11 @@ class CommunicationOutboxService
                 }
                 $templateVariables = ['bodyValues' => $values];
                 if ($headerValue !== null) $templateVariables['headerValue'] = $headerValue;
-                $response = (new WhatsAppGateway())->sendTemplate($endpoint['address'], (string) $providerTemplateId, $templateVariables);
+                $response = $whatsappGateway->sendTemplate($endpoint['address'], (string) $providerTemplateId, $templateVariables);
                 if (!$this->successful($response)) throw new \RuntimeException('WhatsApp provider template rejected the message');
                 return $response;
             }
         }
-        $gateway = new SMSGateway();
         if ($type === 'whatsapp') {
             $mediaStmt = $this->db->prepare(
                 "SELECT a.public_url, a.file_path, a.mime_type
@@ -150,12 +155,12 @@ class CommunicationOutboxService
             if ($media && !empty($media['public_url'])) {
                 $mime = strtolower((string) ($media['mime_type'] ?? ''));
                 $mediaType = strpos($mime, 'image/') === 0 ? 'image' : (strpos($mime, 'video/') === 0 ? 'video' : (strpos($mime, 'audio/') === 0 ? 'audio' : 'document'));
-                $response = (new WhatsAppGateway())->sendMedia($endpoint['address'], $communication['body'], $mediaType, $media['public_url']);
+                $response = $whatsappGateway->sendMedia($endpoint['address'], $communication['body'], $mediaType, $media['public_url']);
             } else {
-                $response = (new WhatsAppGateway())->sendMessage($endpoint['address'], $communication['body']);
+                $response = $whatsappGateway->sendMessage($endpoint['address'], $communication['body']);
             }
         } else {
-            $response = $gateway->send($endpoint['address'], $communication['body']);
+            $response = $smsGateway->send($endpoint['address'], $communication['body']);
         }
         if (!$this->successful($response)) throw new \RuntimeException('Message provider rejected the message');
         return $response;

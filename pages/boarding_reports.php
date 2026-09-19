@@ -16,6 +16,10 @@ if ($appBase === '.') $appBase = '';
 
   <div class="row g-3 mb-4" id="brKpis"></div>
 
+  <div class="card border-success-subtle bg-light mb-4">
+    <div class="card-body py-2"><div class="d-flex justify-content-between align-items-center gap-2"><div><strong><i class="bi bi-stars text-success me-1"></i>Boarding operations assistant</strong><div class="small text-muted">Summarizes occupancy and roll-call signals for authorized staff. It does not change boarding records.</div></div><button type="button" class="btn btn-outline-success btn-sm" id="queueAiBoardingSummary"><i class="bi bi-stars me-1"></i>Review today’s exceptions</button></div><div id="aiBoardingSummaries" class="row g-2 mt-2"></div></div>
+  </div>
+
   <div class="bg-white border rounded-3 overflow-hidden">
     <div class="p-3 border-bottom fw-semibold small text-uppercase text-muted">Dormitory Occupancy</div>
     <div class="table-responsive">
@@ -31,3 +35,4 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <?php asset_script($appBase, 'js/pages/boarding_reports.js'); ?>
+<?php asset_script($appBase, 'js/pages/ai_boarding_summary.js'); ?>

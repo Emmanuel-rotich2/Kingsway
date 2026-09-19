@@ -332,7 +332,7 @@ class OnboardingWorkflow extends WorkflowHandler
             }
 
             // Build user payload and call UsersAPI->create to centralize user creation and role assignment
-            $usersApi = new \App\API\Modules\users\UsersAPI();
+            $usersApi = $this->contract('App\API\Modules\users\UsersAPI');
             $userPayload = [
                 'email' => $data['email'],
                 'password' => $defaultPassword,

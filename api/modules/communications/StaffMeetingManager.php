@@ -446,11 +446,11 @@ class StaffMeetingManager
             return $eventId;
         }
 
-        $id = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events")->fetchColumn();
         $this->db->prepare(
-            "INSERT INTO school_events (id, title, description, start_at, end_at, type, location, status, source)
-             VALUES (?, ?, ?, ?, ?, 'Meeting', ?, 'upcoming', 'manual')"
-        )->execute([$id, $m['title'], $description !== '' ? $description : null, $startAt, $endAt, $m['venue']]);
+            "INSERT INTO school_events (title, description, start_at, end_at, type, location, status, source)
+             VALUES (?, ?, ?, ?, 'Meeting', ?, 'upcoming', 'manual')"
+        )->execute([$m['title'], $description !== '' ? $description : null, $startAt, $endAt, $m['venue']]);
+        $id = (int) $this->db->lastInsertId();
         $this->db->prepare("UPDATE staff_meetings SET calendar_event_id = ? WHERE id = ?")->execute([$id, $meetingId]);
         return $id;
     }
