@@ -10,10 +10,12 @@
  * - Standard table columns (7)
  * - View/Edit/Export actions (no delete, no bulk)
  */
+$navBase = $appBase ?? rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
+if ($navBase === '.') $navBase = '';
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
-<link rel="stylesheet" href="/css/roles/manager-theme.css?v=<?= asset_version('css/roles/manager-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/roles/manager-theme.css?v=<?= asset_version('css/roles/manager-theme.css') ?>">
 
 <div class="manager-layout">
     <!-- Compact Sidebar -->
@@ -23,27 +25,27 @@
         </div>
 
         <nav class="manager-nav">
-            <a href="/pages/dashboard.php" class="manager-nav-item" data-tooltip="Dashboard">
+            <a href="<?= $navBase ?>/home.php?route=dashboard" class="manager-nav-item" data-tooltip="Dashboard">
                 <span class="nav-icon">🏠</span>
                 <span class="nav-label">Dashboard</span>
             </a>
-            <a href="/pages/manage_activities.php" class="manager-nav-item active" data-tooltip="Activities">
+            <a href="<?= $navBase ?>/home.php?route=manage_activities" class="manager-nav-item active" data-tooltip="Activities">
                 <span class="nav-icon">🏆</span>
                 <span class="nav-label">Activities</span>
             </a>
-            <a href="/pages/manage_communications.php" class="manager-nav-item" data-tooltip="Communications">
+            <a href="<?= $navBase ?>/home.php?route=manage_communications" class="manager-nav-item" data-tooltip="Communications">
                 <span class="nav-icon">💬</span>
                 <span class="nav-label">Communications</span>
             </a>
-            <a href="/pages/all_students.php" class="manager-nav-item" data-tooltip="Students">
+            <a href="<?= $navBase ?>/home.php?route=all_students" class="manager-nav-item" data-tooltip="Students">
                 <span class="nav-icon">👨‍🎓</span>
                 <span class="nav-label">Students</span>
             </a>
-            <a href="/pages/all_classes.php" class="manager-nav-item" data-tooltip="Classes">
+            <a href="<?= $navBase ?>/home.php?route=class_streams" class="manager-nav-item" data-tooltip="Classes">
                 <span class="nav-icon">📚</span>
                 <span class="nav-label">Classes</span>
             </a>
-            <a href="/pages/reports.php" class="manager-nav-item" data-tooltip="Reports">
+            <a href="<?= $navBase ?>/home.php?route=activity_reports" class="manager-nav-item" data-tooltip="Reports">
                 <span class="nav-icon">📊</span>
                 <span class="nav-label">Reports</span>
             </a>

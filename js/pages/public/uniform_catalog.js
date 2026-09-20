@@ -131,7 +131,7 @@
           ? 'KES ' + lo.toLocaleString()
           : 'KES ' + lo.toLocaleString() + ' – ' + hi.toLocaleString())
         : '';
-      var href = base + '/product_details.php?id=' + encodeURIComponent(p.id);
+      var href = base + '/index.php?route=r468ffeac30cf&id=' + encodeURIComponent(p.id);
       var available = sizes.reduce(function (total, size) { return total + Number(size.available || 0); }, 0);
       var swatches = (p.variants || []).slice(0, 6).map(function (variant) {
         var color = variant.swatch_hex || variant.swatch || '#0b5d3b';

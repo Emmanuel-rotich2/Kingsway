@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const base = String(window.APP_BASE || '').replace(/\/+$/, '');
       const S = window.PublicSite.escapeHtml;
       const spans = list.map((n) =>
-        '<span><a href="' + base + '/news-article.php?id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
+        '<span><a href="' + base + '/index.php?route=rfcb132e4845b&id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
       ).join('');
       track.innerHTML = spans + spans;
     } catch (err) {
@@ -105,12 +105,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /* ── Active nav link ─────────────────────────────────────────────────────── */
-  const currentPage = location.pathname.split('/').pop() || 'index.php';
+  // Public routes are anonymised tokens (index.php?route=r<hex>). The server
+  // injects the current page key (PUBLIC_ROUTE_KEY) and a token→key map
+  // (PUBLIC_ROUTE_MAP); resolve any legacy keys here so highlighting survives
+  // both token and plain-key URLs.
+  const routeQs = new URLSearchParams(window.location.search);
+  const routeParam = routeQs.get('route');
+  const routeMap = window.PUBLIC_ROUTE_MAP || {};
+  const serverKey = (window.PUBLIC_ROUTE_KEY || '').toString();
+  const currentKey = serverKey || (routeParam ? (routeMap[routeParam] || routeParam) : '');
   document.querySelectorAll('.site-nav .nav-link').forEach(link => {
     const href = link.getAttribute('href') || '';
-    if (href && (href === currentPage || href.endsWith(currentPage))) {
-      link.classList.add('active');
+    if (!href) return;
+    const m = href.match(/[?&]route=([^&#]+)/);
+    if (!m) {
+      if (currentKey === 'home' && (href === 'index.php' || /\/index\.php$/.test(href))) link.classList.add('active');
+      else if (!currentKey && (href === currentKey || href.endsWith('index.php'))) link.classList.add('active');
+      return;
     }
+    const linkKey = routeMap[m[1]] || m[1];
+    if (currentKey && linkKey === currentKey) link.classList.add('active');
   });
 
   /* ── Login modal show/hide ─────────────────────────────────────────────────── */

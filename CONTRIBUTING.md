@@ -1,35 +1,32 @@
-# Contributing to Kingsway
+# Contributions are not publicly accepted
 
-Thanks for helping improve the Kingsway School Management System! Please follow these guidelines to keep contributions smooth and reviewable.
+Kingsway Preparatory School exclusively owns this system. It is not an
+open-source or public-contribution project.
 
-## Branches and Workflow
-- **main**: Stable, deployable branch. Protected.
-- **development**: Active integration branch. Base for feature work.
-- **Feature branches**: `feature/<short-description>` from `development`.
+The system was built and is maintained by **Angisoft Technologies**. All
+technical communication and authorized contribution enquiries must be directed
+privately to Angisoft Technologies through its official authorized channels.
 
-## Getting Started
-1. Fork/clone the repo and checkout `development`.
-2. Install dependencies: `composer install`.
-3. Configure your `.env` and database (see `README.md` for setup).
-4. Run migrations/seeds as needed: `scripts/run_migration.sh` or import the SQL dump.
+Public forks, pull requests, patches, issue reports containing implementation
+details, and unsolicited contributions are not authorized. Repository
+visibility does not invite contribution and does not grant a license.
 
-## Coding Guidelines
-- **PHP**: Follow PSR-12 style where practical; prefer dependency injection over globals; avoid duplicating business logic.
-- **JavaScript**: Keep API interactions centralized in `js/api.js`; avoid inline fetch/axios; use the notification modal for user feedback.
-- **Security**: Validate and sanitize input, use prepared statements, and respect permission checks on every endpoint.
-- **Stateless auth**: Do not introduce server-side session state; rely on JWT for auth.
+Only individuals expressly authorized by Kingsway Preparatory School may work
+on the system. Authorized work must:
 
-## Tests and Checks
-- Run relevant scripts in `tests/` before opening a PR (e.g., `tests/verify_api_endpoints.sh`, `tests/test_auth_login_endpoint.php`).
-- Add/adjust tests when you change API contracts, permissions, or dashboards.
+- remain within the assigned written scope;
+- comply with confidentiality, safeguarding, and data-protection obligations;
+- use school-approved private repositories, devices, environments, and
+  communication channels;
+- exclude real school data, credentials, logs, database artifacts, internal
+  documentation, tests, and operational details from public services;
+- avoid public issues, pull requests, forks, snippets, recordings, screenshots,
+  demonstrations, and third-party uploads;
+- undergo the school’s internal review and approval process before deployment.
 
-## Pull Requests
-- Base all PRs on `development`.
-- Keep changes scoped; update docs when behavior or endpoints change.
-- Include a short summary, testing notes, and any migration requirements.
-- Address review feedback promptly; re-run tests after updates.
+Do not submit security vulnerabilities publicly. Follow `SECURITY.md` and
+contact Angisoft Technologies privately through its official authorized
+channels.
 
-## Reporting Issues
-- Provide reproduction steps, expected vs actual behavior, logs or responses (omit secrets), and environment details (OS, PHP version, DB).
-
-Thanks for contributing! Your improvements keep Kingsway reliable and secure for every school using it.
+Unauthorized access, retention, copying, disclosure, or contribution is
+prohibited.

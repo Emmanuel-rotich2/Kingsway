@@ -275,7 +275,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </button>
             <div id="resetMessage" class="reset-state" role="status" aria-live="polite"></div>
             <div class="text-center mt-4">
-              <a href="<?= $appBase ?>/forgot_password.php" class="reset-secondary-link"><i class="bi bi-arrow-clockwise me-1"></i>Request a new link</a>
+              <a href="<?= $appBase ?>/index.php?route=r8f1bc67a3eb2" class="reset-secondary-link"><i class="bi bi-arrow-clockwise me-1"></i>Request a new link</a>
             </div>
           </form>
         </div>
@@ -401,7 +401,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         confirmPassword.disabled = true;
         button.disabled = true;
         setTimeout(function () {
-          window.location.href = (window.APP_BASE || '') + '/login.php';
+          window.location.href = (window.APP_BASE || '') + '/index.php?route=r6d394ab20b0b';
         }, 2500);
       } catch (error) {
         showMessage('error', error.message || 'Password reset failed. Please try again.');

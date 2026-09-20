@@ -50,7 +50,7 @@
 
       const id = new URLSearchParams(window.location.search).get('id');
       if (!id || !/^\d+$/.test(id)) {
-        window.location.replace(base + '/events.php');
+        window.location.replace(base + '/index.php?route=r78213fd42e2d');
         return;
       }
 
@@ -64,7 +64,7 @@
         this.render(event, related, terms);
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[event-detail] not found or failed:', err);
-        window.location.replace(base + '/events.php');
+        window.location.replace(base + '/index.php?route=r78213fd42e2d');
       }
     },
 
@@ -163,7 +163,7 @@
       el.innerHTML = list.map((r) => {
         const rd = toDate(r.start_at);
         const tc = typeColor(r.type);
-        return '<a href="' + base + '/event-detail.php?id=' + encodeURIComponent(r.id) + '" ' +
+        return '<a href="' + base + '/index.php?route=rdee45953a6c1&id=' + encodeURIComponent(r.id) + '" ' +
           'class="d-flex align-items-center gap-3 mb-3 text-decoration-none text-dark">' +
           '<div class="d-flex flex-column align-items-center justify-content-center text-white rounded-2 flex-shrink-0" ' +
           'style="width:44px;height:44px;background:var(--green-dark);font-size:.75rem">' +

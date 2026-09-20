@@ -21,9 +21,9 @@ $ppAdminGradeOptions = $ppAdminGradeOptions ?? ($ppGrades ?: ['PP1','PP2','Grade
 <footer class="pp-footer no-print">
   <span>© <?= date('Y') ?> Kingsway Preparatory School · “In God We Soar”</span>
   <span>
-    <a href="<?= $appBase ?>/contact.php">Contact school office</a> ·
+    <a href="<?= $appBase ?>/index.php?route=contact">Contact school office</a> ·
     <a href="<?= $appBase ?>/index.php">Public website</a> ·
-    <a href="<?= $appBase ?>/parents/uniform_catalog.php<?= $familyStaffMode ? '?staff=1' : '' ?>">Uniform Store</a>
+    <a href="<?= $appBase ?>/parent_portal.php?route=uniform-catalog<?= $familyStaffMode ? '&staff=1' : '' ?>">Uniform Store</a>
   </span>
 </footer>
 

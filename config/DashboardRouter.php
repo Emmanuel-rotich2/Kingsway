@@ -131,8 +131,8 @@ private const ROUTE_ROLES = [
     'catering_boarding_students' => [16, 32],  // 2 role(s)
     'catering_manager_cook_lead_dashboard' => [16],  // 1 role(s)
     'chaplaincy_department' => [24],  // 1 role(s)
-    'chaplaincy_programs' => [24],  // 1 role(s)
     'chaplaincy_pastoral' => [24],  // 1 role(s)
+    'chaplaincy_programs' => [24],  // 1 role(s)
     'class_attendance_history' => [7],  // 1 role(s)
     'class_capacity' => [4, 5],  // 2 role(s)
     'class_conduct_grades' => [7],  // 1 role(s)
@@ -233,13 +233,13 @@ private const ROUTE_ROLES = [
     'maintenance_mode' => [2],  // 1 role(s)
     'manage_activities' => [3, 5, 21],  // 3 role(s)
     'manage_admissions_payments' => [10],  // 1 role(s)
-    'manage_announcements' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 19 role(s)
+    'manage_announcements' => [3, 4, 5, 6, 7, 8, 9, 10, 18, 24, 32, 33, 34, 63, 64],  // 15 role(s)
     'manage_articles' => [3, 6, 21, 63],  // 4 role(s)
     'manage_boarding' => [3, 4, 5, 18],  // 4 role(s)
     'manage_boarding_fee_structure' => [10],  // 1 role(s)
     'manage_classes' => [3, 4, 5, 6],  // 4 role(s)
     'manage_communications' => [4, 63],  // 2 role(s)
-    'manage_email' => [3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64, 71, 72],  // 21 role(s)
+    'manage_email' => [3, 4, 5, 6, 7, 8, 9, 10, 18, 24, 32, 33, 34, 63, 64, 71, 72],  // 17 role(s)
     'manage_email_configurations' => [2],  // 1 role(s)
     'manage_expenses' => [10],  // 1 role(s)
     'manage_extra_charges' => [3, 4, 10],  // 3 role(s)
@@ -252,7 +252,6 @@ private const ROUTE_ROLES = [
     'manage_job_vacancies' => [3],  // 1 role(s)
     'manage_lesson_plans' => [5, 6, 7, 8, 9, 63],  // 6 role(s)
     'manage_library' => [3, 4, 5, 6, 63, 72],  // 6 role(s)
-    'manage_menus' => [16],  // 1 role(s)
     'manage_page_content' => [3],  // 1 role(s)
     'manage_payments' => [3, 4, 10],  // 3 role(s)
     'manage_payrolls' => [3, 4, 10],  // 3 role(s)
@@ -326,7 +325,7 @@ private const ROUTE_ROLES = [
     'permissions_exeats' => [3, 4, 18, 33],  // 4 role(s)
     'petty_cash' => [3, 10],  // 2 role(s)
     'placement_tests' => [4, 6],  // 2 role(s)
-    'policy_violations' => [2, 63],  // 2 role(s)
+    'policy_violations' => [2],  // 1 role(s)
     'products_catalog_management' => [4, 14],  // 2 role(s)
     'pta_management' => [3, 4, 5],  // 3 role(s)
     'purchase_orders' => [3, 10, 14, 16, 71],  // 5 role(s)
@@ -455,6 +454,7 @@ private const ROUTE_ROLES = [
     'year_calendar' => [3, 4],  // 2 role(s)
     'year_rollover' => [4],  // 1 role(s)
 ];
+
 
 
 

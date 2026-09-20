@@ -459,17 +459,12 @@ class SidebarConfigReader
         if ($roleId === 16) {
             $items = self::removeRoutes($items, ['manage_menus']);
         }
-        // These routes are protected by the system-domain policy. School
-        // Administrator and Deputy Discipline menus must not advertise links
-        // that the policy engine intentionally denies.
-        if ($roleId === 4) {
-            $items = self::removeRoutes($items, ['term_transition', 'year_rollover', 'manage_whatsapp']);
-        }
+        // School Administrator, Deputy Head (Discipline), and Chaplain links
+        // follow the role_sidebars.php grants. Only the system-domain policy
+        // violations page is kept out of the Deputy Discipline menu because it
+        // is a SYSTEM-domain route owned by the System Administrator role.
         if ($roleId === 63) {
-            $items = self::removeRoutes($items, ['schemes_of_work', 'all_teachers', 'policy_violations']);
-        }
-        if ($roleId === 24) {
-            $items = self::removeRoutes($items, ['parent_meeting_records']);
+            $items = self::removeRoutes($items, ['policy_violations']);
         }
 
         return $items;

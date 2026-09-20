@@ -29,21 +29,21 @@ $parentBodyClass = trim((string)($parentBodyClass ?? ''));
 $parentSidebar   = (bool)($parentSidebar ?? false);
 
 $parentSections = [
-    'dashboard'  => ['label' => 'Dashboard',    'href' => 'dashboard.php',  'icon' => 'bi bi-grid-1x2-fill'],
-    'children'   => ['label' => 'My Children',  'href' => 'children.php',   'icon' => 'bi bi-people-fill'],
-    'updates'    => ['label' => 'School Updates', 'href' => 'updates.php', 'icon' => 'bi bi-megaphone-fill'],
-    'results'    => ['label' => 'Learning & Results', 'href' => 'results.php', 'icon' => 'bi bi-mortarboard-fill'],
-    'learning'   => ['label' => 'Homework & Objectives', 'href' => 'learning.php', 'icon' => 'bi bi-journal-text'],
-    'health'     => ['label' => 'Health & Welfare', 'href' => 'health.php', 'icon' => 'bi bi-heart-pulse-fill'],
-    'activities' => ['label' => 'Clubs & Activities', 'href' => 'activities.php', 'icon' => 'bi bi-trophy-fill'],
-    'attendance' => ['label' => 'Attendance',   'href' => 'attendance.php', 'icon' => 'bi bi-calendar-check-fill'],
-    'messages'   => ['label' => 'Messages',     'href' => 'messages.php',   'icon' => 'bi bi-chat-dots-fill'],
-    'documents'  => ['label' => 'Documents & Reports', 'href' => 'documents.php', 'icon' => 'bi bi-folder2-open'],
-    'downloads'  => ['label' => 'Downloads',            'href' => 'downloads.php',  'icon' => 'bi bi-download'],
-    'fees'       => ['label' => 'Fees & Payments',     'href' => 'fees.php', 'icon' => 'bi bi-receipt-cutoff'],
-    'transport'  => ['label' => 'Transport',    'href' => 'transport.php',  'icon' => 'bi bi-bus-front-fill'],
-    'community'  => ['label' => 'PTA & Community',     'href' => 'community.php', 'icon' => 'bi bi-person-hearts'],
-    'account'    => ['label' => 'Account Settings',    'href' => 'account.php',   'icon' => 'bi bi-gear-fill'],
+    'dashboard'  => ['label' => 'Dashboard',    'href' => 'dashboard',  'icon' => 'bi bi-grid-1x2-fill'],
+    'children'   => ['label' => 'My Children',  'href' => 'children',   'icon' => 'bi bi-people-fill'],
+    'updates'    => ['label' => 'School Updates', 'href' => 'updates', 'icon' => 'bi bi-megaphone-fill'],
+    'results'    => ['label' => 'Learning & Results', 'href' => 'results', 'icon' => 'bi bi-mortarboard-fill'],
+    'learning'   => ['label' => 'Homework & Objectives', 'href' => 'learning', 'icon' => 'bi bi-journal-text'],
+    'health'     => ['label' => 'Health & Welfare', 'href' => 'health', 'icon' => 'bi bi-heart-pulse-fill'],
+    'activities' => ['label' => 'Clubs & Activities', 'href' => 'activities', 'icon' => 'bi bi-trophy-fill'],
+    'attendance' => ['label' => 'Attendance',   'href' => 'attendance', 'icon' => 'bi bi-calendar-check-fill'],
+    'messages'   => ['label' => 'Messages',     'href' => 'messages',   'icon' => 'bi bi-chat-dots-fill'],
+    'documents'  => ['label' => 'Documents & Reports', 'href' => 'documents', 'icon' => 'bi bi-folder2-open'],
+    'downloads'  => ['label' => 'Downloads',            'href' => 'downloads',  'icon' => 'bi bi-download'],
+    'fees'       => ['label' => 'Fees & Payments',     'href' => 'fees', 'icon' => 'bi bi-receipt-cutoff'],
+    'transport'  => ['label' => 'Transport',    'href' => 'transport',  'icon' => 'bi bi-bus-front-fill'],
+    'community'  => ['label' => 'PTA & Community',     'href' => 'community', 'icon' => 'bi bi-person-hearts'],
+    'account'    => ['label' => 'Account Settings',    'href' => 'account',   'icon' => 'bi bi-gear-fill'],
 ];
 $parentNavGroups = [
     'overview'    => ['label' => 'Overview',       'icon' => 'bi bi-grid-1x2-fill',   'items' => ['dashboard']],
@@ -90,7 +90,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
 
 <!-- ═══════ TOP NAVIGATION (shared) ══════════════════════════════════════ -->
 <header class="pp-topbar no-print">
-  <a class="pp-brand" href="<?= $appBase ?>/parents/dashboard.php">
+  <a class="pp-brand" href="<?= $appBase ?>/parent_portal.php?route=dashboard">
     <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
     <span><strong>KINGSWAY PREPARATORY SCHOOL</strong><small>Parent &amp; Family Centre</small></span>
   </a>
@@ -106,7 +106,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
       <ul class="dropdown-menu">
         <?php foreach ($group['items'] as $itemKey): $item = $parentSections[$itemKey] ?? null; if (!$item) continue; ?>
         <li>
-          <a href="<?= $appBase ?>/parents/<?= htmlspecialchars($item['href'], ENT_QUOTES, 'UTF-8') ?><?= $familyStaffMode ? '?staff=1' : '' ?>"
+<a href="<?= $appBase ?>/parent_portal.php?route=<?= htmlspecialchars($itemKey, ENT_QUOTES, 'UTF-8') ?><?= $familyStaffMode ? '&staff=1' : '' ?>"
              class="dropdown-item<?= $parentActive === $itemKey ? ' active' : '' ?>">
             <i class="<?= htmlspecialchars($item['icon'], ENT_QUOTES, 'UTF-8') ?>"></i><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?>
           </a>
@@ -115,7 +115,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
       </ul>
     </div>
     <?php endforeach; ?>
-    <a href="<?= $appBase ?>/parents/uniform_catalog.php<?= $familyStaffMode ? '?staff=1' : '' ?>" class="pp-nav-toggle<?= $parentActive === 'store' ? ' active' : '' ?>"><i class="bi bi-bag-heart-fill"></i>Store</a>
+    <a href="<?= $appBase ?>/parent_portal.php?route=uniform-catalog<?= $familyStaffMode ? '&staff=1' : '' ?>" class="pp-nav-toggle<?= $parentActive === 'store' ? ' active' : '' ?>"><i class="bi bi-bag-heart-fill"></i>Store</a>
   </nav>
   <div class="pp-topbar-actions">
     <button class="btn btn-outline-light btn-sm pp-nav-burger" type="button" data-bs-toggle="offcanvas" data-bs-target="#ppDrawer" aria-controls="ppDrawer" aria-label="Open menu"><i class="bi bi-list"></i></button>
@@ -124,7 +124,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
         <i class="bi bi-person-circle"></i><span class="pp-user-name" id="parentName">Parent</span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end pp-user-menu">
-        <li><a class="dropdown-item<?= $parentActive === 'account' ? ' active' : '' ?>" href="<?= $appBase ?>/parents/account.php<?= $familyStaffMode ? '?staff=1' : '' ?>"><i class="bi bi-gear-fill"></i>Account settings</a></li>
+        <li><a class="dropdown-item<?= $parentActive === 'account' ? ' active' : '' ?>" href="<?= $appBase ?>/parent_portal.php?route=account<?= $familyStaffMode ? '&staff=1' : '' ?>"><i class="bi bi-gear-fill"></i>Account settings</a></li>
       </ul>
     </span>
     <?php if ($familyStaffMode): ?>
@@ -149,7 +149,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
         <i class="<?= htmlspecialchars($group['icon'], ENT_QUOTES, 'UTF-8') ?>"></i><?= htmlspecialchars($group['label'], ENT_QUOTES, 'UTF-8') ?>
       </div>
       <?php foreach ($group['items'] as $itemKey): $item = $parentSections[$itemKey] ?? null; if (!$item) continue; ?>
-      <a href="<?= $appBase ?>/parents/<?= htmlspecialchars($item['href'], ENT_QUOTES, 'UTF-8') ?><?= $familyStaffMode ? '?staff=1' : '' ?>"
+      <a href="<?= $appBase ?>/parent_portal.php?route=<?= htmlspecialchars($itemKey, ENT_QUOTES, 'UTF-8') ?><?= $familyStaffMode ? '&staff=1' : '' ?>"
          class="pp-drawer-item<?= $parentActive === $itemKey ? ' active' : '' ?>">
         <i class="<?= htmlspecialchars($item['icon'], ENT_QUOTES, 'UTF-8') ?>"></i><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?>
       </a>
@@ -158,7 +158,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
     <?php endforeach; ?>
     <div class="pp-drawer-group">
       <div class="pp-drawer-group-title"><i class="bi bi-bag-heart-fill"></i>Shop</div>
-      <a href="<?= $appBase ?>/parents/uniform_catalog.php<?= $familyStaffMode ? '?staff=1' : '' ?>" class="pp-drawer-item<?= $parentActive === 'store' ? ' active' : '' ?>"><i class="bi bi-bag-heart-fill"></i>Uniform Store</a>
+      <a href="<?= $appBase ?>/parent_portal.php?route=uniform-catalog<?= $familyStaffMode ? '&staff=1' : '' ?>" class="pp-drawer-item<?= $parentActive === 'store' ? ' active' : '' ?>"><i class="bi bi-bag-heart-fill"></i>Uniform Store</a>
     </div>
   </div>
 </div>

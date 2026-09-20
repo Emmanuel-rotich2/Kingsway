@@ -2672,7 +2672,7 @@ class StaffAPI extends BaseAPI {
 
     private function staffSetupUrl(string $token): string
     {
-        return $this->appBaseUrl() . '/reset_default_password.php?token=' . rawurlencode($token);
+        return $this->appBaseUrl() . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token);
     }
 
     private function appBaseUrl(): string

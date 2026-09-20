@@ -12,7 +12,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/uniform_catalog.php">Uniform Store</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=r39d07ccbcf8a">Uniform Store</a></li>
       <li class="breadcrumb-item active" id="pd-crumb">Product</li>
     </ol></nav>
   </div>
@@ -75,7 +75,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
                 <div class="fw-semibold small">Your cart</div>
                 <div class="text-muted small" id="pdCartInfo"></div>
               </div>
-              <a href="<?= $appBase ?>/catalog_account.php" class="btn btn-success btn-sm rounded-pill px-3">
+              <a href="<?= $appBase ?>/index.php?route=r7d32d41da298" class="btn btn-success btn-sm rounded-pill px-3">
                 Checkout<i class="bi bi-arrow-right ms-1"></i>
               </a>
             </div>
@@ -91,7 +91,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </ol>
           </div>
 
-          <a href="<?= $appBase ?>/uniform_catalog.php" class="btn-kw-outline mt-4" style="font-size:.85rem">
+          <a href="<?= $appBase ?>/index.php?route=r39d07ccbcf8a" class="btn-kw-outline mt-4" style="font-size:.85rem">
             <i class="bi bi-arrow-left me-1"></i>Back to Uniform Store
           </a>
 
@@ -102,7 +102,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<section class="section pt-0"><div class="container"><div class="d-flex justify-content-between align-items-end mb-3"><div><span class="section-subtitle">Customer feedback</span><h2 class="h3 mb-0">Ratings &amp; reviews</h2></div><a href="<?= $appBase ?>/catalog_account.php?tab=orders" class="btn btn-outline-success rounded-pill">Review a purchase</a></div><div id="pdReviews" class="row g-3"></div></div></section>
+<section class="section pt-0"><div class="container"><div class="d-flex justify-content-between align-items-end mb-3"><div><span class="section-subtitle">Customer feedback</span><h2 class="h3 mb-0">Ratings &amp; reviews</h2></div><a href="<?= $appBase ?>/index.php?route=r7d32d41da298&tab=orders" class="btn btn-outline-success rounded-pill">Review a purchase</a></div><div id="pdReviews" class="row g-3"></div></div></section>
 
 <style>
 .pd-thumb{width:72px;height:72px;object-fit:cover;border-radius:var(--radius-md);cursor:pointer;border:3px solid transparent;transition:var(--transition);opacity:.7}

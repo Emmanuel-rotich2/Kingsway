@@ -229,7 +229,7 @@
     /* ── Page navigation helpers ────────────────────────────────────── */
 
     childUrl: function (section, childId) {
-      var url = (window.APP_BASE || '') + '/parents/' + section + '.php';
+      var url = (window.APP_BASE || '') + '/parent_portal.php?route=' + section;
       var q = [];
       if (childId) q.push('child=' + encodeURIComponent(childId));
       if (window.FAMILY_STAFF_MODE) q.push('staff=1');

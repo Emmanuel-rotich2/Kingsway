@@ -542,7 +542,7 @@ return [
                 ['label' => 'Manage Terms', 'url' => 'manage_terms'],               // Admin can also schedule terms
                 ['label' => 'Year Calendar', 'url' => 'year_calendar'],
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
-                ['label' => 'Year Rollover', 'url' => 'year_rollover'],
+                ['label' => 'Acad. Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'View Timetable', 'url' => 'manage_timetable'],
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards

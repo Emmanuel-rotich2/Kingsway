@@ -41,7 +41,7 @@
 
       const id = new URLSearchParams(window.location.search).get('id');
       if (!id || !/^\d+$/.test(id)) {
-        window.location.replace(base + '/careers.php');
+        window.location.replace(base + '/index.php?route=ra5d49bd64f1c');
         return;
       }
 
@@ -51,7 +51,7 @@
         PS.bumpView('jobs', id);
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[job-detail] not found or failed:', err);
-        window.location.replace(base + '/careers.php');
+        window.location.replace(base + '/index.php?route=ra5d49bd64f1c');
       }
     },
 

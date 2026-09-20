@@ -144,7 +144,7 @@
               '</ul></div>'
             : '') +
           '<div class="mt-auto pt-3 border-top d-flex gap-2">' +
-          '<a href="' + base + '/job-detail.php?id=' + encodeURIComponent(job.id) + '" class="btn-kw-outline flex-grow-1 justify-content-center py-2" style="font-size:.85rem">' +
+          '<a href="' + base + '/index.php?route=re93c70de83f2&id=' + encodeURIComponent(job.id) + '" class="btn-kw-outline flex-grow-1 justify-content-center py-2" style="font-size:.85rem">' +
           '<i class="bi bi-info-circle"></i>View Details</a>' +
           '<button type="button" class="btn-kw-primary apply-job-btn justify-content-center py-2" style="font-size:.85rem" ' +
           'data-job-id="' + job.id + '" data-job-title="' + S(job.title) + '">' +

@@ -280,7 +280,7 @@ const internalProductsCatalogController = {
       const available = sizes.reduce((total, size) => total + Number(size.available || 0), 0);
       const swatches = (p.variants || []).slice(0, 7).map((v) =>
         `<span class="catalog-swatch" style="background:${this.esc(v.swatch_hex || '#0b5d3b')}" title="${this.esc(v.name || v.color_name || 'Variant')}"></span>`).join('');
-      const href = `${base}/product_details.php?id=${encodeURIComponent(p.id)}`;
+      const href = `${base}/index.php?route=r468ffeac30cf&id=${encodeURIComponent(p.id)}`;
       return `<article class="catalog-product-card">
         <a href="${href}" class="text-decoration-none d-block"><div class="catalog-product-media">
           <img src="${this.esc(this.versionedImage(image, '20260831-3'))}" alt="${this.esc(p.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">

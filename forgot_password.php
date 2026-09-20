@@ -219,7 +219,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </button>
             <div id="forgotMessage" class="reset-state" role="status" aria-live="polite"></div>
             <div class="text-center mt-4">
-              <a href="<?= $appBase ?>/login.php" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
+              <a href="<?= $appBase ?>/index.php?route=r6d394ab20b0b" class="reset-secondary-link"><i class="bi bi-arrow-left me-1"></i>Back to login</a>
             </div>
           </form>
         </div>

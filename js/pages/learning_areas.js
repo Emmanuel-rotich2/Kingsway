@@ -400,7 +400,7 @@ const LearningAreasController = {
   },
 
   viewSow(id) {
-    window.location.href = (window.APP_BASE || "") + `/pages/schemes_of_work.php?id=${id}`;
+    window.location.href = (window.APP_BASE || "") + `/home.php?route=schemes_of_work&id=${id}`;
   },
 
   populateFilters() {
