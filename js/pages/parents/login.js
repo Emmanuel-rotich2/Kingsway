@@ -48,13 +48,18 @@
 
   function goToDashboard() {
     if (window.FAMILY_STAFF_MODE) {
-      window.location.replace((window.APP_BASE || '') + '/my_family.php');
+      window.location.replace((window.APP_BASE || '') + '/parent_portal.php?route=my-family');
       return;
     }
     var next = new URLSearchParams(window.location.search).get('next');
-    var target = next && /^\/parents\/[\w\-./]+\.php/.test(next)
-      ? (window.APP_BASE || '') + next
-      : (window.APP_BASE || '') + '/parents/dashboard.php';
+    var target = (window.APP_BASE || '') + '/parent_portal.php?route=dashboard';
+    if (next) {
+      var m = String(next).match(/parent_portal\.php\?route=([\w-]+)/) ||
+              String(next).match(/parents\/([\w-]+)\.php/);
+      if (m && m[1] && m[1] !== 'login') {
+        target = (window.APP_BASE || '') + '/parent_portal.php?route=' + m[1];
+      }
+    }
     window.location.replace(target);
   }
 
@@ -86,7 +91,7 @@
           var staffBtn = document.getElementById('btnEmailLogin');
           if (staffBtn) staffBtn.disabled = true;
           setTimeout(function () {
-            window.location.replace(d.staff_login_url || (window.APP_BASE || '') + '/login.php');
+            window.location.replace(d.staff_login_url || (window.APP_BASE || '') + '/index.php?route=r6d394ab20b0b');
           }, 1800);
           return;
         }

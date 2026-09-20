@@ -180,14 +180,14 @@ $adSteps = [
             </li>
             <?php endforeach; ?>
           </ul>
-          <a href="<?= $appBase ?>/downloads.php" class="btn-kw-outline" style="color:<?= $fp[2] ?>;border-color:<?= $fp[2] ?>">
+          <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="btn-kw-outline" style="color:<?= $fp[2] ?>;border-color:<?= $fp[2] ?>">
             <i class="bi bi-download"></i>Download Full Fee Structure
           </a>
         </div>
       </div>
       <?php endforeach; ?>
     </div>
-    <p class="text-center text-muted small mt-4">* Fees are reviewed annually. Payment plans available. Bursaries offered to deserving students — <a href="<?= $appBase ?>/downloads.php" class="text-success">download bursary form</a>.</p>
+    <p class="text-center text-muted small mt-4">* Fees are reviewed annually. Payment plans available. Bursaries offered to deserving students — <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="text-success">download bursary form</a>.</p>
   </div>
 </section>
 
@@ -510,7 +510,7 @@ $adSteps = [
         <p class="text-muted mb-1">Your application reference number is:</p>
         <div class="display-6 fw-bold text-success mb-3" id="adRefDisplay"></div>
         <p class="text-muted small">Save this reference number. Our admissions team will call you within 24 hours.</p>
-        <a href="<?= $appBase ?>/contact.php" class="btn-kw-outline mt-3">
+        <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="btn-kw-outline mt-3">
           <i class="bi bi-telephone"></i>Contact Admissions
         </a>
       </div>
@@ -549,7 +549,7 @@ $adSteps = [
           <?php endforeach; ?>
         </div>
         <div class="text-center mt-4">
-          <p class="text-muted small">Still have questions? <a href="<?= $appBase ?>/contact.php" class="text-success fw-semibold">Contact our admissions team</a></p>
+          <p class="text-muted small">Still have questions? <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="text-success fw-semibold">Contact our admissions team</a></p>
         </div>
       </div>
     </div>

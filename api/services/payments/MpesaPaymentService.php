@@ -512,9 +512,9 @@ class MpesaPaymentService
             if ($annualBalance !== null) {
                 $msg .= ' Annual balance: ' . $money($annualBalance) . '.';
             }
-            $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parents/';
+            $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
             $msg .= ' Receipt: ' . ($ref !== '' ? 'MPESA-' . $ref : 'available in portal') . '.';
-            if ($portalUrl !== '/parents/') {
+            if ($portalUrl !== '/parent_portal.php') {
                 $msg .= ' View statement: ' . $portalUrl;
             }
             $msg .= ' - Kingsway Preparatory School';

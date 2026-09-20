@@ -16,7 +16,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/careers.php">Careers</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c">Careers</a></li>
       <li class="breadcrumb-item active" id="jd-crumb">Job</li>
     </ol></nav>
     <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)" id="jd-title">Loading&hellip;</h1>
@@ -53,7 +53,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 
         <!-- Apply CTA -->
         <div class="d-flex flex-wrap gap-3 mt-4">
-          <a href="<?= $appBase ?>/careers.php" class="btn-kw-outline">
+          <a href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c" class="btn-kw-outline">
             <i class="bi bi-arrow-left"></i>All Vacancies
           </a>
           <button type="button" id="jd-apply-btn" class="btn-kw-primary">
@@ -130,7 +130,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
               <div class="text-muted" style="font-size:.78rem">Generous leave and support</div>
             </div>
           </div>
-          <a href="<?= $appBase ?>/careers.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.85rem">
+          <a href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.85rem">
             Learn More About Benefits
           </a>
         </div>

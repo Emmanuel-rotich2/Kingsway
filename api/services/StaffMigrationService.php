@@ -276,7 +276,7 @@ final class StaffMigrationService
         $stmt->execute([$userId]); $user=$stmt->fetch(PDO::FETCH_ASSOC);
         if(!$user) throw new RuntimeException('Imported staff user not found.');
         $token=$this->createInvitation((int)$user['id'],(int)$user['staff_id'],$user['email'],$actorId);
-        $url=rtrim($baseUrl,'/').'/reset_default_password.php?token='.rawurlencode($token);
+        $url=rtrim($baseUrl,'/').'/index.php?route=rf4a47967b780&token='.rawurlencode($token);
         $this->queueEmail((int)$user['id'],$user['email'],'staff_account_invitation','Your Kingsway account is ready',[
             'name'=>trim($user['first_name'].' '.$user['last_name']),'username'=>$user['username'],'activation_url'=>$url
         ]);
@@ -521,7 +521,7 @@ final class StaffMigrationService
                 ->execute([$pid,$r['emergency_contact_name'],$r['emergency_contact_phone']??null]);
         }
         $token=$this->createInvitation($uid,$sid,$r['email'],$actorId);
-        $baseUrl=(defined('BASE_URL')?BASE_URL:(defined('APP_URL')?APP_URL:''));$url=rtrim($baseUrl,'/').'/reset_default_password.php?token='.rawurlencode($token);
+        $baseUrl=(defined('BASE_URL')?BASE_URL:(defined('APP_URL')?APP_URL:''));$url=rtrim($baseUrl,'/').'/index.php?route=rf4a47967b780&token='.rawurlencode($token);
         $this->queueEmail($uid,$r['email'],'staff_account_invitation','Your Kingsway account is ready',[
             'name'=>$r['first_name'].' '.$r['last_name'],
             'username'=>$username,
@@ -529,7 +529,7 @@ final class StaffMigrationService
             'temporary_password'=>$temporary,
             'activation_url'=>$url,
             'setup_url'=>$url,
-            'login_url'=>rtrim($baseUrl,'/').'/index.php',
+            'login_url'=>rtrim($baseUrl,'/').'/index.php?route=r6d394ab20b0b',
             'expires_hours'=>72,
         ]);
         $this->db->prepare("UPDATE staff_import_rows SET staff_id=?,user_id=?,status='created',updated_at=NOW() WHERE id=?")->execute([$sid,$uid,$rowId]);

@@ -96,7 +96,7 @@
         const sT = ev.start_at && hasTime(ev.start_at) ? PS.formatDate(d, 'time') : '';
         const eT = ev.end_at && hasTime(ev.end_at) ? PS.formatDate(dEnd, 'time') : '';
         const timeStr = (sT && eT && eT !== sT) ? sT + ' – ' + eT : (sT || '');
-        return '<a href="' + base + '/event-detail.php?id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none">' +
+        return '<a href="' + base + '/index.php?route=rdee45953a6c1&id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none">' +
           '<div class="card-modern" style="cursor:pointer;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">' +
           '<div class="row g-0">' +
           '<div class="col-auto d-flex">' +

@@ -341,7 +341,7 @@ class ParentPortalManager extends BaseAPI
             $baseUrl = $scheme . '://' . $host . $appBase;
         }
 
-        return rtrim($baseUrl, '/') . '/login.php';
+        return rtrim($baseUrl, '/') . '/index.php?route=r6d394ab20b0b';
     }
 
     private function sendParentEmailOtp(int $userId, string $email): ?int

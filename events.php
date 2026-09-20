@@ -40,7 +40,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div class="card-modern p-4 mb-5">
           <h5 class="fw-bold mb-3"><i class="bi bi-calendar2-week text-success me-2"></i>Academic Calendar <?= date('Y') ?></h5>
           <div id="events-terms"></div>
-          <a href="<?= $appBase ?>/calendar_download.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px" download>
+          <a href="<?= $appBase ?>/index.php?route=r0157d23dd5ef" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px" download>
             <i class="bi bi-download"></i>Download Academic Calendar (PDF)
           </a>
         </div>

@@ -202,7 +202,7 @@ const CounselingRecordsController = {
 
   async editSession(id) {
     // Navigate to counseling page with edit mode
-    window.location.href = (window.APP_BASE || "") + `/pages/student_counseling.php?session_id=${id}&edit=1`;
+    window.location.href = (window.APP_BASE || "") + `/home.php?route=student_counseling&session_id=${id}&edit=1`;
   },
 
   showTableLoading() {

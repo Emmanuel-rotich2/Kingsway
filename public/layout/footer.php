@@ -18,7 +18,7 @@
           right in the heart of Londiani, Kenya.
         </p>
         <div class="mt-3">
-          <a href="<?= $appBase ?>/admissions.php#apply" class="btn-kw-primary">
+          <a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#apply" class="btn-kw-primary">
             <i class="bi bi-person-plus me-2"></i>Apply for Admission
           </a>
         </div>
@@ -33,14 +33,14 @@
         <h6 class="footer-title">Quick Links</h6>
         <ul class="footer-links">
           <li><a href="<?= $appBase ?>/index.php"><i class="bi bi-chevron-right"></i>Home</a></li>
-          <li><a href="<?= $appBase ?>/about.php"><i class="bi bi-chevron-right"></i>About Us</a></li>
-          <li><a href="<?= $appBase ?>/admissions.php"><i class="bi bi-chevron-right"></i>Admissions</a></li>
-          <li><a href="<?= $appBase ?>/admissions.php#apply"><i class="bi bi-chevron-right"></i>Apply for Admission</a></li>
-          <li><a href="<?= $appBase ?>/news.php"><i class="bi bi-chevron-right"></i>News &amp; Updates</a></li>
-          <li><a href="<?= $appBase ?>/events.php"><i class="bi bi-chevron-right"></i>Events</a></li>
-          <li><a href="<?= $appBase ?>/careers.php"><i class="bi bi-chevron-right"></i>Careers</a></li>
-          <li><a href="<?= $appBase ?>/downloads.php"><i class="bi bi-chevron-right"></i>Downloads</a></li>
-          <li><a href="<?= $appBase ?>/contact.php"><i class="bi bi-chevron-right"></i>Contact Us</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0"><i class="bi bi-chevron-right"></i>About Us</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2"><i class="bi bi-chevron-right"></i>Admissions</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#apply"><i class="bi bi-chevron-right"></i>Apply for Admission</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922"><i class="bi bi-chevron-right"></i>News &amp; Updates</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r78213fd42e2d"><i class="bi bi-chevron-right"></i>Events</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c"><i class="bi bi-chevron-right"></i>Careers</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e"><i class="bi bi-chevron-right"></i>Downloads</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r3443047604ab"><i class="bi bi-chevron-right"></i>Contact Us</a></li>
         </ul>
       </div>
 
@@ -48,13 +48,13 @@
       <div class="col-lg-2 col-md-6 col-6">
         <h6 class="footer-title">Programs</h6>
         <ul class="footer-links">
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Pre-Primary (ECD)</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Lower Primary</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Upper Primary</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Junior Secondary</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>STEM &amp; ICT</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Sports &amp; Arts</a></li>
-          <li><a href="<?= $appBase ?>/about.php#programs"><i class="bi bi-chevron-right"></i>Boarding</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Pre-Primary (ECD)</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Lower Primary</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Upper Primary</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Junior Secondary</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>STEM &amp; ICT</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Sports &amp; Arts</a></li>
+          <li><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs"><i class="bi bi-chevron-right"></i>Boarding</a></li>
         </ul>
       </div>
 
@@ -78,7 +78,7 @@
           <span>Mon – Fri: 7:30 AM – 5:00 PM</span>
         </div>
         <div class="mt-3">
-          <a href="<?= $appBase ?>/contact.php" class="btn-kw-outline" style="padding:8px 20px;font-size:.82rem;">
+          <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="btn-kw-outline" style="padding:8px 20px;font-size:.82rem;">
             <i class="bi bi-envelope me-2"></i>Send a Message
           </a>
         </div>

@@ -16,7 +16,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/events.php">Events</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=r78213fd42e2d">Events</a></li>
       <li class="breadcrumb-item active" id="ed-crumb">Event</li>
     </ol></nav>
     <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)" id="ed-title">Loading&hellip;</h1>
@@ -62,7 +62,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div class="d-flex align-items-center gap-3 flex-wrap mb-4" id="ed-share">
         </div>
 
-        <a href="<?= $appBase ?>/events.php" class="btn-kw-outline">
+        <a href="<?= $appBase ?>/index.php?route=r78213fd42e2d" class="btn-kw-outline">
           <i class="bi bi-arrow-left"></i>All Events
         </a>
       </div>

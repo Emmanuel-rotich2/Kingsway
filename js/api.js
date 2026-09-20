@@ -849,11 +849,11 @@ const AuthContext = (() => {
     const base = window.APP_BASE || "";
 
     if (next && /^\/parents\/[\w\-./]+\.php/.test(next)) {
-      return base + next;
+      return base + next.replace(/^\/parents\/([\w\-./]+)\.php/, "/parent_portal.php?route=$1");
     }
 
     if (window.FAMILY_STAFF_MODE === true) {
-      return base + "/my_family.php";
+      return base + "/parent_portal.php?route=my-family";
     }
 
     const user = getUser();
@@ -867,7 +867,7 @@ const AuthContext = (() => {
           String(roleNames[0]).toLowerCase() === "parent"));
 
     if (isParentOnly) {
-      return base + "/parents/dashboard.php";
+      return base + "/parent_portal.php?route=dashboard";
     }
 
     const info = getDashboardInfo();

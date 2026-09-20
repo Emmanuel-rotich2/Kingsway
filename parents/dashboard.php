@@ -24,7 +24,7 @@ require __DIR__ . '/_head.php';
       <h3 class="h5 fw-bold mb-1" id="ppChildrenHeading">My children</h3>
       <p class="text-muted small mb-0">Select a child to view their complete school journey.</p>
     </div>
-    <a href="<?= $appBase ?>/uniform_catalog.php" class="btn btn-outline-success btn-sm rounded-pill" target="_blank" rel="noopener"><i class="bi bi-bag me-1"></i>Visit store</a>
+    <a href="<?= $appBase ?>/index.php?route=uniform-catalog" class="btn btn-outline-success btn-sm rounded-pill" target="_blank" rel="noopener"><i class="bi bi-bag me-1"></i>Visit store</a>
   </div>
   <div class="row" id="ppChildrenCards"></div>
 </div>

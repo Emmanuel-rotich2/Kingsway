@@ -48,7 +48,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <h6 class="fw-bold mb-1"><i class="bi bi-info-circle-fill text-warning me-2"></i>Note on Downloads</h6>
       <p class="text-muted small mb-0">
         Some documents require Adobe Reader or Microsoft Office to open. If you cannot find what you're looking for,
-        please <a href="<?= $appBase ?>/contact.php" class="text-success fw-semibold">contact our office</a> and we'll be happy to assist.
+        please <a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="text-success fw-semibold">contact our office</a> and we'll be happy to assist.
         Documents are updated at the start of each academic year.
       </p>
     </div>
