@@ -12,6 +12,8 @@
  * - All actions: View, Edit, Delete, Deactivate, Export
  * - Bulk operations
  */
+$navBase = $appBase ?? rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
+if ($navBase === '.') $navBase = '';
 ?>
 
 <!-- Header -->
@@ -22,7 +24,7 @@
     </div>
     <div class="header-actions">
         <button class="btn btn-outline" onclick="exportStaff()">📥 Export</button>
-        <a href="/pages/manage_staff.php" class="btn btn-primary">➕ Add Staff</a>
+        <a href="<?= $navBase ?>/home.php?route=manage_staff" class="btn btn-primary">➕ Add Staff</a>
     </div>
 </header>
 

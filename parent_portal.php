@@ -8,6 +8,24 @@ $familyStaffMode = $familyStaffMode ?? false;
 $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
 $appBase = $appBaseOverride ?? rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
 if ($appBase === '.') $appBase = '';
+
+// Parent/guardian portal front controller. Sections are reached as
+// parent_portal.php?route=<key>; direct *.php access is denied by .htaccess.
+$route = trim((string)($_GET['route'] ?? ''));
+if ($route !== '' && $route !== 'login') {
+    $facadeRoutes = require __DIR__ . '/public/layout/facade_routes.php';
+    $routeTarget  = $facadeRoutes['parents'][$route] ?? null;
+    unset($facadeRoutes);
+    if ($routeTarget !== null) {
+        $appBaseOverride = $appBase;
+        require __DIR__ . '/' . $routeTarget;
+        exit;
+    }
+    http_response_code(404);
+    exit('Page not found.');
+}
+unset($route);
+
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
 <!DOCTYPE html>
@@ -57,7 +75,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             </div>
           </div>
           <div class="text-end mb-3">
-            <a class="small" href="<?= htmlspecialchars($appBase) ?>/forgot_password.php">Forgot password?</a>
+            <a class="small" href="<?= htmlspecialchars($appBase) ?>/index.php?route=r8f1bc67a3eb2">Forgot password?</a>
           </div>
           <div id="loginError" class="alert alert-danger d-none"></div>
           <button class="btn btn-primary w-100 py-2 fw-semibold" type="button" id="btnEmailLogin">
@@ -95,7 +113,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
             <i class="bi bi-envelope me-1"></i>info@kingswaypreparatoryschool.sc.ke
           </small>
           <div class="mt-3">
-            <span class="text-muted">Staff? </span><a class="fw-semibold" href="<?= htmlspecialchars($appBase) ?>/login.php"><i class="bi bi-box-arrow-in-right me-1"></i>Sign in to the school workspace</a>
+            <span class="text-muted">Staff? </span><a class="fw-semibold" href="<?= htmlspecialchars($appBase) ?>/index.php?route=r6d394ab20b0b"><i class="bi bi-box-arrow-in-right me-1"></i>Sign in to the school workspace</a>
           </div>
           <div class="small mt-2 text-muted">
             Parent Portal maintained by

@@ -5,7 +5,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 
 $id      = (int)($_GET['id'] ?? 0);
 $article = $id ? kw_news_by_id($id) : null;
-if (!$article) { header("Location: {$appBase}/news.php"); exit; }
+if (!$article) { header("Location: {$appBase}/index.php?route=rcbd4a4c91922"); exit; }
 kw_increment_news_views($id);
 
 $pageTitle  = htmlspecialchars($article['title']);
@@ -32,7 +32,7 @@ $img  = $article['image_url'] ?: "https://placehold.co/1200x600/".ltrim($col,'#'
   <div class="container position-relative" style="z-index:1">
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
-      <li class="breadcrumb-item"><a href="<?= $appBase ?>/news.php">News</a></li>
+      <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922">News</a></li>
       <li class="breadcrumb-item active"><?= htmlspecialchars(mb_strimwidth($article['title'],0,40,'…')) ?></li>
     </ol></nav>
     <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)"><?= htmlspecialchars($article['title']) ?></h1>
@@ -90,7 +90,7 @@ $img  = $article['image_url'] ?: "https://placehold.co/1200x600/".ltrim($col,'#'
         </div>
 
         <div class="mt-4">
-          <a href="<?= $appBase ?>/news.php" class="btn-kw-outline">
+          <a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922" class="btn-kw-outline">
             <i class="bi bi-arrow-left"></i>Back to All News
           </a>
         </div>
@@ -104,7 +104,7 @@ $img  = $article['image_url'] ?: "https://placehold.co/1200x600/".ltrim($col,'#'
           <h6 class="fw-bold mb-3"><i class="bi bi-tags text-success me-2"></i>Browse by Category</h6>
           <?php foreach (['Sports','Academic','Infrastructure','Announcement','Arts','Community'] as $cat):
             $c = $catColors[$cat] ?? '#198754'; ?>
-          <a href="<?= $appBase ?>/news.php?cat=<?= urlencode($cat) ?>"
+          <a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922&cat=<?= urlencode($cat) ?>"
              class="d-flex align-items-center gap-2 py-2 border-bottom text-decoration-none text-dark">
             <span class="rounded-2 px-2 py-1" style="background:<?= $c ?>22;color:<?= $c ?>;font-size:.72rem;font-weight:700"><?= $cat ?></span>
           </a>
@@ -118,7 +118,7 @@ $img  = $article['image_url'] ?: "https://placehold.co/1200x600/".ltrim($col,'#'
           <?php foreach ($related as $r):
             $rImg = $r['image_url'] ?: "https://placehold.co/120x80/".ltrim($catColors[$r['category']] ?? '198754','#')."/ffffff?text=News";
           ?>
-          <a href="<?= $appBase ?>/news-article.php?id=<?= $r['id'] ?>" class="d-flex gap-3 mb-3 text-decoration-none text-dark">
+          <a href="<?= $appBase ?>/index.php?route=rfcb132e4845b&id=<?= $r['id'] ?>" class="d-flex gap-3 mb-3 text-decoration-none text-dark">
             <img src="<?= htmlspecialchars($rImg) ?>" alt=""
                  style="width:80px;height:60px;object-fit:cover;border-radius:8px;flex-shrink:0"
                  onerror="this.src='https://placehold.co/80x60/198754/ffffff?text=News'">

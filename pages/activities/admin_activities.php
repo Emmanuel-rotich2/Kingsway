@@ -14,10 +14,12 @@
 
 // This template is included by manage_activities.php based on role category
 // Access session variables set by the parent
+$navBase = $appBase ?? rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
+if ($navBase === '.') $navBase = '';
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
-<link rel="stylesheet" href="/css/roles/admin-theme.css?v=<?= asset_version('css/roles/admin-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/roles/admin-theme.css?v=<?= asset_version('css/roles/admin-theme.css') ?>">
 
 <div class="admin-layout">
     <!-- Sidebar Navigation -->
@@ -30,15 +32,15 @@
         <nav class="admin-nav">
             <div class="nav-section">
                 <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=dashboard" class="admin-nav-item">
                     <span class="nav-icon">🏠</span>
                     <span class="nav-label">Dashboard</span>
                 </a>
-                <a href="/pages/manage_activities.php" class="admin-nav-item active">
+                <a href="<?= $navBase ?>/home.php?route=manage_activities" class="admin-nav-item active">
                     <span class="nav-icon">🏆</span>
                     <span class="nav-label">Activities</span>
                 </a>
-                <a href="/pages/manage_communications.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=manage_communications" class="admin-nav-item">
                     <span class="nav-icon">💬</span>
                     <span class="nav-label">Communications</span>
                 </a>
@@ -46,15 +48,15 @@
 
             <div class="nav-section">
                 <span class="nav-section-title">Academics</span>
-                <a href="/pages/all_students.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=all_students" class="admin-nav-item">
                     <span class="nav-icon">👨‍🎓</span>
                     <span class="nav-label">Students</span>
                 </a>
-                <a href="/pages/all_teachers.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=all_teachers" class="admin-nav-item">
                     <span class="nav-icon">👨‍🏫</span>
                     <span class="nav-label">Teachers</span>
                 </a>
-                <a href="/pages/all_classes.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=class_streams" class="admin-nav-item">
                     <span class="nav-icon">📚</span>
                     <span class="nav-label">Classes</span>
                 </a>
@@ -62,15 +64,15 @@
 
             <div class="nav-section">
                 <span class="nav-section-title">Administration</span>
-                <a href="/pages/manage_finance.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=manage_finance" class="admin-nav-item">
                     <span class="nav-icon">💰</span>
                     <span class="nav-label">Finance</span>
                 </a>
-                <a href="/pages/all_staff.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=all_staff" class="admin-nav-item">
                     <span class="nav-icon">👥</span>
                     <span class="nav-label">Staff</span>
                 </a>
-                <a href="/pages/settings.php" class="admin-nav-item">
+                <a href="<?= $navBase ?>/home.php?route=account_settings" class="admin-nav-item">
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-label">Settings</span>
                 </a>
@@ -91,9 +93,9 @@
         <!-- Page Header -->
         <header class="admin-header">
             <div class="breadcrumb">
-                <a href="/pages/dashboard.php">Dashboard</a>
+                <a href="<?= $navBase ?>/home.php?route=dashboard">Dashboard</a>
                 <span>/</span>
-                <a href="/pages/manage_activities.php">Activities</a>
+                <a href="<?= $navBase ?>/home.php?route=manage_activities">Activities</a>
             </div>
             <h1 class="page-title">Activities Management</h1>
             <div class="admin-header-actions">

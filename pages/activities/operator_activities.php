@@ -10,10 +10,12 @@
  * - Essential table columns (4)
  * - View action only
  */
+$navBase = $appBase ?? rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
+if ($navBase === '.') $navBase = '';
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
-<link rel="stylesheet" href="/css/roles/operator-theme.css?v=<?= asset_version('css/roles/operator-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+<link rel="stylesheet" href="<?= $navBase ?>/css/roles/operator-theme.css?v=<?= asset_version('css/roles/operator-theme.css') ?>">
 
 <div class="operator-layout">
     <!-- Mini Sidebar -->
@@ -23,11 +25,11 @@
         </div>
 
         <nav class="operator-nav">
-            <a href="/pages/dashboard.php" class="operator-nav-item" data-tooltip="Dashboard">🏠</a>
-            <a href="/pages/manage_activities.php" class="operator-nav-item active" data-tooltip="Activities">🏆</a>
-            <a href="/pages/manage_communications.php" class="operator-nav-item" data-tooltip="Messages">💬</a>
-            <a href="/pages/all_students.php" class="operator-nav-item" data-tooltip="Students">👨‍🎓</a>
-            <a href="/pages/my_classes.php" class="operator-nav-item" data-tooltip="My Classes">📚</a>
+            <a href="<?= $navBase ?>/home.php?route=dashboard" class="operator-nav-item" data-tooltip="Dashboard">🏠</a>
+            <a href="<?= $navBase ?>/home.php?route=manage_activities" class="operator-nav-item active" data-tooltip="Activities">🏆</a>
+            <a href="<?= $navBase ?>/home.php?route=manage_communications" class="operator-nav-item" data-tooltip="Messages">💬</a>
+            <a href="<?= $navBase ?>/home.php?route=all_students" class="operator-nav-item" data-tooltip="Students">👨‍🎓</a>
+            <a href="<?= $navBase ?>/home.php?route=my_classes_taught" class="operator-nav-item" data-tooltip="My Classes">📚</a>
         </nav>
 
         <div class="user-avatar" id="userAvatar">O</div>

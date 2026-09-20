@@ -43,8 +43,8 @@ const resetDefaultPasswordController = {
                 document.getElementById('rdpForm').querySelector('button[type="submit"]').disabled = true;
                 const accountType = result?.account_type || result?.data?.account_type || window.KINGSWAY_SETUP_ACCOUNT_TYPE;
                 const destination = accountType === 'parent'
-                    ? `${window.APP_BASE || ''}/parents/dashboard.php?login=1`
-                    : `${window.APP_BASE || ''}/login.php`;
+                    ? `${window.APP_BASE || ''}/parent_portal.php?route=dashboard&login=1`
+                    : `${window.APP_BASE || ''}/index.php?route=r6d394ab20b0b`;
                 window.setTimeout(() => window.location.replace(destination), 1600);
             } catch (err) {
                 s.className = 'alert alert-danger';

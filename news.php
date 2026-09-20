@@ -31,7 +31,7 @@ $categories     = array_keys($catColors);
   <div class="container">
     <!-- Category filter -->
     <div class="d-flex flex-wrap gap-2 mb-5 reveal">
-      <a href="<?= $appBase ?>/news.php" class="tag <?= !$activeCategory?'bg-success text-white':'bg-white border text-muted' ?>">All</a>
+      <a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922" class="tag <?= !$activeCategory?'bg-success text-white':'bg-white border text-muted' ?>">All</a>
       <?php foreach ($categories as $cat): ?>
       <a href="?cat=<?= urlencode($cat) ?>" class="tag <?= $activeCategory===$cat?'bg-success text-white':'bg-white border text-muted' ?>">
         <?= $cat ?>
@@ -48,7 +48,7 @@ $categories     = array_keys($catColors);
                     ? htmlspecialchars($featured['image_url'])
                     : "https://placehold.co/800x500/".ltrim($col,'#')."/ffffff?text=".urlencode($featured['category']);
     ?>
-    <a href="<?= $appBase ?>/news-article.php?id=<?= $featured['id'] ?>" class="text-decoration-none">
+    <a href="<?= $appBase ?>/index.php?route=rfcb132e4845b&id=<?= $featured['id'] ?>" class="text-decoration-none">
       <div class="card-modern mb-5 reveal" style="cursor:pointer">
         <div class="row g-0">
           <div class="col-lg-6">
@@ -88,7 +88,7 @@ $categories     = array_keys($catColors);
         $date = date('d M Y', strtotime($n['created_at']));
       ?>
       <div class="col-lg-4 col-md-6">
-        <a href="<?= $appBase ?>/news-article.php?id=<?= $n['id'] ?>" class="text-decoration-none">
+        <a href="<?= $appBase ?>/index.php?route=rfcb132e4845b&id=<?= $n['id'] ?>" class="text-decoration-none">
           <div class="card-modern h-100 reveal delay-<?= ($i%3)+1 ?>" style="cursor:pointer">
             <div class="card-img-wrap">
               <img src="<?= $img ?>" alt="<?= htmlspecialchars($n['title']) ?>"
@@ -116,7 +116,7 @@ $categories     = array_keys($catColors);
     <div class="text-center py-5">
       <i class="bi bi-newspaper fs-1 text-muted d-block mb-3"></i>
       <p class="text-muted">No articles in this category yet.</p>
-      <a href="<?= $appBase ?>/news.php" class="btn-kw-outline mt-2">View All News</a>
+      <a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922" class="btn-kw-outline mt-2">View All News</a>
     </div>
     <?php endif; ?>
 

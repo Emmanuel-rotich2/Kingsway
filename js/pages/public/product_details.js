@@ -254,7 +254,7 @@
       if (addBtn) {
         addBtn.addEventListener('click', async function () {
           if (!parentToken()) {
-            window.location.href = base + '/parents/';
+            window.location.href = base + '/parent_portal.php';
             return;
           }
           if (!page.selectedSize) {
@@ -286,7 +286,7 @@
       if (wishBtn) {
         wishBtn.addEventListener('click', async function () {
           if (!parentToken()) {
-            window.location.href = base + '/parents/';
+            window.location.href = base + '/parent_portal.php';
             return;
           }
           wishBtn.disabled = true;

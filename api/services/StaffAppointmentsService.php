@@ -717,8 +717,8 @@ final class StaffAppointmentsService
                 'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
                 'username' => $username,
                 'temporary_password' => $password,
-                'setup_url' => $base . '/reset_default_password.php?token=' . rawurlencode($token),
-                'login_url' => $base . '/index.php',
+                'setup_url' => $base . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token),
+                'login_url' => $base . '/index.php?route=r6d394ab20b0b',
                 'profile_url' => $base . '/home.php?route=complete_staff_profile',
                 'expires_hours' => 72,
             ];

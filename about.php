@@ -112,7 +112,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <p style="color:rgba(255,255,255,.8)">Applications are open for all grade levels. Spaces fill fast — apply today.</p>
       </div>
       <div class="col-lg-4 text-lg-end reveal">
-        <a href="<?= $appBase ?>/admissions.php#apply" class="btn-kw-gold">
+        <a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#apply" class="btn-kw-gold">
           <i class="bi bi-pencil-square"></i>Apply for Admission
         </a>
       </div>

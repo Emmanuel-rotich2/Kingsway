@@ -314,7 +314,7 @@ const parentPortalController = {
         if (pageTitle && pageTitles[section]) pageTitle.textContent = pageTitles[section];
         document.querySelectorAll('[data-portal-section]').forEach(function (link) { link.classList.toggle('active', link.dataset.portalSection === section); });
         document.getElementById('portalSidebar')?.classList.remove('open');
-        if (section === 'uniforms') { window.open((this.BASE || '') + '/uniform_catalog.php', '_blank'); return; }
+        if (section === 'uniforms') { window.open((this.BASE || '') + '/index.php?route=r39d07ccbcf8a', '_blank'); return; }
         if (section === 'settings') { this.showAccountSettings(); return; }
         if (section === 'pta') { this.showCommunity(); return; }
         if (section === 'overview' || section === 'children') { this.showView('dashboard'); document.getElementById('childrenHeading').textContent = section === 'children' ? 'All my children' : 'My children'; return; }

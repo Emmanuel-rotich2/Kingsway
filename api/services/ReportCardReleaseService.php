@@ -165,7 +165,7 @@ final class ReportCardReleaseService
         $name = trim(implode(' ', array_filter([$student['first_name'] ?? '', $student['last_name'] ?? '']))) ?: 'your child';
         $ranking = $data['ranking'] ?? [];
         $average = isset($ranking['overall_percentage']) ? number_format((float) $ranking['overall_percentage'], 1) . '%' : 'available in the report';
-        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parents/';
+        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
         $message = "Kingsway: {$name}'s {$term['name']} report is ready. Overall: {$average}. View it in the parent portal: {$portalUrl}";
         $publicUrl = $this->publicUrl((string) $release['pdf_path']);
         $platform = new CommunicationPlatformService($this->db);

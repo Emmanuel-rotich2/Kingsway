@@ -1426,11 +1426,11 @@ class PaymentsAPI extends BaseAPI
         if (strlen($phone) === 10 && substr($phone, 0, 1) === '0') $phone = '254' . substr($phone, 1);
         if (!preg_match('/^254[0-9]{9}$/', $phone)) return;
 
-        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parents/';
+        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
         $message = 'Kingsway received KES ' . number_format((float) $amount, 2)
             . ' for account ' . $reference . '. Receipt: KCB-' . $transactionReference . '.';
         if ($customerName !== '') $message .= ' Payer: ' . $customerName . '.';
-        if ($portalUrl !== '/parents/') $message .= ' View statement: ' . $portalUrl;
+        if ($portalUrl !== '/parent_portal.php') $message .= ' View statement: ' . $portalUrl;
 
         try {
             $manager = $this->contract('App\API\Modules\communications\CommunicationsManager', $this->db);

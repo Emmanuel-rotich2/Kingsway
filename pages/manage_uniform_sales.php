@@ -12,7 +12,7 @@
             <h4 class="mb-1"><i class="bi bi-bag-check me-2 text-primary"></i>Uniform Sales</h4>
             <p class="text-muted mb-0">Manage uniform inventory, record sales, and track payments</p>
         </div>
-        <a class="btn btn-outline-success" href="uniform_catalog.php" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
+        <a class="btn btn-outline-success" href="index.php?route=r39d07ccbcf8a" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
         <div class="d-flex gap-2">
             <button class="btn btn-primary" onclick="UniformSalesController.showNewSaleModal()">
                 <i class="bi bi-cart-plus me-1"></i>New Sale

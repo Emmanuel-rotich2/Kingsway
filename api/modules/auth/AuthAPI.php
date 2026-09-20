@@ -285,7 +285,7 @@ class AuthAPI extends BaseAPI
         $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
         $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
 
-        return $scheme . '://' . $host . $appBase . '/reset_password.php?token=' . urlencode($token);
+        return $scheme . '://' . $host . $appBase . '/index.php?route=r1c3bd707f344&token=' . urlencode($token);
     }
 
     // Login user
@@ -1553,7 +1553,7 @@ class AuthAPI extends BaseAPI
 
     private function passwordSetupUrl(string $token): string
     {
-        return $this->appBaseUrl() . '/reset_default_password.php?token=' . rawurlencode($token);
+        return $this->appBaseUrl() . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token);
     }
 
     private function appBaseUrl(): string
