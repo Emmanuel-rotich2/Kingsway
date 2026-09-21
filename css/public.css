@@ -2,6 +2,52 @@
    Kingsway Preparatory School — Public Website Styles
    ============================================================================= */
 
+/* ─── Responsive modal height handling ────────────────────────────────────
+   Apply the same bounded-height behavior to public and dynamically-created
+   Bootstrap modals. */
+.modal .modal-dialog {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+
+.modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+.modal .modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal .modal-content > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal .modal-content > form > .modal-body {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 575.98px) {
+  .modal .modal-dialog,
+  .modal .modal-content {
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .modal .modal-dialog {
+    margin: .5rem auto;
+  }
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=Merriweather:wght@400;700&display=swap');
 
 /* ─── Variables ────────────────────────────────────────────────────────────── */

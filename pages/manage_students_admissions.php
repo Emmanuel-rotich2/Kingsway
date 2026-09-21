@@ -189,6 +189,11 @@ if ($appBase === '.')
                     <i class="bi bi-door-open me-2"></i>Intake Windows
                 </button>
             </li>
+            <li class="nav-item" id="admissionRequirementsTabNav">
+                <button class="nav-link" data-tab="requirements" onclick="admissionsWorkspaceController.switchTab('requirements')">
+                    <i class="bi bi-list-check me-2"></i>Requirements
+                </button>
+            </li>
         </ul>
 
         <!-- Summary Cards Row -->
@@ -337,6 +342,14 @@ if ($appBase === '.')
                 </div>
                 <div id="windows-content" style="display:none;"></div>
             </div>
+
+            <div id="tab-requirements" class="tab-pane" style="display:none;">
+                <div id="requirements-loading" class="text-center py-4">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <div class="mt-2 text-muted">Loading admission requirements...</div>
+                </div>
+                <div id="requirements-content" style="display:none;"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -365,4 +378,6 @@ if ($appBase === '.')
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
+<?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
+<?php asset_script($appBase, 'js/components/AdmissionPaymentModal.js'); ?>
 <?php asset_script($appBase, 'js/pages/admissions_workspace.js'); ?>

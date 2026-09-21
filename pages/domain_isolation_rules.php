@@ -76,7 +76,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="domainIsolationModal" tabindex="-1" aria-labelledby="domainIsolationModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="domainIsolationForm" novalidate>
                 <input type="hidden" id="domainIsolationEditKey">

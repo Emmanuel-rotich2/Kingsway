@@ -120,7 +120,9 @@ class AdmissionAdminManager extends BaseAPI
     private const ACTION_STAGE_RULES = [
         'review_application' => ['application_received', 'application_review'],
         'upload_document' => ['application_applied'],
-        'schedule_interview' => ['interview_scheduling'],
+        // Scheduling permission also covers moving an already-booked applicant
+        // to another session; that applicant is already at interview_results.
+        'schedule_interview' => ['interview_scheduling', 'interview_results'],
         'record_interview' => ['interview_scheduling', 'interview_results'],
         'admit_student' => ['interview_results'],
         'create_provisional_student' => ['student_admission_number'],
@@ -136,7 +138,9 @@ class AdmissionAdminManager extends BaseAPI
         'application_received' => ['application_review', 'rejected'],
         'application_review' => ['interview_scheduling', 'student_admission_number', 'rejected'],
         'interview_scheduling' => ['interview_results', 'rejected'],
-        'interview_results' => ['student_admission_number', 'rejected'],
+        'interview_results' => ['student_admission_number', 'waitlisted', 'placement_test', 'rejected'],
+        'waitlisted' => [],
+        'placement_test' => [],
         'student_admission_number' => ['class_placement', 'rejected'],
         'class_placement' => ['fees_payment', 'rejected'],
         'fees_payment' => ['student_id_generation', 'cancelled'],
@@ -347,7 +351,7 @@ class AdmissionAdminManager extends BaseAPI
                                    WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)";
 
             $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
-                           aa.status, aa.created_at,
+                           aa.status, aa.created_at, aa.updated_at,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                            wi.current_stage, wi.data_json,
                            ai.id AS interview_id, ai.session_id AS interview_session_id,
@@ -424,7 +428,23 @@ class AdmissionAdminManager extends BaseAPI
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
-                $queues['interview_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
+                $interviewRows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                try {
+                    $interviewIds = array_values(array_filter(array_map(static fn(array $row): int => (int) ($row['interview_id'] ?? 0), $interviewRows)));
+                    if ($interviewIds) {
+                        $placeholders = implode(',', array_fill(0, count($interviewIds), '?'));
+                        $areaStmt = $this->db->prepare("SELECT interview_id, GROUP_CONCAT(DISTINCT learning_area_name ORDER BY learning_area_name SEPARATOR ', ') AS tested_learning_areas FROM admission_interview_assessment_items WHERE interview_id IN ($placeholders) GROUP BY interview_id");
+                        $areaStmt->execute($interviewIds);
+                        $areasByInterview = [];
+                        foreach ($areaStmt->fetchAll(\PDO::FETCH_ASSOC) as $areaRow) $areasByInterview[(int) $areaRow['interview_id']] = $areaRow['tested_learning_areas'];
+                        foreach ($interviewRows as &$interviewRow) $interviewRow['tested_learning_areas'] = $areasByInterview[(int) ($interviewRow['interview_id'] ?? 0)] ?? null;
+                        unset($interviewRow);
+                    }
+                } catch (\Throwable $ignored) {
+                    foreach ($interviewRows as &$interviewRow) $interviewRow['tested_learning_areas'] = null;
+                    unset($interviewRow);
+                }
+                $queues['interview_pending'] = $this->attachQueueActions($interviewRows, $ctx);
             }
 
             if ($canViewDecision || $canAdmit || $canCreateProvisional) {
@@ -449,13 +469,15 @@ class AdmissionAdminManager extends BaseAPI
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
-                $queues['placement_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
+                $placementRows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                $this->attachAdmissionPaymentFields($placementRows);
+                $queues['placement_pending'] = $this->attachQueueActions($placementRows, $ctx);
             }
 
             if ($canViewPayment || $canRecordPayment) {
                 $stmt = $this->db->query(
                     "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
-                            aa.status, aa.created_at,
+                            aa.status, aa.created_at, aa.updated_at,
                             CASE WHEN EXISTS (
                                 SELECT 1 FROM student_parents sp0
                                 WHERE sp0.parent_id = aa.parent_id
@@ -534,7 +556,19 @@ class AdmissionAdminManager extends BaseAPI
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
-                $queues['payment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
+                $paymentRows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                // Keep every payment-stage modal aligned with the canonical
+                // obligation resolver, including existing-parent pricing.
+                $chargeService = new \App\API\Services\ExtraChargeService($this->db);
+                foreach ($paymentRows as &$paymentRow) {
+                    try {
+                        $paymentRow['registration_fee_due'] = $chargeService->admissionTotalDue((int) ($paymentRow['id'] ?? 0));
+                    } catch (\Throwable $ignored) {
+                        // Retain the SQL fallback on older installations.
+                    }
+                }
+                unset($paymentRow);
+                $queues['payment_pending'] = $this->attachQueueActions($paymentRows, $ctx);
             }
 
             if ($canViewId || $canGenerateId) {
@@ -561,7 +595,7 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
-                        aa.status, aa.created_at, aa.enrolled_student_id, aa.application_source,
+                        aa.status, aa.created_at, aa.updated_at, aa.enrolled_student_id, aa.application_source,
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                         wi.current_stage, wi.data_json
                  FROM admission_applications aa
@@ -665,6 +699,16 @@ class AdmissionAdminManager extends BaseAPI
                 return $this->errorResponse('You do not have access to this admission application', 403);
             }
 
+            // Keep single-application callers on the same canonical
+            // existing/new-parent obligation amount as the payment queue.
+            try {
+                $application['registration_fee_due'] = (new \App\API\Services\ExtraChargeService($this->db))
+                    ->admissionTotalDue((int) $id);
+            } catch (\Throwable $ignored) {
+                // Older installations without charge configuration can still
+                // load the application details.
+            }
+
             $stmt = $this->db->prepare(
                 "SELECT ad.*,
                         mf.filename as media_filename,
@@ -682,6 +726,52 @@ class AdmissionAdminManager extends BaseAPI
             );
             $stmt->execute([(int) $id]);
             $documents = $this->normalizeAdmissionDocuments($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            // Some older submissions wrote the managed media row before the
+            // admission_documents row was introduced. Include those files in
+            // the application view when the canonical document table is empty.
+            if (!$documents) {
+                try {
+                    $legacyDocs = $this->db->prepare(
+                        "SELECT id, filename, original_name, file_type, context AS media_context,
+                                entity_id AS media_entity_id, album_id AS media_album_id,
+                                description, tags
+                         FROM media_files
+                         WHERE entity_id=? AND context='students/documents' AND is_active=1
+                         ORDER BY id"
+                    );
+                    $legacyDocs->execute([(int) $id]);
+                    $legacyRows = [];
+                    foreach ($legacyDocs->fetchAll(\PDO::FETCH_ASSOC) as $legacy) {
+                        $legacyRows[] = [
+                            'id' => 'media-' . (int) $legacy['id'],
+                            'application_id' => (int) $id,
+                            'document_type' => $legacy['tags'] ?: pathinfo((string) $legacy['filename'], PATHINFO_FILENAME),
+                            'document_path' => (string) $legacy['id'],
+                            'is_mandatory' => 0,
+                            'verification_status' => 'pending',
+                            'media_filename' => $legacy['filename'],
+                            'media_original_name' => $legacy['original_name'],
+                            'media_file_type' => $legacy['file_type'],
+                            'media_context' => $legacy['media_context'],
+                            'media_entity_id' => $legacy['media_entity_id'],
+                            'media_album_id' => $legacy['media_album_id'],
+                        ];
+                    }
+                    $documents = $this->normalizeAdmissionDocuments($legacyRows);
+                } catch (\Throwable $ignored) {
+                    // Legacy media is optional; the normal document response
+                    // remains valid when the media table is unavailable.
+                }
+            }
+            $assessmentItems = [];
+            try {
+                $itemStmt = $this->db->prepare("SELECT aii.id, aii.learning_area_id, aii.learning_area_name, aii.competency, aii.max_score, aii.score, aii.grade_code, aii.performance_level, aii.rubric_notes FROM admission_interview_assessment_items aii JOIN admission_interviews ai ON ai.id=(SELECT MAX(ai2.id) FROM admission_interviews ai2 WHERE ai2.application_id=? AND ai2.status <> 'cancelled') ORDER BY aii.id");
+                $itemStmt->execute([(int) $id]);
+                $assessmentItems = $itemStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+            } catch (\Throwable $ignored) {
+                // Assessment items are optional until the interview extension
+                // migration is applied; legacy applications still load.
+            }
 
             // Workflow instances may contain an older snapshot from before an
             // intake window was assigned. The application row and its own
@@ -698,6 +788,29 @@ class AdmissionAdminManager extends BaseAPI
                     : null;
             }
             $workflowData = $this->syncWorkflowIdentityData($workflowData, $application);
+            if (!$assessmentItems && !empty($workflowData['assessment_items']) && is_array($workflowData['assessment_items'])) {
+                $assessmentItems = $workflowData['assessment_items'];
+            }
+
+            $interviewLearningAreas = [];
+            $currentClass = trim((string) ($workflowData['current_grade_class'] ?? $application['grade_applying_for'] ?? ''));
+            $targetTermId = (int) ($application['target_term_id'] ?? 0);
+            try {
+                $yearStmt = $this->db->prepare('SELECT academic_year_id FROM academic_year_terms WHERE id=? LIMIT 1');
+                $yearStmt->execute([$targetTermId]);
+                $yearId = (int) ($yearStmt->fetchColumn() ?: 0);
+                if ($yearId) {
+                    $areaStmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM academic_year_classes ayc JOIN classes c ON c.id=ayc.class_id JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN learning_areas la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
+                    $areaStmt->execute([$yearId]);
+                    $wantedClass = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $currentClass));
+                    foreach ($areaStmt->fetchAll(\PDO::FETCH_ASSOC) as $area) {
+                        $className = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $area['class_name'] ?? ''));
+                        if ($wantedClass === '' || $wantedClass === $className) $interviewLearningAreas[(int) $area['id']] = ['id' => (int) $area['id'], 'name' => $area['name']];
+                    }
+                }
+            } catch (\Throwable $ignored) {
+                $interviewLearningAreas = [];
+            }
 
             $availableActions = $this->getAvailableActions($application['current_stage'], $application['status'], $ctx);
             $stageMeta = $this->getCurrentStageMetadata($application['current_stage']);
@@ -707,6 +820,8 @@ class AdmissionAdminManager extends BaseAPI
             return $this->successResponse([
                 'application' => $application,
                 'documents' => $documents,
+                'assessment_items' => $assessmentItems,
+                'interview_learning_areas' => array_values($interviewLearningAreas),
                 'workflow_data' => $workflowData,
                 'available_actions' => $availableActions,
                 'stage_metadata' => [
@@ -1046,10 +1161,27 @@ class AdmissionAdminManager extends BaseAPI
                     LEFT JOIN admission_interviews ai ON ai.session_id = s.id AND ai.status <> 'cancelled'
                     LEFT JOIN admission_applications aa ON aa.id = ai.application_id
                     " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
-                    GROUP BY s.id ORDER BY s.session_date, s.start_time, s.id";
+                    GROUP BY s.id, aw.label, aw.application_open_at, aw.application_close_at,
+                             iu.id, ip.first_name, ip.last_name, ip.phone
+                    ORDER BY s.session_date, s.start_time, s.id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
-            return $this->successResponse(['sessions' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 'Interview sessions retrieved');
+            $sessions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            try {
+                $supervisorStmt = $this->db->query("SELECT aiss.session_id, GROUP_CONCAT(aiss.staff_id ORDER BY aiss.is_primary DESC, aiss.staff_id SEPARATOR ',') AS supervisor_ids, GROUP_CONCAT(CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) ORDER BY aiss.is_primary DESC, p.last_name SEPARATOR ', ') AS supervisor_names FROM admission_interview_session_supervisors aiss JOIN staff st ON st.id=aiss.staff_id JOIN persons p ON p.id=st.person_id GROUP BY aiss.session_id");
+                $supervisors = [];
+                foreach ($supervisorStmt->fetchAll(PDO::FETCH_ASSOC) as $supervisor) $supervisors[(int) $supervisor['session_id']] = $supervisor;
+                foreach ($sessions as &$session) {
+                    $supervisor = $supervisors[(int) $session['id']] ?? null;
+                    $session['supervisor_names'] = $supervisor['supervisor_names'] ?? null;
+                    $session['supervisor_ids'] = $supervisor ? array_map('intval', array_filter(explode(',', (string) $supervisor['supervisor_ids']))) : ((int) ($session['interviewer_id'] ?? 0) ? [(int) $session['interviewer_id']] : []);
+                }
+                unset($session);
+            } catch (\Throwable $ignored) {
+                // The legacy interviewer_id remains the fallback until the
+                // interview extension migration is applied.
+            }
+            return $this->successResponse(['sessions' => $sessions], 'Interview sessions retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[AdmissionAdminManager] ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.');
@@ -1074,11 +1206,13 @@ class AdmissionAdminManager extends BaseAPI
             return $this->errorResponse('Session end time must be after start time', 422);
         }
         try {
-            $interviewerId = !empty($data['interviewer_id']) ? (int) $data['interviewer_id'] : 0;
+            $supervisorIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['supervisor_ids'] ?? [])))));
+            $interviewerId = $supervisorIds[0] ?? (!empty($data['interviewer_id']) ? (int) $data['interviewer_id'] : 0);
+            if ($interviewerId > 0 && !in_array($interviewerId, $supervisorIds, true)) array_unshift($supervisorIds, $interviewerId);
             if ($interviewerId < 1) return $this->errorResponse('Select an active teacher as the interviewer.', 422);
-            $teacherStmt = $this->db->prepare("SELECT id FROM staff WHERE id=? AND staff_type_id=1 AND status='active' LIMIT 1");
-            $teacherStmt->execute([$interviewerId]);
-            if (!$teacherStmt->fetchColumn()) return $this->errorResponse('Interviewer must be an active teacher.', 422);
+            $teacherStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE id IN (" . implode(',', array_fill(0, count($supervisorIds), '?')) . ") AND staff_type_id=1 AND status='active'");
+            $teacherStmt->execute($supervisorIds);
+            if ((int) $teacherStmt->fetchColumn() !== count($supervisorIds)) return $this->errorResponse('Every supervisor/invigilator must be an active teacher.', 422);
             $windowStmt = $this->db->prepare(
                 "SELECT aw.*, COALESCE(DATE(aw.application_open_at), ayt.opening_date) AS valid_from,
                         DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
@@ -1119,6 +1253,14 @@ class AdmissionAdminManager extends BaseAPI
                 $stmt->execute([$windowId, $date, $start, $end, $venue, $interviewerId ?: null, $capacity, $data['notes'] ?? null, $this->ctxUserId($ctx)]);
                 $id = (int) $this->db->lastInsertId();
             }
+            try {
+                $this->db->prepare('DELETE FROM admission_interview_session_supervisors WHERE session_id=?')->execute([$id]);
+                $supervisorInsert = $this->db->prepare('INSERT INTO admission_interview_session_supervisors (session_id,staff_id,is_primary) VALUES (?,?,?)');
+                foreach ($supervisorIds as $index => $staffId) $supervisorInsert->execute([$id, $staffId, $index === 0 ? 1 : 0]);
+            } catch (\Throwable $ignored) {
+                // Keep the legacy primary interviewer field operational while
+                // an older local database is awaiting the extension migration.
+            }
             $eventId = (int) ($this->db->query('SELECT calendar_event_id FROM admission_interview_sessions WHERE id=' . $id)->fetchColumn() ?: 0);
             $title = 'Admissions Interview: ' . ($window['label'] ?? 'Intake') . ' — ' . $date;
             if ($eventId) {
@@ -1135,7 +1277,7 @@ class AdmissionAdminManager extends BaseAPI
         }
     }
 
-    public function reassignInterviewSession(int $applicationId, int $sessionId, string $reason, array $ctx): array
+    public function reassignInterviewSession(int $applicationId, int $sessionId, string $reason, array $ctx, array $learningAreaIds = []): array
     {
         if ($applicationId < 1 || $sessionId < 1) return $this->errorResponse('Application and interview session are required', 422);
         try {
@@ -1146,7 +1288,7 @@ class AdmissionAdminManager extends BaseAPI
             $q->execute([$applicationId]);
             $current = $q->fetch(PDO::FETCH_ASSOC);
             if (!$current || !in_array($current['status'], ['scheduled','rescheduled'], true)) throw new Exception('Applicant is not currently scheduled for an interview.');
-            if ((int) $current['session_id'] === $sessionId) throw new Exception('Applicant is already scheduled for this interview session.');
+            $sameSession = (int) $current['session_id'] === $sessionId;
 
             $q = $this->db->prepare("SELECT s.*, aw.academic_year_term_id, aw.application_open_at, aw.application_close_at,
                 DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) valid_until
@@ -1168,8 +1310,10 @@ class AdmissionAdminManager extends BaseAPI
             }
             $this->db->prepare("UPDATE admission_interviews SET session_id=?, scheduled_date=?, scheduled_time=?, venue=?, interviewer_id=?, status='rescheduled' WHERE id=?")
                 ->execute([$sessionId, $session['session_date'], $session['start_time'], $session['venue'], $session['interviewer_id'], $current['id']]);
-            $this->db->prepare("INSERT INTO admission_interview_assignment_history (admission_interview_id,from_session_id,to_session_id,action,reason,changed_by) VALUES (?,?,?,?,?,?)")
-                ->execute([$current['id'], $current['session_id'], $sessionId, 'switched', trim($reason) ?: null, $this->ctxUserId($ctx)]);
+            if (!$sameSession) {
+                $this->db->prepare("INSERT INTO admission_interview_assignment_history (admission_interview_id,from_session_id,to_session_id,action,reason,changed_by) VALUES (?,?,?,?,?,?)")
+                    ->execute([$current['id'], $current['session_id'], $sessionId, 'switched', trim($reason) ?: null, $this->ctxUserId($ctx)]);
+            }
             $this->db->prepare("UPDATE admission_interview_sessions SET status=CASE WHEN (SELECT COUNT(*) FROM admission_interviews WHERE session_id=? AND status <> 'cancelled') >= capacity THEN 'full' ELSE 'scheduled' END WHERE id=?")
                 ->execute([$sessionId, $sessionId]);
             if (!empty($current['session_id'])) {
@@ -1177,8 +1321,12 @@ class AdmissionAdminManager extends BaseAPI
                     ->execute([(int) $current['session_id'], (int) $current['session_id']]);
             }
             $this->db->commit();
+            if ($learningAreaIds) {
+                $areaResult = $this->workflow()->replaceInterviewLearningAreas($applicationId, $learningAreaIds);
+                if (($areaResult['status'] ?? '') !== 'success') return $areaResult;
+            }
             $this->workflow()->notifyInterviewAssignment((int) $current['id'], $sessionId, 'switched');
-            return $this->successResponse(['application_id'=>$applicationId,'session_id'=>$sessionId], 'Applicant moved to the selected interview session.');
+            return $this->successResponse(['application_id'=>$applicationId,'session_id'=>$sessionId], $sameSession ? 'Interview learning areas updated.' : 'Applicant moved to the selected interview session.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->errorResponse($e->getMessage(), 422);
@@ -1203,6 +1351,59 @@ class AdmissionAdminManager extends BaseAPI
     // ========================================================================
     // INLINE APPLICATION EDIT
     // ========================================================================
+
+    public function getAdmissionRequirements(array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)) {
+            return $this->errorResponse('Insufficient permission to manage admission requirements', 403);
+        }
+        try {
+            $rows = $this->db->query('SELECT id, grade_code, gender_code, student_type_code, title, description, display_order, is_active, created_at, updated_at FROM admission_requirements ORDER BY grade_code IS NOT NULL, grade_code, gender_code, student_type_code, display_order, id')->fetchAll(PDO::FETCH_ASSOC);
+            return $this->successResponse(['requirements' => $rows], 'Admission requirements retrieved');
+        } catch (Exception $e) {
+            return $this->errorResponse('Admission requirements table is not available. Apply the admissions requirements migration first.', 503);
+        }
+    }
+
+    public function saveAdmissionRequirement(array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)) {
+            return $this->errorResponse('Insufficient permission to manage admission requirements', 403);
+        }
+        $id = (int) ($data['id'] ?? 0);
+        $grade = trim((string) ($data['grade_code'] ?? '')) ?: null;
+        $gender = strtolower(trim((string) ($data['gender_code'] ?? 'all')));
+        $studentType = strtolower(trim((string) ($data['student_type_code'] ?? 'all')));
+        $title = trim((string) ($data['title'] ?? ''));
+        $description = trim((string) ($data['description'] ?? ''));
+        $order = max(0, (int) ($data['display_order'] ?? 0));
+        $active = !empty($data['is_active']) ? 1 : 0;
+        if ($title === '' || $description === '') return $this->errorResponse('Requirement title and description are required', 422);
+        if (!in_array($gender, ['all', 'male', 'female'], true)) return $this->errorResponse('Invalid gender scope', 422);
+        if (!in_array($studentType, ['all', 'day', 'weekly', 'boarder'], true)) return $this->errorResponse('Invalid student type scope', 422);
+        if ($grade !== null && !in_array($grade, ['Playgroup','Playground','PP1','PP2','Grade1','Grade2','Grade3','Grade4','Grade5','Grade6','Grade7','Grade8','Grade9'], true)) return $this->errorResponse('Invalid grade scope', 422);
+        try {
+            if ($id > 0) {
+                $stmt = $this->db->prepare('UPDATE admission_requirements SET grade_code=?, gender_code=?, student_type_code=?, title=?, description=?, display_order=?, is_active=? WHERE id=?');
+                $stmt->execute([$grade, $gender, $studentType, $title, $description, $order, $active, $id]);
+            } else {
+                $stmt = $this->db->prepare('INSERT INTO admission_requirements (grade_code, gender_code, student_type_code, title, description, display_order, is_active) VALUES (?,?,?,?,?,?,?)');
+                $stmt->execute([$grade, $gender, $studentType, $title, $description, $order, $active]);
+                $id = (int) $this->db->lastInsertId();
+            }
+            return $this->successResponse(['id' => $id], 'Admission requirement saved');
+        } catch (Exception $e) {
+            return $this->errorResponse('Unable to save admission requirement', 500);
+        }
+    }
+
+    public function deleteAdmissionRequirement(int $id, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)) return $this->errorResponse('Insufficient permission to manage admission requirements', 403);
+        $stmt = $this->db->prepare('UPDATE admission_requirements SET is_active=0 WHERE id=?');
+        $stmt->execute([$id]);
+        return $this->successResponse(['id' => $id], 'Admission requirement deactivated');
+    }
 
     public function updateApplicationFields(int $id, array $data, array $ctx): array
     {
@@ -1253,6 +1454,8 @@ class AdmissionAdminManager extends BaseAPI
             'academic_year', 'target_term_id', 'previous_school',
             'admission_category', 'application_source', 'has_special_needs',
             'special_needs_details',
+            'admission_appointment_date', 'admission_appointment_start_time',
+            'admission_appointment_end_time', 'student_type_code',
         ];
 
         $updates = [];
@@ -1276,11 +1479,33 @@ class AdmissionAdminManager extends BaseAPI
                 if (preg_match('/^grade\s*([1-9])$/i', $value, $m)) {
                     $value = 'Grade' . $m[1];
                 }
+            } elseif ($field === 'student_type_code') {
+                $value = strtolower(trim((string) $value));
+                if ($value !== '' && !in_array($value, ['day', 'weekly', 'boarder'], true)) {
+                    return $this->errorResponse('Student type must be day, weekly, or boarder', 422);
+                }
+                $value = $value !== '' ? $value : null;
+            } elseif ($field === 'admission_appointment_date') {
+                $value = ($value === '' || $value === null) ? null : trim((string) $value);
+                if ($value !== null && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+                    return $this->errorResponse('Admission appointment date must use YYYY-MM-DD format', 422);
+                }
+            } elseif (in_array($field, ['admission_appointment_start_time', 'admission_appointment_end_time'], true)) {
+                $value = ($value === '' || $value === null) ? null : trim((string) $value);
+                if ($value !== null && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $value)) {
+                    return $this->errorResponse('Admission appointment time must use HH:MM format', 422);
+                }
             } else {
                 $value = ($value === '' || $value === null) ? null : trim((string) $value);
             }
             $updates[] = "`{$field}` = ?";
             $params[] = $value;
+        }
+
+        $appointmentStart = trim((string) ($data['admission_appointment_start_time'] ?? ''));
+        $appointmentEnd = trim((string) ($data['admission_appointment_end_time'] ?? ''));
+        if ($appointmentStart !== '' && $appointmentEnd !== '' && $appointmentEnd <= $appointmentStart) {
+            return $this->errorResponse('Admission appointment end time must be after the start time', 422);
         }
 
         if (empty($updates)) {
@@ -1300,6 +1525,9 @@ class AdmissionAdminManager extends BaseAPI
                 $json['applicant_name'] = $fresh['applicant_name'] ?? ($json['applicant_name'] ?? null);
                 $json['grade'] = $fresh['grade_applying_for'] ?? ($json['grade'] ?? null);
                 $json['application_no'] = $fresh['application_no'] ?? ($json['application_no'] ?? null);
+                foreach (['student_type_code', 'admission_appointment_date', 'admission_appointment_start_time', 'admission_appointment_end_time'] as $field) {
+                    $json[$field] = $fresh[$field] ?? ($json[$field] ?? null);
+                }
                 $this->db->prepare("UPDATE admission_applications SET workflow_data_json = ? WHERE id = ?")
                     ->execute([json_encode($json, JSON_UNESCAPED_UNICODE), $id]);
             }
@@ -1333,7 +1561,8 @@ class AdmissionAdminManager extends BaseAPI
     {
         try {
             $rows = $this->db->query(
-                "SELECT c.id,
+                 "SELECT c.id,
+                        ay.id AS academic_year_id,
                         aycs.id AS academic_year_class_stream_id,
                         s.id AS stream_id,
                         s.name AS stream_name,
@@ -1357,6 +1586,7 @@ class AdmissionAdminManager extends BaseAPI
             $classes = array_map(static function (array $row): array {
                 return [
                     'id' => (int) ($row['id'] ?? 0),
+                    'academic_year_id' => (int) ($row['academic_year_id'] ?? 0),
                     'academic_year_class_stream_id' => (int) ($row['academic_year_class_stream_id'] ?? 0),
                     'stream_id' => (int) ($row['stream_id'] ?? 0),
                     'stream_name' => $row['stream_name'] ?? '',
@@ -1786,6 +2016,13 @@ class AdmissionAdminManager extends BaseAPI
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
             $stmt->closeCursor();
 
+            $actualStage = (string) ($result['to_stage'] ?? $toStage);
+            if ($actualStage === 'interview_scheduling') {
+                $this->workflow()->queueParentAdmissionNotification($applicationId, 'reviewed_interview');
+            } elseif ($actualStage === 'rejected') {
+                $this->workflow()->queueParentAdmissionNotification($applicationId, 'rejected', (string) ($notes ?: 'The application did not meet the admission requirements or has missing information.'));
+            }
+
             return $this->successResponse([
                 'workflow_instance_id' => $result['workflow_instance_id'] ?? null,
                 'from_stage' => $result['from_stage'] ?? null,
@@ -1924,6 +2161,11 @@ class AdmissionAdminManager extends BaseAPI
             $this->hasAnyAdmissionPermission('view_all', $ctx)
             || $this->ctxHasAnyPermission(['admission_view'], $ctx)
             || $this->hasAdmissionRouteAccess($ctx)
+            || $this->ctxHasRole(
+                [3, 4, 5, 6, 63],
+                ['Director', 'School Administrator', 'Headteacher', 'Head Teacher', 'Deputy Head - Academic', 'Deputy Head - Discipline', 'Deputy Headteacher', 'Deputy Head Teacher'],
+                $ctx
+            )
         ) {
             return true;
         }
@@ -1981,10 +2223,6 @@ class AdmissionAdminManager extends BaseAPI
 
     public function canProcessAdmissionActionForStage(string $actionGroup, ?string $stageCode, array $ctx): bool
     {
-        if (!$this->hasAnyAdmissionPermission($actionGroup, $ctx)) {
-            return false;
-        }
-
         $stageCode = $this->normalizeStageCode($stageCode);
         if (!$stageCode) {
             return false;
@@ -1997,6 +2235,22 @@ class AdmissionAdminManager extends BaseAPI
 
         $expectedNormalized = array_values(array_filter(array_map([$this, 'normalizeStageCode'], $expectedStages)));
         if (!in_array($stageCode, $expectedNormalized, true)) {
+            return false;
+        }
+
+        // Interview assignment changes are explicitly owned by school
+        // administration leadership, even where older deployments have not
+        // backfilled the newer admission permission rows for these roles.
+        if (in_array($actionGroup, ['schedule_interview', 'record_interview'], true)
+            && $this->ctxHasRole(
+                [4, 5, 6],
+                ['School Administrator', 'Headteacher', 'Head Teacher', 'Deputy Head - Academic', 'Deputy Head - Discipline', 'Deputy Headteacher', 'Deputy Head Teacher'],
+                $ctx
+            )) {
+            return true;
+        }
+
+        if (!$this->hasAnyAdmissionPermission($actionGroup, $ctx)) {
             return false;
         }
 
@@ -2171,22 +2425,33 @@ class AdmissionAdminManager extends BaseAPI
         return $paymentData;
     }
 
-    /**
-     * Normalise interview decisions. The reviewer decides the outcome; the
-     * score is supporting evidence only and never determines pass/fail.
-     */
+    /** Normalize the descriptive recommendation and derive the only allowed next stage. */
     public function normalizeInterviewAssessment(array $assessmentData): array
     {
-        $decision = strtolower(trim((string) ($assessmentData['decision'] ?? $assessmentData['result'] ?? '')));
-        $aliases = ['passed' => 'pass', 'approved' => 'pass', 'qualified' => 'pass', 'failed' => 'fail', 'rejected' => 'fail'];
-        $assessmentData['decision'] = $aliases[$decision] ?? $decision;
-        if (!in_array($assessmentData['decision'], ['pass', 'fail'], true)) {
-            throw new \InvalidArgumentException('Interview decision must be pass or fail');
+        $recommendation = strtolower(trim((string) ($assessmentData['recommendation'] ?? $assessmentData['decision'] ?? $assessmentData['result'] ?? '')));
+        $aliases = ['pass' => 'recommended', 'passed' => 'recommended', 'approved' => 'recommended', 'qualified' => 'recommended', 'fail' => 'not_recommended', 'failed' => 'not_recommended', 'rejected' => 'not_recommended', 'waitlist' => 'conditional', 'waitlisted' => 'conditional', 'placement_test' => 'placement_test_required'];
+        $recommendation = $aliases[$recommendation] ?? $recommendation;
+        $nextStages = ['recommended' => 'student_admission_number', 'not_recommended' => 'rejected', 'conditional' => 'waitlisted', 'placement_test_required' => 'placement_test'];
+        if (!isset($nextStages[$recommendation])) {
+            throw new \InvalidArgumentException('Select a valid recommendation: recommended, not recommended, conditional, or placement test required.');
         }
+        $assessmentData['recommendation'] = $recommendation;
+        $assessmentData['derived_next_stage'] = $nextStages[$recommendation];
+        unset($assessmentData['next_step']);
         if (isset($assessmentData['score']) && $assessmentData['score'] !== '' && $assessmentData['score'] !== null) {
-            $assessmentData['score'] = (int) $assessmentData['score'];
+            $assessmentData['score'] = (float) $assessmentData['score'];
         } else {
             $assessmentData['score'] = null;
+        }
+
+        if (!empty($assessmentData['assessment_items']) && !is_array($assessmentData['assessment_items'])) {
+            throw new \InvalidArgumentException('Assessment items must be an array.');
+        }
+        foreach (($assessmentData['assessment_items'] ?? []) as $item) {
+            $score = $item['score'] ?? null;
+            if ($score === null || $score === '' || !is_numeric($score) || (float) $score < 0 || (float) $score > (float) ($item['max_score'] ?? 100)) {
+                throw new \InvalidArgumentException('Every tested learning area must have a valid score.');
+            }
         }
 
         return $assessmentData;
@@ -2206,6 +2471,36 @@ class AdmissionAdminManager extends BaseAPI
         unset($record);
 
         return $records;
+    }
+
+    /** Add canonical payment values to placement-stage rows. */
+    private function attachAdmissionPaymentFields(array &$records): void
+    {
+        $chargeService = new \App\API\Services\ExtraChargeService($this->db);
+        foreach ($records as &$record) {
+            $applicationId = (int) ($record['id'] ?? 0);
+            if ($applicationId < 1) continue;
+
+            try {
+                $record['registration_fee_due'] = $chargeService->admissionTotalDue($applicationId);
+            } catch (\Throwable $ignored) {
+                // Leave the amount absent only when charge configuration is
+                // unavailable; the client must not invent a price.
+            }
+
+            $paymentStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(CASE WHEN status IN ('recorded', 'posted') THEN amount ELSE 0 END), 0),
+                        (SELECT id FROM admission_payments
+                         WHERE application_id=? AND status='pending_verification'
+                         ORDER BY id DESC LIMIT 1)
+                 FROM admission_payments WHERE application_id=?"
+            );
+            $paymentStmt->execute([$applicationId, $applicationId]);
+            $payment = $paymentStmt->fetch(\PDO::FETCH_NUM) ?: [0, null];
+            $record['recorded_payment_amount'] = (float) ($payment[0] ?? 0);
+            $record['pending_payment_id'] = $payment[1] !== null ? (int) $payment[1] : null;
+        }
+        unset($record);
     }
 
     private function admissionRoleCanProcessGroup(string $group, array $ctx): bool

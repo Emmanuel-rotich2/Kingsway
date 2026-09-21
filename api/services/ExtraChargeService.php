@@ -27,7 +27,13 @@ final class ExtraChargeService
             throw new RuntimeException('Admission application not found.');
         }
 
-        $yearId = $this->academicYearId((string) $application['academic_year']);
+        $yearId = null;
+        if (!empty($application['target_term_id'])) {
+            $termStmt = $this->db->prepare('SELECT academic_year_id FROM academic_year_terms WHERE id=? LIMIT 1');
+            $termStmt->execute([(int) $application['target_term_id']]);
+            $yearId = (int) ($termStmt->fetchColumn() ?: 0) ?: null;
+        }
+        $yearId = $yearId ?: $this->academicYearId((string) $application['academic_year']);
         if (!$yearId) {
             throw new RuntimeException('Academic year for the application was not found.');
         }

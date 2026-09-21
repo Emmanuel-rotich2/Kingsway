@@ -106,7 +106,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="permissionPoliciesModal" tabindex="-1" aria-labelledby="permissionPoliciesModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
         <div class="modal-content">
             <form id="permissionPoliciesForm" novalidate>
                 <input type="hidden" id="permissionPoliciesEditId">

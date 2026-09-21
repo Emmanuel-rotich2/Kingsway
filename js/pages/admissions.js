@@ -2285,61 +2285,29 @@ const AdmissionsController = {
       }
 
       const { application, workflow_data } = payload;
+      const assessmentItems = payload.assessment_items || payload.interview_learning_areas || [];
       const modal = document.getElementById("recordInterviewModal");
       if (!modal) return;
 
+      const items = assessmentItems.length ? assessmentItems : [{ learning_area_name: "Interview assessment", max_score: 100 }];
       modal.querySelector(".modal-body").innerHTML = `
                 <form id="recordInterviewForm">
                     <input type="hidden" name="application_id" value="${applicationId}">
-                    <h6 class="mb-3">${application.applicant_name} - ${
-                      application.grade_applying_for
-                    }</h6>
-                    
-                    ${
-                      workflow_data.interview_date
-                        ? `
-                        <div class="alert alert-info">
-                            <i class="bi bi-calendar"></i> Scheduled: ${
-                              workflow_data.interview_date
-                            } at ${workflow_data.interview_time || "TBD"}
-                        </div>
-                    `
-                        : ""
-                    }
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Interview Result <span class="text-danger">*</span></label>
-                        <div class="btn-group w-100" role="group">
-                            <input type="radio" class="btn-check" name="result" id="result_pass" value="passed" required>
-                            <label class="btn btn-outline-success" for="result_pass">
-                                <i class="bi bi-check-lg"></i> Pass
-                            </label>
-                            <input type="radio" class="btn-check" name="result" id="result_fail" value="failed">
-                            <label class="btn btn-outline-danger" for="result_fail">
-                                <i class="bi bi-x-lg"></i> Fail
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Assessment Score (Optional)</label>
-                        <input type="number" name="score" class="form-control" 
-                               min="0" max="100" placeholder="0-100">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Interview Notes</label>
-                        <textarea name="notes" class="form-control" rows="3" 
-                                  placeholder="Observations, strengths, areas of concern"></textarea>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Recommendations</label>
-                        <textarea name="recommendations" class="form-control" rows="2" 
-                                  placeholder="Any recommendations for the student"></textarea>
-                    </div>
+                    <div class="alert alert-info"><strong>Applicant:</strong> ${application.applicant_name || "—"}<br><strong>Grade:</strong> ${application.grade_applying_for || "—"}<br><strong>Application No:</strong> ${application.application_no || "—"}</div>
+                    <h6 class="fw-semibold mb-2">Assessment Scores (0-100)</h6>
+                    <div id="legacyInterviewAssessmentItems" class="row g-3 mb-3">${items.map(item => `<div class="col-md-6"><label class="form-label">${item.learning_area_name || item.name || "Assessment"}</label><input type="number" class="form-control legacy-assessment-score" min="0" max="${Number(item.max_score || 100)}" data-learning-area-id="${item.learning_area_id || item.id || ""}" data-learning-area-name="${item.learning_area_name || item.name || "Assessment"}" placeholder="0-${Number(item.max_score || 100)}" required></div>`).join("")}</div>
+                    <div class="d-flex justify-content-between border-top pt-3 mb-3"><strong>Overall Score:</strong><span id="legacyInterviewOverallScore" class="fw-bold">—</span></div>
+                    <div class="mb-3"><label class="form-label">Recommendation <span class="text-danger">*</span></label><select name="recommendation" class="form-select" required><option value="">Select recommendation</option><option value="recommended">Recommended for admission</option><option value="conditional">Conditional / waitlist</option><option value="placement_test_required">Placement test required</option><option value="not_recommended">Not recommended</option></select><div class="form-text">The system derives the next workflow stage from this recommendation.</div></div>
+                    <div class="mb-3"><label class="form-label">Interview Notes</label><textarea name="remarks" class="form-control" rows="3" placeholder="Observations, strengths, areas of concern"></textarea></div>
+                    <div id="legacyInterviewAssessmentError" class="alert alert-danger d-none"></div>
                 </form>
             `;
+
+      modal.querySelectorAll(".legacy-assessment-score").forEach(input => input.addEventListener("input", () => {
+        const values = [...modal.querySelectorAll(".legacy-assessment-score")].map(item => Number(item.value)).filter(Number.isFinite);
+        const target = modal.querySelector("#legacyInterviewOverallScore");
+        if (target) target.textContent = values.length ? `${Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)}/100` : "—";
+      }));
 
       modal.querySelector(".modal-footer").innerHTML = `
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -2363,8 +2331,27 @@ const AdmissionsController = {
    * Submit interview results
    */
   async submitInterviewResults(form) {
-    const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
+    const items = [...form.querySelectorAll(".legacy-assessment-score")].map(input => ({
+      learning_area_id: Number(input.dataset.learningAreaId || 0) || null,
+      learning_area_name: input.dataset.learningAreaName || "Assessment",
+      max_score: Number(input.max || 100),
+      score: Number(input.value)
+    }));
+    const recommendation = form.elements.recommendation?.value || "";
+    const error = form.querySelector("#legacyInterviewAssessmentError");
+    if (!items.length || items.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > item.max_score) || !recommendation) {
+      if (error) { error.textContent = "Select a recommendation and enter a valid score for every tested learning area."; error.classList.remove("d-none"); }
+      return;
+    }
+    const data = {
+      application_id: form.elements.application_id.value,
+      assessment_data: {
+        assessment_items: items,
+        score: Math.round(items.reduce((sum, item) => sum + item.score, 0) / items.length),
+        recommendation,
+        remarks: form.elements.remarks?.value || ""
+      }
+    };
     const submitButton = document.querySelector(
       '#recordInterviewModal button[form="recordInterviewForm"]',
     );
@@ -2560,77 +2547,16 @@ const AdmissionsController = {
         return;
       }
 
-      const { application, workflow_data } = payload;
-      const modal = document.getElementById("paymentModal");
-      if (!modal) return;
-
-      const totalFees = workflow_data.total_fees || 0;
-
-      modal.querySelector(".modal-body").innerHTML = `
-                <form id="paymentForm">
-                    <input type="hidden" name="application_id" value="${applicationId}">
-                    <h6 class="mb-3">${application.applicant_name} - ${
-                      application.grade_applying_for
-                    }</h6>
-                    
-                    <div class="alert alert-info">
-                        <div class="d-flex justify-content-between">
-                            <span>Total Fees:</span>
-                            <strong>KES ${Number(
-                              totalFees,
-                            ).toLocaleString()}</strong>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Amount Paid (KES) <span class="text-danger">*</span></label>
-                        <input type="number" name="amount_paid" class="form-control" 
-                               required min="0" step="0.01" placeholder="Enter amount paid">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Payment Method <span class="text-danger">*</span></label>
-                        <select name="payment_method" class="form-select" required>
-                            <option value="">-- Select Method --</option>
-                            <option value="mpesa">M-Pesa</option>
-                            <option value="bank_transfer">Bank Transfer</option>
-                            <option value="cash">Cash</option>
-                            <option value="cheque">Cheque</option>
-                            <option value="card">Card Payment</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Transaction Reference</label>
-                        <input type="text" name="transaction_reference" class="form-control" 
-                               placeholder="M-Pesa code, Bank ref, etc.">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Payment Date</label>
-                        <input type="date" name="payment_date" class="form-control" 
-                               value="${
-                                 new Date().toISOString().split("T")[0]
-                               }">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea name="notes" class="form-control" rows="2" 
-                                  placeholder="Payment notes"></textarea>
-                    </div>
-                </form>
-            `;
-
-      modal.querySelector(".modal-footer").innerHTML = `
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" form="paymentForm" class="btn btn-success">
-                    <i class="bi bi-cash"></i> Record Payment
-                </button>
-            `;
-
-      const bsModal = new bootstrap.Modal(modal);
-      bsModal.show();
+      const application = payload.application;
+      const workflowData = payload.workflow_data || {};
+      const queueRow = Object.values(this.state.queues || {}).flat().find(row => Number(row?.id) === Number(applicationId)) || {};
+      if (!window.AdmissionPaymentModal) throw new Error("The standard admissions payment modal is unavailable. Please reload the page.");
+      window.AdmissionPaymentModal.open({
+        application,
+        registrationFee: Number(application.registration_fee_due || queueRow.registration_fee_due || workflowData.registration_fee_due || 0),
+        apiCall: API.callAPI.bind(API),
+        onSuccess: () => this.loadQueues()
+      });
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening payment modal:",
@@ -2722,6 +2648,17 @@ const AdmissionsController = {
         );
         return;
       }
+
+      const classesResponse = await API.callAPI('/admission/placement-classes', 'GET');
+      const classes = classesResponse?.classes || classesResponse?.data?.classes || [];
+      if (!window.AdmissionPlacementModal) throw new Error('The standard placement modal is unavailable. Please reload the page.');
+      window.AdmissionPlacementModal.open({
+        application: payload.application,
+        classes,
+        apiCall: API.callAPI.bind(API),
+        onSuccess: () => this.loadQueues()
+      });
+      return;
     } catch (error) {
       console.error(
         "[AdmissionsController] Error validating enrollment action:",
@@ -2730,40 +2667,6 @@ const AdmissionsController = {
       showNotification("Error validating enrollment action", "error");
       return;
     }
-
-    this.showConfirmModal(
-      "Complete Enrollment",
-      "Are you sure you want to enroll this student? This will create a student record and advance to Director confirmation.",
-      async () => {
-        try {
-          const response = await API.admission.completeEnrollment({
-            application_id: applicationId,
-          });
-          const result = this.unwrapPayload(response);
-
-          showNotification(
-            "Enrollment completed successfully! Student has been created.",
-            "success",
-          );
-          await this.loadQueues();
-
-          if (result?.student_id) {
-            const studentId = encodeURIComponent(result.student_id);
-            const route = this.resolveStudentRecordRoute();
-            showNotification(
-              `<a href="${(window.APP_BASE || "")}/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile" class="alert-link">View Student Record</a>`,
-              "success",
-            );
-          }
-        } catch (error) {
-          console.error(
-            "[AdmissionsController] Error completing enrollment:",
-            error,
-          );
-          showNotification("Error completing enrollment", "error");
-        }
-      },
-    );
   },
 
   // =====================================================

@@ -31,6 +31,53 @@
   --kw-green-grad: linear-gradient(135deg, #0d4f2a 0%, #198754 100%);
 }
 
+/* ─── Responsive modal height handling ────────────────────────────────────
+   Apply this to every Bootstrap modal, including dynamically-created dialogs
+   that do not include .modal-dialog-scrollable. Headers and footers remain
+   visible while long modal bodies scroll within the available viewport. */
+.modal .modal-dialog {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+
+.modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+}
+
+.modal .modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal .modal-content > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.modal .modal-content > form > .modal-body {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 575.98px) {
+  .modal .modal-dialog,
+  .modal .modal-content {
+    max-height: calc(100vh - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .modal .modal-dialog {
+    margin: .5rem auto;
+  }
+}
+
 /* ─── Stat-card gradients (reused across dashboards) ─── */
 .kw-grad-green  { background: linear-gradient(135deg, #0d4f2a 0%, #198754 100%); }
 .kw-grad-gold   { background: linear-gradient(135deg, #b8860b 0%, #f9c80e 100%); }

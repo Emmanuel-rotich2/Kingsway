@@ -70,7 +70,25 @@ const admissionInterviewsController = {
         return `<option value="${this._esc(s.id)}">${this._esc(name)} — ${this._esc(s.role_name || s.designation || '')}</option>`;
       }).join('');
       if (filter) filter.innerHTML = '<option value="">All Interviewers</option>' + options;
-      ['aiSessionInterviewer'].forEach(id => { const el=document.getElementById(id); if (el) el.innerHTML='<option value="">— Select interviewer —</option>'+options; });
+      ['aiSessionInterviewer'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.multiple = true;
+        el.setAttribute('aria-multiselectable', 'true');
+        el.innerHTML = options;
+        // Native multi-selects normally require Ctrl/Command. Admissions uses
+        // click-to-toggle so each teacher can be selected independently.
+        if (el.dataset.clickToggleBound !== 'true') {
+          el.addEventListener('mousedown', event => {
+            const option = event.target.closest('option');
+            if (!option) return;
+            event.preventDefault();
+            option.selected = !option.selected;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          el.dataset.clickToggleBound = 'true';
+        }
+      });
     } catch (e) {
       console.warn('Staff failed:', e);
     }
@@ -185,6 +203,7 @@ const admissionInterviewsController = {
       const canSchedule = app.current_stage === 'interview_scheduling';
       const canRecord = app.current_stage === 'interview_results';
       const stageBadge = this._stageBadge(app.current_stage);
+      const fallbackAreas = Array.isArray(data.assessment_items) ? data.assessment_items.map(item => item.learning_area_name).filter(Boolean).join(', ') : '';
       return `<tr class="${isToday ? 'table-info' : ''}">
         <td class="fw-semibold">${this._esc(app.applicant_name || 'Unknown')}${isToday ? ' <span class="badge bg-primary ms-1">Today</span>' : ''}<br><small class="text-muted">${this._esc(app.application_no || '—')}</small></td>
         <td>${this._esc(app.grade_applying_for || '—')}</td>
@@ -192,6 +211,7 @@ const admissionInterviewsController = {
         <td>${this._esc(app.interview_time || data.interview_time || '—')}</td>
         <td>${this._esc(app.interview_interviewer_name || this._interviewerName(app.interview_interviewer_id) || '—')}<br><small class="text-muted">${this._esc(app.interview_interviewer_phone || '')}</small></td>
         <td>${this._esc(app.interview_venue || data.venue || data.location || '—')}</td>
+        <td>${this._esc(app.tested_learning_areas || data.tested_learning_areas || fallbackAreas || 'Not specified')}</td>
         <td>${stageBadge}</td>
         <td>${this._esc(data.recommendation || '—')}</td>
         <td class="text-end">
@@ -212,7 +232,7 @@ const admissionInterviewsController = {
           <thead class="table-light">
             <tr>
               <th>Applicant</th><th>Grade</th><th>Interview Date</th><th>Time</th>
-              <th>Interviewer</th><th>Location</th><th>Stage</th><th>Recommendation</th><th class="text-end">Actions</th>
+              <th>Interviewer</th><th>Location</th><th>Tested learning areas</th><th>Stage</th><th>Recommendation</th><th class="text-end">Actions</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -220,7 +240,7 @@ const admissionInterviewsController = {
       </div>`;
   },
 
-  showScheduleModal: function (applicationId = null) {
+  showScheduleModal: async function (applicationId = null) {
     ['aiSessionId', 'aiSpecialRequirements'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
@@ -234,6 +254,31 @@ const admissionInterviewsController = {
       applicant.value = applicationId || '';
     }
     if (row?.interview_session_id) document.getElementById('aiSessionId').value = row.interview_session_id;
+    const areas = document.getElementById('aiLearningAreas');
+    if (areas) {
+      areas.innerHTML = '<option disabled>Loading current-class learning areas…</option>';
+      try {
+        const response = await this._api(`/admission/application/${applicationId}`, 'GET');
+        const available = response?.data?.interview_learning_areas || response?.interview_learning_areas || [];
+        areas.innerHTML = available.map(area => `<option value="${this._esc(area.id)}">${this._esc(area.name)}</option>`).join('') || '<option disabled>No curriculum areas configured for the current class</option>';
+        areas.multiple = true;
+        if (areas.dataset.clickToggleBound !== 'true') {
+          areas.addEventListener('mousedown', event => {
+            const option = event.target.closest('option');
+            if (!option || option.disabled) return;
+            event.preventDefault();
+            if (!option.selected && [...areas.selectedOptions].length >= 3) {
+              showNotification('Select at most three learning areas.', 'error');
+              return;
+            }
+            option.selected = !option.selected;
+          });
+          areas.dataset.clickToggleBound = 'true';
+        }
+      } catch (e) {
+        areas.innerHTML = '<option disabled>Unable to load current-class learning areas</option>';
+      }
+    }
     const err = document.getElementById('aiScheduleError');
     if (err) { err.classList.add('d-none'); err.textContent = ''; }
     this._schedModal.show();
@@ -244,8 +289,13 @@ const admissionInterviewsController = {
     const sessionId = document.getElementById('aiSessionId')?.value;
     const errEl = document.getElementById('aiScheduleError');
 
+    const learningAreaIds = [...(document.getElementById('aiLearningAreas')?.selectedOptions || [])].map(option => Number(option.value)).filter(Boolean);
     if (!applicationId || !sessionId) {
       if (errEl) { errEl.textContent = 'Applicant and a configured interview session are required.'; errEl.classList.remove('d-none'); }
+      return;
+    }
+    if (learningAreaIds.length < 1 || learningAreaIds.length > 3) {
+      if (errEl) { errEl.textContent = 'Select between one and three learning areas from the applicant\'s current class.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
@@ -255,7 +305,8 @@ const admissionInterviewsController = {
       await this._api(existing ? '/admission/interview-assignment' : '/admission/schedule-interview', 'POST', {
         application_id: applicationId,
         session_id: sessionId,
-        reason: 'Interview session selected by admissions staff'
+        reason: 'Interview session selected by admissions staff',
+        learning_area_ids: learningAreaIds
       });
       showNotification('Interview scheduled.', 'success');
       this._schedModal.hide();
@@ -273,18 +324,19 @@ const admissionInterviewsController = {
   manageSessions: async function () {
     await Promise.all([this._loadSessions(), this._loadWindows()]);
     const body = document.getElementById('aiSessionsBody');
-    if (body) body.innerHTML = this._sessions.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Intake</th><th>Date/time</th><th>Venue</th><th>Interviewer / follow-up phone</th><th>Assigned</th><th>Applicants</th><th>Actions</th></tr></thead><tbody>${this._sessions.map(s => `<tr><td>${this._esc(s.window_label)}</td><td>${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))}–${this._esc(String(s.end_time).slice(0,5))}</td><td>${this._esc(s.venue)}</td><td>${this._esc(s.interviewer_name || '—')}<br><small class="text-muted">${this._esc(s.interviewer_phone || 'No phone')}</small></td><td>${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</td><td>${this._esc((s.assigned_applicants || '').split('||').filter(Boolean).join(', ') || 'None')}</td><td><button class="btn btn-sm btn-outline-primary" onclick="admissionInterviewsController.editSession(${s.id})">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="alert alert-info">No interview sessions have been configured.</div>';
+    if (body) body.innerHTML = this._sessions.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Intake</th><th>Date/time</th><th>Venue</th><th>Supervisors / invigilators</th><th>Assigned</th><th>Applicants</th><th>Actions</th></tr></thead><tbody>${this._sessions.map(s => `<tr><td>${this._esc(s.window_label)}</td><td>${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))}–${this._esc(String(s.end_time).slice(0,5))}</td><td>${this._esc(s.venue)}</td><td>${this._esc(s.supervisor_names || s.interviewer_name || '—')}<br><small class="text-muted">${this._esc(s.interviewer_phone || 'No phone')}</small></td><td>${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</td><td>${this._esc((s.assigned_applicants || '').split('||').filter(Boolean).join(', ') || 'None')}</td><td><button class="btn btn-sm btn-outline-primary" onclick="admissionInterviewsController.editSession(${s.id})">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="alert alert-info">No interview sessions have been configured.</div>';
     this._sessionsModal.show();
   },
 
   editSession: function (id) {
     const s = this._sessions.find(x => Number(x.id) === Number(id)); if (!s) return;
-    ['aiSessionEditId','aiSessionWindow','aiSessionDate','aiSessionStart','aiSessionEnd','aiSessionCapacity','aiSessionInterviewer','aiSessionVenue'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
-    document.getElementById('aiSessionEditId').value=s.id; document.getElementById('aiSessionWindow').value=s.admission_window_id; document.getElementById('aiSessionDate').value=s.session_date; document.getElementById('aiSessionStart').value=s.start_time; document.getElementById('aiSessionEnd').value=s.end_time; document.getElementById('aiSessionCapacity').value=s.capacity; document.getElementById('aiSessionInterviewer').value=s.interviewer_id || ''; document.getElementById('aiSessionVenue').value=s.venue;
+    ['aiSessionEditId','aiSessionWindow','aiSessionDate','aiSessionStart','aiSessionEnd','aiSessionCapacity','aiSessionVenue'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
+    const supervisorSelect = document.getElementById('aiSessionInterviewer'); if (supervisorSelect) [...supervisorSelect.options].forEach(o => { o.selected = false; });
+    document.getElementById('aiSessionEditId').value=s.id; document.getElementById('aiSessionWindow').value=s.admission_window_id; document.getElementById('aiSessionDate').value=s.session_date; document.getElementById('aiSessionStart').value=s.start_time; document.getElementById('aiSessionEnd').value=s.end_time; document.getElementById('aiSessionCapacity').value=s.capacity; const selectedIds = (Array.isArray(s.supervisor_ids) && s.supervisor_ids.length) ? s.supervisor_ids.map(String) : [String(s.interviewer_id || '')]; if (supervisorSelect) [...supervisorSelect.options].forEach(o => { o.selected = selectedIds.includes(String(o.value)); }); document.getElementById('aiSessionVenue').value=s.venue;
   },
 
   saveSession: async function () {
-    const data={id:document.getElementById('aiSessionEditId').value,admission_window_id:document.getElementById('aiSessionWindow').value,session_date:document.getElementById('aiSessionDate').value,start_time:document.getElementById('aiSessionStart').value,end_time:document.getElementById('aiSessionEnd').value,capacity:document.getElementById('aiSessionCapacity').value,interviewer_id:document.getElementById('aiSessionInterviewer').value,venue:document.getElementById('aiSessionVenue').value};
+    const supervisors = [...(document.getElementById('aiSessionInterviewer')?.selectedOptions || [])].map(o => Number(o.value)); const data={id:document.getElementById('aiSessionEditId').value,admission_window_id:document.getElementById('aiSessionWindow').value,session_date:document.getElementById('aiSessionDate').value,start_time:document.getElementById('aiSessionStart').value,end_time:document.getElementById('aiSessionEnd').value,capacity:document.getElementById('aiSessionCapacity').value,supervisor_ids:supervisors,interviewer_id:supervisors[0] || '',venue:document.getElementById('aiSessionVenue').value};
     try { await this._api(data.id ? `/admission/interview-sessions/${data.id}` : '/admission/interview-sessions',data.id ? 'PUT' : 'POST',data); showNotification('Interview session saved.','success'); await this._loadSessions(); await this.manageSessions(); }
     catch(e){const el=document.getElementById('aiSessionError');el.textContent=e.message||'Unable to save session';el.classList.remove('d-none');}
   },
@@ -292,7 +344,7 @@ const admissionInterviewsController = {
   showOutcomeModal: async function (applicationId) {
     document.getElementById('aiOutcomeApplicationId').value = applicationId;
     document.getElementById('aiOutcomeInterviewId').value = applicationId;
-    ['aiAcademicScore', 'aiBehaviorScore', 'aiCommunicationScore', 'aiOutcome', 'aiOutcomeNotes', 'aiNextStep'].forEach(id => {
+    ['aiAcademicScore', 'aiBehaviorScore', 'aiCommunicationScore', 'aiOutcome', 'aiOutcomeNotes'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -306,32 +358,25 @@ const admissionInterviewsController = {
   saveOutcome: async function () {
     const applicationId = document.getElementById('aiOutcomeApplicationId')?.value;
     const outcome = document.getElementById('aiOutcome')?.value;
-    const nextStep = document.getElementById('aiNextStep')?.value;
-    const scores = [
-      Number(document.getElementById('aiAcademicScore')?.value || 0),
-      Number(document.getElementById('aiBehaviorScore')?.value || 0),
-      Number(document.getElementById('aiCommunicationScore')?.value || 0),
-    ];
     const errEl = document.getElementById('aiOutcomeError');
 
-    if (!outcome || !nextStep) {
-      if (errEl) { errEl.textContent = 'Recommendation and next workflow step are required.'; errEl.classList.remove('d-none'); }
+    const inputs = [...document.querySelectorAll('#aiAssessmentItems [data-assessment-score]')];
+    const items = inputs.map(input => ({ learning_area_id: Number(input.dataset.learningAreaId || 0) || null, learning_area_name: input.dataset.learningAreaName || 'Assessment', max_score: Number(input.max || 100), score: Number(input.value) }));
+    if (!outcome || !items.length || items.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > item.max_score)) {
+      if (errEl) { errEl.textContent = 'Select a recommendation and enter a valid score for every tested learning area.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
 
-    const score = Math.round(scores.reduce((sum, item) => sum + item, 0) / scores.length);
+    const score = Math.round(items.reduce((sum, item) => sum + item.score, 0) / items.length);
     try {
       await this._api('/admission/record-interview-results', 'POST', {
         application_id: applicationId,
         assessment_data: {
-          academic_readiness_score: scores[0],
-          behavior_score: scores[1],
-          communication_score: scores[2],
+          assessment_items: items,
           score,
           interview_score: score,
           recommendation: outcome,
-          next_step: nextStep,
           remarks: document.getElementById('aiOutcomeNotes')?.value.trim() || '',
         },
       });
@@ -397,7 +442,13 @@ const admissionInterviewsController = {
     try {
       const response = await this._api(`/admission/application/${applicationId}`, 'GET');
       const app = response?.data?.application || response?.application || {};
+      const items = response?.data?.assessment_items || response?.assessment_items || [];
       target.innerHTML = `<strong>Applicant:</strong> ${this._esc(app.applicant_name || '—')}<br><strong>Grade:</strong> ${this._esc(app.grade_applying_for || '—')}<br><strong>Application No:</strong> ${this._esc(app.application_no || '—')}`;
+      const container = document.getElementById('aiAssessmentItems');
+      if (container) {
+        const rows = items.length ? items : [{ learning_area_id: '', learning_area_name: 'Interview assessment', max_score: 100 }];
+        container.innerHTML = rows.map(item => `<div class="col-md-6"><label class="form-label">${this._esc(item.learning_area_name)}${item.competency ? ' — ' + this._esc(item.competency) : ''}</label><input type="number" class="form-control" min="0" max="${Number(item.max_score || 100)}" data-assessment-score data-learning-area-id="${this._esc(item.learning_area_id || '')}" data-learning-area-name="${this._esc(item.learning_area_name || 'Assessment')}" placeholder="0-${Number(item.max_score || 100)}"></div>`).join('');
+      }
     } catch (e) {
       target.innerHTML = '<span class="text-danger">Failed to load applicant details.</span>';
     }
@@ -447,6 +498,12 @@ const admissionInterviewsController = {
     const target = document.getElementById('aiOverallScore');
     if (target) target.textContent = overall === '—' ? overall : `${overall}/100`;
   });
+});
+document.addEventListener('input', event => {
+  if (!event.target?.matches('#aiAssessmentItems [data-assessment-score]')) return;
+  const values = [...document.querySelectorAll('#aiAssessmentItems [data-assessment-score]')].map(input => Number(input.value)).filter(Number.isFinite);
+  const target = document.getElementById('aiOverallScore');
+  if (target) target.textContent = values.length ? `${Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)}/100` : '—';
 });
 
 window.admissionInterviewsController = admissionInterviewsController;
