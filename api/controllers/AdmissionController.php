@@ -121,7 +121,7 @@ class AdmissionController extends BaseController
         if ($session_id > 0) {
             $guard = $this->guardApplicationAction((int) $application_id, 'schedule_interview', 'schedule admission interviews', 'Insufficient permission to schedule admission interviews');
             if ($guard !== null) return $guard;
-            return $this->handleApiResponse($this->admin->workflow()->scheduleInterviewSession((int) $application_id, $session_id));
+            return $this->handleApiResponse($this->admin->workflow()->scheduleInterviewSession((int) $application_id, $session_id, (array) ($data['learning_area_ids'] ?? [])));
         }
         return $this->badRequest('session_id is required; select an existing interview session');
     }
@@ -149,7 +149,7 @@ class AdmissionController extends BaseController
         $sessionId = (int) ($data['session_id'] ?? 0);
         $guard = $this->guardApplicationAction($applicationId, 'schedule_interview', 'change interview assignment', 'Insufficient permission to change interview assignments');
         if ($guard !== null) return $guard;
-        return $this->handleApiResponse($this->admin->reassignInterviewSession($applicationId, $sessionId, $data['reason'] ?? '', $this->buildAdmissionContext()));
+        return $this->handleApiResponse($this->admin->reassignInterviewSession($applicationId, $sessionId, $data['reason'] ?? '', $this->buildAdmissionContext(), (array) ($data['learning_area_ids'] ?? [])));
     }
 
     public function postInterviewNotifications($id = null, $data = [], $segments = [])
@@ -723,6 +723,27 @@ class AdmissionController extends BaseController
         }
 
         return $this->handleApiResponse($this->admin->updateApplicationFields((int) $id, $data, $this->buildAdmissionContext()));
+    }
+
+    public function getRequirements($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->getAdmissionRequirements($this->buildAdmissionContext()));
+    }
+
+    public function postRequirements($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->saveAdmissionRequirement($data, $this->buildAdmissionContext()));
+    }
+
+    public function putRequirements($id = null, $data = [], $segments = [])
+    {
+        $data['id'] = $id ?: ($data['id'] ?? 0);
+        return $this->handleApiResponse($this->admin->saveAdmissionRequirement($data, $this->buildAdmissionContext()));
+    }
+
+    public function deleteRequirements($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->deleteAdmissionRequirement((int) $id, $this->buildAdmissionContext()));
     }
 
     /**

@@ -100,7 +100,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="backupsModal" tabindex="-1" aria-labelledby="backupsModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="backupsForm" novalidate>
                 <div class="modal-header">

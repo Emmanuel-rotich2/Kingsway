@@ -106,7 +106,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="widgetRegistryModal" tabindex="-1" aria-labelledby="widgetRegistryModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
         <div class="modal-content">
             <form id="widgetRegistryForm" novalidate>
                 <input type="hidden" id="widgetRegistryEditId">

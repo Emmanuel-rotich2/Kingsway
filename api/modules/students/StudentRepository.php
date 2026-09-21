@@ -110,11 +110,17 @@ class StudentRepository
                 ON sae.student_id = s.id
                AND sae.academic_year_id = ay.id
                AND sae.enrollment_status = 'active'
+               AND sae.id = (
+                   SELECT MAX(sae_latest.id)
+                   FROM student_academic_enrollments sae_latest
+                   WHERE sae_latest.student_id = s.id
+                     AND sae_latest.academic_year_id = ay.id
+                     AND sae_latest.enrollment_status = 'active'
+               )
             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
             LEFT JOIN classes c ON c.id = ayc.class_id
             LEFT JOIN streams st2 ON st2.id = aycs.stream_id
-            LEFT JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
             LEFT JOIN (
                 SELECT
                     sta2.student_id,

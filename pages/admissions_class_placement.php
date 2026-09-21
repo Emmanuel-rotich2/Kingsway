@@ -268,49 +268,9 @@ if ($appBase === '.')
     </div>
 </div>
 
-<!-- Edit Placement Modal -->
-<div class="modal fade" id="editPlacementModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Placement</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="editPlacementForm">
-                <div class="modal-body">
-                    <input type="hidden" id="editPlacementApplicationId">
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Applicant</label>
-                        <input type="text" id="editPlacementApplicant" class="form-control" readonly>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Placement stream <span class="text-danger">*</span></label>
-                        <select id="editPlacementStream" class="form-select" required>
-                            <option value="">Select placement stream</option>
-                        </select>
-                        <div class="form-text">Select the configured class and stream together.</div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Remarks</label>
-                        <textarea id="editPlacementRemarks" class="form-control" rows="2"></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-info">
-                        <i class="bi bi-check2-circle me-1"></i>Update Placement
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <script>
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
+<?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
 <?php asset_script($appBase, 'js/pages/admissions_class_placement.js'); ?>

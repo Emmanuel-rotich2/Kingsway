@@ -54,9 +54,18 @@
     renderGradeOptions(grades) {
       const select = document.querySelector('[name="grade_applying"]');
       if (!select) return;
-      if (!grades.length) return;
+      // The public intake range is intentionally limited to Playgroup–Grade 8.
+      // Do not let term configuration or the reference endpoint add Grade 9.
+      const allowedGrades = [
+        'Playgroup', 'PP1', 'PP2',
+        'Grade1', 'Grade2', 'Grade3', 'Grade4',
+        'Grade5', 'Grade6', 'Grade7', 'Grade8',
+      ];
       select.innerHTML = '<option value="">Select grade</option>' +
-        grades.map((g) => '<option value="' + S(g) + '">' + S(g) + '</option>').join('');
+        allowedGrades.map((g) => {
+          const label = g.replace(/^Grade(\d+)$/, 'Grade $1');
+          return '<option value="' + S(g) + '">' + S(label) + '</option>';
+        }).join('');
       // Re-run the page's grade-driven document requirement logic now that real
       // options exist (harmless no-op if the page-level script already ran).
       if (typeof window.adSyncDocumentRequirements === 'function') window.adSyncDocumentRequirements();

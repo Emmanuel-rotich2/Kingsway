@@ -340,44 +340,59 @@ const headteacherApplicationsController = {
         document.getElementById('viewApplicationContent').innerHTML = html;
     },
     
-    conductInterview: function(applicationId) {
+    conductInterview: async function(applicationId) {
         document.getElementById('interviewApplicationId').value = applicationId;
-        
-        // Load applicant details for the modal
-        API.callAPI(`/admission/application/${applicationId}`, 'GET')
-            .then(response => {
-                const payload = response?.data || response || {};
-                if (payload.application) {
-                    const app = payload.application;
-                    const summary = `
-                        <strong>Applicant:</strong> ${app.applicant_name}<br>
-                        <strong>Grade:</strong> ${app.grade_applying_for}<br>
-                        <strong>Application No:</strong> ${app.application_no}
-                    `;
-                    document.getElementById('applicantSummary').innerHTML = summary;
-                    
-                    const modal = new bootstrap.Modal(document.getElementById('conductInterviewModal'));
-                    modal.show();
-                }
-            })
-            .catch(error => {
-                console.error('Failed to load applicant details:', error);
-                showNotification('error', 'Failed to load applicant details');
-            });
+        const summary = document.getElementById('applicantSummary');
+        const itemsContainer = document.getElementById('interviewAssessmentItems');
+        const error = document.getElementById('interviewAssessmentError');
+        if (error) error.classList.add('d-none');
+        if (summary) summary.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Loading applicant details...';
+        if (itemsContainer) itemsContainer.innerHTML = '<div class="col-12 text-muted">Loading tested learning areas...</div>';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('conductInterviewModal')).show();
+
+        try {
+            const response = await API.callAPI(`/admission/application/${applicationId}`, 'GET');
+            const payload = response?.data || response || {};
+            const app = payload.application || {};
+            const items = payload.assessment_items || payload.interview_learning_areas || [];
+            if (summary) summary.innerHTML = `<strong>Applicant:</strong> ${this.escapeHtml(app.applicant_name || '—')}<br><strong>Grade:</strong> ${this.escapeHtml(app.grade_applying_for || '—')}<br><strong>Application No:</strong> ${this.escapeHtml(app.application_no || '—')}`;
+            if (itemsContainer) {
+                itemsContainer.innerHTML = items.length
+                    ? items.map(item => `<div class="col-md-6"><label class="form-label">${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}</label><input type="number" class="form-control interview-assessment-score" min="0" max="${Number(item.max_score || 100)}" data-learning-area-id="${this.escapeHtml(item.learning_area_id || item.id || '')}" data-learning-area-name="${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}" placeholder="0-${Number(item.max_score || 100)}" required></div>`).join('')
+                    : '<div class="col-12"><div class="alert alert-warning mb-0">No tested learning areas have been assigned to this applicant.</div></div>';
+                itemsContainer.querySelectorAll('input').forEach(input => input.addEventListener('input', () => this.updateInterviewOverallScore()));
+            }
+        } catch (error) {
+            console.error('Failed to load applicant details:', error);
+            if (summary) summary.innerHTML = '<span class="text-danger">Failed to load applicant details.</span>';
+            showNotification('error', 'Failed to load applicant details');
+        }
     },
     
     submitInterviewResults: function() {
         const applicationId = document.getElementById('interviewApplicationId').value;
         const submitBtn = document.querySelector('#conductInterviewForm button[type="submit"]');
+        const error = document.getElementById('interviewAssessmentError');
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
-        
+        const items = [...document.querySelectorAll('#interviewAssessmentItems .interview-assessment-score')].map(input => ({
+            learning_area_id: Number(input.dataset.learningAreaId || 0) || null,
+            learning_area_name: input.dataset.learningAreaName || 'Assessment',
+            max_score: Number(input.max || 100),
+            score: Number(input.value)
+        }));
+        if (!items.length || items.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > item.max_score) || !document.getElementById('recommendation').value) {
+            if (error) { error.textContent = 'Select a recommendation and enter a valid score for every tested learning area.'; error.classList.remove('d-none'); }
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Save Assessment';
+            return;
+        }
+        const overall = Math.round(items.reduce((sum, item) => sum + item.score, 0) / items.length);
         const assessmentData = {
-            academic_readiness_score: document.getElementById('academicReadinessScore').value,
-            behavior_score: document.getElementById('behaviorScore').value,
-            communication_score: document.getElementById('communicationScore').value,
+            assessment_items: items,
+            score: overall,
+            interview_score: overall,
             recommendation: document.getElementById('recommendation').value,
-            next_step: document.getElementById('nextStep').value,
             remarks: document.getElementById('interviewRemarks').value
         };
         
@@ -386,19 +401,32 @@ const headteacherApplicationsController = {
             assessment_data: assessmentData
         })
             .then(response => {
-                showNotification('success', 'Interview results recorded successfully');
+                showNotification('success', 'Interview assessment recorded successfully');
                 bootstrap.Modal.getInstance(document.getElementById('conductInterviewModal')).hide();
                 document.getElementById('conductInterviewForm').reset();
                 this.loadApplications();
             })
             .catch(error => {
-                console.error('Failed to submit interview results:', error);
-                showNotification('error', 'Failed to submit interview results');
+                console.error('Failed to submit interview assessment:', error);
+                showNotification('error', 'Failed to submit interview assessment');
             })
             .finally(() => {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Submit Interview Results';
+                submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Save Assessment';
             });
+    },
+
+    updateInterviewOverallScore: function() {
+        const values = [...document.querySelectorAll('#interviewAssessmentItems .interview-assessment-score')]
+            .map(input => Number(input.value)).filter(Number.isFinite);
+        const target = document.getElementById('interviewOverallScore');
+        if (target) target.textContent = values.length ? `${Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)}/100` : '—';
+    },
+
+    escapeHtml: function(value) {
+        const div = document.createElement('div');
+        div.textContent = String(value ?? '');
+        return div.innerHTML;
     },
     
     refreshData: function() {

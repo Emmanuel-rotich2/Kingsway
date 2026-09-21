@@ -27,6 +27,14 @@ const admissionsWorkspaceController = {
                 console.warn("admissionsWorkspaceController: AuthContext not available");
             }
 
+            const canManageRequirements = window.AuthContext?.hasPermission?.('*') ||
+                window.AuthContext?.hasPermission?.('admission_manage') ||
+                window.AuthContext?.hasPermission?.('admission_applications_edit');
+            if (!canManageRequirements) {
+                document.getElementById('admissionRequirementsTabNav')?.remove();
+                document.getElementById('tab-requirements')?.remove();
+            }
+
             this.cacheDom();
             this.setupEventListeners();
             await this.loadQueueData();
@@ -305,6 +313,9 @@ const admissionsWorkspaceController = {
                 break;
             case 'windows':
                 this.loadWindowsTab(contentDiv, loadingDiv);
+                break;
+            case 'requirements':
+                this.loadRequirementsTab(contentDiv, loadingDiv);
                 break;
         }
     },
@@ -629,13 +640,29 @@ const admissionsWorkspaceController = {
         }
         
         const queues = this.queueData.queues || {};
-        const applications = [];
-        
-        ['placement_pending', 'payment_pending', 'id_generation_pending', 'final_enrollment_pending'].forEach(queueName => {
-            if (Array.isArray(queues[queueName])) {
-                queues[queueName].forEach(app => applications.push(app));
-            }
+        const applicationsById = new Map();
+        const queuePriority = ['placement_pending', 'payment_pending', 'id_generation_pending', 'final_enrollment_pending'];
+        queuePriority.forEach(queueName => {
+            if (!Array.isArray(queues[queueName])) return;
+            queues[queueName].forEach(app => {
+                const key = String(app.id);
+                const existing = applicationsById.get(key);
+                if (!existing) {
+                    applicationsById.set(key, { ...app, queue_name: queueName });
+                    return;
+                }
+
+                // Placement rows contain the placement action, while payment
+                // rows contain verified/pending payment totals. Keep the
+                // higher-priority queue action and merge the payment fields.
+                applicationsById.set(key, {
+                    ...existing,
+                    ...app,
+                    queue_name: existing.queue_name
+                });
+            });
         });
+        const applications = [...applicationsById.values()];
         
         if (applications.length === 0) {
             this.renderEmptyTab(contentDiv, loadingDiv, 'No placements pending');
@@ -668,8 +695,13 @@ const admissionsWorkspaceController = {
                                             <td>${paymentStatus}</td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
-                                                    ${['class_placement', 'fees_payment'].includes(app.current_stage) ? `
-                                                        <button class="btn btn-sm btn-outline-primary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.recordPayment(${app.id}, ${Number(app.registration_fee_due || 2000)})">
+                                                    ${app.current_stage === 'class_placement' ? `
+                                                        <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.completeEnrollment(${app.id})">
+                                                            <i class="bi bi-diagram-3"></i> Place student
+                                                        </button>
+                                                    ` : ''}
+                                                    ${app.current_stage === 'fees_payment' ? `
+                                                        <button class="btn btn-sm btn-outline-primary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.recordPayment(${app.id}, ${Number(app.registration_fee_due || 0)})">
                                                             <i class="bi bi-cash-coin"></i> Payment
                                                         </button>
                                                     ` : ''}
@@ -785,6 +817,72 @@ const admissionsWorkspaceController = {
     // ========================================================================
     // INTAKE WINDOWS TAB
     // ========================================================================
+
+    loadRequirementsTab: async function(contentDiv, loadingDiv) {
+        try {
+            const response = await this.apiCall('/admission/requirements', 'GET');
+            const rows = response?.requirements || response?.data?.requirements || response?.data || [];
+            this.renderRequirementsTab(contentDiv, loadingDiv, Array.isArray(rows) ? rows : []);
+        } catch (error) {
+            console.error('Failed to load admission requirements:', error);
+            this.renderEmptyTab(contentDiv, loadingDiv, error.message || 'Failed to load admission requirements');
+        }
+    },
+
+    renderRequirementsTab: function(contentDiv, loadingDiv, rows) {
+        const gradeOptions = ['','Playgroup','PP1','PP2','Grade1','Grade2','Grade3','Grade4','Grade5','Grade6','Grade7','Grade8','Grade9'];
+        const tableRows = rows.length ? rows.map(row => `<tr>
+            <td>${this.escapeHtml(row.grade_code || 'All grades')}</td>
+            <td>${this.escapeHtml(this.formatLabel(row.gender_code || 'all'))}</td>
+            <td>${this.escapeHtml(this.formatLabel(row.student_type_code || 'all'))}</td>
+            <td><strong>${this.escapeHtml(row.title || '')}</strong><br><small class="text-muted">${this.escapeHtml(row.description || '')}</small></td>
+            <td>${Number(row.display_order || 0)}</td>
+            <td>${Number(row.is_active) === 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}</td>
+            <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="admissionsWorkspaceController.editRequirement(${Number(row.id)})"><i class="bi bi-pencil"></i> Edit</button></td>
+        </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No admission requirements configured.</td></tr>';
+        contentDiv.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center"><div><h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2 text-success"></i>Admission Requirements</h6><small class="text-muted">Configure requirements by grade, gender, and day/boarding category.</small></div><div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" onclick="admissionsWorkspaceController.exportRequirements()"><i class="bi bi-download me-1"></i>CSV</button><button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print / PDF</button><button class="btn btn-success" onclick="admissionsWorkspaceController.editRequirement()"><i class="bi bi-plus-circle me-1"></i>Add requirement</button></div></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Grade</th><th>Gender</th><th>Category</th><th>Requirement</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div></div><div class="modal fade" id="admissionRequirementModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="admissionRequirementForm"><div class="modal-header bg-success text-white"><h5 class="modal-title">Admission Requirement</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" name="id" id="admissionRequirementId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Grade / class</label><select class="form-select" name="grade_code" id="admissionRequirementGrade">${gradeOptions.map(g => `<option value="${g}">${g || 'All grades'}</option>`).join('')}</select></div><div class="col-md-3"><label class="form-label">Gender</label><select class="form-select" name="gender_code" id="admissionRequirementGender"><option value="all">All</option><option value="female">Girls</option><option value="male">Boys</option></select></div><div class="col-md-3"><label class="form-label">Category</label><select class="form-select" name="student_type_code" id="admissionRequirementType"><option value="all">All</option><option value="day">Day scholar</option><option value="weekly">Weekly boarder</option><option value="boarder">Full boarder</option></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" id="admissionRequirementTitle" required></div><div class="col-12"><label class="form-label">Instructions</label><textarea class="form-control" name="description" id="admissionRequirementDescription" rows="4" required></textarea></div><div class="col-md-6"><label class="form-label">Display order</label><input class="form-control" type="number" min="0" name="display_order" id="admissionRequirementOrder" value="0"></div><div class="col-md-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="admissionRequirementActive" checked><label class="form-check-label" for="admissionRequirementActive">Active</label></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save requirement</button></div></form></div></div>`;
+        this.requirementRows = rows;
+        loadingDiv.style.display = 'none';
+        contentDiv.style.display = 'block';
+        document.getElementById('admissionRequirementForm')?.addEventListener('submit', async event => {
+            event.preventDefault();
+            const data = Object.fromEntries(new FormData(event.currentTarget));
+            data.is_active = document.getElementById('admissionRequirementActive').checked ? 1 : 0;
+            try { await this.apiCall(data.id ? `/admission/requirements/${data.id}` : '/admission/requirements', data.id ? 'PUT' : 'POST', data); this.notify('success', 'Admission requirement saved'); bootstrap.Modal.getInstance(document.getElementById('admissionRequirementModal'))?.hide(); await this.loadCurrentTab(); }
+            catch (error) { this.notify('error', error.message || 'Unable to save admission requirement'); }
+        });
+    },
+
+    editRequirement: function(id = 0) {
+        const row = (this.requirementRows || []).find(item => Number(item.id) === Number(id));
+        document.getElementById('admissionRequirementId').value = row?.id || '';
+        document.getElementById('admissionRequirementGrade').value = row?.grade_code || '';
+        document.getElementById('admissionRequirementGender').value = row?.gender_code || 'all';
+        document.getElementById('admissionRequirementType').value = row?.student_type_code || 'all';
+        document.getElementById('admissionRequirementTitle').value = row?.title || '';
+        document.getElementById('admissionRequirementDescription').value = row?.description || '';
+        document.getElementById('admissionRequirementOrder').value = row?.display_order || 0;
+        document.getElementById('admissionRequirementActive').checked = row ? Number(row.is_active) === 1 : true;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('admissionRequirementModal')).show();
+    },
+
+    exportRequirements: function() {
+        const rows = this.requirementRows || [];
+        const csvEscape = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const csv = [
+            ['Grade', 'Gender', 'Category', 'Requirement', 'Instructions', 'Display order', 'Status'],
+            ...rows.map(row => [row.grade_code || 'All grades', this.formatLabel(row.gender_code || 'all'), this.formatLabel(row.student_type_code || 'all'), row.title || '', row.description || '', row.display_order || 0, Number(row.is_active) === 1 ? 'Active' : 'Inactive'])
+        ].map(row => row.map(csvEscape).join(',')).join('\n');
+        if (window.KingswayFileLifecycle?.exportText) {
+            window.KingswayFileLifecycle.exportText(csv, 'admission_requirements.csv', 'text/csv');
+            return;
+        }
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+        link.download = 'admission_requirements.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+    },
 
     loadWindowsTab: async function(contentDiv, loadingDiv) {
         try {
@@ -1184,10 +1282,21 @@ const admissionsWorkspaceController = {
     
     extractPaymentStatus: function(app) {
         const workflowData = this.parseJsonSafe(app.data_json);
-        const status = workflowData.payment_status || 'pending';
-        return status === 'paid' || workflowData.last_payment_recorded_at || workflowData.last_admission_payment_id
-            ? '<span class="badge bg-success">Paid</span>'
-            : '<span class="badge bg-warning">Pending</span>';
+        const recorded = Number(app.recorded_payment_amount || 0);
+        const due = Number(app.registration_fee_due || 0);
+        const hasPendingVerification = Boolean(app.pending_payment_id);
+        const workflowStatus = workflowData.payment_status || '';
+
+        if ((due <= 0 && recorded > 0) || (due > 0 && recorded >= due) || workflowStatus === 'paid' || workflowData.last_payment_recorded_at || workflowData.last_admission_payment_id) {
+            return '<span class="badge bg-success">Paid</span>';
+        }
+        if (hasPendingVerification) {
+            return '<span class="badge bg-info text-dark">Verification pending</span>';
+        }
+        if (recorded > 0) {
+            return `<span class="badge bg-warning text-dark">Partially paid (KES ${recorded.toLocaleString()})</span>`;
+        }
+        return '<span class="badge bg-secondary">Not paid</span>';
     },
     
     calculateReadiness: function(app) {
@@ -1354,6 +1463,30 @@ const admissionsWorkspaceController = {
                                         <option value="other" ${gender === 'other' ? 'selected' : ''}>Other</option>
                                     </select>
                                 </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-semibold">Student category</label>
+                                    <select name="student_type_code" class="form-select" required>
+                                        <option value="">Select category</option>
+                                        <option value="day" ${app.student_type_code === 'day' ? 'selected' : ''}>Day scholar</option>
+                                        <option value="weekly" ${app.student_type_code === 'weekly' ? 'selected' : ''}>Weekly boarder</option>
+                                        <option value="boarder" ${app.student_type_code === 'boarder' ? 'selected' : ''}>Full boarder</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-semibold">Admission date</label>
+                                    <input type="date" name="admission_appointment_date" class="form-control" value="${this.escapeHtml((app.admission_appointment_date || '').substring(0, 10))}" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-semibold">Starts</label>
+                                    <input type="time" name="admission_appointment_start_time" class="form-control" value="${this.escapeHtml((app.admission_appointment_start_time || '').substring(0, 5))}" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-semibold">Ends</label>
+                                    <input type="time" name="admission_appointment_end_time" class="form-control" value="${this.escapeHtml((app.admission_appointment_end_time || '').substring(0, 5))}" required>
+                                </div>
+                                <div class="col-12"><div class="form-text">These details appear in the admission invitation. The end time must be after the start time.</div></div>
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-6">
@@ -1567,6 +1700,10 @@ const admissionsWorkspaceController = {
             gender: formData.get('gender') || null,
             grade_applying_for: String(formData.get('grade_applying_for') || '').trim(),
             academic_year: String(formData.get('academic_year') || '').trim(),
+            student_type_code: formData.get('student_type_code') || null,
+            admission_appointment_date: formData.get('admission_appointment_date') || null,
+            admission_appointment_start_time: formData.get('admission_appointment_start_time') || null,
+            admission_appointment_end_time: formData.get('admission_appointment_end_time') || null,
             admission_window_id: formData.get('admission_window_id') || null,
             previous_school: String(formData.get('previous_school') || '').trim() || null,
             admission_category: formData.get('admission_category') || 'standard',
@@ -1585,11 +1722,36 @@ const admissionsWorkspaceController = {
             return '<p class="text-muted mb-0">No workflow details recorded.</p>';
         }
 
+        const latestValue = (value) => {
+            if (!Array.isArray(value)) return value;
+            const meaningful = value.filter((item) => item !== null && item !== undefined && item !== '');
+            return meaningful.length ? meaningful[meaningful.length - 1] : null;
+        };
+        const renderValue = (key, value) => {
+            if (key === 'assessment_items' && Array.isArray(value)) {
+                const unique = new Map();
+                value.forEach((item) => {
+                    if (!item || typeof item !== 'object') return;
+                    const itemKey = item.learning_area_id || item.learning_area_name || JSON.stringify(item);
+                    unique.set(String(itemKey), item);
+                });
+                const rows = [...unique.values()];
+                return rows.length
+                    ? `<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Learning area</th><th>Score</th><th>Grade</th><th>Level</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${this.escapeHtml(item.learning_area_name || '—')}</td><td>${this.escapeHtml(item.score ?? '—')}/${this.escapeHtml(item.max_score ?? 100)}</td><td>${this.escapeHtml(item.grade_code || '—')}</td><td>${this.escapeHtml(item.performance_level || '—')}</td></tr>`).join('')}</tbody></table></div>`
+                    : 'No assessment items recorded';
+            }
+            const display = latestValue(value);
+            if (display === null || display === undefined || display === '') return '—';
+            if (typeof display === 'boolean') return display ? 'Yes' : 'No';
+            if (typeof display === 'object') return this.escapeHtml(JSON.stringify(display));
+            return this.escapeHtml(String(display));
+        };
+
         return `
             <dl class="row mb-0">
                 ${Object.entries(visibleWorkflowData).map(([key, value]) => `
                     <dt class="col-sm-5">${this.escapeHtml(this.formatLabel(key))}</dt>
-                    <dd class="col-sm-7">${this.escapeHtml(typeof value === "object" ? JSON.stringify(value) : value || "N/A")}</dd>
+                    <dd class="col-sm-7">${renderValue(key, value)}</dd>
                 `).join("")}
             </dl>
         `;
@@ -2661,28 +2823,48 @@ const admissionsWorkspaceController = {
         });
     },
 
-    conductInterview: function(applicationId) {
+    conductInterview: async function(applicationId) {
+        let app = {};
+        let assessmentItems = [];
+        try {
+            const response = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = response?.data || response || {};
+            app = payload.application || {};
+            assessmentItems = payload.assessment_items || payload.interview_learning_areas || [];
+        } catch (error) {
+            this.notify("error", error.message || "Unable to load interview assessment details");
+            return;
+        }
+        const rows = assessmentItems.length ? assessmentItems : [{ learning_area_name: "Interview assessment", max_score: 100 }];
         this.showWorkspaceModal(
-            '<i class="bi bi-clipboard-check me-2"></i>Record Interview Results',
+            '<i class="bi bi-clipboard-check me-2"></i>Record Interview Assessment',
             `
                 <form id="workspaceInterviewResultForm" class="row g-3">
                     <input type="hidden" name="application_id" value="${Number(applicationId)}">
-                    <div class="col-md-4">
-                        <label class="form-label">Decision</label>
-                        <select name="decision" class="form-select" required>
-                            <option value="">Select decision...</option>
-                            <option value="pass">Pass / Approve</option>
-                            <option value="fail">Fail / Reject</option>
+                    <div class="col-12 alert alert-info mb-0">
+                        <strong>Applicant:</strong> ${this.escapeHtml(app.applicant_name || '—')}<br>
+                        <strong>Grade:</strong> ${this.escapeHtml(app.grade_applying_for || '—')}<br>
+                        <strong>Application No:</strong> ${this.escapeHtml(app.application_no || '—')}
+                    </div>
+                    <div class="col-12"><h6 class="fw-semibold mb-0">Assessment Scores (0-100)</h6></div>
+                    ${rows.map(item => `<div class="col-md-6"><label class="form-label">${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}</label><input type="number" class="form-control workspace-assessment-score" min="0" max="${Number(item.max_score || 100)}" data-learning-area-id="${this.escapeHtml(item.learning_area_id || item.id || '')}" data-learning-area-name="${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}" placeholder="0-${Number(item.max_score || 100)}" required></div>`).join('')}
+                    <div class="col-12 d-flex justify-content-between border-top pt-3"><strong>Overall Score:</strong><span id="workspaceInterviewOverallScore" class="fw-bold">—</span></div>
+                    <div class="col-12">
+                        <label class="form-label">Recommendation <span class="text-danger">*</span></label>
+                        <select name="recommendation" class="form-select" required>
+                            <option value="">Select recommendation...</option>
+                            <option value="recommended">Recommended for admission</option>
+                            <option value="conditional">Conditional / waitlist</option>
+                            <option value="placement_test_required">Placement test required</option>
+                            <option value="not_recommended">Not recommended</option>
                         </select>
+                        <div class="form-text">The system derives the next workflow stage from this recommendation.</div>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Score (optional)</label>
-                        <input type="number" name="score" class="form-control" min="0" max="100">
+                    <div class="col-12">
+                        <label class="form-label">Interview Notes</label>
+                        <textarea name="remarks" class="form-control" rows="3"></textarea>
                     </div>
-                    <div class="col-md-8">
-                        <label class="form-label">Notes</label>
-                        <textarea name="notes" class="form-control" rows="3"></textarea>
-                    </div>
+                    <div id="workspaceInterviewResultError" class="col-12 alert alert-danger d-none mb-0"></div>
                 </form>
             `,
             `
@@ -2693,12 +2875,37 @@ const admissionsWorkspaceController = {
 
         document.getElementById("workspaceInterviewResultForm")?.addEventListener("submit", (event) => {
             event.preventDefault();
-            const data = Object.fromEntries(new FormData(event.currentTarget));
+            const form = event.currentTarget;
+            const items = [...form.querySelectorAll('.workspace-assessment-score')].map(input => ({
+                learning_area_id: Number(input.dataset.learningAreaId || 0) || null,
+                learning_area_name: input.dataset.learningAreaName || 'Assessment',
+                max_score: Number(input.max || 100),
+                score: Number(input.value)
+            }));
+            const error = form.querySelector('#workspaceInterviewResultError');
+            if (!items.length || items.some(item => !Number.isFinite(item.score) || item.score < 0 || item.score > item.max_score) || !form.elements.recommendation.value) {
+                if (error) { error.textContent = 'Select a recommendation and enter a valid score for every tested learning area.'; error.classList.remove('d-none'); }
+                return;
+            }
+            const data = {
+                application_id: applicationId,
+                assessment_data: {
+                    assessment_items: items,
+                    score: Math.round(items.reduce((sum, item) => sum + item.score, 0) / items.length),
+                    recommendation: form.elements.recommendation.value,
+                    remarks: form.elements.remarks.value
+                }
+            };
             this.runAdmissionAction(
                 this.apiCall("/admission/record-interview-results", "POST", data),
-                "Interview results recorded"
+                "Interview assessment recorded"
             );
         });
+        document.querySelectorAll('#workspaceInterviewResultForm .workspace-assessment-score').forEach(input => input.addEventListener('input', () => {
+            const values = [...document.querySelectorAll('#workspaceInterviewResultForm .workspace-assessment-score')].map(item => Number(item.value)).filter(Number.isFinite);
+            const target = document.getElementById('workspaceInterviewOverallScore');
+            if (target) target.textContent = values.length ? `${Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)}/100` : '—';
+        }));
     },
 
     makeDecision: function(applicationId) {
@@ -2745,90 +2952,32 @@ const admissionsWorkspaceController = {
         }
     },
 
-    recordPayment: function(applicationId, registrationFee = 2000) {
-        const application = this.getAllQueueApplications().find(row => Number(row.id) === Number(applicationId)) || {};
-        const reference = application.application_no || application.admission_number || '';
-        const phone = application.parent_phone || application.phone || '';
-        this.showWorkspaceModal(
-            '<i class="bi bi-wallet2 me-2"></i>Admissions Payment',
-            `
-                <form id="workspacePaymentForm" class="row g-3">
-                    <input type="hidden" name="application_id" value="${Number(applicationId)}">
-                    <div class="col-12">
-                        <div class="alert alert-info small mb-0">Use <strong>${this.escapeHtml(reference || 'the application reference')}</strong> as the payment account. Parents may pay before placement. Cash is not accepted.</div>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Action</label>
-                        <select name="payment_action" id="admissionPaymentAction" class="form-select" required>
-                            <option value="instructions">Send payment details (SMS + email)</option>
-                            <option value="stk">Send M-Pesa STK Push</option>
-                            <option value="bank">Record bank / M-Pesa payment for verification</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Amount</label>
-                        <div class="form-text mb-1">Registration fee due: KES ${Number(registrationFee).toLocaleString()}. Add school-fee amount above it where applicable.</div>
-                        <input type="number" name="amount" class="form-control" min="${Number(registrationFee)}" step="0.01" value="${Number(registrationFee)}" required>
-                    </div>
-                    <div class="col-md-6" id="admissionPaymentPhoneWrap">
-                        <label class="form-label">Parent M-Pesa phone</label>
-                        <input type="tel" name="phone" class="form-control" value="${this.escapeHtml(phone)}" placeholder="07XXXXXXXX" required>
-                    </div>
-                    <div class="col-md-6" id="admissionPaymentMethodWrap" style="display:none">
-                        <label class="form-label">Method</label>
-                        <select name="method" class="form-select">
-                            <option value="bank_transfer">Bank transfer</option>
-                            <option value="mpesa">M-Pesa</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6" id="admissionPaymentReferenceWrap" style="display:none">
-                        <label class="form-label">Bank / M-Pesa transaction reference</label>
-                        <input type="text" name="reference" class="form-control" placeholder="KCB reference or M-Pesa code">
-                    </div>
-                    <div class="col-md-6" id="admissionPaymentDateWrap" style="display:none">
-                        <label class="form-label">Payment date</label>
-                        <input type="date" name="payment_date" class="form-control" value="${new Date().toISOString().slice(0, 10)}">
-                    </div>
-                    <div class="col-12" id="admissionPaymentNotesWrap" style="display:none">
-                        <label class="form-label">Notes</label>
-                        <textarea name="notes" class="form-control" rows="2" placeholder="Optional verification notes"></textarea>
-                    </div>
-                </form>
-            `,
-            `
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" form="workspacePaymentForm" class="btn btn-primary">Continue</button>
-            `
-        );
+    recordPayment: async function(applicationId, registrationFee = 0) {
+        let application = this.getAllQueueApplications().find(row => Number(row.id) === Number(applicationId)) || {};
+        if (!window.AdmissionPaymentModal) return this.notify('error', 'The standard admissions payment modal is unavailable. Please reload the page.');
 
-        const action = document.getElementById('admissionPaymentAction');
-        const toggle = () => {
-            const bank = action?.value === 'bank';
-            const stk = action?.value === 'stk';
-            document.getElementById('admissionPaymentPhoneWrap').style.display = stk ? '' : 'none';
-            document.getElementById('admissionPaymentMethodWrap').style.display = bank ? '' : 'none';
-            document.getElementById('admissionPaymentReferenceWrap').style.display = bank ? '' : 'none';
-            document.getElementById('admissionPaymentDateWrap').style.display = bank ? '' : 'none';
-            document.getElementById('admissionPaymentNotesWrap').style.display = bank ? '' : 'none';
-            document.querySelector('#workspacePaymentForm [name="amount"]').required = bank || stk;
-            document.querySelector('#workspacePaymentForm [name="phone"]').required = stk;
-            document.querySelector('#workspacePaymentForm [name="reference"]').required = bank;
-        };
-        action?.addEventListener('change', toggle);
-        toggle();
-        document.getElementById("workspacePaymentForm")?.addEventListener("submit", (event) => {
-            event.preventDefault();
-            const data = Object.fromEntries(new FormData(event.currentTarget));
-            const mode = data.payment_action;
-            delete data.payment_action;
-            if (mode === 'instructions') {
-                this.runAdmissionAction(this.apiCall('/admission/payment-instructions', 'POST', { application_id: applicationId }), 'Payment details sent by SMS and email');
-            } else if (mode === 'stk') {
-                this.runAdmissionAction(this.apiCall('/payments/mpesa-stk-push', 'POST', { account_reference: reference, phone: data.phone, amount: data.amount, description: 'Kingsway admission and school fees' }), 'STK Push sent to the parent');
-            } else {
-                this.runAdmissionAction(this.apiCall('/admission/record-fee-payment', 'POST', data), 'Payment submitted for verification');
-            }
-        });
+        // Queue data may be served from a short-lived cache and older queue
+        // rows may not contain the charge field. Re-resolve the application
+        // before opening any payment modal so the canonical existing-parent
+        // amount is never replaced by a zero fallback.
+        try {
+            const response = await this.apiCall(`/admission/application/${Number(applicationId)}`, 'GET');
+            const detail = response?.data?.application || response?.application || {};
+            application = { ...application, ...detail };
+        } catch (error) {
+            console.warn('Could not refresh admission payment amount:', error);
+        }
+
+        const resolvedFee = Number(application.registration_fee_due) > 0
+            ? Number(application.registration_fee_due)
+            : Number(registrationFee) > 0
+                ? Number(registrationFee)
+                : 0;
+        if (resolvedFee <= 0) {
+            return this.notify('error', 'The canonical admission amount could not be resolved. Refresh the page or ask Accounts to confirm the charge configuration.');
+        }
+
+        window.AdmissionPaymentModal.open({ application: { ...application, id: applicationId }, registrationFee: resolvedFee, apiCall: this.apiCall.bind(this), onSuccess: () => this.loadQueueData() });
     },
 
     verifyPayment: async function(applicationId) {
@@ -2862,28 +3011,12 @@ const admissionsWorkspaceController = {
                 this.notify('error', 'No class streams are configured for placement. Configure the academic year class streams first.');
                 return;
             }
-            this.showWorkspaceModal(
-                '<i class="bi bi-diagram-3 me-2"></i>Place Student in Class Stream',
-                `<form id="workspacePlacementForm" class="row g-3">
-                    <input type="hidden" name="application_id" value="${Number(applicationId)}">
-                    <div class="col-12">
-                        <label class="form-label">Class / Stream</label>
-                        <select class="form-select" name="placement_option" required>
-                            <option value="">Select class stream...</option>
-                            ${classes.map(row => `<option value="${Number(row.id)}:${Number(row.stream_id || 0)}">${this.escapeHtml(`${row.name || 'Class'}${row.stream_name ? ` — ${row.stream_name}` : ''}`)}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="col-12"><div class="alert alert-info small mb-0">Placement creates the academic enrollment and admission-linked onboarding records. Fees are recorded at the next stage.</div></div>
-                </form>`,
-                '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" form="workspacePlacementForm" class="btn btn-primary">Save Placement</button>'
-            );
-            document.getElementById('workspacePlacementForm')?.addEventListener('submit', (event) => {
-                event.preventDefault();
-                const selected = String(new FormData(event.currentTarget).get('placement_option') || '').split(':');
-                this.runAdmissionAction(
-                    this.apiCall('/admission/complete-enrollment', 'POST', { application_id: applicationId, class_id: Number(selected[0]), stream_id: Number(selected[1]) }),
-                    'Class placement saved'
-                );
+            const application = this.getAllQueueApplications().find(row => Number(row.id) === Number(applicationId)) || { id: applicationId };
+            window.AdmissionPlacementModal.open({
+                application,
+                classes,
+                apiCall: this.apiCall.bind(this),
+                onSuccess: () => this.loadQueueData()
             });
         } catch (error) {
             this.notify('error', error.message || 'Unable to load class streams');

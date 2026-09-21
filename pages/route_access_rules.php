@@ -106,7 +106,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="routeAccessRulesModal" tabindex="-1" aria-labelledby="routeAccessRulesModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="routeAccessRulesForm" novalidate>
                 <input type="hidden" id="routeAccessRulesEditId">

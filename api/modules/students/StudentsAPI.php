@@ -139,6 +139,7 @@ class StudentsAPI extends BaseAPI
 
             $joins = "
                 LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                    AND sae.id = (SELECT MAX(sae_latest.id) FROM student_academic_enrollments sae_latest WHERE sae_latest.student_id = s.id AND sae_latest.enrollment_status = 'active')
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN classes c ON c.id = ayc.class_id

@@ -1163,14 +1163,36 @@ const newApplicationsController = {
       return '<p class="text-muted mb-0">No workflow details recorded.</p>';
     }
 
+    const latestValue = (value) => {
+      if (!Array.isArray(value)) return value;
+      const meaningful = value.filter((item) => item !== null && item !== undefined && item !== '');
+      return meaningful.length ? meaningful[meaningful.length - 1] : null;
+    };
+    const renderValue = (key, value) => {
+      if (key === 'assessment_items' && Array.isArray(value)) {
+        const unique = new Map();
+        value.forEach((item) => {
+          if (!item || typeof item !== 'object') return;
+          unique.set(String(item.learning_area_id || item.learning_area_name || JSON.stringify(item)), item);
+        });
+        const rows = [...unique.values()];
+        return rows.length
+          ? `<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Learning area</th><th>Score</th><th>Grade</th><th>Level</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${this.escapeHtml(item.learning_area_name || '—')}</td><td>${this.escapeHtml(item.score ?? '—')}/${this.escapeHtml(item.max_score ?? 100)}</td><td>${this.escapeHtml(item.grade_code || '—')}</td><td>${this.escapeHtml(item.performance_level || '—')}</td></tr>`).join('')}</tbody></table></div>`
+          : 'No assessment items recorded';
+      }
+      const display = latestValue(value);
+      if (display === null || display === undefined || display === '') return '—';
+      if (typeof display === 'boolean') return display ? 'Yes' : 'No';
+      if (typeof display === 'object') return this.escapeHtml(JSON.stringify(display));
+      return this.escapeHtml(String(display));
+    };
+
     return `
       <dl class="row mb-0">
         ${Object.entries(workflowData)
           .map(([key, value]) => `
             <dt class="col-sm-5">${this.escapeHtml(this.formatStatus(key))}</dt>
-            <dd class="col-sm-7">${this.escapeHtml(
-              typeof value === "object" ? JSON.stringify(value) : value || "N/A",
-            )}</dd>
+            <dd class="col-sm-7">${renderValue(key, value)}</dd>
           `)
           .join("")}
       </dl>

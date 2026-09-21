@@ -85,7 +85,7 @@
 </div>
 
 <div class="modal fade" id="migrationsModal" tabindex="-1" aria-labelledby="migrationsModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="migrationsForm" novalidate>
                 <input type="hidden" id="migrationsEditId">
