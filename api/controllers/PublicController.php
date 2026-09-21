@@ -77,8 +77,10 @@ class PublicController extends BaseAPI
             }
         }
 
-        $validGrades = ['PP1', 'PP2', 'Playgroup', 'Grade 1', 'Grade 2', 'Grade 3',
-                        'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
+        $validGrades = ['PP1', 'PP2', 'Playgroup', 'Grade1', 'Grade2', 'Grade3',
+                        'Grade4', 'Grade5', 'Grade6', 'Grade7', 'Grade8',
+                        'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+                        'Grade 6', 'Grade 7', 'Grade 8'];
         if (!in_array($grade, $validGrades, true)) {
             return $this->errorResponse('Selected grade is not open for applications.', 422);
         }
@@ -109,6 +111,7 @@ class PublicController extends BaseAPI
             'date_of_birth'        => trim($data['child_dob'] ?? ''),
             'gender'               => trim($data['child_gender'] ?? ''),
             'grade_applying_for'   => $grade,
+            'current_grade_class'  => trim($data['child_prev_grade'] ?? ''),
             'previous_school'      => trim($data['child_prev_school'] ?? ''),
             'application_source'   => 'online',
             'target_term_token'    => $startTerm,

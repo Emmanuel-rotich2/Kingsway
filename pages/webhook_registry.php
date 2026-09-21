@@ -106,7 +106,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="webhookRegistryModal" tabindex="-1" aria-labelledby="webhookRegistryModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
         <div class="modal-content">
             <form id="webhookRegistryForm" novalidate>
                 <input type="hidden" id="webhookRegistryEditId">

@@ -82,7 +82,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="timeBoundAccessModal" tabindex="-1" aria-labelledby="timeBoundAccessModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="timeBoundAccessForm" novalidate>
                 <input type="hidden" id="timeBoundAccessEditId">

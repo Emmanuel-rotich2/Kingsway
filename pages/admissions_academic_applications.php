@@ -202,102 +202,6 @@
     </div>
 </div>
 
-<!-- Class Placement Modal -->
-<div class="modal fade" id="classPlacementModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title"><i class="bi bi-award me-2"></i>Class Placement</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="classPlacementForm">
-                <div class="modal-body">
-                    <input type="hidden" id="placementApplicationId">
-                    
-                    <!-- Applicant Summary -->
-                    <div class="alert alert-info" id="applicantSummary">
-                        <div class="spinner-border spinner-border-sm me-2"></div>
-                        Loading applicant details...
-                    </div>
-                    
-                    <!-- Academic Background -->
-                    <div class="card mb-3">
-                        <div class="card-header bg-light">
-                            <h6 class="mb-0"><i class="bi bi-book me-2"></i>Academic Background</h6>
-                        </div>
-                        <div class="card-body" id="academicBackground">
-                        </div>
-                    </div>
-                    
-                    <!-- Placement Test Results -->
-                    <div class="card mb-3" id="placementTestCard" style="display:none;">
-                        <div class="card-header bg-light">
-                            <h6 class="mb-0"><i class="bi bi-clipboard-check me-2"></i>Placement Test Results</h6>
-                        </div>
-                        <div class="card-body" id="placementTestResults">
-                        </div>
-                    </div>
-                    
-                    <!-- Class Selection -->
-                    <h6 class="fw-semibold mb-3">Class Placement</h6>
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Recommended Class <span class="text-danger">*</span></label>
-                            <select id="recommendedClass" class="form-select" required>
-                                <option value="">Select Class</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Stream</label>
-                            <select id="recommendedStream" class="form-select">
-                                <option value="">No Stream</option>
-                                <option value="A">Stream A</option>
-                                <option value="B">Stream B</option>
-                                <option value="C">Stream C</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <!-- Class Capacity Display -->
-                    <div class="card mb-3" id="classCapacityCard" style="display:none;">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between mb-2">
-                                <small class="text-muted">Class Capacity:</small>
-                                <small id="classCapacityText">—</small>
-                            </div>
-                            <div class="capacity-bar">
-                                <div class="capacity-fill bg-warning" id="classCapacityFill" style="width: 0%"></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Placement Type -->
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Placement Type</label>
-                        <select id="placementType" class="form-select">
-                            <option value="automatic">Automatic (Based on Applied Grade)</option>
-                            <option value="test_based">Based on Placement Test</option>
-                            <option value="interview_based">Based on Interview Results</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Remarks -->
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Placement Remarks</label>
-                        <textarea id="placementRemarks" class="form-control" rows="2" placeholder="Any notes on this placement decision..."></textarea>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-warning">
-                        <i class="bi bi-check2-circle me-1"></i>Submit Placement
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <!-- View Application Modal -->
 <div class="modal fade" id="viewApplicationModal" tabindex="-1">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -321,6 +225,7 @@
     </div>
 </div>
 
+<?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
 <?php asset_script($appBase, 'js/pages/admissions_academic_applications.js'); ?>
 <script>
 function initWhenAPIReady() {

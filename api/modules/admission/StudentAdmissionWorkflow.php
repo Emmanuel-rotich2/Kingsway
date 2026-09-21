@@ -60,6 +60,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 throw new Exception('Missing required applicant details.');
             }
 
+            $this->validateApplicantDateOfBirth($dob);
+
             $applicationSource = $this->policy->resolveApplicationSource($data);
             $admissionCategory = $this->policy->resolveAdmissionCategory($data);
             $normalizedGrade = $this->policy->normalizeGrade((string) $gradeRaw);
@@ -112,6 +114,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'dob' => $dob,
                 'gender' => $gender,
                 'grade' => $normalizedGrade,
+                'current_grade_class' => trim((string) ($data['current_grade_class'] ?? $data['child_prev_grade'] ?? '')),
                 'year' => $academicYear,
                 'parent' => $parentId,
                 'application_source' => $applicationSource,
@@ -168,6 +171,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $this->db->commit();
 
+            $this->queueParentAdmissionNotification((int) $application_id, 'application_received');
+
             return formatResponse(true, [
                 'application_id' => $application_id,
                 'application_no' => $app_no,
@@ -192,6 +197,29 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->logError('admission_submit_failed', $e->getMessage());
             \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Admission applicants must be at least two years old as at today.
+     * Keep this check in the canonical workflow so it applies to public and
+     * staff-created applications alike, regardless of browser validation.
+     */
+    private function validateApplicantDateOfBirth(string $dob): void
+    {
+        $timezone = new \DateTimeZone('Africa/Nairobi');
+        $today = new \DateTimeImmutable('today', $timezone);
+        $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $dob, $timezone);
+        $errors = \DateTimeImmutable::getLastErrors();
+        $hasErrors = is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0);
+
+        if (!$parsed || $hasErrors || $parsed->format('Y-m-d') !== $dob) {
+            throw new Exception('Please provide a valid date of birth in YYYY-MM-DD format.');
+        }
+
+        $latestAllowed = $today->modify('-2 years');
+        if ($parsed > $latestAllowed || $parsed > $today) {
+            throw new Exception('The applicant must be at least 2 years old; select a date of birth no later than ' . $latestAllowed->format('d M Y') . '.');
         }
     }
 
@@ -850,7 +878,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     }
 
     /** Assign an applicant to an existing intake interview session. */
-    public function scheduleInterviewSession(int $applicationId, int $sessionId): array
+    public function scheduleInterviewSession(int $applicationId, int $sessionId, array $learningAreaIds = []): array
     {
         try {
             $this->db->beginTransaction();
@@ -858,12 +886,21 @@ return formatResponse(false, null, 'An internal error occurred.');
             if (!$instance || ($instance['current_stage'] ?? '') !== 'interview_scheduling') {
                 throw new Exception('Invalid workflow state for interview scheduling');
             }
-            $appStmt = $this->db->prepare('SELECT applicant_name, grade_applying_for, target_term_id FROM admission_applications WHERE id = ? FOR UPDATE');
+            $appStmt = $this->db->prepare('SELECT applicant_name, grade_applying_for, target_term_id, workflow_data_json FROM admission_applications WHERE id = ? FOR UPDATE');
             $appStmt->execute([$applicationId]);
             $application = $appStmt->fetch(PDO::FETCH_ASSOC);
             if (!$application || !$this->requiresAssessment($application['grade_applying_for'])) {
                 throw new Exception('This applicant is not eligible for an interview.');
             }
+            $workflowData = json_decode((string) ($application['workflow_data_json'] ?? '{}'), true) ?: [];
+            $currentGrade = trim((string) ($workflowData['current_grade_class'] ?? $application['grade_applying_for'] ?? ''));
+            $derivedAreas = $this->learningAreasForApplicantClass($currentGrade, (int) ($application['target_term_id'] ?? 0));
+            if (!$derivedAreas) throw new Exception('No learning areas are configured for the applicant\'s current class. Configure the class curriculum before scheduling the interview.');
+            $requestedAreaIds = array_values(array_unique(array_filter(array_map('intval', $learningAreaIds))));
+            if (count($requestedAreaIds) < 1 || count($requestedAreaIds) > 3) throw new Exception('Select between one and three learning areas for the interview.');
+            $allowedAreas = array_fill_keys(array_map(static fn(array $area): int => (int) $area['id'], $derivedAreas), true);
+            foreach ($requestedAreaIds as $areaId) if (!isset($allowedAreas[$areaId])) throw new Exception('One or more selected learning areas do not belong to the applicant\'s current class curriculum.');
+            $selectedAreas = array_values(array_filter($derivedAreas, static fn(array $area): bool => in_array((int) $area['id'], $requestedAreaIds, true)));
             $sessionStmt = $this->db->prepare(
                 "SELECT s.*, aw.academic_year_term_id, aw.application_open_at, aw.application_close_at,
                         DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
@@ -903,18 +940,29 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($existing->fetchColumn()) throw new Exception('Applicant already has an interview assignment.');
             $insert = $this->db->prepare("INSERT INTO admission_interviews (application_id, session_id, scheduled_date, scheduled_time, venue, status) VALUES (?, ?, ?, ?, ?, 'scheduled')");
             $insert->execute([$applicationId, $sessionId, $session['session_date'], $session['start_time'], $session['venue']]);
+            $insertId = (int) $this->db->lastInsertId();
+            $selectedAreaNames = array_column($selectedAreas, 'name');
+            try {
+                $itemStmt = $this->db->prepare('INSERT INTO admission_interview_assessment_items (interview_id,learning_area_id,learning_area_name) VALUES (?,?,?)');
+                foreach ($selectedAreas as $area) $itemStmt->execute([$insertId, (int) $area['id'], $area['name']]);
+            } catch (\Throwable $ignored) {
+                // Legacy databases retain the assignment; the migration adds
+                // the per-learning-area assessment rows.
+            }
             $assigned++;
             $this->db->prepare("UPDATE admission_interview_sessions SET status = CASE WHEN ? >= capacity THEN 'full' ELSE 'scheduled' END WHERE id = ?")->execute([$assigned, $sessionId]);
-            $insertId = (int) $this->db->lastInsertId();
             $this->advance($applicationId, 'interview_results', 'interview_session_assigned', [
                 'interview_scheduled' => true,
                 'interview_session_id' => $sessionId,
                 'interview_date' => $session['session_date'],
                 'interview_time' => $session['start_time'],
                 'interview_venue' => $session['venue'],
+                'tested_learning_areas' => implode(', ', $selectedAreaNames),
+                'assessment_items' => array_map(static fn(array $area): array => ['learning_area_id' => (int) $area['id'], 'learning_area_name' => (string) $area['name'], 'max_score' => 100], $selectedAreas),
             ], 'Applicant assigned to interview session');
             $this->db->commit();
             $session['session_id'] = $sessionId;
+            $session['tested_learning_areas'] = implode(', ', $selectedAreaNames);
             // Dispatch after commit so an external message can never be sent
             // for an application whose workflow transaction later rolls back.
             $this->sendInterviewNotifications($insertId, $session, 'assigned');
@@ -930,9 +978,12 @@ return formatResponse(false, null, 'An internal error occurred.');
     /** Queue parent SMS + email and create the teacher's in-system notice. */
     public function notifyInterviewAssignment(int $interviewId, int $sessionId, string $eventSuffix = 'rescheduled'): array
     {
-        $stmt = $this->db->prepare("SELECT ai.id,ai.session_id,ai.scheduled_date,ai.scheduled_time,ai.venue,ai.interviewer_id,
-                aa.applicant_name,aa.application_no,p.id AS parent_id,pp.phone AS parent_phone,pp.email AS parent_email
+        $stmt = $this->db->prepare("SELECT ai.id,ai.session_id,ai.scheduled_date,ai.scheduled_time,ai.venue,ai.interviewer_id,ais.end_time,
+                aa.applicant_name,aa.application_no,p.id AS parent_id,
+                CONCAT_WS(' ', pp.first_name, pp.last_name) AS parent_name,
+                pp.phone AS parent_phone,pp.email AS parent_email
             FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
+            LEFT JOIN admission_interview_sessions ais ON ais.id=ai.session_id
             JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id
             WHERE ai.id=? AND ai.session_id=? LIMIT 1");
         $stmt->execute([$interviewId, $sessionId]);
@@ -942,6 +993,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             'session_id' => $sessionId,
             'session_date' => $assignment['scheduled_date'],
             'start_time' => $assignment['scheduled_time'],
+            'end_time' => $assignment['end_time'],
             'venue' => $assignment['venue'],
             'interviewer_id' => $assignment['interviewer_id'],
         ], $eventSuffix, $assignment);
@@ -966,18 +1018,53 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
             
             // Verify this grade requires interview
-            $sql = "SELECT grade_applying_for FROM admission_applications WHERE id = :id";
+            $sql = "SELECT grade_applying_for, applicant_name, application_no FROM admission_applications WHERE id = :id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['id' => $application_id]);
-            $grade = $stmt->fetchColumn();
+            $application = $stmt->fetch(PDO::FETCH_ASSOC);
+            $grade = $application['grade_applying_for'] ?? null;
             
             if (!$this->requiresAssessment($grade)) {
                 throw new Exception("Grade $grade does not require interview assessment (auto-qualified)");
             }
 
-            $decision = strtolower(trim((string) ($assessment_data['decision'] ?? '')));
-            if (!in_array($decision, ['pass', 'fail'], true)) {
-                throw new Exception('An interview decision of pass or fail is required');
+            $recommendation = strtolower(trim((string) ($assessment_data['recommendation'] ?? '')));
+            $nextStage = (string) ($assessment_data['derived_next_stage'] ?? '');
+            $stageMap = ['recommended' => 'student_admission_number', 'not_recommended' => 'rejected', 'conditional' => 'waitlisted', 'placement_test_required' => 'placement_test'];
+            if (!isset($stageMap[$recommendation])) {
+                throw new Exception('A valid interview recommendation is required');
+            }
+            $nextStage = $stageMap[$recommendation];
+
+            $interviewStmt = $this->db->prepare("SELECT id FROM admission_interviews WHERE application_id=? AND status IN ('scheduled','rescheduled') ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $interviewStmt->execute([(int) $application_id]);
+            $interviewId = (int) ($interviewStmt->fetchColumn() ?: 0);
+            if (!$interviewId) throw new Exception('No active interview assignment exists for this applicant.');
+
+            $items = array_values(array_filter((array) ($assessment_data['assessment_items'] ?? []), static function ($item) {
+                return is_array($item) && trim((string) ($item['learning_area_name'] ?? '')) !== '';
+            }));
+            $legacyScores = [
+                ['learning_area_name' => 'Academic Readiness', 'score' => $assessment_data['academic_readiness_score'] ?? null],
+                ['learning_area_name' => 'Behavior / Social', 'score' => $assessment_data['behavior_score'] ?? null],
+                ['learning_area_name' => 'Communication', 'score' => $assessment_data['communication_score'] ?? null],
+            ];
+            if (!$items) $items = array_values(array_filter($legacyScores, static fn($item) => $item['score'] !== null && $item['score'] !== ''));
+            if (!$items) throw new Exception('Enter at least one assessment score.');
+            $grading = new \App\API\Services\CbcGradingService($this->db);
+            $total = 0.0; $count = 0; $normalizedItems = [];
+            foreach ($items as $item) {
+                $max = max(1.0, (float) ($item['max_score'] ?? 100));
+                $score = (float) ($item['score'] ?? 0);
+                if ($score < 0 || $score > $max) throw new Exception('Assessment scores must be within their maximum marks.');
+                $gradeData = $grading->grade($score, $max);
+                $normalizedItems[] = ['learning_area_id' => !empty($item['learning_area_id']) ? (int) $item['learning_area_id'] : null, 'learning_area_name' => trim((string) $item['learning_area_name']), 'competency' => trim((string) ($item['competency'] ?? '')) ?: null, 'max_score' => $max, 'score' => $score, 'grade_code' => $gradeData['grade_code'], 'performance_level' => $gradeData['performance_level'], 'rubric_notes' => trim((string) ($item['rubric_notes'] ?? '')) ?: null];
+                $total += (float) $gradeData['percentage']; $count++;
+            }
+            $overall = round($total / max(1, $count), 2);
+            $passMark = 50.0;
+            if ($recommendation === 'recommended' && $overall < $passMark) {
+                throw new Exception('Recommended for admission requires an overall score of at least ' . $passMark . '%.');
             }
 
             // Store assessment results. The score is evidence; the authorized
@@ -987,6 +1074,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                         COALESCE(data_json, '{}'),
                         '$.assessment_score', :score,
                         '$.interview_decision', :decision,
+                        '$.recommendation', :recommendation,
+                        '$.derived_next_stage', :next_stage,
+                        '$.assessment_items', JSON_EXTRACT(:items, '$'),
                         '$.assessment_notes', :notes,
                         '$.assessed_by', :assessor,
                         '$.assessment_date', NOW()
@@ -995,14 +1085,28 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                'score' => $assessment_data['score'],
-                'decision' => $decision,
-                'notes' => $assessment_data['notes'] ?? '',
+                'score' => $overall,
+                'decision' => $recommendation === 'recommended' ? 'pass' : 'fail',
+                'recommendation' => $recommendation,
+                'next_stage' => $nextStage,
+                'items' => json_encode($normalizedItems, JSON_UNESCAPED_UNICODE),
+                'notes' => $assessment_data['notes'] ?? $assessment_data['remarks'] ?? '',
                 'assessor' => $this->user_id,
                 'instance_id' => $instance['id']
             ]);
 
-            if ($decision === 'pass') {
+            $this->db->prepare("UPDATE admission_interviews SET academic_readiness_score=?, behavior_score=?, communication_score=?, overall_score=?, recommendation=?, remarks=?, conducted_at=NOW(), conducted_by=?, status='completed' WHERE id=?")
+                ->execute([(float) ($assessment_data['academic_readiness_score'] ?? 0), (float) ($assessment_data['behavior_score'] ?? 0), (float) ($assessment_data['communication_score'] ?? 0), $overall, $recommendation === 'recommended' ? 'recommended' : ($recommendation === 'not_recommended' ? 'not_recommended' : 'conditional'), $assessment_data['notes'] ?? $assessment_data['remarks'] ?? '', (int) ($this->user_id ?? 1), $interviewId]);
+            try {
+                $this->db->prepare('DELETE FROM admission_interview_assessment_items WHERE interview_id=?')->execute([$interviewId]);
+                $itemInsert = $this->db->prepare('INSERT INTO admission_interview_assessment_items (interview_id,learning_area_id,learning_area_name,competency,max_score,score,grade_code,performance_level,rubric_notes) VALUES (?,?,?,?,?,?,?,?,?)');
+                foreach ($normalizedItems as $item) $itemInsert->execute([$interviewId, $item['learning_area_id'], $item['learning_area_name'], $item['competency'], $item['max_score'], $item['score'], $item['grade_code'], $item['performance_level'], $item['rubric_notes']]);
+            } catch (\Throwable $schemaError) {
+                $encoded = json_encode($normalizedItems, JSON_UNESCAPED_UNICODE);
+                $this->db->prepare("UPDATE workflow_instances SET data_json=JSON_SET(COALESCE(data_json,'{}'),'$.assessment_items',JSON_EXTRACT(?, '$')) WHERE id=?")->execute([$encoded, $instance['id']]);
+            }
+
+            if ($recommendation === 'recommended') {
                 // Passed → student admission-number creation. The interview
                 // is the approval gate for Grade 4-9; a separate legacy
                 // admission-decision stage is no longer part of the active
@@ -1013,36 +1117,38 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'assessment_passed',
                     [
                         'interview_passed' => true,
-                        'interview_decision' => $decision,
-                        'interview_score' => $assessment_data['score'],
-                        'interview_notes' => $assessment_data['notes'] ?? ''
+                        'interview_decision' => 'pass', 'recommendation' => $recommendation,
+                        'interview_score' => $overall, 'interview_notes' => $assessment_data['notes'] ?? $assessment_data['remarks'] ?? ''
                     ],
                     'Interview passed by authorized reviewer — proceeding to student admission-number creation'
                 );
             } else {
-                // Failed → rejected stage (audit-logged). status stays visible to all.
                 $this->advance(
                     $application_id,
-                    'rejected',
-                    'assessment_failed',
+                    $nextStage,
+                    'interview_recommendation_recorded',
                     [
-                        'interview_passed' => false,
-                        'interview_decision' => $decision,
-                        'interview_score' => $assessment_data['score'],
-                        'rejection_reason' => 'Did not meet interview requirements'
+                        'interview_passed' => false, 'interview_decision' => 'fail', 'recommendation' => $recommendation,
+                        'interview_score' => $overall, 'interview_notes' => $assessment_data['notes'] ?? $assessment_data['remarks'] ?? '',
+                        'rejection_reason' => $recommendation === 'not_recommended' ? ($assessment_data['notes'] ?? $assessment_data['remarks'] ?? 'Did not meet interview requirements') : null
                     ],
-                    'Interview failed — application rejected'
+                    'Interview recommendation recorded: ' . $recommendation
                 );
             }
 
             $this->db->commit();
 
-            return formatResponse(true, null, $decision === 'pass' ?
-                'Interview marked passed. Student admission-number creation can proceed.' :
-                'Assessment not passed. Application cancelled.');
+            if ($recommendation === 'recommended') {
+                $admission = $this->createStudentAdmissionNumber((int) $application_id);
+                if (($admission['status'] ?? '') !== 'success') throw new Exception($admission['message'] ?? 'Unable to create admission number.');
+                $this->notifyAdmissionOutcome((int) $application_id, 'accepted', $overall, $admission['data']['admission_number'] ?? null);
+                return formatResponse(true, $admission['data'] ?? null, 'Interview passed. Applicant admitted and moved to class placement.');
+            }
+            $this->notifyAdmissionOutcome((int) $application_id, $recommendation === 'not_recommended' ? 'rejected' : $recommendation, $overall, null);
+            return formatResponse(true, ['next_stage' => $nextStage, 'overall_score' => $overall], 'Interview assessment recorded.');
 
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) $this->db->rollBack();
             $this->logError('interview_assessment_failed', $e->getMessage());
             \App\API\Services\Logger::legacyError('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
@@ -1707,10 +1813,26 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             $instance_data = json_decode($instance['data_json'], true) ?: [];
+            $selectedAycsId = !empty($placement['academic_year_class_stream_id']) ? (int) $placement['academic_year_class_stream_id'] : 0;
             $class_id = !empty($placement['class_id'])
                 ? (int) $placement['class_id']
                 : ($instance_data['assigned_class_id'] ?? null);
-            $academic_year_id = (int) $this->getCurrentAcademicYearId();
+            $academic_year_id = 0;
+            if ($selectedAycsId > 0) {
+                $aycsContext = $this->db->prepare('SELECT ay.id AS academic_year_id, ayc.class_id, aycs.stream_id FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id JOIN academic_years ay ON ay.id=ayc.academic_year_id WHERE aycs.id=? AND aycs.status="active" AND ayc.status="active" LIMIT 1');
+                $aycsContext->execute([$selectedAycsId]);
+                $selectedContext = $aycsContext->fetch(PDO::FETCH_ASSOC) ?: null;
+                if (!$selectedContext) throw new Exception('The selected class stream is not active or does not exist.');
+                $academic_year_id = (int) $selectedContext['academic_year_id'];
+                $class_id = (int) $selectedContext['class_id'];
+                $placement['stream_id'] = (int) $selectedContext['stream_id'];
+            }
+            if (!$academic_year_id && !empty($application['target_term_id'])) {
+                $yearStmt = $this->db->prepare('SELECT academic_year_id FROM academic_year_terms WHERE id=? LIMIT 1');
+                $yearStmt->execute([(int) $application['target_term_id']]);
+                $academic_year_id = (int) ($yearStmt->fetchColumn() ?: 0);
+            }
+            $academic_year_id = $academic_year_id ?: (int) $this->getCurrentAcademicYearId();
             if (!$academic_year_id) {
                 throw new Exception('No active academic year found for enrollment');
             }
@@ -1727,15 +1849,17 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('Select a configured class stream before completing placement');
             }
 
-            $aycsId = null;
+            $aycsId = $selectedAycsId ?: null;
             $aycsStmt = $this->db->prepare("
                 SELECT aycs.id FROM academic_year_class_streams aycs
                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id AND aycs.stream_id = :stream_id
                 LIMIT 1
             ");
-            $aycsStmt->execute(['year_id' => $academic_year_id, 'class_id' => $class_id, 'stream_id' => $stream_id]);
-            $aycsId = $aycsStmt->fetchColumn() ?: null;
+            if (!$aycsId) {
+                $aycsStmt->execute(['year_id' => $academic_year_id, 'class_id' => $class_id, 'stream_id' => $stream_id]);
+                $aycsId = $aycsStmt->fetchColumn() ?: null;
+            }
 
             if (!$aycsId) {
                 throw new Exception('The selected stream is not configured for this class and academic year');
@@ -2315,6 +2439,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         if ($assignment === null) {
             $stmt = $this->db->prepare("SELECT ai.id,ai.interviewer_id,aa.applicant_name,aa.application_no,
+                    CONCAT_WS(' ', pp.first_name, pp.last_name) AS parent_name,
                     pp.phone AS parent_phone,pp.email AS parent_email
                 FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
                 JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id WHERE ai.id=? LIMIT 1");
@@ -2323,7 +2448,32 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
         if (!$assignment) return;
 
-        $body = 'KingsWay Admissions: ' . ($assignment['applicant_name'] ?? 'Applicant') . ' (' . ($assignment['application_no'] ?? '') . ') interview is scheduled on ' . $session['session_date'] . ' at ' . substr((string) $session['start_time'], 0, 5) . ' at ' . ($session['venue'] ?? 'Main Office') . '.';
+        $areas = '';
+        try {
+            $areaStmt = $this->db->prepare('SELECT GROUP_CONCAT(DISTINCT learning_area_name ORDER BY learning_area_name SEPARATOR ", ") FROM admission_interview_assessment_items WHERE interview_id=?');
+            $areaStmt->execute([$interviewId]);
+            $areas = (string) ($areaStmt->fetchColumn() ?: '');
+        } catch (\Throwable $ignored) {
+            $areas = (string) ($session['tested_learning_areas'] ?? '');
+        }
+        $parentName = trim((string) ($assignment['parent_name'] ?? '')) ?: 'Parent/Guardian';
+        $childName = trim((string) ($assignment['applicant_name'] ?? 'your student')) ?: 'your student';
+        $reference = (string) ($assignment['application_no'] ?? '');
+        $date = $this->formatNoticeDate((string) ($session['session_date'] ?? ''));
+        $start = $this->formatNoticeTime((string) ($session['start_time'] ?? ''));
+        $end = $this->formatNoticeTime((string) ($session['end_time'] ?? ''));
+        $venue = trim((string) ($session['venue'] ?? 'Main Office')) ?: 'Main Office';
+        $smsBody = 'Kingsway Preparatory School: Invitation for Admission Interview. Dear ' . $parentName . ', ' . $childName . ' (' . $reference . ') is invited for an interview on ' . $date . ', ' . $start . ($end !== '' ? '–' . $end : '') . ', at ' . $venue . ($areas !== '' ? '. Areas: ' . $areas : '') . '. Please arrive on time.';
+        $emailBody = '<p>Dear ' . htmlspecialchars($parentName, ENT_QUOTES, 'UTF-8') . ',</p>'
+            . '<p>We are pleased to invite your student, <strong>' . htmlspecialchars($childName, ENT_QUOTES, 'UTF-8') . '</strong>, to an admission interview at Kingsway Preparatory School.</p>'
+            . '<table style="margin:18px 0;border-collapse:collapse;width:100%;max-width:560px;">'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Application reference</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($reference, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Interview date</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Interview time</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($start . ($end !== '' ? ' – ' . $end : ''), ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Venue</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($venue, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+            . '</table>'
+            . ($areas !== '' ? '<p><strong>Learning areas to be assessed:</strong> ' . htmlspecialchars($areas, ENT_QUOTES, 'UTF-8') . '</p>' : '')
+            . '<p>Please arrive at least 15 minutes before the scheduled start time and bring any materials the student may need for the listed learning areas.</p><p>We look forward to welcoming you.</p>';
         $business = new \App\API\Services\CommunicationBusinessEventService($this->db);
         $platform = new \App\API\Services\CommunicationPlatformService($this->db);
 
@@ -2338,8 +2488,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             $queued = $platform->queueRenderedForContacts(
                 [['user_id' => null, 'phone' => $assignment['parent_phone'] ?? null, 'email' => $assignment['parent_email'] ?? null]],
                 $channel,
-                'Admission interview schedule',
-                $body,
+                'Invitation for Admission Interview',
+                $channel === 'email' ? $emailBody : $smsBody,
                 ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]
             );
             $business->markProcessed($eventId);
@@ -2372,6 +2522,199 @@ return formatResponse(false, null, 'An internal error occurred.');
                     ['reference_type' => 'admission_interview', 'reference_id' => $interviewId, 'action_url' => '/home.php?route=admission_interviews']
                 );
             }
+        }
+    }
+
+    /** Queue durable parent email + SMS notifications for admission milestones. */
+    public function queueParentAdmissionNotification(int $applicationId, string $event, ?string $reason = null): void
+    {
+        try {
+            $this->queueParentAdmissionNotificationUnsafe($applicationId, $event, $reason);
+        } catch (\Throwable $e) {
+            // Admissions state must not be rolled back because an external
+            // provider is unavailable; the durable communication worker can retry it.
+            \App\API\Services\Logger::legacyError('[AdmissionStatusNotification] queue failed: ' . $e->getMessage());
+        }
+    }
+
+    private function queueParentAdmissionNotificationUnsafe(int $applicationId, string $event, ?string $reason = null): void
+    {
+        $stmt = $this->db->prepare("SELECT aa.applicant_name,aa.application_no,aa.grade_applying_for,aa.gender,aa.target_term_id,
+                COALESCE(NULLIF(aa.student_type_code, ''), JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.student_type_code')), 'all') AS student_type_code,
+                aa.workflow_data_json,
+                CONCAT_WS(' ', pp.first_name, pp.last_name) AS parent_name,
+                pp.phone AS parent_phone,pp.email AS parent_email,
+                COALESCE(ay.year_code, aa.academic_year) AS academic_year,
+                ayt.opening_date AS admission_date,
+                aa.admission_appointment_date,
+                aa.admission_appointment_start_time,
+                aa.admission_appointment_end_time
+            FROM admission_applications aa JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id
+            LEFT JOIN academic_year_terms ayt ON ayt.id=aa.target_term_id
+            LEFT JOIN academic_years ay ON ay.id=ayt.academic_year_id
+            WHERE aa.id=? LIMIT 1");
+        $stmt->execute([$applicationId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        if (!$row) return;
+        $name = (string) ($row['applicant_name'] ?? 'Applicant');
+        $parentName = trim((string) ($row['parent_name'] ?? '')) ?: 'Parent/Guardian';
+        $number = (string) ($row['application_no'] ?? '');
+        $scoreText = $event === 'accepted' && $reason !== null && is_numeric($reason) ? number_format((float) $reason, 2) . '%' : '';
+        $messages = [
+            'application_received' => ['Application Received', "Kingsway Preparatory School: Application {$number} for {$name} has been received successfully and is now awaiting review."],
+            'reviewed_interview' => ['Application approved for interview', "KingsWay Admissions: {$name}'s application {$number} has been reviewed and approved for interview. The school will share the interview schedule."],
+            'rejected' => ['Admission application update', "KingsWay Admissions: {$name}'s application {$number} was not approved. Reason / missing information: " . ($reason ?: 'Please contact the school admissions office for details.')],
+            'accepted' => ['Invitation for Admissions', "Congratulations! {$name} successfully completed the admission interview and passed with a score of " . ($scoreText ?: 'the required pass mark') . ". You are invited to complete admission formalities at Kingsway Preparatory School. Application reference: {$number}. Uniforms are available at school and school transport is available on designated routes; contact Admissions for details." ],
+            'conditional' => ['Admission application update', "KingsWay Admissions: {$name}'s application {$number} is conditional and has been placed on the admission waitlist. The school will communicate the next decision."],
+            'placement_test_required' => ['Additional placement test required', "KingsWay Admissions: {$name}'s application {$number} requires an additional placement test before an admission decision."],
+        ];
+        if (!isset($messages[$event])) return;
+        [$subject, $body] = $messages[$event];
+        $emailBody = '<p>Dear ' . htmlspecialchars($parentName, ENT_QUOTES, 'UTF-8') . ',</p><p>' . htmlspecialchars($body, ENT_QUOTES, 'UTF-8') . '</p>';
+        if ($event === 'accepted') {
+            $requirements = $this->getAdmissionRequirements((string) ($row['grade_applying_for'] ?? ''), (string) ($row['gender'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
+            $workflowData = json_decode((string) ($row['workflow_data_json'] ?? '{}'), true) ?: [];
+            $admissionDate = $this->formatNoticeDate((string) ($workflowData['admission_appointment_date'] ?? $row['admission_appointment_date'] ?? $workflowData['admission_date'] ?? $row['admission_date'] ?? ''));
+            $startTime = $this->formatNoticeTime((string) ($workflowData['admission_appointment_start_time'] ?? $row['admission_appointment_start_time'] ?? ''));
+            $endTime = $this->formatNoticeTime((string) ($workflowData['admission_appointment_end_time'] ?? $row['admission_appointment_end_time'] ?? ''));
+            $admissionTime = ($startTime !== '' && $endTime !== '') ? ($startTime . ' – ' . $endTime) : ($startTime ?: 'To be confirmed by the Admissions Office');
+            $emailBody = '<p>Dear ' . htmlspecialchars($parentName, ENT_QUOTES, 'UTF-8') . ',</p>'
+                . '<p><strong>Congratulations!</strong> Your student, <strong>' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</strong>, successfully completed the admission interview and passed with a score of <strong>' . htmlspecialchars($scoreText ?: 'the required pass mark', ENT_QUOTES, 'UTF-8') . '</strong>.</p>'
+                . '<p>You are therefore invited to complete the admission formalities at Kingsway Preparatory School.</p>'
+                . '<table style="margin:18px 0;border-collapse:collapse;width:100%;max-width:560px;">'
+                . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Application reference</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($number, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+                . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Admission date</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($admissionDate, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+                . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Admission time</td><td style="padding:10px 14px;border:1px solid #e5e7eb;">' . htmlspecialchars($admissionTime, ENT_QUOTES, 'UTF-8') . '</td></tr>'
+                . '</table><p><strong>Please bring the following:</strong></p><ul style="line-height:1.8;">'
+                . implode('', array_map(static fn(array $item): string => '<li><strong>' . htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8') . ':</strong> ' . htmlspecialchars($item['description'], ENT_QUOTES, 'UTF-8') . '</li>', $requirements))
+                . '</ul><p><strong>Payment instructions:</strong> For the first payment, before your student is placed in a class, use the application reference <strong>' . htmlspecialchars($number, ENT_QUOTES, 'UTF-8') . '</strong> as the payment account/reference. This may be used for the school fees and registration fee, or for the registration fee alone, depending on the amount due.</p><p>After the student has been placed in a class, all subsequent payments must use the learner\'s admission number. If you have already paid through M-Pesa, please bring the M-Pesa confirmation message to the Accounts Office for verification and posting. Once placement is complete, you may also visit the Accounts Office to receive the payment prompt, or make a manual M-Pesa payment using the admission number. The Accounts Office will advise whether the payment is for school fees and registration fee together, registration fee alone, or another approved fee obligation.</p><p><strong>Uniforms:</strong> Approved school uniforms may be purchased directly from the school. <strong>Transportation:</strong> School transport is available on designated routes; please contact the Admissions Office to confirm route availability and registration.</p><p>The applicable fee structure is attached for your reference. Please contact the Admissions Office if you need clarification before your appointment.</p><p>We look forward to welcoming your family to Kingsway Preparatory School.</p>';
+        }
+        $business = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        foreach (['sms', 'email'] as $channel) {
+            $key = 'admission-status:' . $applicationId . ':' . $event . ':' . $channel;
+            $check = $this->db->prepare('SELECT id FROM communication_business_events WHERE event_code=? AND event_key=? LIMIT 1');
+            $check->execute(['admission_status_notification', $key]);
+            if ($check->fetchColumn()) continue;
+            $eventId = $business->getOrCreate('admission_status_notification', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
+            $queued = $platform->queueRenderedForContacts([['user_id' => null, 'phone' => $row['parent_phone'] ?? null, 'email' => $row['parent_email'] ?? null]], $channel, $subject, $channel === 'email' ? $emailBody : $body, ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]);
+            if ($event === 'accepted' && $channel === 'email' && !empty($queued['communication_id'])) {
+                $this->attachAdmissionFeeStructure((int) $queued['communication_id'], (string) ($row['academic_year'] ?? date('Y')), (string) ($row['grade_applying_for'] ?? ''), (string) ($row['student_type_code'] ?? 'all'));
+            }
+            $business->markProcessed($eventId);
+            if (!empty($queued['communication_id'])) {
+                try { (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $queued['communication_id']); }
+                catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[AdmissionStatusNotification] dispatch deferred: ' . $e->getMessage()); }
+            }
+        }
+    }
+
+    private function notifyAdmissionOutcome(int $applicationId, string $event, float $score, ?string $admissionNumber): void
+    {
+        $this->queueParentAdmissionNotification($applicationId, $event, $event === 'accepted' ? (string) $score : ($admissionNumber ?: null));
+    }
+
+    private function formatNoticeDate(string $date): string
+    {
+        $parsed = $date !== '' ? date_create($date) : false;
+        return $parsed ? $parsed->format('j F Y') : ($date !== '' ? $date : 'To be confirmed');
+    }
+
+    private function formatNoticeTime(string $time): string
+    {
+        if ($time === '') return '';
+        $parsed = date_create($time);
+        return $parsed ? $parsed->format('H:i') : substr($time, 0, 5);
+    }
+
+    private function getAdmissionRequirements(string $grade = '', string $gender = '', string $studentType = 'all'): array
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT title, description FROM admission_requirements WHERE is_active=1 AND (grade_code IS NULL OR grade_code=?) AND (gender_code='all' OR gender_code=?) AND (student_type_code='all' OR student_type_code=?) ORDER BY CASE WHEN grade_code IS NULL THEN 1 ELSE 0 END, CASE WHEN gender_code='all' THEN 1 ELSE 0 END, CASE WHEN student_type_code='all' THEN 1 ELSE 0 END, display_order, id");
+            $stmt->execute([$grade !== '' ? $grade : null, strtolower($gender) ?: 'all', strtolower($studentType) ?: 'all']);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (\Throwable $ignored) {
+            return [['title' => 'Admission documents', 'description' => 'Bring the original birth certificate or birth notification, parent or guardian identification, recent passport photographs, immunisation record, and the latest school report where applicable.']];
+        }
+    }
+
+    private function attachAdmissionFeeStructure(int $communicationId, string $academicYear, string $grade, string $studentType): void
+    {
+        try {
+            $normalizedGrade = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $grade));
+            $scope = in_array($normalizedGrade, ['playgroup', 'playground', 'pp1', 'pp2'], true) ? 'ecd' : (in_array($normalizedGrade, ['grade1', 'grade2', 'grade3'], true) ? 'lower_primary' : (in_array($normalizedGrade, ['grade4', 'grade5', 'grade6'], true) ? 'upper_primary' : 'jss'));
+            $type = strtolower(trim($studentType));
+            $printType = $type === 'day' ? 'day' : ($type === 'all' ? 'both' : 'boarder');
+            $pdfPath = (new \App\API\Services\PrintService())->printSimpleFeeStructure(['academicYear' => $academicYear, 'scope' => $scope, 'studentType' => $printType]);
+            if (!$pdfPath || !is_file($pdfPath)) return;
+            $stmt = $this->db->prepare("INSERT INTO communication_attachments (communication_id, file_name, file_path, mime_type, public_url) VALUES (?, ?, ?, 'application/pdf', NULL)");
+            $stmt->execute([$communicationId, basename($pdfPath), $pdfPath]);
+            $attachmentId = (int) $this->db->lastInsertId();
+            $this->db->prepare("INSERT INTO communication_attachment_channels (attachment_id, channel, status) VALUES (?, 'email', 'ready')")->execute([$attachmentId]);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AdmissionStatusNotification] fee structure attachment failed: ' . $e->getMessage());
+        }
+    }
+
+    /** Resolve the active curriculum areas for the applicant's current class. */
+    private function learningAreasForApplicantClass(string $currentGrade, int $targetTermId): array
+    {
+        $yearId = 0;
+        if ($targetTermId > 0) {
+            $yearStmt = $this->db->prepare('SELECT academic_year_id FROM academic_year_terms WHERE id=? LIMIT 1');
+            $yearStmt->execute([$targetTermId]);
+            $yearId = (int) ($yearStmt->fetchColumn() ?: 0);
+        }
+        $yearId = $yearId ?: (int) ($this->getCurrentAcademicYearId() ?: 0);
+        if (!$yearId) return [];
+        $stmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM academic_year_classes ayc JOIN classes c ON c.id=ayc.class_id JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN learning_areas la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
+        $stmt->execute([$yearId]);
+        $wanted = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $currentGrade));
+        $rows = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $class = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $row['class_name'] ?? ''));
+            if ($wanted === '' || $class === $wanted) $rows[(int) $row['id']] = ['id' => (int) $row['id'], 'name' => (string) $row['name']];
+        }
+        return array_values($rows);
+    }
+
+    /** Replace the tested areas for an existing interview assignment. */
+    public function replaceInterviewLearningAreas(int $applicationId, array $learningAreaIds): array
+    {
+        try {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $learningAreaIds))));
+            if (count($ids) < 1 || count($ids) > 3) throw new Exception('Select between one and three learning areas for the interview.');
+            $app = $this->db->prepare('SELECT target_term_id, workflow_data_json, grade_applying_for FROM admission_applications WHERE id=? LIMIT 1');
+            $app->execute([$applicationId]);
+            $application = $app->fetch(PDO::FETCH_ASSOC);
+            if (!$application) throw new Exception('Admission application not found.');
+            $workflowData = json_decode((string) ($application['workflow_data_json'] ?? '{}'), true) ?: [];
+            $currentGrade = trim((string) ($workflowData['current_grade_class'] ?? $application['grade_applying_for'] ?? ''));
+            $allowed = $this->learningAreasForApplicantClass($currentGrade, (int) ($application['target_term_id'] ?? 0));
+            $allowedById = array_fill_keys(array_map(static fn(array $area): int => (int) $area['id'], $allowed), true);
+            foreach ($ids as $id) if (!isset($allowedById[$id])) throw new Exception('One or more selected learning areas do not belong to the applicant\'s current class curriculum.');
+            $interview = $this->db->prepare("SELECT id FROM admission_interviews WHERE application_id=? AND status IN ('scheduled','rescheduled') ORDER BY id DESC LIMIT 1");
+            $interview->execute([$applicationId]);
+            $interviewId = (int) ($interview->fetchColumn() ?: 0);
+            if (!$interviewId) throw new Exception('No active interview assignment exists.');
+            $names = [];
+            $selected = array_values(array_filter($allowed, static function (array $area) use ($ids): bool { return in_array((int) $area['id'], $ids, true); }));
+            foreach ($selected as $area) $names[] = $area['name'];
+            try {
+                $this->db->beginTransaction();
+                $this->db->prepare('DELETE FROM admission_interview_assessment_items WHERE interview_id=?')->execute([$interviewId]);
+                $insert = $this->db->prepare('INSERT INTO admission_interview_assessment_items (interview_id,learning_area_id,learning_area_name) VALUES (?,?,?)');
+                foreach ($selected as $area) $insert->execute([$interviewId, $area['id'], $area['name']]);
+                $this->db->commit();
+            } catch (\Throwable $schemaError) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                $encoded = json_encode(array_map(static fn(array $area): array => ['learning_area_id' => $area['id'], 'learning_area_name' => $area['name'], 'max_score' => 100], $selected), JSON_UNESCAPED_UNICODE);
+                $this->db->prepare("UPDATE workflow_instances SET data_json=JSON_SET(COALESCE(data_json,'{}'),'$.assessment_items',JSON_EXTRACT(?, '$'),'$.tested_learning_areas',?) WHERE reference_type='admission_application' AND reference_id=? ORDER BY id DESC LIMIT 1")->execute([$encoded, implode(', ', $names), $applicationId]);
+            }
+            return formatResponse(true, ['tested_learning_areas' => $names], 'Interview learning areas updated.');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return formatResponse(false, null, $e->getMessage());
         }
     }
 

@@ -205,75 +205,50 @@ if ($appBase === '.')
     </div>
 </div>
 
-<!-- Application Review Modal -->
+<!-- Record Interview Assessment Modal -->
 <div class="modal fade" id="conductInterviewModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
-                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Application Review</h5>
+                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Assessment</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="conductInterviewForm">
                 <div class="modal-body">
                     <input type="hidden" id="interviewApplicationId">
                     <input type="hidden" id="interviewId">
-                    
-                    <!-- Applicant Summary -->
-                    <div class="alert alert-info" id="applicantSummary">
+                    <div class="alert alert-info mb-3" id="applicantSummary">
                         <div class="spinner-border spinner-border-sm me-2"></div>
                         Loading applicant details...
                     </div>
-                    
-                    <!-- Interview Scores -->
-                    <h6 class="fw-semibold mb-3">Interview Assessment</h6>
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Academic Readiness</label>
-                            <input type="number" id="academicReadinessScore" class="form-control" min="0" max="100" placeholder="0-100">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Behavior/Social</label>
-                            <input type="number" id="behaviorScore" class="form-control" min="0" max="100" placeholder="0-100">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Communication</label>
-                            <input type="number" id="communicationScore" class="form-control" min="0" max="100" placeholder="0-100">
-                        </div>
+                    <h6 class="fw-semibold mb-2">Assessment Scores (0-100)</h6>
+                    <div id="interviewAssessmentItems" class="row g-3 mb-3">
+                        <div class="col-12 text-muted">Loading tested learning areas...</div>
                     </div>
-                    
-                    <!-- Overall Recommendation -->
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Overall Recommendation</label>
-                            <select id="recommendation" class="form-select" required>
-                                <option value="">Select Recommendation</option>
-                                <option value="recommended">Recommended</option>
-                                <option value="not_recommended">Not Recommended</option>
-                                <option value="conditional">Conditional</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Next Step</label>
-                            <select id="nextStep" class="form-select" required>
-                                <option value="">Select Next Step</option>
-                                <option value="proceed_to_admission">Proceed to Admission</option>
-                                <option value="waitlist">Waitlist</option>
-                                <option value="decline">Decline</option>
-                                <option value="placement_test_required">Require Placement Test</option>
-                            </select>
-                        </div>
+                    <div class="d-flex justify-content-between align-items-center border-top pt-3 mb-3">
+                        <strong>Overall Score:</strong><span id="interviewOverallScore" class="fw-bold">—</span>
                     </div>
-                    
-                    <!-- Remarks -->
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">Interview Remarks</label>
+                        <label class="form-label fw-semibold">Recommendation <span class="text-danger">*</span></label>
+                        <select id="recommendation" class="form-select" required>
+                            <option value="">Select recommendation</option>
+                            <option value="recommended">Recommended for admission</option>
+                            <option value="conditional">Conditional / waitlist</option>
+                            <option value="placement_test_required">Placement test required</option>
+                            <option value="not_recommended">Not recommended</option>
+                        </select>
+                        <div class="form-text">The system derives the next workflow stage from this recommendation.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Interview Notes</label>
                         <textarea id="interviewRemarks" class="form-control" rows="3" placeholder="Key observations from the interview..."></textarea>
                     </div>
+                    <div id="interviewAssessmentError" class="alert alert-danger d-none mb-0"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-success">
-                        <i class="bi bi-check2-circle me-1"></i>Submit Interview Results
+                        <i class="bi bi-check2-circle me-1"></i>Save Assessment
                     </button>
                 </div>
             </form>

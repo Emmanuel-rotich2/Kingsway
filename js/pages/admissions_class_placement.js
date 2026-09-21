@@ -117,23 +117,36 @@ const classPlacementController = {
         try {
             const result = await this.apiCall('/admission/queues', 'GET');
             const queues = result?.queues || {};
-            const placementApplications = [];
+            const placementApplications = new Map();
 
             // Get applications from placement and payment queues
             if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
                 queues.placement_pending.forEach(app => {
                     app._placementQueue = 'placement_pending';
-                    placementApplications.push(app);
+                    placementApplications.set(String(app.id), app);
                 });
             }
             if (queues.payment_pending && Array.isArray(queues.payment_pending)) {
                 queues.payment_pending.forEach(app => {
-                    app._placementQueue = 'payment_pending';
-                    placementApplications.push(app);
+                    const key = String(app.id);
+                    const existing = placementApplications.get(key);
+                    if (!existing) {
+                        app._placementQueue = 'payment_pending';
+                        placementApplications.set(key, app);
+                        return;
+                    }
+
+                    // Retain the placement queue/action but merge payment
+                    // totals and verification state from the payment queue.
+                    placementApplications.set(key, {
+                        ...existing,
+                        ...app,
+                        _placementQueue: existing._placementQueue
+                    });
                 });
             }
 
-            this.placements = placementApplications;
+            this.placements = [...placementApplications.values()];
             this.renderPlacementsTable();
         } catch (error) {
             console.error('Failed to load placements:', error);
@@ -303,7 +316,7 @@ const classPlacementController = {
         tbody.innerHTML = this.placements.map(app => {
             const assignedClass = this.extractAssignedClass(app);
             const stream = this.extractStream(app);
-            const statusBadge = this.getPlacementStatusBadge(app.status);
+            const statusBadge = `${this.getPlacementStatusBadge(app.status)} ${this.getAdmissionPaymentStatusBadge(app)}`;
             
             return `
                 <tr>
@@ -363,6 +376,22 @@ const classPlacementController = {
             'enrolled': '<span class="badge bg-success">Enrolled</span>'
         };
         return badges[status] || '<span class="badge bg-secondary">' + status + '</span>';
+    },
+
+    getAdmissionPaymentStatusBadge: function(app) {
+        const recorded = Number(app.recorded_payment_amount || 0);
+        const due = Number(app.registration_fee_due || 0);
+
+        if ((due <= 0 && recorded > 0) || (due > 0 && recorded >= due)) {
+            return '<span class="badge bg-success">Paid</span>';
+        }
+        if (app.pending_payment_id) {
+            return '<span class="badge bg-info text-dark">Verification pending</span>';
+        }
+        if (recorded > 0) {
+            return `<span class="badge bg-warning text-dark">Partially paid (KES ${recorded.toLocaleString()})</span>`;
+        }
+        return '<span class="badge bg-secondary">Not paid</span>';
     },
     
     updateCapacityCards: function() {
@@ -574,15 +603,17 @@ const classPlacementController = {
             showNotification('error', 'Application not found');
             return;
         }
-        
-        document.getElementById('editPlacementApplicationId').value = applicationId;
-        document.getElementById('editPlacementApplicant').value = application.applicant_name || 'Unknown';
-        
-        const currentStreamId = this.extractStreamId(application);
-        this.populatePlacementStreams(currentStreamId);
-        
-        const modal = new bootstrap.Modal(document.getElementById('editPlacementModal'));
-        modal.show();
+
+        if (!window.AdmissionPlacementModal) {
+            showNotification('error', 'The standard placement modal is unavailable. Please reload the page.');
+            return;
+        }
+        window.AdmissionPlacementModal.open({
+            application,
+            classes: this.classes,
+            apiCall: this.apiCall.bind(this),
+            onSuccess: () => this.refreshData()
+        });
     },
 
     populatePlacementStreams: function(selectedStreamId = '') {
@@ -631,6 +662,7 @@ const classPlacementController = {
         const streamId = Number(selectedStream?.dataset.streamId || 0);
         const placementData = {
             application_id: Number(applicationId),
+            academic_year_class_stream_id: Number(selectedStream?.value || 0),
             class_id: classId,
             stream_id: streamId || null,
             remarks: document.getElementById('editPlacementRemarks').value
@@ -652,7 +684,7 @@ const classPlacementController = {
             })
             .catch(error => {
                 console.error('Failed to update placement:', error);
-                showNotification('error', 'Failed to update placement');
+                showNotification('error', error?.message || 'Failed to update placement');
             })
             .finally(() => {
                 submitBtn.disabled = false;

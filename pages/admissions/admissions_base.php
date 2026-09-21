@@ -443,7 +443,7 @@ if (!isset($appBase)) {
     <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
-                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Results</h5>
+                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Assessment</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body"><div class="text-center py-4"><div class="spinner-border text-success"></div></div></div>
@@ -556,4 +556,6 @@ if (!isset($appBase)) {
 })();
 </script>
 
+<?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
+<?php asset_script($appBase, 'js/components/AdmissionPaymentModal.js'); ?>
 <?php asset_script($appBase, 'js/pages/admissions.js'); ?>

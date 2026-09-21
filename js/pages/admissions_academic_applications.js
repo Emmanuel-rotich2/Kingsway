@@ -294,7 +294,9 @@ const academicApplicationsController = {
     },
 
     canManagePlacement: function() {
-        return window.AuthContext?.hasRole?.('Deputy Head - Academic')
+        return window.AuthContext?.hasPermission?.('admission_manage')
+            || window.AuthContext?.hasPermission?.('admission_applications_edit')
+            || window.AuthContext?.hasRole?.('Deputy Head - Academic')
             || window.AuthContext?.hasRole?.('School Administrator');
     },
 
@@ -428,54 +430,13 @@ const academicApplicationsController = {
                     const app = payload.application;
                     const workflowData = payload.workflow_data || {};
                     
-                    const summary = `
-                        <strong>Applicant:</strong> ${app.applicant_name}<br>
-                        <strong>Applied Grade:</strong> ${app.grade_applying_for}<br>
-                        <strong>Previous School:</strong> ${app.previous_school || '—'}<br>
-                        <strong>Interview Score:</strong> ${workflowData.interview_score || '—'}/100
-                    `;
-                    document.getElementById('applicantSummary').innerHTML = summary;
-                    
-                    // Academic background
-                    document.getElementById('academicBackground').innerHTML = `
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <small>Previous School:</small>
-                                    <small class="fw-semibold">${app.previous_school || '—'}</small>
-                                </div>
-                                <div class="d-flex justify-content-between">
-                                    <small>Applied Grade:</small>
-                                    <small class="fw-semibold">${app.grade_applying_for || '—'}</small>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <small>Interview Score:</small>
-                                    <small class="fw-bold text-primary">${workflowData.interview_score || '—'}/100</small>
-                                </div>
-                                <div class="d-flex justify-content-between">
-                                    <small>Interview Recommendation:</small>
-                                    <small class="fw-semibold">${workflowData.recommendation || '—'}</small>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Set default class to applied grade
-                    const classSelect = document.getElementById('recommendedClass');
-                    // Find class matching applied grade
-                    for (let i = 0; i < classSelect.options.length; i++) {
-                        if (classSelect.options[i].text.includes(app.grade_applying_for)) {
-                            classSelect.selectedIndex = i;
-                            // Trigger change event to show capacity
-                            classSelect.dispatchEvent(new Event('change'));
-                            break;
-                        }
-                    }
-                    
-                    const modal = new bootstrap.Modal(document.getElementById('classPlacementModal'));
-                    modal.show();
+                    if (!window.AdmissionPlacementModal) throw new Error('The standard placement modal is unavailable. Please reload the page.');
+                    window.AdmissionPlacementModal.open({
+                        application: app,
+                        classes: this.classes,
+                        apiCall: API.callAPI.bind(API),
+                        onSuccess: () => this.loadApplications()
+                    });
                 }
             })
             .catch(error => {
