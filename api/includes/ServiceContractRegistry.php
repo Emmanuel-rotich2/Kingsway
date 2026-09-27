@@ -205,6 +205,7 @@ class ServiceContractRegistry
         self::govern('App\API\Services\AiInsightOrchestrator', '', 'aiinsightorchestrator');
         self::govern('App\API\Services\NlqQueryService', '', 'nlqqueryservice');
         self::govern('App\API\Services\SystemOperationsReviewService', '', 'systemoperationsreviewservice');
+        self::govern('App\API\Services\DataQualityService', '', 'dataqualityservice');
 
         self::register([
             'id' => 'system.info',

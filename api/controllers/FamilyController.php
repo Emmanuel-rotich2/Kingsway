@@ -24,18 +24,23 @@ final class FamilyController extends BaseController
 
     private function call(string $method, array $args=[]): array { return $this->handleApiResponse($this->parent->{$method}(...$args)); }
     public function getDashboard($id=null,$data=[],$segments=[]){return $this->call('getDashboard');}
+    public function getAdmissionApplications($id=null,$data=[],$segments=[]){return $this->call('getAdmissionApplications');}
     public function getCommunity($id=null,$data=[],$segments=[]){return $this->call('getCommunity');}
     public function getStudentFees($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentFees',[(int)$id]);}
     public function getStudentPaymentHistory($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentPaymentHistory',[(int)$id]);}
     public function getStudentStatement($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentStatement',[(int)$id]);}
     public function getFeeBalance($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getFeeBalance',[(int)$id]);}
     public function getStudentAttendance($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentAttendance',[(int)$id]);}
+    public function getStudentTransport($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentTransport',[(int)$id]);}
     public function getStudentPerformance($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentPerformance',[(int)$id]);}
     public function getStudentReportCard($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getStudentReportCard',[(int)$id]);}
     public function getMessages($id=null,$data=[],$segments=[]){return $this->call('getMessages',[$id?(int)$id:null]);}
     public function postSendMessage($id=null,$data=[],$segments=[]){return $this->call('postSendMessage',[$data]);}
+    public function postTransportSubscribeRequest($id=null,$data=[],$segments=[]){return $this->call('postTransportSubscribeRequest',[$data]);}
     public function getPortfolio($id=null,$data=[],$segments=[]){if(!$id)return $this->badRequest('student_id required');return $this->call('getPortfolio',[(int)$id]);}
     public function getGradingScale($id=null,$data=[],$segments=[]){return $this->call('getGradingScale');}
     public function postInitiateMpesaPayment($id=null,$data=[],$segments=[]){return $this->call('postInitiateMpesaPayment',[$data]);}
+    public function postPortalPayment($id=null,$data=[],$segments=[]){return $this->call('postPortalPayment',[$data]);}
+    public function postPayment($id=null,$data=[],$segments=[]){return $this->call('postPortalPayment',[$data]);}
     public function getMpesaStatus($id=null,$data=[],$segments=[]){return $this->call('getMpesaStatus',[$id]);}
 }

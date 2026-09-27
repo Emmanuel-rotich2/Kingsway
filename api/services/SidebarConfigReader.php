@@ -444,6 +444,21 @@ class SidebarConfigReader
                 'label' => 'My Family', 'url' => 'my_family',
                 'icon' => 'fas fa-house-user', 'subitems' => []
             ], $groupIndex);
+
+            // Every authenticated staff role may submit an admission
+            // application for their own child. The page/API enforce the
+            // linked active staff profile; this does not grant admissions
+            // review, approval, placement, payment, or document-verification
+            // permissions. Parents use the separate parent portal flow.
+            if ($roleId !== 73) {
+                $staffAdmissionParent = $roleId * 10000 + 9950;
+                $items[] = self::item($staffAdmissionParent, null, [
+                    'label' => 'Staff Child Admission',
+                    'url' => 'staff_my_admission',
+                    'icon' => 'fas fa-user-plus',
+                    'subitems' => []
+                ], $groupIndex++);
+            }
         }
 
         // Keep the canonical menu consistent with the normalized permission

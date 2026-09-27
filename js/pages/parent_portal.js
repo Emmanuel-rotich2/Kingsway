@@ -509,14 +509,15 @@ const parentPortalController = {
                         return '<tr><td>' + parentPortalController.esc(o.fee_type_name || '') + '</td>' +
                             '<td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td>' +
                             '<td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td>' +
+                            '<td>KES ' + Number(o.amount_waived || 0).toLocaleString() + '</td>' +
                             '<td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td>' +
-                            '<td><span class="badge bg-' + sc + '">' + parentPortalController.esc(o.payment_status || 'pending') + '</span></td></tr>';
+                            '<td><span class="badge bg-' + (o.payment_status === 'waived' ? 'secondary' : sc) + '">' + parentPortalController.esc(o.payment_status || 'pending') + '</span></td></tr>';
                     }).join('');
                     var payBtn = term.balance > 0
                         ? '<button class="btn btn-sm btn-success pay-now-btn ms-2" data-amount="' + term.balance + '"><i class="bi bi-phone me-1"></i>Pay Now</button>'
                         : '';
                     return '<h6 class="text-muted mb-2">' + parentPortalController.esc(term.term_name || '') + '</h6>' +
-                        '<table class="table table-sm table-bordered mb-3"><thead class="table-light"><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>' +
+                        '<table class="table table-sm table-bordered mb-3"><thead class="table-light"><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th></tr></thead>' +
                         '<tbody>' + rows + '</tbody>' +
                         '<tfoot class="fw-bold table-light"><tr><td>Total</td>' +
                         '<td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td>' +
@@ -571,6 +572,7 @@ const parentPortalController = {
         var s = data.student || {};
         var fees = (data.fees && data.fees.academic_years) || [];
         var pmts = data.payments || [];
+        var relief = data.financial_relief;
         var self = this;
         var feeRows = fees.map(function (yr) {
             return '<h5>Academic Year ' + yr.year + '</h5>' +
@@ -600,7 +602,7 @@ const parentPortalController = {
             '<p><strong>Student:</strong> ' + self.esc(s.first_name + ' ' + s.last_name) +
             ' &nbsp; <strong>Adm No:</strong> ' + self.esc(s.admission_no || '') +
             ' &nbsp; <strong>Class:</strong> ' + self.esc(s.class_name || '') + '</p>' +
-            '<p><strong>Generated:</strong> ' + self.esc(data.generated_at || '') + '</p><hr>' +
+            '<p><strong>Generated:</strong> ' + self.esc(data.generated_at || '') + '</p>' + (relief ? '<p><strong>Approved financial relief:</strong> ' + (relief.registration_fee_waived ? 'Registration fee waived. ' : '') + (relief.school_fee_waived ? 'School-fee relief approved. ' : '') + (relief.school_fee_waived_amount > 0 ? 'Applied KES ' + Number(relief.school_fee_waived_amount).toLocaleString() + '. ' : '') + self.esc(relief.reason || '') + '</p>' : '') + '<hr>' +
             feeRows +
             (pmtRows ? '<h5 class="mt-4">Payment History</h5><table border="1" cellpadding="4" style="border-collapse:collapse;width:100%"><thead><tr><th>Date</th><th>Method</th><th>Amount</th><th>Receipt #</th></tr></thead><tbody>' + pmtRows + '</tbody></table>' : '') +
             '</body></html>';
@@ -684,7 +686,16 @@ const parentPortalController = {
                 '<div class="col-auto"><span class="badge bg-success fs-6">' + attPct + '%</span></div>' +
                 '<div class="col-auto text-muted small lh-lg">' + attendance.days_present + '/' + attendance.total_days + ' days present</div></div>';
         }
-        if (!scores.length && !competencies.length) {
+        var interview = data.admission_interview;
+        if (interview) {
+            html += '<h6 class="text-muted mb-2">Admission Interview Record</h6><div class="alert alert-info small"><div class="row g-2">' +
+                '<div class="col-md-4"><strong>Recommendation</strong><br>' + parentPortalController.esc(interview.recommendation || 'Recorded') + '</div>' +
+                '<div class="col-md-4"><strong>Overall score</strong><br>' + parentPortalController.esc(interview.overall_score ?? '—') + '</div>' +
+                '<div class="col-md-4"><strong>Conducted</strong><br>' + parentPortalController.esc(interview.conducted_at || interview.scheduled_date || '—') + '</div>' +
+                (interview.remarks ? '<div class="col-12"><strong>Remarks</strong><br>' + parentPortalController.esc(interview.remarks) + '</div>' : '') +
+                '</div></div>';
+        }
+        if (!scores.length && !competencies.length && !values.length && !interview) {
             html = '<div class="alert alert-info">No performance data available for the current term.</div>';
         }
         content.innerHTML = html;
@@ -1111,15 +1122,12 @@ const parentPortalController = {
         }
 
         var fd = new FormData(form);
-        // Attach the resolved academic_year_terms.id for the start term.
-        var termSel = document.getElementById('ppPreferredStart');
-        var termId = termSel && termSel.selectedOptions && termSel.selectedOptions[0]
-            ? termSel.selectedOptions[0].dataset.termId : null;
-        if (termId) fd.append('target_term_id', termId);
+        var windowSel = document.getElementById('ppAdmissionWindow');
+        if (windowSel && windowSel.value) fd.set('admission_window_id', windowSel.value);
 
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
-        apiCall('/public/applications', 'POST', fd, null, {
+        apiCall('/parent-portal/admission-application', 'POST', fd, null, {
             isFile: true,
             noRedirect: true,
             checkPermission: false,

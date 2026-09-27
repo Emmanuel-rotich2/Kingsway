@@ -24,17 +24,23 @@
 
   function renderFeeHistory(data) {
     var years = data.academic_years || data || [];
-    if (!years.length) return '<div class="alert alert-info">No fee history found.</div>';
-    return years.map(function (yr) {
+    var relief = data.financial_relief;
+    var reliefHtml = relief ? '<div class="alert alert-warning small"><i class="bi bi-shield-check me-1"></i><strong>Approved financial relief:</strong> ' +
+      (relief.registration_fee_waived ? 'Registration fee waived. ' : '') +
+      (relief.school_fee_waived ? 'School-fee relief: ' + (relief.school_fee_waiver_type || 'approved') + '. ' : '') +
+      (relief.school_fee_waived_amount > 0 ? 'School-fee waiver applied: KES ' + Number(relief.school_fee_waived_amount).toLocaleString() + '. ' : '') +
+      (relief.reason ? 'Reason: ' + P.esc(relief.reason) : '') + '</div>' : '';
+    if (!years.length) return reliefHtml + '<div class="alert alert-info">No fee history found.</div>';
+    return reliefHtml + years.map(function (yr) {
       return '<div class="card mb-3 border-0 shadow-sm"><div class="card-header bg-success text-white fw-bold">Academic Year ' + yr.year + '</div><div class="card-body">' +
         (yr.terms || []).map(function (term) {
           var rows = (term.obligations || []).map(function (o) {
             var sc = o.payment_status === 'paid' ? 'success' : (o.payment_status === 'partial' ? 'warning' : 'danger');
-            return '<tr><td>' + P.esc(o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td><td><span class="badge bg-' + sc + '">' + P.esc(o.payment_status || 'pending') + '</span></td></tr>';
+            return '<tr><td>' + P.esc(o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_waived || 0).toLocaleString() + '</td><td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td><td><span class="badge bg-' + (o.payment_status === 'waived' ? 'secondary' : sc) + '">' + P.esc(o.payment_status || 'pending') + '</span></td></tr>';
           }).join('');
           var payBtn = term.balance > 0 ? '<button class="btn btn-sm btn-success pay-now-btn" data-amount="' + term.balance + '"><i class="bi bi-phone me-1"></i>Pay Now</button>' : '';
           return '<h6 class="text-muted mb-2">' + P.esc(term.term_name || '') + '</h6>' +
-            '<div class="table-responsive mb-3"><table class="pp-table table-sm"><thead><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody>' +
+            '<div class="table-responsive mb-3"><table class="pp-table table-sm"><thead><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody>' +
             '<tfoot class="fw-bold"><tr><td>Total</td><td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>KES ' + Number(term.balance || 0).toLocaleString() + '</td><td>' + payBtn + '</td></tr></tfoot></table></div>';
         }).join('') + '</div></div>';
     }).join('');
@@ -71,6 +77,7 @@
     var s = data.student || {};
     var fees = (data.fees && data.fees.academic_years) || [];
     var pmts = data.payments || [];
+    var relief = data.financial_relief;
     var feeRows = fees.map(function (yr) {
       return '<h5>Academic Year ' + yr.year + '</h5>' +
         (yr.terms || []).map(function (t) {
@@ -88,7 +95,7 @@
       '<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet"></head>' +
       '<body class="p-4"><h3 class="text-center">Kingsway Preparatory School</h3><h5 class="text-center text-muted">Fee Statement</h5><hr>' +
       '<p><strong>Student:</strong> ' + P.esc(s.first_name + ' ' + s.last_name) + ' &nbsp; <strong>Adm No:</strong> ' + P.esc(s.admission_no || '') + ' &nbsp; <strong>Class:</strong> ' + P.esc(s.class_name || '') + '</p>' +
-      '<p><strong>Generated:</strong> ' + P.esc(data.generated_at || '') + '</p><hr>' + feeRows +
+      '<p><strong>Generated:</strong> ' + P.esc(data.generated_at || '') + '</p>' + (relief ? '<p><strong>Approved financial relief:</strong> ' + (relief.registration_fee_waived ? 'Registration fee waived. ' : '') + (relief.school_fee_waived ? 'School-fee relief approved. ' : '') + (relief.school_fee_waived_amount > 0 ? 'Applied KES ' + Number(relief.school_fee_waived_amount).toLocaleString() + '. ' : '') + P.esc(relief.reason || '') + '</p>' : '') + '<hr>' + feeRows +
       (pmtRows ? '<h5 class="mt-4">Payment History</h5><table border="1" cellpadding="4" style="border-collapse:collapse;width:100%"><thead><tr><th>Date</th><th>Method</th><th>Amount</th><th>Receipt #</th></tr></thead><tbody>' + pmtRows + '</tbody></table>' : '') +
       '</body></html>';
   }
@@ -117,7 +124,7 @@
     },
   });
 
-  // Pay Now button wiring
+  // Pay Now button wiring (fees entries open the payment modal for fees only)
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('.pay-now-btn');
     if (!btn) return;
@@ -125,7 +132,7 @@
     if (typeof P.openMpesaModal === 'function') {
       var children = [];
       try { children = JSON.parse(sessionStorage.getItem('pp_children') || '[]'); } catch (_) {}
-      P.openMpesaModal(children, amt, _childId);
+      P.openMpesaModal({ children: children, studentId: _childId, purpose: 'fees', amount: amt });
     }
   });
 
@@ -133,6 +140,6 @@
   if (sidebarPay) sidebarPay.addEventListener('click', function () {
     var children = [];
     try { children = JSON.parse(sessionStorage.getItem('pp_children') || '[]'); } catch (_) {}
-    P.openMpesaModal(children, '', _childId);
+    P.openMpesaModal({ children: children, studentId: _childId, purpose: 'fees' });
   });
 })();

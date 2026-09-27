@@ -95,7 +95,7 @@ const pendingApprovalsController = {
                 }
             });
 
-            this.applications = approvalApplications;
+            this.applications = Array.from(new Map(approvalApplications.map(app => [String(app.id), app])).values());
             this.applyFilters();
             this.updateSummaryCards();
         } catch (error) {
@@ -320,7 +320,7 @@ const pendingApprovalsController = {
             </div>
         `).join('');
         
-        const html = `
+        const html = `${window.KingswayDetailModal?.profileHeader(app, app.passport_photo_url)}
             <div class="row">
                 <div class="col-md-6">
                     <h6 class="fw-semibold mb-3">Applicant Information</h6>

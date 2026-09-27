@@ -712,7 +712,7 @@ final class StaffAppointmentsService
                  VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())",
                 [$userId, $staffId, strtolower($appointment['candidate_email']), hash('sha256', $token), $actorId]
             );
-            $base = defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'https://localhost/Kingsway';
+            $base = defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '';
             $payload = [
                 'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
                 'username' => $username,

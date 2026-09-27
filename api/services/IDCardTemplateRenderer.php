@@ -50,7 +50,7 @@ class IDCardTemplateRenderer
         }
 
         // Remote URL (http/https): prefer the local file when the URL lands
-        // inside the project (e.g. http://localhost/Kingsway/uploads/...), then
+        // inside the configured project upload tree, then
         // fall back to fetching over the network. Embedding as a data URI makes
         // the image survive both the browser print window and Dompdf.
         if (filter_var($path, FILTER_VALIDATE_URL)) {
@@ -312,7 +312,7 @@ HTML;
             $student['qr_code_path'] ?? ($student['qr_code_url'] ?? '')
         );
         if (strpos($qrUri, 'data:') !== 0 && strpos($qrUri, 'http') !== 0) {
-            $baseUrl = defined('BASE_URL') ? BASE_URL : 'http://localhost/Kingsway';
+            $baseUrl = defined('BASE_URL') ? (string) BASE_URL : '';
             $portalUrl = $baseUrl . 'student_portal/' . ($student['id'] ?? 0) . '/details';
             $qrData = json_encode([
                 'type' => 'student_verification',

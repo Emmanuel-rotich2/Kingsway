@@ -667,8 +667,10 @@ class CommunicationsManager extends FileLifecycleBase
             $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
             if ($uploadFile) {
                 $mediaId = $mediaManager->upload($uploadFile, 'communications', $communicationId, null, $uploader, $fileData['description'] ?? 'communication attachment');
-                $preview = $mediaManager->getPreviewUrl($mediaId);
-                $filePath = $preview ?: $filePath;
+                // Persist only the upload-root-relative reference. Resolve it
+                // through UPLOAD_URL when building a browser response.
+                $storedReference = $mediaManager->getStoredReference($mediaId);
+                $filePath = $storedReference ?: $filePath;
                 $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
                 $mimeType = $mimeType ?: ($uploadFile['type'] ?? null);
                 $fileSize = $fileSize ?: ($uploadFile['size'] ?? null);
@@ -677,7 +679,7 @@ class CommunicationsManager extends FileLifecycleBase
             // fallback to provided file_path/file_name if media upload fails
         }
 
-        $publicUrl = filter_var($filePath, FILTER_VALIDATE_URL) ? $filePath : $this->publicUploadAssetUrl('communications', (string) ($fileName ?? 'unnamed_file'));
+        $publicUrl = $filePath;
         $sql = "INSERT INTO communication_attachments (communication_id, file_name, file_path, mime_type, file_size, public_url) VALUES (:communication_id, :file_name, :file_path, :mime_type, :file_size, :public_url)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([

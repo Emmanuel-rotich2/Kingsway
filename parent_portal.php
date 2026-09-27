@@ -12,6 +12,23 @@ if ($appBase === '.') $appBase = '';
 // Parent/guardian portal front controller. Sections are reached as
 // parent_portal.php?route=<key>; direct *.php access is denied by .htaccess.
 $route = trim((string)($_GET['route'] ?? ''));
+// Tolerate hand-typed URLs that chain extra params with a '?' instead of a '&'
+// (e.g. ?route=fees?child=1). Split the embedded query off the route key, then
+// normalize to the canonical ?route=<key>&child=... form so both the facade
+// resolver AND the page JS (which reads ?child from location.search) work.
+if ($route !== '' && strpos($route, '?') !== false) {
+    [$route, $embeddedQuery] = explode('?', $route, 2);
+    parse_str($embeddedQuery, $embedded);
+    $route = trim($route);
+    if ($route !== '' && $route !== 'login' && !empty($embedded)) {
+        $rest = $_GET;
+        unset($rest['route']);
+        $canonical = array_merge($rest, $embedded);
+        header('Location: parent_portal.php?route=' . urlencode($route) . '&' . http_build_query($canonical), true, 302);
+        exit;
+    }
+    unset($embedded, $embeddedQuery);
+}
 if ($route !== '' && $route !== 'login') {
     $facadeRoutes = require __DIR__ . '/public/layout/facade_routes.php';
     $routeTarget  = $facadeRoutes['parents'][$route] ?? null;
@@ -65,7 +82,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
         <div id="tab-email">
           <div class="mb-3">
             <label class="form-label fw-semibold">Email or Phone Number</label>
-            <input type="text" id="loginEmail" class="form-control" placeholder="Email or +2547XXXXXXXX" autocomplete="username" autocapitalize="none">
+            <input type="text" id="loginEmail" class="form-control" placeholder="Email or 2547XXXXXXXX" autocomplete="username" autocapitalize="none" data-phone-canonical>
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">Password</label>

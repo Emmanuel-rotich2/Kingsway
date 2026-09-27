@@ -383,7 +383,7 @@ const academicApplicationsController = {
         const app = data.application;
         const workflowData = data.workflow_data || {};
         
-        const html = `
+        const html = `${window.KingswayDetailModal?.profileHeader(app, app.passport_photo_url)}
             <div class="row">
                 <div class="col-md-6">
                     <h6 class="fw-semibold mb-3">Applicant Information</h6>

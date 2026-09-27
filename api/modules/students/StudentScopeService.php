@@ -84,7 +84,7 @@ class StudentScopeService
         $bindings = [];
 
         if (!empty($scope['boarding_only'])) {
-            $conditions[] = "UPPER(COALESCE(st.code, '')) IN ('BOARD', 'WEEKLY')";
+            $conditions[] = "UPPER(COALESCE(st.code, '')) = 'BOARD'";
         }
 
         if (!empty($scope['restricted'])) {
@@ -141,7 +141,7 @@ class StudentScopeService
         $bindings = [$studentId];
 
         if (!empty($scope['boarding_only'])) {
-            $where[] = "UPPER(COALESCE(st.code, '')) IN ('BOARD', 'WEEKLY')";
+            $where[] = "UPPER(COALESCE(st.code, '')) = 'BOARD'";
         }
 
         $classClauses = [];

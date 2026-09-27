@@ -65,6 +65,7 @@ class PublicController extends BaseAPI
         $phone = trim($data['parent_phone'] ?? '');
         $grade = trim($data['grade_applying'] ?? '');
         $startTerm = trim($data['preferred_start'] ?? '');
+        $admissionWindowId = (int) ($data['admission_window_id'] ?? 0);
 
         if ($childName === '' || $parentName === '' || $phone === '' || $grade === '') {
             return $this->errorResponse('Please fill in all required fields.', 422);
@@ -104,22 +105,31 @@ class PublicController extends BaseAPI
             }
         }
 
-        // Single unified submission path for ALL channels: the admin panel and
-        // the public website both land in StudentAdmissionWorkflow::submitApplication.
+        // The public website is an anonymous application channel.  Do not use
+        // an ambient bearer token/cookie to replace the guardian entered here:
+        // a staff or parent session can exist in the same browser, but it must
+        // not change an anonymous applicant's submitted guardian.  The
+        // authenticated parent portal uses /api/parent-portal/admission-
+        // application and binds the parent server-side there.
         $payload = [
             'applicant_name'       => $childName,
             'date_of_birth'        => trim($data['child_dob'] ?? ''),
             'gender'               => trim($data['child_gender'] ?? ''),
+            'birth_certificate_no' => trim((string) ($data['birth_certificate_no'] ?? '')),
             'grade_applying_for'   => $grade,
             'current_grade_class'  => trim($data['child_prev_grade'] ?? ''),
             'previous_school'      => trim($data['child_prev_school'] ?? ''),
             'application_source'   => 'online',
             'target_term_token'    => $startTerm,
+            'admission_window_id'  => $admissionWindowId > 0 ? $admissionWindowId : null,
+            'boarding_preference'  => trim((string) ($data['boarding_preference'] ?? 'day')),
+            'parent_id'            => 0,
             'parent_name'          => $parentName,
             'parent_national_id'   => trim($data['parent_id'] ?? ''),
             'parent_phone'         => $phone,
             'parent_email'         => filter_var(trim($data['parent_email'] ?? ''), FILTER_VALIDATE_EMAIL) ?: '',
             'parent_address'       => trim($data['parent_address'] ?? ''),
+            'parent_relationship'  => trim($data['parent_relationship'] ?? $data['relationship'] ?? ''),
             'special_needs'        => trim($data['special_needs'] ?? ''),
         ];
 
@@ -143,7 +153,7 @@ class PublicController extends BaseAPI
         );
     }
 
-    public function postSubscribers($id = null, $data = [], $segments = [])
+public function postSubscribers($id = null, $data = [], $segments = [])
     {
         $email = filter_var(trim($data['email'] ?? ''), FILTER_VALIDATE_EMAIL);
         if (!$email) {

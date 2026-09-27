@@ -227,12 +227,16 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info small">This scholarship decision applies to the selected learner(s) for the selected academic year. It is separate from a fee waiver and records the scholarship programme and coverage.</div>
+                <div class="alert alert-info small">This is a school sponsorship decision, separate from a fee waiver. Select exactly how long it applies. It may be terminated prospectively by an authorised finance user; an approved fee waiver is append-only and cannot be revoked.</div>
                 <form id="studentAssistanceForm">
                     <input type="hidden" id="assistanceStudentId">
                     <div class="row g-3">
                         <div class="col-md-6"><label class="form-label">Academic year *</label><select class="form-select" id="assistanceYear" required></select></div>
                         <div class="col-md-6"><label class="form-label">Programme *</label><select class="form-select" id="assistanceProgram" required></select></div>
+                        <div class="col-md-4"><label class="form-label">Sponsorship period *</label><select class="form-select" id="assistancePeriodType" required><option value="academic_year">Whole academic year</option><option value="term">One term</option><option value="custom">Custom dates</option></select></div>
+                        <div class="col-md-4" id="assistanceTermWrap"><label class="form-label">Term *</label><select class="form-select" id="assistanceTerm"></select></div>
+                        <div class="col-md-2 d-none" id="assistanceStartsWrap"><label class="form-label">Starts</label><input type="date" class="form-control" id="assistanceStartsOn"></div>
+                        <div class="col-md-2 d-none" id="assistanceEndsWrap"><label class="form-label">Ends</label><input type="date" class="form-control" id="assistanceEndsOn"></div>
                         <div class="col-md-6"><label class="form-label">Coverage</label><select class="form-select" id="assistanceCoverage"><option value="full">Full sponsorship (100%)</option><option value="percentage">Percentage</option><option value="fixed_amount">Fixed amount per obligation</option></select></div>
                         <div class="col-md-6" id="assistancePercentageWrap"><label class="form-label">Percentage covered *</label><input type="number" class="form-control" id="assistancePercentage" min="0" max="100" step="0.01"></div>
                         <div class="col-md-6 d-none" id="assistanceAmountWrap"><label class="form-label">Amount covered per obligation (KES) *</label><input type="number" class="form-control" id="assistanceAmount" min="0" step="0.01"></div>
@@ -242,7 +246,7 @@
                 </form>
                 <hr>
                 <h6>Existing awards for this learner</h6>
-                <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Year</th><th>Programme</th><th>Coverage</th><th>Status</th><th></th></tr></thead><tbody id="studentAssistanceAwardsBody"></tbody></table></div>
+                <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Year</th><th>Programme</th><th>Coverage</th><th>Period</th><th>Status</th><th></th></tr></thead><tbody id="studentAssistanceAwardsBody"></tbody></table></div>
             </div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-success" id="saveAssistanceBtn">Sponsor (Scholarship)</button></div>
         </div>
@@ -258,12 +262,12 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-warning small">A waiver is a fee-relief decision that clears all or part of the selected learner(s)’ outstanding fee balance. It is not a scholarship.</div>
+                <div class="alert alert-warning small">A waiver is a permanent, append-only school fee-relief decision. It clears all or part of the selected obligation and cannot be cancelled after approval; record a new correcting decision if required.</div>
                 <form id="studentWaiverForm">
                     <div class="row g-3">
                         <div class="col-md-6"><label class="form-label">Academic year</label><select class="form-select" id="waiverYear" required></select></div>
-                        <div class="col-md-6"><label class="form-label">Waiver amount</label><select class="form-select" id="waiverScope"><option value="full">Clear outstanding balance</option><option value="amount">Specific amount</option></select></div>
-                        <div class="col-md-6 d-none" id="waiverAmountWrap"><label class="form-label">Amount per learner (KES)</label><input type="number" class="form-control" id="waiverAmount" min="0" step="0.01"></div>
+                        <div class="col-md-6"><label class="form-label">One-time relief</label><select class="form-select" id="waiverScope"><option value="full">Clear outstanding balance</option><option value="amount">Specific KES amount</option><option value="percentage">Percentage of current balance</option></select></div>
+                        <div class="col-md-6 d-none" id="waiverAmountWrap"><label class="form-label" id="waiverAmountLabel">Amount per learner (KES)</label><input type="number" class="form-control" id="waiverAmount" min="0" step="0.01"></div>
                         <div class="col-12"><label class="form-label">Reason / approval note *</label><textarea class="form-control" id="waiverReason" rows="2" required placeholder="Explain why the fee balance is being waived"></textarea></div>
                         <div class="col-12"><label class="form-label">Additional notes</label><textarea class="form-control" id="waiverNotes" rows="2"></textarea></div>
                     </div>

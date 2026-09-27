@@ -293,7 +293,7 @@ const StudentLeadershipController = {
       return;
     }
     const cards = this.state.leadership.map((r) => {
-      const photo = r.photo_url || r.public_photo_url || "";
+      const photo = KingswayFileLifecycle.resolveUrl(r.photo_url || r.public_photo_url);
       const color = r.house_color || "#1a2980";
       const initials = String(r.student_name || " ").split(/\s+/).filter(Boolean)
         .map((w) => w[0]).join("").slice(0, 2).toUpperCase();

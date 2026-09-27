@@ -17,8 +17,11 @@ class StudentAttendanceManager
         $sql = "INSERT INTO student_attendance (student_academic_enrollment_id, date, status, marked_by, created_at)
                 SELECT sae.id, :date, :status, :marked_by, NOW()
                 FROM student_academic_enrollments sae
+                JOIN students s ON s.id=sae.student_id
+                LEFT JOIN admission_applications aa ON aa.id=s.application_id
                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 WHERE sae.student_id = :student_id AND sae.enrollment_status = 'active'
+                AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= :eligible_date
                 AND (aycs.id = :stream_id OR :stream_id_null IS NULL)
                 LIMIT 1";
         $stmt = $this->db->prepare($sql);
@@ -29,6 +32,7 @@ class StudentAttendanceManager
             'student_id' => $studentId,
             'stream_id' => $streamId,
             'stream_id_null' => $streamId,
+            'eligible_date' => $date,
         ]);
         return true;
     }

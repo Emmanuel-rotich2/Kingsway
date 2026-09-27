@@ -200,6 +200,30 @@ class DirectorAnalyticsService
     }
 
     /**
+     * Stable aggregate contract for executive dashboard consumers and smoke
+     * checks. Individual legacy endpoints remain available, but they now all
+     * have one authoritative service-level composition point.
+     */
+    public function getFullDashboardData(array $filters = []): array
+    {
+        return [
+            'summary' => ['kpis' => $this->getSummaryKPIs()],
+            'financial' => [
+                'trends' => $this->getFinancialTrends(),
+                'revenue_sources' => $this->getRevenueSources(),
+            ],
+            'academic' => [
+                'kpis' => $this->getAcademicKPIs(),
+                'performance_matrix' => $this->getPerformanceMatrix(),
+            ],
+            'attendance' => $this->getAttendanceTrends(),
+            'operational_risks' => $this->getOperationalRisks(),
+            'communications' => $this->getLatestAnnouncements(),
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
      * Get comprehensive CEO summary KPIs
      */
     public function getSummaryKPIs()

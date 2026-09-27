@@ -59,7 +59,6 @@ class StudentRepository
             st.code AS student_type_code,
             CASE
                 WHEN UPPER(COALESCE(st.code, '')) = 'BOARD' THEN 'boarding'
-                WHEN UPPER(COALESCE(st.code, '')) = 'WEEKLY' THEN 'weekly_boarding'
                 ELSE 'day'
             END AS boarding_status,
             s.admission_date,
@@ -70,6 +69,7 @@ class StudentRepository
             s.status,
             s.blood_group,
             s.application_id,
+            s.entry_source,
             s.created_at,
             s.updated_at,
             sae.id AS enrollment_id,

@@ -404,7 +404,7 @@ const StudentIdCardsController = {
             return `
                 <tr>
                     <td><input type="checkbox" class="student-checkbox" data-id="${studentId}"></td>
-                    <td><img src="${student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
+                    <td><img src="${KingswayFileLifecycle.resolveUrl(student.photo_url)}" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
                     <td><strong>${this.escapeHtml(student.admission_no || '—')}</strong></td>
                     <td>${this.escapeHtml(fullName)}</td>
                     <td>${this.escapeHtml(student.class_name || '—')}</td>
@@ -914,7 +914,7 @@ const StudentIdCardsController = {
         const student = data.student || {};
         const school = data.school_profile || data.school_settings || {};
         const appBase = window.APP_BASE || "";
-        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
+        const photo = KingswayFileLifecycle.resolveUrl(student.photo_url);
         const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
         const fullName = this.getFullName(student);
         const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");

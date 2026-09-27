@@ -115,8 +115,31 @@ if ($appBase === '.')
     }
 
     #admissionsWorkspaceApplicationModal .modal-body {
-        max-height: 70vh;
+        max-height: calc(100vh - 145px);
+        min-height: 70vh;
         overflow-y: auto;
+    }
+
+    #admissionsWorkspaceApplicationModal .modal-dialog {
+        max-width: min(1400px, 96vw);
+        margin-top: 2vh;
+        margin-bottom: 2vh;
+    }
+
+    #admissionsWorkspaceApplicationModal .modal-content {
+        min-height: 96vh;
+    }
+
+    #admissionsWorkspaceApplicationModal .modal-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        background: #fff;
+        border-top: 1px solid rgba(0,0,0,.1);
+    }
+
+    #admissionsWorkspaceApplicationModal .modal-dialog {
+        max-width: 94vw;
     }
 
     @media (max-height: 600px) {
@@ -354,9 +377,11 @@ if ($appBase === '.')
     </div>
 </div>
 
+<?php include __DIR__ . '/../components/admission_application_modal.php'; ?>
+
 <!-- Application Details Modal -->
 <div class="modal fade" id="admissionsWorkspaceApplicationModal" tabindex="-1">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-person-badge me-2"></i>Application Details</h5>
@@ -380,4 +405,8 @@ if ($appBase === '.')
 
 <?php asset_script($appBase, 'js/components/AdmissionPlacementModal.js'); ?>
 <?php asset_script($appBase, 'js/components/AdmissionPaymentModal.js'); ?>
+<?php asset_script($appBase, 'js/pages/new_applications.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_preview.js'); ?>
+<?php asset_script($appBase, 'js/utils/detail_modal.js'); ?>
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/detail-modals.css?v=20260923">
 <?php asset_script($appBase, 'js/pages/admissions_workspace.js'); ?>

@@ -63,8 +63,7 @@ class StudentIDCardGenerator extends BaseAPI
                 '',
                 'photo_student_' . $studentId
             );
-            $photoUrl = $mediaManager->getFileUrl($mediaId)
-                ?: $mediaManager->getPreviewUrl($mediaId);
+            $photoUrl = $mediaManager->getStoredReference($mediaId);
 
             if (!$photoUrl) {
                 return formatResponse(false, null, 'Uploaded photo could not be resolved');

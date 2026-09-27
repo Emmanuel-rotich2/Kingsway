@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Services\EventBroadcaster;
 use App\API\Services\JobHandlerRegistry;
 use App\API\Services\JobQueue;
+use App\API\Services\ReadProjectionSynchronizer;
 use App\API\Services\RealtimeScopeResolver;
 
 /**

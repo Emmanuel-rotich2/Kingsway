@@ -364,13 +364,18 @@ const yearRolloverController = {
           performed: new Date().toISOString(),
         });
         showNotification(`New year structure created: ${data.classes_created} classes (mode: ${data.mode}).`, 'success');
-      } else if (['approve_fee_structures', 'configure_operational_context', 'current_year_readiness', 'close_current_year_terms'].includes(code)) {
+      } else if (['approve_fee_structures', 'configure_operational_context', 'current_year_readiness', 'close_current_year_terms', 'carry_forward_finances', 'generate_obligations', 'reconcile_balances'].includes(code)) {
         data = await callAPI('/academic/year-transition/complete-stage', 'POST', {
           instance_id: this._instanceId,
           stage_code: code,
         });
         this._currentStage = data.current_stage || this._currentStage;
-        this._log.push({ stage: code, status: 'completed', details: 'Stage completed and progress saved.', performed: new Date().toISOString() });
+        const financeDetails = data.finance_rollover?.[code] || data[code] || {};
+        this._log.push({ stage: code, status: 'completed', details: financeDetails.learners_recorded != null
+          ? `${financeDetails.learners_recorded} learner balances recorded.`
+          : financeDetails.learners_reconciled != null ? `${financeDetails.learners_reconciled} learner balances reconciled.`
+            : financeDetails.fee_bundles_processed != null ? `${financeDetails.fee_bundles_processed} fee bundles processed.`
+              : 'Stage completed and progress saved.', performed: new Date().toISOString() });
         showNotification(`${stage?.label || code} completed.`, 'success');
       } else if (code === 'archive_previous_year') {
         data = await callAPI('/academic/year-transition/archive-data', 'POST', {

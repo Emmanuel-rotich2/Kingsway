@@ -47,7 +47,7 @@
             <img id="tlPhoto" src="" alt="Photo"
                  class="rounded-circle border border-2"
                  style="width:80px;height:80px;object-fit:cover"
-                 onerror="this.src='<?= $appBase ?>/uploads/students/avatar.jpg'">
+                 onerror="this.onerror=null; this.src='<?= htmlspecialchars(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') . '/students/avatar.jpg' : $appBase . '/uploads/students/avatar.jpg', ENT_QUOTES, 'UTF-8') ?>'">
           </div>
           <div class="col">
             <h4 class="mb-1" id="tlStudentName">—</h4>

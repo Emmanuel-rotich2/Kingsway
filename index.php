@@ -10,6 +10,22 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 if ($appBase === '.') $appBase = '';
 
 $route = trim((string)($_GET['route'] ?? ''));
+// Tolerate hand-typed URLs that chain extra params with a '?' instead of a '&'
+// (e.g. ?route=contact?ref=x). Split the embedded query off the route key and
+// normalize to the canonical ?route=<key>&ref=... form so extra params resolve.
+if ($route !== '' && strpos($route, '?') !== false) {
+    [$route, $embeddedQuery] = explode('?', $route, 2);
+    parse_str($embeddedQuery, $embedded);
+    $route = trim($route);
+    if ($route !== '' && $route !== 'home' && !empty($embedded)) {
+        $rest = $_GET;
+        unset($rest['route']);
+        $canonical = array_merge($rest, $embedded);
+        header('Location: index.php?route=' . urlencode($route) . '&' . http_build_query($canonical), true, 302);
+        exit;
+    }
+    unset($embedded, $embeddedQuery);
+}
 if ($route !== '' && $route !== 'home') {
     require_once __DIR__ . '/public/layout/public_data.php';
     $facadeRoutes = require __DIR__ . '/public/layout/facade_routes.php';

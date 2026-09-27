@@ -13,6 +13,7 @@ use App\API\Services\payments\FinancialAccountService;
 use App\API\Services\ServiceContractBroker;
 use App\API\Services\ReadReplicaService;
 use App\API\Services\DataScopeService;
+use App\API\Services\UploadService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -306,7 +307,24 @@ class ParentPortalManager extends BaseAPI
             $variants[] = '07' . substr($digits, 1);
         }
 
+        // The canonical form is preferred; it is matched first.
+        $canonical = \App\API\Services\PhoneNumberNormalizer::normalize($identifier);
+        if ($canonical !== null) {
+            array_unshift($variants, $canonical);
+        }
+
         return array_values(array_unique($variants));
+    }
+
+    /**
+     * Collapse any accepted phone entry format to the canonical 2547XXXXXXXX
+     * form (single source of truth: PhoneNumberNormalizer). Returns null when
+     * the value is empty, an email, or clearly not a Kenyan mobile number.
+     */
+    private function canonicalPhone(mixed $value): ?string
+    {
+        $normalized = \App\API\Services\PhoneNumberNormalizer::normalize((string) $value);
+        return $normalized === null ? null : $normalized;
     }
 
     private function lookupActiveAccount(string $email): ?array
@@ -412,10 +430,11 @@ class ParentPortalManager extends BaseAPI
             $scopes = DataScopeService::scopes();
             $scopeIn = implode(',', array_fill(0, count($scopes), '?'));
             $stmt = $this->db->prepare(
-                "SELECT s.id, ps.first_name, ps.last_name, s.admission_no, s.status,
+                "SELECT s.id, ps.first_name, ps.last_name, ps.photo_url, s.admission_no, s.status,
                         c.name AS class_name, sl.name AS level_name,
                         COALESCE((SELECT SUM(fb.balance) FROM $feeBalView fb
-                                  WHERE fb.student_id = s.id), 0) AS current_balance,
+                                  WHERE fb.student_academic_enrollment_id = sae.id
+                                    AND fb.academic_year_id = sae.academic_year_id), 0) AS current_balance,
                         (SELECT MAX(pt.payment_date) FROM vw_payment_transactions_with_amount pt
                          WHERE pt.student_id = s.id
                            AND pt.status IN ('confirmed','completed','success')) AS last_payment_date
@@ -423,7 +442,15 @@ class ParentPortalManager extends BaseAPI
                  JOIN students s ON s.id = sp.student_id AND s.status = 'active'
                  JOIN persons ps ON ps.id = s.person_id
                  LEFT JOIN student_academic_enrollments sae
-                        ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                        ON sae.student_id = s.id
+                       AND sae.enrollment_status = 'active'
+                       AND sae.academic_year_id = (
+                           SELECT ay_current.id
+                           FROM academic_years ay_current
+                           WHERE ay_current.is_current = 1
+                           ORDER BY ay_current.id DESC
+                           LIMIT 1
+                       )
                  LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                  LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c ON c.id = ayc.class_id
@@ -434,6 +461,12 @@ class ParentPortalManager extends BaseAPI
             );
             $stmt->execute(array_merge([$this->parentId], array_values($scopes)));
             $children = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $uploadService = new UploadService();
+            foreach ($children as &$child) {
+                $child['photo_url'] = $uploadService->publicUrl($child['photo_url'] ?? null)
+                    ?? $uploadService->publicUploadUrl('students', 'avatar.jpg');
+            }
+            unset($child);
 
             $parentInfo = $this->getParentProfile($this->parentId);
 
@@ -445,6 +478,270 @@ class ParentPortalManager extends BaseAPI
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /** Submit a replacement learner photo for school approval. */
+    public function submitStudentPhoto(int $studentId, array $file): array
+    {
+        if ($this->parentId < 1) return $this->errorResponse('Not authenticated', 401);
+        try {
+            $scope = $this->db->prepare(
+                'SELECT s.id FROM students s
+                 JOIN student_parents sp ON sp.student_id = s.id
+                 WHERE s.id = ? AND sp.parent_id = ? LIMIT 1'
+            );
+            $scope->execute([$studentId, $this->parentId]);
+            if (!$scope->fetchColumn()) return $this->errorResponse('Student is not linked to this parent account.', 403);
+
+            $workflow = new \App\API\Services\StudentPhotoWorkflowService($this->db);
+            $result = $workflow->submit($studentId, $file, $this->parentId, 'parent_request', false);
+            return $this->successResponse($result, 'Photo submitted for school approval.');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] photo submission: ' . $e->getMessage());
+            return $this->errorResponse('Unable to submit the photo.', 400);
+        }
+    }
+
+    public function getStudentPhotoHistory(int $studentId): array
+    {
+        if ($this->parentId < 1) return $this->errorResponse('Not authenticated', 401);
+        $scope = $this->db->prepare('SELECT 1 FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1');
+        $scope->execute([$studentId, $this->parentId]);
+        if (!$scope->fetchColumn()) return $this->errorResponse('Student is not linked to this parent account.', 403);
+        return $this->successResponse(['photos' => (new \App\API\Services\StudentPhotoWorkflowService($this->db))->list($studentId)]);
+    }
+
+    /**
+     * Admission applications submitted by the signed-in parent, each with its
+     * current workflow stage and progress along the canonical admissions path.
+     *
+     * Strictly parent-scoped (admission_applications.parent_id = session
+     * parent). Only the friendly stage path, current stage and progress are
+     * exposed — staff-only controls, reviewer identities and notes stay hidden.
+     *
+     * @return array
+     */
+    public function getAdmissionApplications(): array
+    {
+        if (!$this->parentId) {
+            return $this->errorResponse('Not authenticated', 401);
+        }
+
+        try {
+            $stageRows = $this->db->query(
+                "SELECT code, name, sequence
+                 FROM workflow_stages
+                 WHERE workflow_id = 102 AND is_active = 1
+                 ORDER BY sequence ASC, id ASC"
+            )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            $forward = [];
+            foreach ($stageRows as $row) {
+                $code = strtolower(trim((string) ($row['code'] ?? '')));
+                if (in_array($code, ['waitlisted', 'placement_test', 'rejected'], true)) {
+                    continue;
+                }
+                $forward[] = [
+                    'code'     => $code,
+                    'name'     => (string) ($row['name'] ?? $code),
+                    'sequence' => (int) ($row['sequence'] ?? 0),
+                ];
+            }
+            $totalSteps = count($forward);
+            $forwardIndex = array_flip(array_column($forward, 'code'));
+
+            $stmt = $this->db->prepare(
+                "SELECT aa.id, aa.application_no, aa.applicant_name, aa.date_of_birth,
+                        aa.gender, aa.grade_applying_for, aa.status, aa.created_at,
+                        aa.enrolled_student_id,
+                        ay.year_code AS term_year, t.name AS term_name,
+                        wi.current_stage, wi.status AS workflow_status,
+                        (SELECT wh.action_taken FROM workflow_stage_history wh
+                         WHERE wh.instance_id = wi.id ORDER BY wh.id DESC LIMIT 1) AS last_action,
+                        (SELECT wh.processed_at FROM workflow_stage_history wh
+                         WHERE wh.instance_id = wi.id ORDER BY wh.id DESC LIMIT 1) AS last_action_at
+                 FROM admission_applications aa
+                 LEFT JOIN academic_year_terms ayt ON ayt.id = aa.target_term_id
+                 LEFT JOIN terms t ON t.id = ayt.term_id
+                 LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 LEFT JOIN (
+                     SELECT wi.id, wi.reference_id, wi.current_stage, wi.status
+                     FROM workflow_instances wi
+                     JOIN (
+                         SELECT reference_id, MAX(id) AS max_id
+                         FROM workflow_instances
+                         WHERE reference_type = 'admission_application'
+                         GROUP BY reference_id
+                     ) latest ON latest.max_id = wi.id
+                 ) wi ON wi.reference_id = aa.id
+                 WHERE aa.parent_id = :parent_id
+                 ORDER BY aa.created_at DESC, aa.id DESC"
+            );
+            $stmt->execute([':parent_id' => $this->parentId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            $statusLabels = [
+                'submitted'              => 'Submitted',
+                'documents_pending'      => 'Documents Pending',
+                'documents_verified'     => 'Documents Verified',
+                'placement_offered'      => 'Placement Offered',
+                'fees_pending'           => 'Fees Pending',
+                'waitlisted'             => 'Waitlisted',
+                'placement_test_required'=> 'Placement Test Required',
+                'enrolled'               => 'Enrolled',
+                'cancelled'              => 'Cancelled',
+            ];
+
+            $applications = [];
+            foreach ($rows as $row) {
+                $stageCode = $this->normalizeParentStageCode((string) ($row['current_stage'] ?? ''));
+                if ($stageCode === null) {
+                    $stageCode = $this->inferParentStageFromStatus((string) ($row['status'] ?? ''));
+                }
+
+                // Waitlisted / placement-test applications sit at the interview
+                // phase of the forward path — snap their stepper position there.
+                $progressStage = in_array($stageCode, ['waitlisted', 'placement_test'], true)
+                    ? 'interview_scheduling'
+                    : $stageCode;
+                $idx = ($progressStage !== null && isset($forwardIndex[$progressStage]))
+                    ? $forwardIndex[$progressStage]
+                    : -1;
+                $progress = ($stageCode === 'enrolled')
+                    ? 100
+                    : ($totalSteps > 0 && $idx >= 0 ? (int) round(($idx + 1) / $totalSteps * 100) : 0);
+
+                $stages = [];
+                foreach ($forward as $i => $s) {
+                    $stages[] = [
+                        'code'     => $s['code'],
+                        'name'     => $s['name'],
+                        'sequence' => $s['sequence'],
+                        'state'    => ($idx >= 0 && $i < $idx) ? 'done' : ($i === $idx ? 'current' : 'todo'),
+                    ];
+                }
+
+                $status = strtolower(trim((string) ($row['status'] ?? '')));
+                $termYear = trim((string) ($row['term_year'] ?? ''));
+                $termName = trim((string) ($row['term_name'] ?? ''));
+                $targetTerm = '';
+                if ($termYear !== '' && $termName !== '') {
+                    $targetTerm = $termName . ' · ' . $termYear;
+                } elseif ($termName !== '') {
+                    $targetTerm = $termName;
+                }
+
+                $applications[] = [
+                    'id'                 => (int) $row['id'],
+                    'application_no'     => (string) ($row['application_no'] ?? ''),
+                    'applicant_name'     => (string) ($row['applicant_name'] ?? ''),
+                    'date_of_birth'      => (string) ($row['date_of_birth'] ?? ''),
+                    'gender'             => (string) ($row['gender'] ?? ''),
+                    'grade_applying_for' => $this->prettifyAdmissionGrade((string) ($row['grade_applying_for'] ?? '')),
+                    'status'             => $status,
+                    'status_label'       => $statusLabels[$status] ?? ucfirst($status),
+                    'target_term'        => $targetTerm,
+                    'created_at'         => (string) ($row['created_at'] ?? ''),
+                    'enrolled_student_id'=> $row['enrolled_student_id'] !== null ? (int) $row['enrolled_student_id'] : null,
+                    'current_stage_code' => $stageCode,
+                    'current_stage_name' => ($stageCode !== null && isset($forwardIndex[$stageCode]))
+                        ? $forward[$forwardIndex[$stageCode]]['name']
+                        : (($stageCode === 'rejected') ? 'Rejected' : ($stageCode === 'waitlisted' ? 'Waitlisted' : 'Placement Test Required')),
+                    'registration_fee_due' => 0.0,
+                    'progress_percent'   => $progress,
+                    'current_step'       => $idx >= 0 ? $idx + 1 : 0,
+                    'total_steps'        => $totalSteps,
+                    'stages'             => $stages,
+                    'last_action'        => trim((string) ($row['last_action'] ?? '')),
+                    'last_action_at'     => (string) ($row['last_action_at'] ?? ''),
+                ];
+                try {
+                    $applications[count($applications) - 1]['registration_fee_due'] = round(
+                        (new \App\API\Services\ExtraChargeService($this->db))->admissionTotalDue((int) $row['id']),
+                        2
+                    );
+                } catch (Exception $chargeException) {
+                    \App\API\Services\Logger::legacyError('[ParentPortalManager] admission charge lookup: ' . $chargeException->getMessage());
+                }
+            }
+
+            return $this->successResponse([
+                'applications' => $applications,
+                'stages'       => $forward,
+            ], 'Admission applications loaded');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('Failed to load admission applications', 500);
+        }
+    }
+
+    /**
+     * Normalize a stored/legacy workflow stage code to the canonical stage.
+     */
+    private function normalizeParentStageCode(string $stageCode): ?string
+    {
+        $stageCode = strtolower(trim($stageCode));
+        if ($stageCode === '') {
+            return null;
+        }
+        $legacyMap = [
+            'application' => 'application_applied',
+            'application_submission' => 'application_applied',
+            'documents_upload' => 'application_applied',
+            'document_verification' => 'application_received',
+            'documents_verification' => 'application_received',
+            'class_capacity_check' => 'student_admission_number',
+            'class_space_check' => 'student_admission_number',
+            'interview_assessment' => 'interview_results',
+            'admission_decision' => 'student_admission_number',
+            'placement_offer' => 'student_admission_number',
+            'fee_payment' => 'fees_payment',
+            'enrollment' => 'final_enrollment',
+            'enrollment_confirmation' => 'final_enrollment',
+            'director_confirmation' => 'final_enrollment',
+            'final_approval' => 'final_enrollment',
+        ];
+        return $legacyMap[$stageCode] ?? $stageCode;
+    }
+
+    /**
+     * Infer the canonical stage from the coarse application status when no
+     * workflow instance exists yet (e.g. legacy/offline submissions).
+     */
+    private function inferParentStageFromStatus(string $status): ?string
+    {
+        switch (strtolower(trim($status))) {
+            case 'submitted':
+                return 'application_received';
+            case 'documents_pending':
+                return 'application_applied';
+            case 'documents_verified':
+                return 'interview_scheduling';
+            case 'placement_offered':
+            case 'fees_pending':
+                return 'fees_payment';
+            case 'waitlisted':
+                return 'waitlisted';
+            case 'placement_test_required':
+                return 'placement_test';
+            case 'enrolled':
+                return 'enrolled';
+            case 'cancelled':
+                return 'rejected';
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Present the stored enum grade in a readable form (Grade1 → Grade 1).
+     */
+    private function prettifyAdmissionGrade(string $grade): string
+    {
+        if (preg_match('/^Grade(\d+)$/i', $grade, $m)) {
+            return 'Grade ' . $m[1];
+        }
+        return $grade;
     }
 
     /** Parent community: PTA notices, representative meetings and invitations. */
@@ -474,7 +771,10 @@ class ParentPortalManager extends BaseAPI
 
         try {
             $data = $this->buildStudentFeesData($studentId);
-            return $this->successResponse(['academic_years' => $data]);
+            return $this->successResponse([
+                'academic_years' => $data,
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
+            ]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load fees', 500);
@@ -527,6 +827,7 @@ class ParentPortalManager extends BaseAPI
             return $this->successResponse([
                 'student'      => $student,
                 'fees'         => ['academic_years' => $fees],
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
                 'payments'     => $payments,
                 'generated_at' => date('Y-m-d H:i:s'),
             ]);
@@ -569,7 +870,11 @@ class ParentPortalManager extends BaseAPI
                 return (float)($r['balance'] ?? 0);
             }, $rows));
 
-            return $this->successResponse(['per_term' => $rows, 'total_balance' => $totalBalance]);
+            return $this->successResponse([
+                'per_term' => $rows,
+                'total_balance' => $totalBalance,
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
+            ]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load balance', 500);
@@ -674,7 +979,9 @@ class ParentPortalManager extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT a.status, a.pickup_time, a.dropoff_time, a.expected_amount,
                         r.name AS route_name, ps.name AS pickup_stop, ds.name AS dropoff_stop,
-                        v.registration_number, CONCAT_WS(' ', dp.first_name, dp.last_name) AS driver_name
+                        v.registration_number, CONCAT_WS(' ', dp.first_name, dp.last_name) AS driver_name,
+                        te.id AS entitlement_id, te.amount_due, te.entitlement_status,
+                        te.route_id AS entitlement_route_id
                    FROM student_transport_assignments a
                    JOIN transport_routes r ON r.id = a.route_id
               LEFT JOIN transport_stops ps ON ps.id = COALESCE(a.pickup_stop_id, a.stop_id)
@@ -683,11 +990,42 @@ class ParentPortalManager extends BaseAPI
               LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
               LEFT JOIN staff d ON d.id = v.driver_id
               LEFT JOIN persons dp ON dp.id = d.person_id
+              LEFT JOIN student_transport_entitlements te
+                     ON te.student_id = a.student_id AND te.entitlement_status = 'active'
                   WHERE a.student_id = ?
-               ORDER BY a.year DESC, a.month DESC LIMIT 1"
+               ORDER BY a.year DESC, a.month DESC, te.id DESC LIMIT 1"
             );
             $stmt->execute([$studentId]);
-            return $this->successResponse($stmt->fetch(PDO::FETCH_ASSOC) ?: []);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            if (!$row) {
+                // No assignment or entitlement on record: the learner is not
+                // subscribed, so the portal shows the subscription request.
+                return $this->successResponse([
+                    'subscribed'         => false,
+                    'default_amount_due' => 0.0,
+                ]);
+            }
+
+            if ($row) {
+                // "Subscribed" means the school has enrolled the learner in
+                // transport: an active entitlement (the billing record paid
+                // against) or an active route assignment with an expected
+                // charge. The payment button is gated on it; either way the
+                // amount entered is never allowed to exceed what is owed.
+                $subscribed = trim((string)($row['entitlement_status'] ?? '')) === 'active'
+                    || ($row['entitlement_id'] ?? null) !== null
+                    || trim((string)($row['status'] ?? '')) === 'active';
+                $amountDue = (float)($row['amount_due'] ?? 0);
+                if ($amountDue <= 0) {
+                    $amountDue = (float)($row['expected_amount'] ?? 0);
+                }
+                $row['subscribed']         = $subscribed;
+                $row['default_amount_due'] = $subscribed ? $amountDue : 0.0;
+                unset($row['entitlement_route_id']);
+            }
+
+            return $this->successResponse($row);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ParentPortalManager] transport: ' . $e->getMessage());
             return $this->errorResponse('Failed to load transport information', 500);
@@ -1854,6 +2192,44 @@ class ParentPortalManager extends BaseAPI
     }
 
     /**
+     * Parent requests transport subscription for one of their children. The
+     * school transport office owns enrolment decisions (route, entitlement,
+     * billing), so this raises a purpose-labelled portal message that a
+     * staff member acts on — it never creates an entitlement itself.
+     *
+     * @param array $data {student_id}
+     * @return array
+     */
+    public function postTransportSubscribeRequest(array $data): array
+    {
+        $studentId = (int)($data['student_id'] ?? 0);
+        if (!$studentId) {
+            return $this->errorResponse('student_id required', 400);
+        }
+        $student = $this->getStudentInfo($studentId);
+        if ($student === null) {
+            return $this->errorResponse('Student not found', 400);
+        }
+        if ($this->assertAccess($studentId) !== null) {
+            return $this->errorResponse('Access denied', 403);
+        }
+
+        $subject = 'Transport subscription request';
+        $body = sprintf(
+            'I would like %s (%s, %s) to be subscribed to school transport. Please contact me to arrange the route and payment.',
+            trim($student['full_name'] ?? $student['first_name'] . ' ' . $student['last_name']),
+            (string)($student['admission_no'] ?? ''),
+            (string)($student['class_name'] ?? '')
+        );
+
+        return $this->postSendMessage([
+            'student_id' => $studentId,
+            'subject'    => $subject,
+            'message'    => $body,
+        ]);
+    }
+
+    /**
      * Student portfolio + artifacts.
      *
      * @param int $studentId
@@ -1965,12 +2341,11 @@ class ParentPortalManager extends BaseAPI
             // Get parent's phone (fallback for phone input)
             $parent = $this->getParentProfile($this->parentId);
 
-            // Phone: explicit param or parent's primary phone
-            $phone = trim((string)($data['phone'] ?? $parent['phone'] ?? ''));
-            // Normalize to 254XXXXXXXXX
-            if (strlen($phone) === 9) $phone = '254' . $phone;
-            if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
-            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+            // Phone: explicit param or parent's primary phone. Any accepted
+            // entry format (+254/254/0/07/local digits) is collapsed to the
+            // canonical 2547XXXXXXXX in one place.
+            $phone = $this->canonicalPhone($data['phone'] ?? $parent['phone'] ?? '');
+            if ($phone === null) {
                 return $this->errorResponse('A valid phone number is required', 400);
             }
 
@@ -2006,7 +2381,10 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Amount exceeds outstanding balance', 400);
             }
 
-            $provider = strtolower(trim((string) ($data['provider'] ?? 'daraja')));
+            // Provider is a system decision, not a parent choice. The parent
+            // portal pays fees through KCB Buni M-Pesa Express by default;
+            // an explicit override is still honoured for staff-surface callers.
+            $provider = strtolower(trim((string) ($data['provider'] ?? 'buni')));
             if (!in_array($provider, ['daraja', 'buni'], true)) {
                 return $this->errorResponse('Unsupported payment provider', 400);
             }
@@ -2048,6 +2426,13 @@ class ParentPortalManager extends BaseAPI
             }
 
             return $this->errorResponse($result['message'] ?? 'Failed to initiate M-Pesa payment', 400);
+        } catch (\RuntimeException $e) {
+            // FinancialAccountService::requireFor() raises RuntimeException when
+            // no verified school account covers this purpose+channel yet. That
+            // is an operational configuration state, not a crash: surface it as
+            // a 4xx so parents get a clear next step instead of a 500.
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('No payment account is configured for this payment type yet. Please contact the school office.', 400);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
@@ -2091,10 +2476,8 @@ class ParentPortalManager extends BaseAPI
         try {
             // Transport and uniforms share phone normalization.
             $parent = $this->getParentProfile($this->parentId);
-            $phone = trim((string)($data['phone'] ?? $parent['phone'] ?? ''));
-            if (strlen($phone) === 9) $phone = '254' . $phone;
-            if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
-            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+            $phone = $this->canonicalPhone($data['phone'] ?? $parent['phone'] ?? '');
+            if ($phone === null) {
                 return $this->errorResponse('A valid phone number is required', 400);
             }
 
@@ -2660,6 +3043,11 @@ class ParentPortalManager extends BaseAPI
         );
         $stmt->execute([':id' => $studentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $uploadService = new UploadService();
+            $row['photo_url'] = $uploadService->publicUrl($row['photo_url'] ?? null)
+                ?? $uploadService->publicUploadUrl('students', 'avatar.jpg');
+        }
         return $row ?: null;
     }
 
@@ -2730,6 +3118,7 @@ class ParentPortalManager extends BaseAPI
                     'obligations'  => [],
                     'total_due'    => 0,
                     'total_paid'   => 0,
+                    'total_waived' => 0,
                     'balance'      => 0,
                 ];
             }
@@ -2760,8 +3149,12 @@ class ParentPortalManager extends BaseAPI
                     $rowBal    = max($amountDue - $waived - $rowPaid, 0);
 
                     $o['amount_paid'] = $rowPaid;
+                    $o['amount_waived'] = $waived;
                     $o['balance']     = $rowBal;
-                    $o['payment_status'] = $rowBal <= 0 ? 'paid' : ($rowPaid > 0 ? 'partial' : 'pending');
+                    $o['payment_status'] = $rowBal <= 0
+                        ? ($waived > 0 && $rowPaid <= 0 ? 'waived' : 'paid')
+                        : ($rowPaid > 0 ? 'partial' : 'pending');
+                    $term['total_waived'] += $waived;
                 }
                 unset($o);
 
@@ -2910,6 +3303,20 @@ class ParentPortalManager extends BaseAPI
                 'values'       => $values,
                 'attendance'   => $attendance,
             ];
+
+            // Admission interview evidence remains part of the learner's
+            // academic history after enrollment; do not discard it at intake.
+            $interview = $this->db->prepare(
+                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                        ai.overall_score, ai.recommendation, ai.remarks
+                   FROM admission_applications aa
+                   JOIN admission_interviews ai ON ai.application_id = aa.id
+                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+                  ORDER BY ai.id DESC LIMIT 1"
+            );
+            $interview->execute([$studentId]);
+            $payload['admission_interview'] = $interview->fetch(PDO::FETCH_ASSOC) ?: null;
 
             if ($reportCard) {
                 $year = $term ? (int)($term['year'] ?? 0) : (int)date('Y');

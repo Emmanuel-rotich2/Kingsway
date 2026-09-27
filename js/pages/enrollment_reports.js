@@ -148,19 +148,23 @@ const enrollmentReportsController = {
 
             const payload = this.unwrapPayload(response);
 
-            // Collect all applications from all queues
-            const allApplications = [];
             const queues = payload?.queues || response?.queues || {};
-
-            Object.keys(queues).forEach(queueName => {
-                if (Array.isArray(queues[queueName])) {
-                    queues[queueName].forEach(app => {
-                        allApplications.push({
-                            ...app,
-                            queue_name: queueName
-                        });
-                    });
-                }
+            // Stage queues are projections of the same applications. Use the
+            // canonical queue to prevent one learner being counted repeatedly.
+            const canonical = Array.isArray(queues.all_applications)
+                ? queues.all_applications
+                : Object.entries(queues).reduce((rows, [queueName, items]) => {
+                    if (queueName !== 'all_applications' && Array.isArray(items)) {
+                        items.forEach(app => rows.push({ ...app, queue_name: queueName }));
+                    }
+                    return rows;
+                }, []);
+            const seen = new Set();
+            const allApplications = canonical.filter(app => {
+                const key = String(app.id || app.application_no || '');
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
             });
 
             this.applications = allApplications;

@@ -425,7 +425,6 @@ return [
             'url' => null,
             'icon' => 'fas fa-user-plus',
             'subitems' => [
-                ['label' => 'New Applications', 'url' => 'new_applications'],           // receive applications
                 ['label' => 'Applications Workspace', 'url' => 'manage_students_admissions'], // tabbed workspace
                 ['label' => 'Class Placement', 'url' => 'admissions_class_placement'], // place student in class
                 ['label' => 'Placement Tests', 'url' => 'placement_tests'],          // manage placement tests

@@ -1,0 +1,94 @@
+/* Consistent presentation for read-only application and learner detail modals. */
+.kw-detail-modal .modal-content {
+  border: 0;
+  border-radius: 1rem;
+  overflow: hidden;
+  box-shadow: 0 1rem 3rem rgba(15, 23, 42, .18);
+}
+.kw-detail-modal .modal-header {
+  padding: 1rem 1.35rem;
+  background: linear-gradient(135deg, #0f766e, #166534);
+  color: #fff;
+  border: 0;
+}
+.kw-student-modal-header {
+  background: linear-gradient(120deg, #123b5d 0%, #0f766e 58%, #166534 100%);
+  padding: .9rem 1.35rem;
+}
+.kw-student-modal-header .modal-title { letter-spacing: -.01em; }
+.kw-detail-modal .modal-body { background: #f8fafc; padding: 1.35rem; }
+.kw-detail-modal .modal-footer { background: #fff; border-top: 1px solid #e5e7eb; }
+.kw-detail-intro {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1.1rem 1.25rem; margin-bottom: 1rem; background: #fff;
+  border: 1px solid #e2e8f0; border-radius: .85rem;
+}
+.kw-detail-intro h4 { margin: 0; color: #0f172a; font-weight: 700; }
+.kw-detail-profile-facts { display: flex; flex-direction: column; gap: .2rem; color: #334155; font-size: .85rem; }
+.kw-detail-profile-facts strong { color: #0f766e; font-size: 1rem; }
+.kw-detail-profile-facts span { color: #64748b; }
+.kw-detail-eyebrow { color: #64748b; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.kw-detail-card { height: 100%; padding: 1rem; background: #fff; border: 1px solid #e2e8f0; border-radius: .85rem; }
+.kw-detail-card h6 { color: #0f766e; font-weight: 700; margin-bottom: .85rem; }
+.kw-detail-list { margin: 0; }
+.kw-detail-list dt { color: #64748b; font-size: .82rem; font-weight: 600; }
+.kw-detail-list dd { color: #1e293b; font-weight: 500; margin-bottom: .65rem; }
+.kw-detail-photo { display: block; width: 150px; height: 180px; object-fit: cover; border-radius: .75rem; border: 1px solid #cbd5e1; background: #f1f5f9; }
+.kw-detail-profile-header { display: flex; align-items: center; gap: 1rem; padding: .85rem 1rem; background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid #166534; border-radius: .2rem .8rem .8rem .2rem; }
+.kw-detail-profile-avatar { flex: 0 0 76px; width: 76px; height: 76px; overflow: hidden; display: grid; place-items: center; border-radius: 50%; background: #f1f5f9; border: 1px solid #cbd5e1; }
+.kw-detail-profile-photo { width: 100%; height: 100%; object-fit: cover; }
+.kw-detail-profile-fallback { color: #166534; font-size: 1.35rem; font-weight: 800; }
+.kw-detail-profile-copy h4 { margin: 0; color: #1f2937; font-size: 1.12rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+.kw-detail-profile-meta { color: #64748b; font-size: .8rem; margin-top: .15rem; }
+.kw-detail-doc { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 0; border-bottom: 1px solid #e5e7eb; }
+.kw-detail-doc:last-child { border-bottom: 0; }
+.kw-detail-doc-name { font-weight: 600; color: #334155; }
+.kw-detail-muted { color: #64748b; font-size: .85rem; }
+.kw-detail-modal details { background: #fff; border-color: #e2e8f0 !important; }
+.kw-detail-modal details summary { cursor: pointer; color: #334155; }
+.kw-detail-modal .modal-body > .row > [class*="col-"] {
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: .85rem;
+}
+.kw-detail-modal .modal-body > .row > [class*="col-"] + [class*="col-"] { margin-top: 0; }
+.kw-detail-modal .modal-body h6 { color: #0f766e; font-weight: 700; }
+.kw-detail-modal .modal-body .table { --bs-table-bg: transparent; margin-bottom: 0; }
+.kw-detail-modal .modal-body .table td { padding: .42rem .55rem; vertical-align: top; border-color: #eef2f7; }
+.kw-detail-modal .modal-body .table td:first-child { color: #64748b; width: 42%; }
+.kw-detail-modal .modal-body > .mt-4,
+.kw-detail-modal .modal-body > .mt-3 { padding: 1rem; background: #fff; border: 1px solid #e2e8f0; border-radius: .85rem; }
+#viewStudentModal .modal-dialog { max-width: 94vw; }
+#viewStudentModal .modal-body { max-height: 80vh; overflow-y: auto; }
+#viewStudentModal .modal-body { overscroll-behavior: contain; }
+#viewStudentModal .nav-tabs {
+  position: sticky; top: 0; z-index: 4; background: #fff;
+  border-bottom: 1px solid #dbe4ee; padding: .2rem .25rem 0;
+}
+#viewStudentModal .nav-tabs .nav-link {
+  color: #475569; border: 0; border-bottom: 3px solid transparent;
+  font-weight: 650; padding: .7rem .85rem; white-space: nowrap;
+}
+#viewStudentModal .nav-tabs .nav-link:hover,
+#viewStudentModal .nav-tabs .nav-link:focus-visible { color: #0f766e; background: #f0fdfa; }
+#viewStudentModal .nav-tabs .nav-link.active { color: #0f766e; border-bottom-color: #0f766e; background: transparent; }
+#viewStudentModal .tab-content { min-height: 18rem; }
+#viewStudentModal .card { box-shadow: 0 2px 9px rgba(15, 23, 42, .045); }
+#viewStudentModal .modal-footer { gap: .5rem; }
+#viewStudentModal .modal-footer .small { line-height: 1.3; }
+@media print {
+  body * { visibility: hidden !important; }
+  #viewStudentModal, #viewStudentModal * { visibility: visible !important; }
+  #viewStudentModal { position: absolute !important; inset: 0 !important; }
+  #viewStudentModal .modal-dialog { max-width: none; margin: 0; }
+  #viewStudentModal .modal-header, #viewStudentModal .modal-footer, #viewStudentModal .nav-tabs { display: none !important; }
+  #viewStudentModal .modal-body { max-height: none; overflow: visible; }
+  @page { size: A4 portrait; margin: 12mm; }
+}
+@media (max-width: 767.98px) {
+  .kw-detail-modal .modal-body { padding: .85rem; }
+  .kw-detail-intro { align-items: flex-start; flex-direction: column; }
+  .kw-detail-photo { width: 112px; height: 136px; }
+  .kw-detail-profile-header { align-items: flex-start; }
+}

@@ -12,6 +12,7 @@
         open: function ({ application, classes, apiCall, onSuccess }) {
             const rows = Array.isArray(classes) ? classes.filter(row => row.academic_year_class_stream_id && row.stream_id) : [];
             if (!rows.length) throw new Error('No active class streams are configured for placement.');
+            const parent = [application.parent_first_name, application.parent_last_name].filter(Boolean).join(' ') || '—';
 
             document.getElementById('admissionSharedPlacementModal')?.remove();
             const modalHtml = `<div class="modal fade" id="admissionSharedPlacementModal" tabindex="-1" aria-hidden="true">
@@ -19,6 +20,7 @@
                     <form class="modal-content" id="admissionSharedPlacementForm">
                         <div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Place Student in Class Stream</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
                         <div class="modal-body">
+                            <div class="border rounded-3 bg-light p-3 mb-3"><div class="d-flex justify-content-between gap-2"><strong>Placement-stage context</strong><span class="badge text-bg-primary">${esc(application.current_stage || 'class_placement')}</span></div><div class="row g-2 small mt-1"><div class="col-md-4"><span class="text-muted d-block">Learner</span>${esc(application.applicant_name || '—')}</div><div class="col-md-4"><span class="text-muted d-block">Parent / guardian</span>${esc(parent)}</div><div class="col-md-4"><span class="text-muted d-block">Academic year / term</span>${esc(`${application.academic_year || '—'} · ${application.target_term_id || '—'}`)}</div></div></div>
                             <div class="row g-3">
                                 <div class="col-md-4"><label class="form-label">Application No.</label><input class="form-control" value="${esc(application.application_no || '—')}" readonly></div>
                                 <div class="col-md-5"><label class="form-label">Applicant</label><input class="form-control" value="${esc(application.applicant_name || '—')}" readonly></div>

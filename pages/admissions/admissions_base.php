@@ -159,7 +159,7 @@ if (!isset($appBase)) {
                 <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Admission Application</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form id="newApplicationForm" enctype="multipart/form-data">
+            <form id="newApplicationForm" enctype="multipart/form-data" novalidate>
                 <div class="modal-body">
 
                     <!-- Section: Applicant Details -->
@@ -170,11 +170,11 @@ if (!isset($appBase)) {
                         <div class="col-md-5">
                             <label class="form-label fw-semibold">Full Name <span class="text-danger">*</span></label>
                             <input type="text" name="applicant_name" class="form-control"
-                                   placeholder="As on birth certificate" required>
+                                   placeholder="As on birth certificate" required data-kw-validate="name">
                         </div>
                         <div class="col-md-3">
                             <label class="form-label fw-semibold">Date of Birth <span class="text-danger">*</span></label>
-                            <input type="date" name="date_of_birth" class="form-control" required>
+                            <input type="date" name="date_of_birth" class="form-control" required data-kw-validate="dob">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label fw-semibold">Gender <span class="text-danger">*</span></label>
@@ -214,11 +214,13 @@ if (!isset($appBase)) {
                             </select>
                             <small class="text-muted" id="interviewNote"></small>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                            <select id="academicYearSelect" class="form-select" required disabled>
-                                <option value="">Select Year</option>
+                        <div class="col-md-8">
+                            <label class="form-label fw-semibold">Admission Application Window <span class="text-danger">*</span></label>
+                            <select id="admissionWindowSelect" name="admission_window_id" class="form-select" required disabled>
+                                <option value="">Select an open admission window</option>
                             </select>
+                            <small class="text-muted">Academic year and target term are supplied automatically by the selected window.</small>
+                            <input type="hidden" name="target_term_id" id="targetTermInput">
                             <input type="hidden" name="academic_year" id="academicYearInput">
                         </div>
                         <div class="col-md-4">
@@ -229,6 +231,13 @@ if (!isset($appBase)) {
                             </select>
                         </div>
                         <div class="col-md-4">
+                            <label class="form-label fw-semibold">Student Category <span class="text-danger">*</span></label>
+                            <select name="boarding_preference" class="form-select" required>
+                                <option value="day">Day Scholar</option>
+                                <option value="full_boarding">Full Boarder</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
                             <label class="form-label fw-semibold">Intake Type</label>
                             <select name="admission_category" id="admissionCategorySelect" class="form-select">
                                 <option value="standard">Standard Admission</option>
@@ -236,13 +245,6 @@ if (!isset($appBase)) {
                                 <option value="nursery_term_3">Nursery Term 3 Intake</option>
                             </select>
                             <small class="text-muted">Nursery intakes use the same workflow but are reported separately.</small>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label fw-semibold">Target Term</label>
-                            <select id="targetTermSelect" class="form-select" disabled>
-                                <option value="">Select an open intake</option>
-                            </select>
-                            <input type="hidden" name="target_term_id" id="targetTermInput">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Previous School</label>
@@ -324,6 +326,12 @@ if (!isset($appBase)) {
                         required documents. Accepted formats: PDF, JPG, PNG (max 5 MB).
                     </div>
                     <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Birth Certificate Number</label>
+                            <input type="text" name="birth_certificate_no" class="form-control"
+                                   maxlength="64" autocomplete="off">
+                            <small class="text-muted">Used to prevent duplicate learner applications.</small>
+                        </div>
                         <div class="col-md-4">
                             <label class="form-label">Birth Certificate <span class="text-danger">*</span></label>
                             <input type="file" name="doc_birth_certificate" class="form-control" required

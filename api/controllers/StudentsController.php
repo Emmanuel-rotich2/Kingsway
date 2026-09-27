@@ -51,6 +51,7 @@ class StudentsController extends BaseController
     private const STUDENT_CREATE_PERMS = ['students_create'];
     private const STUDENT_EDIT_PERMS = ['students_edit'];
     private const STUDENT_DELETE_PERMS = ['students_delete'];
+    private const STUDENT_PHOTO_APPROVE_PERMS = ['students_edit', 'students_id_cards_generate', 'admission_manage'];
 
     /**
      * Leadership/houses/awards records are managed only by the Student
@@ -245,6 +246,19 @@ class StudentsController extends BaseController
         ], 'Student context loaded');
     }
 
+    /** GET /api/students/import-context */
+    public function getImportContext($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to import students')) {
+            return $auth;
+        }
+
+        return $this->success(
+            $this->api->getExistingStudentImportContext(),
+            'Existing student import context loaded'
+        );
+    }
+
     /* =====================================================
      * BASE CRUD
      * ===================================================== */
@@ -428,6 +442,30 @@ class StudentsController extends BaseController
         }
         $result = $this->api->uploadPhoto((int) $studentId, $_FILES['photo']);
         return $this->handleResponse($result);
+    }
+
+    public function getPhotoHistory($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view student photo history')) return $auth;
+        return $this->handleResponse($this->api->getPhotoHistory((int) $id));
+    }
+
+    public function postPhotoApprove($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_PHOTO_APPROVE_PERMS, 'Insufficient permission to approve student photos')) return $auth;
+        return $this->handleResponse($this->api->approvePhoto((int) ($id ?: ($data['version_id'] ?? 0)), (string) ($data['reason'] ?? '')));
+    }
+
+    public function getPhotoPending($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_PHOTO_APPROVE_PERMS, 'Insufficient permission to review student photos')) return $auth;
+        return $this->handleResponse($this->api->getPendingPhotos());
+    }
+
+    public function postPhotoReject($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_PHOTO_APPROVE_PERMS, 'Insufficient permission to reject student photos')) return $auth;
+        return $this->handleResponse($this->api->rejectPhoto((int) ($id ?: ($data['version_id'] ?? 0)), (string) ($data['reason'] ?? '')));
     }
 
     /**

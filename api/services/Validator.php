@@ -222,6 +222,37 @@ class Validator
                     $this->fail($this->friendly($field) . ' must be a valid URL');
                 }
                 break;
+            case 'name':
+                if (!is_string($value) || FieldCleaner::cleanName($value) === null) {
+                    $this->fail($this->friendly($field) . ' must contain letters only (no digits or symbols)');
+                }
+                break;
+            case 'phone':
+                if (!is_string($value) || FieldCleaner::cleanPhone($value) === null) {
+                    $this->fail($this->friendly($field) . ' is not a valid Kenyan phone number');
+                }
+                break;
+            case 'national_id':
+                if (!is_string($value) || FieldCleaner::cleanNationalId($value) === null) {
+                    $this->fail($this->friendly($field) . ' must be a valid national ID or passport number (digits only, 5-12 characters)');
+                }
+                break;
+            case 'address':
+                if (!is_string($value) || FieldCleaner::cleanAddress($value) === null) {
+                    $this->fail($this->friendly($field) . ' is not a valid address');
+                }
+                break;
+            case 'dob':
+                if (!is_string($value) || FieldCleaner::cleanDob($value) === null) {
+                    $this->fail($this->friendly($field) . ' must be a date strictly in the past (not today or future)');
+                }
+                break;
+            case 'not_future':
+                if (!is_string($value) || FieldCleaner::cleanDate($value) === null
+                    || FieldCleaner::cleanDate($value) >= date('Y-m-d')) {
+                    $this->fail($this->friendly($field) . ' must not be today or in the future');
+                }
+                break;
             case 'min':
                 $this->failIf(strlen((string) $value) < (int) $param, $this->friendly($field) . " must be at least {$param} characters");
                 break;
@@ -283,6 +314,24 @@ class Validator
         }
         if (in_array('boolean', $rules, true) || in_array('bool', $rules, true)) {
             return in_array($value, [true, 'true', 1, '1'], true);
+        }
+        if (in_array('name', $rules, true)) {
+            return FieldCleaner::cleanName($value);
+        }
+        if (in_array('phone', $rules, true)) {
+            return FieldCleaner::cleanPhone($value);
+        }
+        if (in_array('national_id', $rules, true)) {
+            return FieldCleaner::cleanNationalId($value);
+        }
+        if (in_array('address', $rules, true)) {
+            return FieldCleaner::cleanAddress($value);
+        }
+        if (in_array('dob', $rules, true)) {
+            return FieldCleaner::cleanDob($value);
+        }
+        if (in_array('not_future', $rules, true)) {
+            return FieldCleaner::cleanDate($value);
         }
         return $value;
     }

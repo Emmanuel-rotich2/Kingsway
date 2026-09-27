@@ -61,6 +61,50 @@ class AdmissionNumberService
     }
 
     /**
+     * Normalize a number supplied while registering an existing learner.
+     * Staff may enter 400 or KPS400; storage is always KPS400.
+     */
+    public function normalizeExisting(string $value): ?string
+    {
+        // Historical registers sometimes contain letters, spaces or labels.
+        // Keep the numeric portion and apply the canonical school prefix.
+        $digits = preg_replace('/\D+/', '', trim($value));
+        if ($digits === '') {
+            return null;
+        }
+        $digits = ltrim($digits, '0');
+        return 'KPS' . ($digits === '' ? '0' : $digits);
+    }
+
+    public function isAvailable(string $admissionNo): bool
+    {
+        $stmt = $this->db->prepare('SELECT 1 FROM students WHERE admission_no = ? LIMIT 1');
+        $stmt->execute([$admissionNo]);
+        return $stmt->fetchColumn() === false;
+    }
+
+    /**
+     * Continue the KPS sequence from the most recently inserted numbered
+     * learner. Called inside the learner creation transaction.
+     */
+    public function generateNextExisting(): string
+    {
+        $stmt = $this->db->query(
+            "SELECT admission_no FROM students
+             WHERE admission_no REGEXP '^KPS[0-9]+$'
+             ORDER BY id DESC LIMIT 1 FOR UPDATE"
+        );
+        $last = (string) ($stmt->fetchColumn() ?: '');
+        $sequence = preg_match('/^KPS(\d+)$/', $last, $matches) ? (int) $matches[1] + 1 : 1;
+
+        do {
+            $candidate = 'KPS' . $sequence++;
+        } while (!$this->isAvailable($candidate));
+
+        return $candidate;
+    }
+
+    /**
      * Build a PCRE pattern from a format template so an existing admission
      * number can be validated against the configured format.
      */
