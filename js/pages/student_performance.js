@@ -596,10 +596,8 @@ const StudentPerformanceController = {
     const profile = this.state.profile || {};
     const fullName = profile.full_name || `${profile.first_name || ""} ${profile.last_name || ""}`.trim();
 
-    this.ui.studentPhoto.src =
-      profile.photo_url ||
-      profile.photo ||
-      `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
+    this.ui.studentPhoto.src = KingswayFileLifecycle.resolveUrl(profile.photo_url || profile.photo);
+    this.ui.studentPhoto.onerror = function () { this.onerror = null; this.src = KingswayFileLifecycle.avatarUrl(); };
     this.ui.studentName.textContent = fullName || "-";
     this.ui.modalStudentSubtitle.textContent = fullName || "Student full school profile";
     this.ui.admNo.textContent = profile.admission_no || "-";
@@ -719,7 +717,7 @@ const StudentPerformanceController = {
     this.renderDiscipline(data.discipline_summary?.records || data.discipline || []);
     this.renderActivities(data.activities || []);
     this.renderAttendanceDetails(data.attendance_summary || {});
-    this.renderFinanceDetails(data.finance_summary || {});
+    this.renderFinanceDetails(data.finance_summary || {}, data.admission_interview || null);
     this.renderRecommendations(data.recommendations || []);
   },
 
@@ -832,8 +830,11 @@ const StudentPerformanceController = {
     `;
   },
 
-  renderFinanceDetails: function (finance) {
+  renderFinanceDetails: function (finance, interview) {
     const f = finance || {};
+    const relief = f.financial_relief;
+    const reliefText = relief ? `<div class="alert alert-warning small mt-3 mb-0"><i class="bi bi-shield-check me-1"></i><strong>Approved financial relief:</strong> ${relief.registration_fee_waived ? 'Registration fee waived. ' : ''}${relief.school_fee_waived ? `School-fee relief (${relief.school_fee_waiver_type || 'approved'}). ` : ''}${Number(relief.school_fee_waived_amount || 0) > 0 ? `Applied: ${this.formatMoney(relief.school_fee_waived_amount)}. ` : ''}${this.escape(relief.reason || '')}</div>` : '';
+    const interviewText = interview ? `<div class="alert alert-info small mt-3 mb-0"><i class="bi bi-clipboard-check me-1"></i><strong>Admission interview:</strong> ${this.escape(interview.recommendation || 'Completed')} · Overall score: ${this.escape(interview.overall_score ?? '—')} · Conducted: ${this.escape(interview.conducted_at || interview.scheduled_date || '—')}${interview.remarks ? `<br>${this.escape(interview.remarks)}` : ''}</div>` : '';
     this.ui.financeDetails.innerHTML = `
       <div class="card border-0 bg-light p-3">
         <div class="row g-3 text-center">
@@ -850,6 +851,7 @@ const StudentPerformanceController = {
             <h4 class="mb-0 text-danger fw-bold">${this.formatMoney(f.balance ?? 0)}</h4>
           </div>
         </div>
+        ${reliefText}${interviewText}
       </div>
     `;
   },

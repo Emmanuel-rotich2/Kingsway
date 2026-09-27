@@ -348,7 +348,8 @@ const SpecialNeedsController = {
     const student = data.student || {};
     const iep = data.iep || {};
 
-    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
+    this.ui.studentPhoto.src = KingswayFileLifecycle.resolveUrl(student.photo_url || student.photo);
+    this.ui.studentPhoto.onerror = function () { this.onerror = null; this.src = KingswayFileLifecycle.avatarUrl(); };
     this.ui.studentName.textContent = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "-";
 
     this.ui.admNo.textContent = student.admission_no || "-";

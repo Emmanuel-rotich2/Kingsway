@@ -8106,9 +8106,24 @@ return errorResponse($e->getMessage(), 400);
                 ?? $derivedAverage;
             $overallGrade = $student['overall_grade'] ?? $this->deriveGradeFromPercentage($overallPercentage);
 
+            $admissionInterview = null;
+            $interviewStmt = $this->db->prepare(
+                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                        ai.overall_score, ai.recommendation, ai.remarks
+                   FROM admission_applications aa
+                   JOIN admission_interviews ai ON ai.application_id = aa.id
+                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+                  ORDER BY ai.id DESC LIMIT 1"
+            );
+            $interviewStmt->execute([$studentId]);
+            $admissionInterview = $interviewStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
             return successResponse([
                 'student' => $student,
                 'subjects' => $subjects,
+                'admission_interview' => $admissionInterview,
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
                 'summary' => [
                     'percentage' => $overallPercentage,
                     'grade' => $overallGrade,

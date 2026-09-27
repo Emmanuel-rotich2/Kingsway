@@ -30,6 +30,7 @@ $parentSidebar   = (bool)($parentSidebar ?? false);
 
 $parentSections = [
     'dashboard'  => ['label' => 'Dashboard',    'href' => 'dashboard',  'icon' => 'bi bi-grid-1x2-fill'],
+    'applications' => ['label' => 'Admission Applications', 'href' => 'applications', 'icon' => 'bi bi-clipboard2-check-fill'],
     'children'   => ['label' => 'My Children',  'href' => 'children',   'icon' => 'bi bi-people-fill'],
     'updates'    => ['label' => 'School Updates', 'href' => 'updates', 'icon' => 'bi bi-megaphone-fill'],
     'results'    => ['label' => 'Learning & Results', 'href' => 'results', 'icon' => 'bi bi-mortarboard-fill'],
@@ -46,7 +47,7 @@ $parentSections = [
     'account'    => ['label' => 'Account Settings',    'href' => 'account',   'icon' => 'bi bi-gear-fill'],
 ];
 $parentNavGroups = [
-    'overview'    => ['label' => 'Overview',       'icon' => 'bi bi-grid-1x2-fill',   'items' => ['dashboard']],
+    'overview'    => ['label' => 'Overview',       'icon' => 'bi bi-grid-1x2-fill',   'items' => ['dashboard', 'applications']],
     'learning'    => ['label' => 'Learning',       'icon' => 'bi bi-mortarboard-fill', 'items' => ['children','results','learning','attendance']],
     'school-life' => ['label' => 'School Life',    'icon' => 'bi bi-stars',            'items' => ['updates','health','activities','community']],
     'contact'     => ['label' => 'Contact & Files','icon' => 'bi bi-chat-dots-fill',   'items' => ['messages','documents','downloads']],
@@ -75,6 +76,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
   <link rel="stylesheet" href="<?= $appBase ?>/css/parent-cpanel.css?v=<?= asset_version('css/parent-cpanel.css') ?>">
   <script>
     window.APP_BASE = <?= json_encode($appBase) ?>;
+    window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
     // The parent portal owns an independent family session. Prevent api.js
     // from restoring or redirecting based on an unrelated internal-staff cookie.
     window.KINGSWAY_PUBLIC_PAGE = true;

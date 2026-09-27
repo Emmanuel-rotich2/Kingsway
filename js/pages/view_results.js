@@ -97,7 +97,7 @@ const viewResultsCtrl = (() => {
 
     function buildStudentProfile(student) {
         const fullName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-        const photoUrl = student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg');
+        const photoUrl = KingswayFileLifecycle.resolveUrl(student.photo_url);
         return `<div class="student-profile-card">
             <div class="d-flex align-items-center gap-3 mb-3">
                 <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')"></div>

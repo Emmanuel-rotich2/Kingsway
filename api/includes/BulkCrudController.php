@@ -79,7 +79,7 @@ class BulkCrudController {
                         try {
                             $mediaManager = ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
                             $mediaId = $mediaManager->upload($_FILES['profile_pic'], $table, $id, null, null, 'profile picture');
-                            $preview = $mediaManager->getPreviewUrl($mediaId);
+                            $preview = $mediaManager->getStoredReference($mediaId);
                             // Update existing profile column with preview path for backward compatibility
                             $stmt = $this->db->prepare("UPDATE $table SET {$extra['profile_pic_column']} = ? WHERE $identifier = ?");
                             $stmt->execute([$preview ?: $mediaId, $id]);
@@ -98,7 +98,7 @@ class BulkCrudController {
                         try {
                             $mediaManager = ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
                             $mediaId = $mediaManager->upload($_FILES['document'], 'documents', $id, null, null, 'document upload');
-                            $preview = $mediaManager->getPreviewUrl($mediaId);
+                            $preview = $mediaManager->getStoredReference($mediaId);
                             $stmt = $this->db->prepare("INSERT INTO {$extra['document_table']} ({$extra['document_ref_column']}, filename, uploaded_at, media_id) VALUES (?, ?, NOW(), ?)");
                             $stmt->execute([$id, $preview ?: $mediaId, $mediaId]);
                             echo json_encode(['status' => 'success', 'media_id' => $mediaId, 'preview' => $preview]);

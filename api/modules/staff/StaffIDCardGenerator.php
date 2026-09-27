@@ -67,8 +67,7 @@ final class StaffIDCardGenerator extends BaseAPI
                 'photo_staff_' . (int) $staffId
             );
 
-            $profilePictureUrl = $mediaManager->getFileUrl($mediaId)
-                ?: $mediaManager->getPreviewUrl($mediaId);
+            $profilePictureUrl = $mediaManager->getStoredReference($mediaId);
 
             if (!$profilePictureUrl) {
                 return formatResponse(

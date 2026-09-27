@@ -417,7 +417,7 @@ if (!isset($appBase)) {
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label class="form-label fw-semibold">Date</label>
-                            <input type="date" class="form-control" id="rollCallDate" required>
+                            <input type="date" class="form-control" id="rollCallDate" required data-kw-validate="not_future">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label fw-semibold">Session</label>

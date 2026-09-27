@@ -29,7 +29,7 @@
                 <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.showBulkImportModal()" 
                         data-permission="students_create"
                         data-role="registrar,school_administrator,admin">
-                    <i class="bi bi-upload"></i> Bulk Import
+                    <i class="bi bi-upload"></i> Add Multiple Students
                 </button>
                 <!-- Export will be added after a routed Students export API is available. -->
             </div>
@@ -37,6 +37,13 @@
     </div>
 
     <div class="card-body">
+        <div id="studentPhotoApprovalPanel" class="alert alert-warning d-none mb-4" data-permission="students_edit">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong><i class="bi bi-camera me-1"></i>Photos awaiting approval</strong>
+                <span class="badge bg-warning text-dark" id="studentPhotoApprovalCount">0</span>
+            </div>
+            <div id="studentPhotoApprovalRows" class="row g-2"></div>
+        </div>
         <!-- Statistics Cards - visible based on role -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -195,10 +202,10 @@
 
 <!-- Student Modal (Create/Edit) -->
 <div class="modal fade" id="studentModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl modal-fullscreen-lg-down">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title" id="studentModalLabel">Add Existing Learner</h5>
+                <h5 class="modal-title" id="studentModalLabel">Add Existing Student</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="studentForm" enctype="multipart/form-data" onsubmit="studentsManagementController.saveStudent(event)">
@@ -214,9 +221,9 @@
                             <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/uploads/students/avatar.jpg"
+                            <img id="studentPhotoPreview" src="<?= htmlspecialchars(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') . '/students/avatar.jpg' : $appBase . '/uploads/students/avatar.jpg', ENT_QUOTES, 'UTF-8') ?>"
                                 class="rounded-circle" width="80" height="80"
-                                onerror="this.onerror=null; this.src='<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/uploads/students/avatar.jpg'"
+                                onerror="this.onerror=null; this.src=window.KingswayFileLifecycle ? KingswayFileLifecycle.avatarUrl() : this.src"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
                         </div>
                     </div>
@@ -226,15 +233,15 @@
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label class="form-label">First Name <span class="text-danger">*</span></label>
-                            <input type="text" id="firstName" class="form-control" required>
+                            <input type="text" id="firstName" class="form-control" required data-kw-validate="name">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Middle Name</label>
-                            <input type="text" id="middleName" class="form-control">
+                            <input type="text" id="middleName" class="form-control" data-kw-validate="name">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                            <input type="text" id="lastName" class="form-control" required>
+                            <input type="text" id="lastName" class="form-control" required data-kw-validate="name">
                         </div>
                     </div>
                     <div class="row">
@@ -247,7 +254,9 @@
         id="dateOfBirth" 
         class="form-control" 
         min="2009-01-01"
+        max="<?= date('Y-m-d', strtotime('-1 day')) ?>"
         required
+        data-kw-validate="dob"
     >
 </div>
                         <div class="col-md-3 mb-3">
@@ -280,10 +289,9 @@
                     <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-mortarboard"></i> Academic Information</h6>
                     <div class="row">
 <div class="col-md-3 mb-3">
-    <label class="form-label">Admission Number <span class="text-danger">*</span></label>
-    <input type="text" id="admissionNumber" class="form-control" 
-           value="" placeholder="Generated automatically, e.g. KPS111" readonly>
-    <small class="text-muted">Generated from the school’s configured format when saved.</small>
+    <label class="form-label" for="admissionNumber">Admission Number <span class="text-muted">(optional)</span></label>
+    <input type="text" id="admissionNumber" class="form-control" value="" inputmode="numeric" maxlength="20" placeholder="e.g. 400">
+    <small class="text-muted">Enter the learner’s existing number. The system adds KPS (400 becomes KPS400). Leave blank to continue from the latest number.</small>
 </div>
 
                         <div class="col-md-3 mb-3">
@@ -307,10 +315,6 @@
                     </div>
                     <div class="row">
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Admission Date</label>
-                            <input type="date" id="admissionDate" class="form-control">
-                        </div>
-                        <div class="col-md-3 mb-3">
                             <label class="form-label">Status <span class="text-danger">*</span></label>
                             <select id="studentStatus" class="form-select" required>
                                 <option value="active">Active</option>
@@ -319,15 +323,8 @@
                             </select>
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Boarding Status</label>
-                            <select id="boardingStatus" class="form-select">
-                                <option value="day">Day Scholar</option>
-                                <option value="boarding">Boarding</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3 mb-3">
                             <label class="form-label">KNEC Assessment No.</label>
-                            <input type="text" id="assessmentNumber" class="form-control" placeholder="KNEC Assessment Number">
+                            <input type="text" id="assessmentNumber" class="form-control" placeholder="KNEC Assessment Number" pattern="[0-9A-Za-z\-]{4,20}" title="4-20 letters/digits">
                             <small class="text-muted">From Grade 3 - issued by KNEC</small>
                         </div>
                     </div>
@@ -376,45 +373,66 @@
                         <div class="col-12"><label class="form-label">Arrangement notes</label><input id="studentTransportNotes" class="form-control" placeholder="Optional details agreed with the parent"></div>
                     </div>
 
-                    <!-- Sponsorship Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-award"></i> Sponsorship Information</h6>
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input" type="checkbox" id="isSponsored" onchange="studentsManagementController.toggleSponsorFields()">
-                                <label class="form-check-label" for="isSponsored">
-                                    <strong>Is Sponsored?</strong>
-                                </label>
-                            </div>
+                    <!-- School sponsorship and fee waivers are separate
+                         financial records. External funders are not collected
+                         as sponsors in this student-registration form. -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-award"></i> School Sponsorship</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">School sponsorship programme</label>
+                            <select id="schoolSponsorshipProgram" class="form-select" onchange="studentsManagementController.updateSchoolSponsorshipFields()">
+                                <option value="">No school sponsorship</option>
+                            </select>
+                            <div class="form-text" id="schoolSponsorshipDescription">Select a programme configured by the school.</div>
                         </div>
-                        <div class="col-md-3 mb-3" id="sponsorNameDiv" style="display:none;">
-                            <label class="form-label">Sponsor Name</label>
-                            <input type="text" id="sponsorName" class="form-control" placeholder="e.g. Equity Bank Foundation">
+                        <div class="col-md-6" id="schoolSponsorshipCoverageWrap" style="display:none;">
+                            <label class="form-label">Programme coverage</label>
+                            <input type="text" id="schoolSponsorshipCoverage" class="form-control" readonly>
                         </div>
-                        <div class="col-md-3 mb-3" id="sponsorTypeDiv" style="display:none;">
-                            <label class="form-label">Sponsor Type</label>
-                            <select id="sponsorType" class="form-select">
-                                <option value="">-- Select --</option>
-                                <option value="government">Government</option>
-                                <option value="ngo">NGO</option>
-                                <option value="corporate">Corporate</option>
-                                <option value="individual">Individual</option>
-                                <option value="religious">Religious Organization</option>
-                                <option value="other">Other</option>
+                        <div class="col-md-6" id="schoolSponsorshipPercentageWrap" style="display:none;">
+                            <label class="form-label">Percentage covered (%)</label>
+                            <input type="number" id="schoolSponsorshipPercentage" class="form-control" min="0" max="100" step="0.01">
+                        </div>
+                        <div class="col-md-6" id="schoolSponsorshipAmountWrap" style="display:none;">
+                            <label class="form-label">Amount covered per obligation (KES)</label>
+                            <input type="number" id="schoolSponsorshipAmount" class="form-control" min="0" step="0.01">
+                        </div>
+                        <div class="col-md-4" id="schoolSponsorshipPeriodWrap" style="display:none;">
+                            <label class="form-label">Sponsorship period</label>
+                            <select id="schoolSponsorshipPeriodType" class="form-select" onchange="studentsManagementController.updateSchoolSponsorshipFields()">
+                                <option value="academic_year">Whole academic year</option><option value="term">One term</option><option value="custom">Custom dates</option>
                             </select>
                         </div>
-                        <div class="col-md-3 mb-3" id="sponsorWaiverDiv" style="display:none;">
-                            <label class="form-label">Waiver Percentage (%)</label>
-                            <input type="number" id="sponsorWaiverPercentage" class="form-control" min="0" max="100" placeholder="e.g. 50">
+                        <div class="col-md-4" id="schoolSponsorshipTermWrap" style="display:none;"><label class="form-label">Term</label><select id="schoolSponsorshipTerm" class="form-select"></select></div>
+                        <div class="col-md-2" id="schoolSponsorshipStartsWrap" style="display:none;"><label class="form-label">Starts</label><input id="schoolSponsorshipStartsOn" type="date" class="form-control"></div>
+                        <div class="col-md-2" id="schoolSponsorshipEndsWrap" style="display:none;"><label class="form-label">Ends</label><input id="schoolSponsorshipEndsOn" type="date" class="form-control"></div>
+                        <div class="col-12" id="schoolSponsorshipReasonWrap" style="display:none;">
+                            <label class="form-label">Sponsorship approval reason <span class="text-danger">*</span></label>
+                            <textarea id="schoolSponsorshipReason" class="form-control" rows="2" placeholder="Record the school-approved reason."></textarea>
                         </div>
                     </div>
 
-                    <!-- Optional opening balance for an already enrolled learner -->
-                    <h6 class="mb-3 mt-3 text-primary" id="paymentSectionHeader"><i class="bi bi-cash-coin"></i> Opening Balance Payment <small class="text-muted">(optional)</small></h6>
-                    <div class="alert alert-info mb-3" id="paymentAlert">
-                        <i class="bi bi-info-circle"></i> Students must have an initial payment recorded OR be marked as sponsored before they can be assigned to a class.
+                    <h6 class="mb-3 mt-4 text-primary"><i class="bi bi-shield-check"></i> School Fee Waiver</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Fee-waiver type</label>
+                            <select id="schoolFeeWaiverType" class="form-select" onchange="studentsManagementController.updateSchoolFeeWaiverFields()">
+                                <option value="none">No fee waiver</option>
+                            </select>
+                            <div class="form-text">A waiver reduces a specific fee obligation; it is not a sponsorship programme.</div>
+                        </div>
+                        <div class="col-md-6" id="schoolFeeWaiverValueWrap" style="display:none;">
+                            <label class="form-label" id="schoolFeeWaiverValueLabel">Waiver value</label>
+                            <input type="number" id="schoolFeeWaiverValue" class="form-control" min="0" step="0.01">
+                        </div>
+                        <div class="col-12" id="schoolFeeWaiverReasonWrap" style="display:none;">
+                            <label class="form-label">Waiver approval reason <span class="text-danger">*</span></label>
+                            <textarea id="schoolFeeWaiverReason" class="form-control" rows="2" placeholder="Record the approved waiver reason."></textarea>
+                        </div>
                     </div>
-                    <div class="row" id="paymentFieldsSection">
+
+                    <!-- Payment fields are intentionally not part of manual student registration. -->
+                    <div id="paymentFieldsSection" class="d-none" aria-hidden="true">
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Amount already paid (KES)</label>
                             <input type="number" id="initialPaymentAmount" class="form-control" min="0" step="0.01" placeholder="e.g. 5000">
@@ -438,75 +456,36 @@
                             <input type="text" id="receiptNo" class="form-control" placeholder="e.g. REC-2025-001">
                         </div>
                     </div>
-                    <div class="alert alert-secondary mt-2">
-                        For an existing learner, use the migration fields below to preserve the financial position.
-                        Annual paid is historical; current-term paid is applied once. Do not combine these fields with Amount already paid.
+                    <div class="card border-primary-subtle bg-light mb-3" id="importFeeContextCard">
+                        <div class="card-body py-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0 text-primary"><i class="bi bi-calculator me-1"></i> Fees for this learner</h6>
+                                <span class="badge text-bg-secondary" id="importFeeContextStatus">Select class and student type</span>
+                            </div>
+                            <div class="row g-2 small">
+                                <div class="col-md-3"><span class="text-muted d-block">Academic year</span><strong id="importAcademicYearLabel">—</strong></div>
+                                <div class="col-md-3"><span class="text-muted d-block">Current term</span><strong id="importCurrentTermLabel">—</strong></div>
+                                <div class="col-md-3"><span class="text-muted d-block">Annual fees due</span><strong id="importAnnualDueLabel">KES 0</strong></div>
+                                <div class="col-md-3"><span class="text-muted d-block">Current-term due</span><strong id="importCurrentTermDueLabel">KES 0</strong></div>
+                            </div>
+                        </div>
                     </div>
                     <div class="row" id="financialMigrationSection">
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Academic Year</label>
-                            <input type="text" id="financialAcademicYearCode" class="form-control" placeholder="2026/2027" pattern="\d{4}/\d{4}">
+                            <label class="form-label">Academic year</label>
+                            <input type="text" id="financialAcademicYearCode" class="form-control" readonly>
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Academic-year paid (KES)</label>
-                            <input type="number" id="academicYearPaidAmount" class="form-control" min="0" step="0.01" value="0">
+                            <label class="form-label">Paid this academic year (KES)</label>
+                            <input type="number" id="academicYearPaidAmount" class="form-control" min="0" step="0.01" value="0" placeholder="Total paid in this school year">
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Current-term paid (KES)</label>
-                            <input type="number" id="currentTermPaidAmount" class="form-control" min="0" step="0.01" value="0">
+                            <label class="form-label">Paid this term (KES)</label>
+                            <input type="number" id="currentTermPaidAmount" class="form-control" min="0" step="0.01" value="0" placeholder="Paid in the current term">
                         </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Arrears (KES)</label>
-                            <input type="number" id="feeArrearsAmount" class="form-control" min="0" step="0.01" value="0">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Advance (KES)</label>
-                            <input type="number" id="advanceAmount" class="form-control" min="0" step="0.01" value="0">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Opening balance reference</label>
-                            <input type="text" id="openingBalanceReference" class="form-control">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Opening balance date</label>
-                            <input type="date" id="openingBalanceDate" class="form-control">
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Opening balance method</label>
-                            <select id="openingBalanceMethod" class="form-select">
-                                <option value="">-- Select --</option>
-                                <option value="bank_transfer">Bank Transfer</option>
-                                <option value="mpesa">M-Pesa</option>
-                                <option value="cheque">Cheque</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">Opening balance notes</label>
-                            <textarea id="openingBalanceNotes" class="form-control" rows="2" placeholder="Source of the migrated figures"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Contact Information -->
-                    <div data-permission-any="students_create,students_edit">
-                        <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-telephone"></i> Contact Information</h6>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Email</label>
-                                <input type="email" id="studentEmail" class="form-control">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Phone</label>
-                                <input type="tel" id="studentPhone" class="form-control" placeholder="+254...">
-                                <small class="text-muted">Optional for older learners only</small>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-12 mb-3">
-                                <label class="form-label">Address</label>
-                                <textarea id="studentAddress" class="form-control" rows="2"></textarea>
-                            </div>
-                        </div>
+                        <input type="hidden" id="feeArrearsAmount" value="0">
+                        <input type="hidden" id="advanceAmount" value="0">
+                        <div class="col-md-6 mb-3"><label class="form-label">Balance after recorded payments (KES)</label><input type="number" id="legacyCalculatedBalance" class="form-control" readonly value="0"><small class="text-muted">Calculated from the configured annual fees minus paid this year.</small></div>
                     </div>
 
                     <!-- Parent/Guardian Information -->
@@ -555,11 +534,11 @@
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">First Name <span class="text-danger">*</span></label>
-                                <input type="text" id="parentFirstName" class="form-control">
+                                <input type="text" id="parentFirstName" class="form-control" data-kw-validate="name">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                                <input type="text" id="parentLastName" class="form-control">
+                                <input type="text" id="parentLastName" class="form-control" data-kw-validate="name">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Gender</label>
@@ -574,15 +553,15 @@
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Primary Phone <span class="text-danger">*</span></label>
-                                <input type="tel" id="parentPhone1" class="form-control" placeholder="+254...">
+                                <input type="tel" id="parentPhone1" class="form-control" placeholder="+254..." data-phone-canonical data-kw-validate="phone">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Secondary Phone</label>
-                                <input type="tel" id="parentPhone2" class="form-control" placeholder="+254...">
+                                <input type="tel" id="parentPhone2" class="form-control" placeholder="+254..." data-phone-canonical data-kw-validate="phone">
                             </div>
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Email</label>
-                                <input type="email" id="parentEmail" class="form-control">
+                                <input type="email" id="parentEmail" class="form-control" data-kw-validate="email">
                             </div>
                         </div>
                         <div class="row">
@@ -592,7 +571,7 @@
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Address</label>
-                                <input type="text" id="parentAddress" class="form-control" placeholder="Physical/Postal address">
+                                <input type="text" id="parentAddress" class="form-control" placeholder="Physical/Postal address" data-kw-validate="address">
                             </div>
                         </div>
                     </div>
@@ -608,36 +587,48 @@
     </div>
 </div>
 
-<!-- Bulk Import Modal -->
+<!-- Add Multiple Existing Students Modal -->
 <div class="modal fade" id="bulkImportModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">Bulk Import Students</h5>
+                <h5 class="modal-title">Add Multiple Existing Students</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="bulkImportForm" onsubmit="studentsManagementController.bulkImport(event)">
                 <div class="modal-body">
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> Upload a CSV or Excel file with student data.
-                        <a href="#" onclick="studentsManagementController.downloadTemplate()">Download template</a>
+                        <i class="bi bi-info-circle"></i> Add learners who were already attending before this system.
+                        Their fee position is optional and is calculated from the active database schedule.
+                        <div class="dropdown d-inline-block ms-1">
+                            <button class="btn btn-sm btn-link p-0 align-baseline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Download template</button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.xlsx" download>Excel (.xlsx)</a></li>
+                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.csv" download>CSV (.csv)</a></li>
+                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.ods" download>OpenDocument (.ods)</a></li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Select File</label>
-                        <input type="file" id="bulkImportFile" class="form-control" accept=".csv,.xlsx,.xls" required>
+                        <input type="file" id="bulkImportFile" class="form-control" accept=".csv,.xlsx,.xls,.ods" required>
+                        <div class="form-text">Choose a CSV, Excel, or OpenDocument spreadsheet to preview before adding.</div>
                     </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="updateExisting">
-                        <label class="form-check-label" for="updateExisting">
-                            Update existing students if admission number matches
-                        </label>
-                    </div>
+                    <section id="bulkImportPreview" class="border rounded p-3 mb-3" aria-live="polite" style="display:none;">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                            <h6 class="mb-0">Import preview</h6>
+                            <span id="bulkImportPreviewFilename" class="small text-muted"></span>
+                        </div>
+                        <div id="bulkImportPreviewSummary" class="mb-2"></div>
+                        <div id="bulkImportPreviewTable" class="table-responsive border rounded" style="max-height: min(52vh, 560px);"></div>
+                        <div id="bulkImportPreviewNote" class="form-text mt-2"></div>
+                    </section>
                     <div id="bulkImportResults" class="mt-3" style="display:none;"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="bi bi-upload"></i> Import Students
+                    <button type="submit" id="bulkImportSubmit" class="btn btn-success" disabled>
+                        <i class="bi bi-upload"></i> Add Students
                     </button>
                 </div>
             </form>
@@ -646,17 +637,24 @@
 </div>
 
 <!-- View Student Details Modal -->
-<div class="modal fade" id="viewStudentModal" tabindex="-1">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/detail-modals.css?v=20260923">
+<div class="modal fade kw-detail-modal" id="viewStudentModal" tabindex="-1" aria-labelledby="viewStudentModalTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title">Student Details</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="modal-header kw-student-modal-header">
+                <div>
+                    <div class="small text-white-50">Learner record</div>
+                    <h5 class="modal-title mb-0" id="viewStudentModalTitle">Student Details</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close student details"></button>
             </div>
             <div class="modal-body" id="viewStudentContent">
                 <!-- Dynamic content loaded here -->
             </div>
             <div class="modal-footer">
+                <div class="me-auto small text-muted">Read-only profile · data shown from the school record</div>
+                <button type="button" class="btn btn-outline-secondary" onclick="studentsManagementController.printStudentDetails()"><i class="bi bi-printer" aria-hidden="true"></i> Print profile</button>
+                <button type="button" class="btn btn-primary" id="viewStudentEditButton" onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -664,5 +662,6 @@
 </div>
 
 <!-- Link Controller Script -->
+<?php asset_script($appBase, 'public/vendor/sheetjs/xlsx.full.min.js'); ?>
 <?php asset_script($appBase, 'js/pages/manage_students.js'); ?>
 <script src="js/pages/student_schedule_extension.js?v=20260702"></script>

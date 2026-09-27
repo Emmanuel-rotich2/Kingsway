@@ -109,16 +109,11 @@ const ProfileController = (() => {
         if (completionLabel) completionLabel.textContent = `${completion}%`;
 
         const avatar = document.getElementById('profileAvatar');
-        if (hasValue(s.photo_url)) {
-            avatar.innerHTML = `<img src="${escapeHtml(s.photo_url)}" alt="profile" style="width:100%;height:100%;object-fit:cover">`;
-        } else {
-            avatar.innerHTML = escapeHtml(initials);
-        }
+        const photo = window.KingswayFileLifecycle?.resolveUrl?.(s.photo_url) || window.KingswayFileLifecycle?.avatarUrl?.();
+        avatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="profile" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
         const accountAvatar = document.getElementById('settings-avatar');
         if (accountAvatar) {
-            accountAvatar.innerHTML = hasValue(s.photo_url)
-                ? `<img src="${escapeHtml(s.photo_url)}" alt="${escapeHtml(name)}">`
-                : escapeHtml(initials);
+            accountAvatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="${escapeHtml(name)}" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
         }
 
         document.getElementById('profileName').textContent = name;

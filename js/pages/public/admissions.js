@@ -72,7 +72,7 @@
     },
 
     renderTermOptions(terms) {
-      const select = document.querySelector('[name="preferred_start"]');
+      const select = document.querySelector('[name="admission_window_id"]');
       if (!select) return;
       if (!terms.length) {
         select.innerHTML = '<option value="">Select term</option>' +
@@ -82,11 +82,11 @@
       }
       select.innerHTML = '<option value="">Select term</option>' +
         terms.map((t) => {
-          const token = t.name + ' ' + t.year;
-          const label = token + ' (' + (t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : '') + ')';
-          // Carry the real academic_year_terms.id so the server can resolve the
-          // application's target term even without re-deriving it from the label.
-          return '<option value="' + S(token) + '" data-term-id="' + S(t.id) + '">' + S(label) + '</option>';
+          const id = t.admission_window_id || t.id;
+          const term = t.name || t.term_name || t.term_number || 'Term';
+          const year = t.year || t.year_code || t.year_name || '';
+          const label = (t.admission_window_label || (term + ' ' + year)).trim();
+          return '<option value="' + S(id) + '">' + S(label + ' — ' + term + ' ' + year) + '</option>';
         }).join('');
       select.disabled = false;
     },

@@ -57,7 +57,7 @@ if (!isset($appBase)) {
                     <div class="row">
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-semibold">Date</label>
-                            <input type="date" class="form-control" id="attendanceDate" required>
+                            <input type="date" class="form-control" id="attendanceDate" required data-kw-validate="not_future">
                         </div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label fw-semibold">Route</label>

@@ -27,7 +27,7 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
+    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -94,6 +94,7 @@ if (!headers_sent()) {
 
     <script>
         window.APP_BASE = <?= json_encode($appBase) ?>;
+        window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
         window.REQUESTED_ROUTE = <?= json_encode($route) ?>;
         window.AUTH_SESSION_CONFIG = {
             accessTokenTtlSeconds: <?= (int) (
@@ -207,6 +208,7 @@ $files = [
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
     'js/utils/academic_context.js',
+    'js/utils/form-validation.js',
     'js/index.js',
     'js/sidebar.js',
     'js/app_shell_ui.js',
@@ -223,6 +225,16 @@ foreach ($files as $file) {
     // It buffers + batches events to the same file logger as the backend.
     if (window.AppLogger && typeof window.AppLogger.init === "function") {
         window.AppLogger.init();
+    }
+</script>
+<script>
+    // Self-binding form validation kernel: wire every decoded form that carries
+    // data-kw-validate fields (names, DOB, email, phone). Injected modals are
+    // covered because the kernel delegates submit/blur handling globally.
+    if (window.FormValidation) {
+        document.addEventListener('DOMContentLoaded', function () {
+            FormValidation.bindAllForms();
+        });
     }
 </script>
 <script>

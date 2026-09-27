@@ -520,8 +520,14 @@ final class FinanceCrudService
         $yearCode = (string)($d['academic_year'] ?? date('Y'));
         $yearValue = (int) preg_replace('/[^0-9].*$/', '', $yearCode);
         if ($yearValue < 1900 || $yearValue > 2200) $yearValue = (int) date('Y');
+        $discountType = (string)($d['discount_type'] ?? '');
         $requestedAmount = (float)($d['discount_value'] ?? 0);
-        if (!$studentId || $requestedAmount < 0) throw new InvalidArgumentException('student_id and a valid waiver amount are required');
+        if (!$studentId || !in_array($discountType, ['full_waiver', 'fixed_amount', 'percentage'], true) || $requestedAmount < 0) {
+            throw new InvalidArgumentException('student_id, waiver type and a valid waiver value are required');
+        }
+        if ($discountType === 'percentage' && $requestedAmount > 100) {
+            throw new InvalidArgumentException('Fee-waiver percentage must be between 0 and 100');
+        }
 
         // A student balance spans multiple term obligations. Distribute a
         // full or fixed waiver across the outstanding term balances so the
@@ -552,16 +558,18 @@ final class FinanceCrudService
                     $firstId = 0;
                     foreach ($termRows as $termRow) {
                         $termBalance = (float)$termRow['balance'];
-                        $amount = $d['discount_type'] === 'full_waiver'
+                        $amount = $discountType === 'full_waiver'
                             ? $termBalance
-                            : min($termBalance, max(0, $remaining));
+                            : ($discountType === 'percentage'
+                                ? round($termBalance * ($requestedAmount / 100), 2)
+                                : min($termBalance, max(0, $remaining)));
                         if ($amount <= 0) continue;
                         $insert->execute([$studentId, (int)$termRow['obligation_id'], $d['discount_type'], $amount,
-                        $d['discount_percentage'] ?? null, $d['reason'], $yearValue, (int)$termRow['term_id'],
-                            $userId, $d['valid_until'] ?? null]);
+                        $discountType === 'percentage' ? $requestedAmount : null, $d['reason'], $yearValue, (int)$termRow['term_id'],
+                        $userId, null]);
                         if (!$firstId) $firstId = (int)$this->db->lastInsertId();
                         $remaining -= $amount;
-                        if ($d['discount_type'] !== 'full_waiver' && $remaining <= 0) break;
+                        if ($discountType === 'fixed_amount' && $remaining <= 0) break;
                     }
                     $this->db->commit();
                     if ($firstId) return $firstId;
@@ -585,16 +593,32 @@ final class FinanceCrudService
             $lookup->execute($params);
             $obligationId = (int)($lookup->fetchColumn() ?: 0) ?: null;
         }
+        $balanceStmt = $this->db->prepare(
+            "SELECT GREATEST(0, sfo.amount_due - COALESCE(sfo.sponsored_waiver_amount,0)
+                    - COALESCE((SELECT SUM(fdw.discount_value) FROM fee_discounts_waivers fdw
+                                WHERE fdw.student_fee_obligation_id=sfo.id AND fdw.status='active'),0)
+                    - COALESCE((SELECT SUM(p.amount) FROM payments p
+                                WHERE p.student_id=? AND p.status='confirmed' AND p.payment_purpose='fees'),0))
+             FROM student_fee_obligations sfo WHERE sfo.id=?"
+        );
+        $balanceStmt->execute([$studentId, $obligationId]);
+        $obligationBalance = (float)($balanceStmt->fetchColumn() ?: 0);
+        $actualAmount = $discountType === 'full_waiver'
+            ? $obligationBalance
+            : ($discountType === 'percentage'
+                ? round($obligationBalance * ($requestedAmount / 100), 2)
+                : min($obligationBalance, $requestedAmount));
+        if ($actualAmount <= 0) throw new InvalidArgumentException('No outstanding balance is available for this waiver');
         $this->db->prepare(
             "INSERT INTO fee_discounts_waivers (student_id, student_fee_obligation_id, discount_type, discount_value,
               discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)
              VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active',?)"
         )->execute([
             $d['student_id'], $obligationId,
-            $d['discount_type'], $d['discount_value'],
-            $d['discount_percentage'] ?? null, $d['reason'],
+            $discountType, $actualAmount,
+            $discountType === 'percentage' ? $requestedAmount : null, $d['reason'],
             $yearValue, $d['term_id'] ?? null,
-            $userId, $d['valid_until'] ?? null
+            $userId, null
         ]);
         return $this->db->lastInsertId();
     }
@@ -669,23 +693,49 @@ final class FinanceCrudService
             throw new InvalidArgumentException('Fixed coverage amount is required');
         }
 
+        $periodType = (string)($d['period_type'] ?? 'academic_year');
+        if (!in_array($periodType, ['term', 'academic_year', 'custom'], true)) {
+            throw new InvalidArgumentException('Invalid sponsorship period');
+        }
+        if ($periodType === 'term') {
+            $termStmt = $this->db->prepare('SELECT opening_date, closing_date FROM academic_year_terms WHERE id=? AND academic_year_id=?');
+            $termStmt->execute([(int)($d['academic_year_term_id'] ?? 0), $yearId]);
+            $term = $termStmt->fetch();
+            if (!$term) throw new InvalidArgumentException('The selected sponsorship term is invalid');
+            $startsOn = $term['opening_date'];
+            $endsOn = $term['closing_date'];
+        } elseif ($periodType === 'academic_year') {
+            $yearStmt = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id=?');
+            $yearStmt->execute([$yearId]);
+            $year = $yearStmt->fetch();
+            if (!$year) throw new InvalidArgumentException('The selected academic year is invalid');
+            $startsOn = $year['start_date'];
+            $endsOn = $year['end_date'];
+        } else {
+            $startsOn = $d['starts_on'] ?? null;
+            $endsOn = $d['ends_on'] ?? null;
+            if (!$startsOn || !$endsOn || $startsOn > $endsOn) {
+                throw new InvalidArgumentException('Custom sponsorship period must have valid start and end dates');
+            }
+        }
+
         $this->db->beginTransaction();
         try {
             $stmt = $this->db->prepare(
                 "INSERT INTO student_scholarship_awards
-                    (student_id, scholarship_program_id, academic_year_id, coverage_type,
+                    (student_id, scholarship_program_id, academic_year_id, period_type, coverage_type,
                      coverage_percentage, coverage_amount, reason, starts_on, ends_on,
                      status, awarded_by, notes)
-                 VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)
+                 VALUES (?,?,?,?,?,?,?,?,?,?, 'active',?,?)
                  ON DUPLICATE KEY UPDATE
-                    scholarship_program_id=VALUES(scholarship_program_id),
+                    scholarship_program_id=VALUES(scholarship_program_id), period_type=VALUES(period_type),
                     coverage_type=VALUES(coverage_type), coverage_percentage=VALUES(coverage_percentage),
                     coverage_amount=VALUES(coverage_amount), reason=VALUES(reason),
                     starts_on=VALUES(starts_on), ends_on=VALUES(ends_on), status='active',
                     awarded_by=VALUES(awarded_by), revoked_by=NULL, revoked_at=NULL, notes=VALUES(notes), updated_at=NOW()"
             );
-            $stmt->execute([$studentId, $programId, $yearId, $type, $percentage, $amount,
-                $d['reason'], $d['starts_on'] ?? null, $d['ends_on'] ?? null, $userId, $d['notes'] ?? null]);
+            $stmt->execute([$studentId, $programId, $yearId, $periodType, $type, $percentage, $amount,
+                $d['reason'], $startsOn, $endsOn, $userId, $d['notes'] ?? null]);
             $idStmt = $this->db->prepare("SELECT id FROM student_scholarship_awards WHERE student_id=? AND academic_year_id=?");
             $idStmt->execute([$studentId, $yearId]);
             $id = (int)$idStmt->fetchColumn();
@@ -708,13 +758,16 @@ final class FinanceCrudService
                 "UPDATE student_fee_obligations sfo
                  JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
                  JOIN student_scholarship_awards ssa ON ssa.student_id=sae.student_id AND ssa.academic_year_id=sfo.academic_year_id
+                 JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
                  SET sfo.is_sponsored=0, sfo.sponsored_waiver_amount=0,
                      sfo.status=CASE
                        WHEN COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.student_id=sae.student_id AND p.status='confirmed' AND p.payment_purpose='fees'),0) >= sfo.amount_due THEN 'paid'
                        WHEN COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.student_id=sae.student_id AND p.status='confirmed' AND p.payment_purpose='fees'),0) > 0 THEN 'partial'
                        ELSE 'pending' END,
                      sfo.updated_at=NOW()
-                 WHERE ssa.id=? AND ssa.status='revoked'"
+                 WHERE ssa.id=? AND ssa.status='revoked'
+                   AND (ssa.starts_on IS NULL OR ayt.closing_date >= ssa.starts_on)
+                   AND (ssa.ends_on IS NULL OR ayt.opening_date <= ssa.ends_on)"
             )->execute([$id]);
             $this->db->commit();
         } catch (\Throwable $e) {
@@ -730,8 +783,11 @@ final class FinanceCrudService
         $award = $stmt->fetch();
         if (!$award) return;
         $waiver = $this->db->prepare(
-            "UPDATE student_fee_obligations sfo
+             "UPDATE student_fee_obligations sfo
              JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+             JOIN student_scholarship_awards ssa ON ssa.student_id=sae.student_id
+                 AND ssa.academic_year_id=sfo.academic_year_id AND ssa.id=?
+             JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
                  SET sfo.is_sponsored=1,
                  sfo.sponsored_waiver_amount=LEAST(sfo.amount_due, CASE
                     WHEN ?='full' THEN sfo.amount_due
@@ -742,9 +798,12 @@ final class FinanceCrudService
                     WHEN ?='percentage' THEN sfo.amount_due * ? / 100
                     ELSE ? END) >= sfo.amount_due THEN 'paid' ELSE sfo.status END,
                  sfo.updated_at=NOW()
-             WHERE sae.student_id=? AND sfo.academic_year_id=? AND sfo.status <> 'paid'"
+             WHERE sae.student_id=? AND sfo.academic_year_id=? AND sfo.status <> 'paid'
+               AND (ssa.starts_on IS NULL OR ayt.closing_date >= ssa.starts_on)
+               AND (ssa.ends_on IS NULL OR ayt.opening_date <= ssa.ends_on)"
         );
         $waiver->execute([
+            $awardId,
             $award['coverage_type'], $award['coverage_type'], (float)$award['coverage_percentage'], (float)$award['coverage_amount'],
             $award['coverage_type'], $award['coverage_type'], (float)$award['coverage_percentage'], (float)$award['coverage_amount'],
             (int)$award['student_id'], (int)$award['academic_year_id']
@@ -804,16 +863,73 @@ final class FinanceCrudService
         return ['credit_number' => $creditNum, 'id' => $this->db->lastInsertId()];
     }
 
-    public function applyFeeCredit(int $id, float $applyAmount, array $d): float
+    public function applyFeeCredit(int $id, float $applyAmount, array $d, ?int $userId = null): float
     {
-        $this->db->prepare(
-            "UPDATE fee_credit_notes
-             SET applied_amount = applied_amount + ?,
-                 applied_to_year = ?, applied_to_term_id = ?, applied_at = NOW(),
-                 status = CASE WHEN (applied_amount + ?) >= credit_amount THEN 'fully_applied' ELSE 'partially_applied' END
-             WHERE id = ?"
-        )->execute([$applyAmount, $d['to_year'] ?? date('Y'), $d['to_term_id'] ?? null, $applyAmount, $id]);
-        return $applyAmount;
+        if ($this->db->inTransaction()) {
+            throw new \RuntimeException('Fee credit application must run outside an existing transaction');
+        }
+        $this->db->beginTransaction();
+        try {
+            $lock = $this->db->prepare("SELECT * FROM fee_credit_notes WHERE id=? FOR UPDATE");
+            $lock->execute([$id]);
+            $credit = $lock->fetch(PDO::FETCH_ASSOC);
+            if (!$credit || !in_array($credit['status'], ['available','partially_applied'], true)) {
+                throw new \InvalidArgumentException('Fee credit is not available to apply');
+            }
+            $remaining = max(0, round((float)$credit['credit_amount'] - (float)$credit['applied_amount'], 2));
+            $applyAmount = min(round($applyAmount, 2), $remaining);
+            if ($applyAmount <= 0) throw new \InvalidArgumentException('Fee credit has no remaining amount');
+
+            $yearCode = trim((string)($d['to_year'] ?? ''));
+            if ($yearCode === '') throw new \InvalidArgumentException('to_year is required');
+            $year = $this->db->prepare("SELECT id FROM academic_years WHERE year_code=? LIMIT 1");
+            $year->execute([$yearCode]);
+            $yearId = (int)$year->fetchColumn();
+            if (!$yearId) throw new \InvalidArgumentException('Target academic year was not found');
+
+            $termFilter = '';
+            $params = [(int)$credit['student_id'], $yearId];
+            if (!empty($d['to_term_id'])) {
+                $termFilter = ' AND sfo.academic_year_term_id=?';
+                $params[] = (int)$d['to_term_id'];
+            }
+            $obligations = $this->db->prepare(
+                "SELECT MIN(sfo.id) AS id, GREATEST(COALESCE(vfb.balance,0),0) AS outstanding,
+                        sfo.academic_year_term_id
+                 FROM student_fee_obligations sfo
+                 JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                 LEFT JOIN vw_student_fee_balances vfb ON vfb.student_academic_enrollment_id=sae.id
+                    AND vfb.academic_year_term_id=sfo.academic_year_term_id
+                 WHERE sae.student_id=? AND sae.academic_year_id=? AND sae.enrollment_status='active' {$termFilter}
+                 GROUP BY sfo.academic_year_term_id,vfb.balance
+                 ORDER BY MIN(sfo.due_date),MIN(sfo.id)"
+            );
+            $obligations->execute($params);
+            $allocated = 0.0;
+            $insert = $this->db->prepare(
+                "INSERT INTO fee_credit_applications (fee_credit_note_id,student_fee_obligation_id,applied_amount,applied_by)
+                 VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE applied_amount=applied_amount+VALUES(applied_amount), applied_by=VALUES(applied_by)"
+            );
+            foreach ($obligations->fetchAll(PDO::FETCH_ASSOC) as $obligation) {
+                $left = round($applyAmount - $allocated, 2);
+                $piece = min($left, max(0, (float)$obligation['outstanding']));
+                if ($piece <= 0) continue;
+                $insert->execute([$id, (int)$obligation['id'], $piece, $userId]);
+                $allocated = round($allocated + $piece, 2);
+                if ($allocated >= $applyAmount) break;
+            }
+            if ($allocated <= 0) throw new \InvalidArgumentException('There are no outstanding target-year fees to reduce');
+            $this->db->prepare(
+                "UPDATE fee_credit_notes SET applied_amount=applied_amount+?, applied_to_year=?, applied_to_term_id=?,
+                 applied_at=NOW(), status=CASE WHEN applied_amount+?>=credit_amount THEN 'fully_applied' ELSE 'partially_applied' END
+                 WHERE id=?"
+            )->execute([$allocated, (int)substr($yearCode,0,4), $d['to_term_id'] ?? null, $allocated, $id]);
+            $this->db->commit();
+            return $allocated;
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     public function refundFeeCredit(int $id): void

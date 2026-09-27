@@ -198,19 +198,19 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">First Name *</label>
-                            <input type="text" class="form-control" id="firstName" required>
+                            <input type="text" class="form-control" id="firstName" required data-kw-validate="name">
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Last Name *</label>
-                            <input type="text" class="form-control" id="lastName" required>
+                            <input type="text" class="form-control" id="lastName" required data-kw-validate="name">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email">
+                            <input type="email" class="form-control" id="email" data-kw-validate="email">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Phone</label>
-                            <input type="text" class="form-control" id="phone">
+                            <input type="tel" class="form-control" id="phone" data-phone-canonical data-kw-validate="phone">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Department</label>
@@ -239,7 +239,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Employment Date</label>
-                            <input type="date" class="form-control" id="employmentDate">
+                            <input type="date" class="form-control" id="employmentDate" data-kw-validate="not_future">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Contract Type</label>
@@ -268,7 +268,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Date of Birth</label>
-                            <input type="date" class="form-control" id="dateOfBirth">
+                            <input type="date" class="form-control" id="dateOfBirth" data-kw-validate="dob">
                         </div>
                         <div class="col-md-3">
                             <label class="form-label">Marital Status</label>

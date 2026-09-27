@@ -29,6 +29,22 @@ class AdmissionPaymentService
         if ($referenceNo === '') {
             throw new Exception('A bank or M-Pesa transaction reference is required');
         }
+        $receiptDocumentId = (int) ($paymentData['receipt_document_id'] ?? 0);
+        if ($method === 'bank_transfer') {
+            if ($receiptDocumentId < 1) {
+                throw new Exception('A physical bank payment receipt is required');
+            }
+            $receiptCheck = $this->db->prepare(
+                "SELECT id FROM admission_documents
+                 WHERE id = :id AND application_id = :application_id
+                   AND document_type = 'payment_receipt'
+                 LIMIT 1"
+            );
+            $receiptCheck->execute(['id' => $receiptDocumentId, 'application_id' => $applicationId]);
+            if (!$receiptCheck->fetchColumn()) {
+                throw new Exception('The bank payment receipt is not registered against this application');
+            }
+        }
         $duplicate = $this->db->prepare(
             "SELECT id FROM admission_payments WHERE reference_no = :reference_no LIMIT 1"
         );

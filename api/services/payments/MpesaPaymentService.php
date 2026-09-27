@@ -4,6 +4,7 @@ namespace App\API\Services\payments;
 
 use App\Database\Database;
 use App\API\Services\ReadReplicaService;
+use App\API\Services\PhoneNumberNormalizer;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -92,21 +93,13 @@ class MpesaPaymentService
     }
 
     /**
-     * Normalise a phone number to 254XXXXXXXXX.
+     * Normalise a phone number to the canonical 254XXXXXXXXX form. Delegates
+     * to the shared PhoneNumberNormalizer; unparseable input is returned
+     * unchanged so the caller's format validation can reject it.
      */
     private function normalizePhone(string $phone): string
     {
-        $phone = trim($phone);
-        if (strlen($phone) === 9) {
-            $phone = '254' . $phone;
-        } elseif (strlen($phone) === 10 && $phone[0] === '0') {
-            $phone = '254' . substr($phone, 1);
-        } elseif (strlen($phone) === 12 && strpos($phone, '254') === 0) {
-            // already correct
-        } elseif (strlen($phone) === 13 && strpos($phone, '+254') === 0) {
-            $phone = substr($phone, 1);
-        }
-        return $phone;
+        return PhoneNumberNormalizer::normalize($phone) ?? $phone;
     }
 
     // =========================================================================

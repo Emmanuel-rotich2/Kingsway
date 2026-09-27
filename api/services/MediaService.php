@@ -309,6 +309,28 @@ final class MediaService
         );
     }
 
+    /**
+     * Return the deployment-independent reference for persistence.
+     * Database columns must contain an upload-root-relative path, never a
+     * BASE_URL/UPLOAD_URL browser URL.
+     */
+    public function getStoredReference(int|string $mediaId): ?string
+    {
+        $media = $this->findMedia($mediaId);
+        if ($media === null) {
+            return null;
+        }
+
+        return $this->uploads->normaliseStoredReference(
+            $this->uploads->mediaPublicUrl(
+                (string) $media['context'],
+                $media['entity_id'] ?? null,
+                $media['album_id'] ?? null,
+                (string) $media['filename']
+            )
+        );
+    }
+
     private function findMedia(int|string $mediaId): ?array
     {
         $statement = $this->db->prepare(

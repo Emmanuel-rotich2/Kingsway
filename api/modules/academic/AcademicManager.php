@@ -6209,7 +6209,7 @@ class AcademicManager extends BaseAPI
                         'portfolio artifact',
                         $title
                     );
-                    $filePath = $media->getFileUrl($mediaId);
+                    $filePath = $media->getStoredReference($mediaId);
                 } catch (Throwable $uploadError) {
                     $this->logError($uploadError, 'AcademicManager::postPortfolioArtifactAdd');
                     return $this->errorResponse('File could not be uploaded. Check the file type and size.', 400);
@@ -6310,7 +6310,7 @@ class AcademicManager extends BaseAPI
                     'portfolio artifact',
                     $preferredName
                 );
-                $fileUrl = $media->getFileUrl($newMediaId);
+                $fileUrl = $media->getStoredReference($newMediaId);
 
                 $this->dbQuery(
                     "UPDATE portfolio_artifacts SET file_path = :fp, media_id = :mid WHERE id = :id",

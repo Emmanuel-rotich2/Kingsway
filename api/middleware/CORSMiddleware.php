@@ -7,28 +7,21 @@ class CORSMiddleware
     public static function handle()
     {
         $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        $isProduction = (($_ENV['APP_ENV'] ?? 'production') === 'production');
-
-        $allowedOrigins = defined('ALLOWED_ORIGINS') ? ALLOWED_ORIGINS : [];
-        if (empty($allowedOrigins)) {
-            if ($isProduction) {
-                $allowedOrigins = [
-                    'https://kingswaypreparatoryschool.sc.ke',
-                ];
-            } else {
-                $allowedOrigins = [
-                    'http://localhost',
-                    'http://127.0.0.1',
-                    'http://localhost:8080',
-                    'http://127.0.0.1:8080',
-                    'https://localhost',
-                    'https://127.0.0.1',
-                    'https://localhost:8080',
-                    'https://127.0.0.1:8080',
-                    // ngrok tunnels used for external demos/testing
-                    'https://privately-amazing-glider.ngrok-free.app',
-                ];
+        $configuredOrigins = defined('ALLOWED_ORIGINS') ? ALLOWED_ORIGINS : ($_ENV['ALLOWED_ORIGINS'] ?? '');
+        if (is_string($configuredOrigins)) {
+            $configuredOrigins = preg_split('/\s*,\s*/', trim($configuredOrigins), -1, PREG_SPLIT_NO_EMPTY);
+        }
+        $allowedOrigins = is_array($configuredOrigins) ? array_values(array_filter(array_map('trim', $configuredOrigins))) : [];
+        if (!$allowedOrigins && defined('BASE_URL')) {
+            $parts = parse_url((string) BASE_URL);
+            if (!empty($parts['scheme']) && !empty($parts['host'])) {
+                $allowedOrigins[] = $parts['scheme'] . '://' . $parts['host'] . (!empty($parts['port']) ? ':' . $parts['port'] : '');
             }
+        }
+        if (!$allowedOrigins && $origin !== '') {
+            // Development and reverse-proxy deployments can still use the
+            // current configured browser origin when no allowlist is supplied.
+            $allowedOrigins[] = $origin;
         }
 
         if (in_array($origin, $allowedOrigins)) {

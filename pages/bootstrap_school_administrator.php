@@ -7,18 +7,18 @@
   <div id="bootstrapAlert" class="alert alert-info" role="status">Loading reference data…</div>
   <form id="schoolAdminBootstrapForm" class="d-none">
     <div class="card border-0 shadow-sm mb-4"><div class="card-header bg-white"><strong>Personal and contact information</strong></div><div class="card-body"><div class="row g-3">
-      <div class="col-md-4"><label class="form-label">First name</label><input name="first_name" class="form-control" required maxlength="50"></div>
-      <div class="col-md-4"><label class="form-label">Middle name <span class="text-muted">(optional)</span></label><input name="middle_name" class="form-control" maxlength="50"></div>
-      <div class="col-md-4"><label class="form-label">Last name</label><input name="last_name" class="form-control" required maxlength="50"></div>
-      <div class="col-md-6"><label class="form-label">Email</label><input name="email" type="email" class="form-control" required></div>
-      <div class="col-md-6"><label class="form-label">Phone</label><input name="phone" class="form-control" required placeholder="+2547…"></div>
-      <div class="col-md-4"><label class="form-label">Date of birth</label><input name="date_of_birth" type="date" class="form-control" required></div>
+      <div class="col-md-4"><label class="form-label">First name</label><input name="first_name" class="form-control" required maxlength="50" data-kw-validate="name"></div>
+      <div class="col-md-4"><label class="form-label">Middle name <span class="text-muted">(optional)</span></label><input name="middle_name" class="form-control" maxlength="50" data-kw-validate="name"></div>
+      <div class="col-md-4"><label class="form-label">Last name</label><input name="last_name" class="form-control" required maxlength="50" data-kw-validate="name"></div>
+      <div class="col-md-6"><label class="form-label">Email</label><input name="email" type="email" class="form-control" required data-kw-validate="email"></div>
+      <div class="col-md-6"><label class="form-label">Phone</label><input name="phone" class="form-control" required placeholder="+2547…" type="tel" data-phone-canonical data-kw-validate="phone"></div>
+      <div class="col-md-4"><label class="form-label">Date of birth</label><input name="date_of_birth" type="date" class="form-control" required data-kw-validate="dob"></div>
       <div class="col-md-4"><label class="form-label">Gender</label><select name="gender" class="form-select" required><option value="">Select</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></div>
-      <div class="col-md-4"><label class="form-label">National ID</label><input name="national_id_no" class="form-control" required></div>
-      <div class="col-md-8"><label class="form-label">Residential address</label><input name="address" class="form-control" required></div>
+      <div class="col-md-4"><label class="form-label">National ID</label><input name="national_id_no" class="form-control" required data-kw-validate="national_id"></div>
+      <div class="col-md-8"><label class="form-label">Residential address</label><input name="address" class="form-control" required data-kw-validate="address"></div>
       <div class="col-md-4"><label class="form-label">Marital status</label><select name="marital_status" class="form-select" required><option value="">Select</option><option>single</option><option>married</option><option>divorced</option><option>widowed</option><option>separated</option><option>unknown</option></select></div>
-      <div class="col-md-4"><label class="form-label">Emergency contact</label><input name="emergency_contact_name" class="form-control" required></div>
-      <div class="col-md-4"><label class="form-label">Emergency phone</label><input name="emergency_contact_phone" class="form-control" required></div>
+      <div class="col-md-4"><label class="form-label">Emergency contact</label><input name="emergency_contact_name" class="form-control" required data-kw-validate="name"></div>
+      <div class="col-md-4"><label class="form-label">Emergency phone</label><input name="emergency_contact_phone" class="form-control" required type="tel" data-phone-canonical data-kw-validate="phone"></div>
       <div class="col-md-4"><label class="form-label">Relationship</label><input name="emergency_contact_relationship" class="form-control" required></div>
       <div class="col-12"><label class="form-label">Profile photo <span class="text-muted">(optional; uploaded after the atomic account creation)</span></label><input id="bootstrapProfilePhoto" type="file" class="form-control" accept="image/jpeg,image/png,image/webp"></div>
     </div></div></div>
@@ -27,7 +27,7 @@
       <div class="col-md-4"><label class="form-label">Role</label><input class="form-control" value="School Administrator" readonly></div>
       <div class="col-md-4"><label class="form-label">Department</label><select name="department_id" id="bootstrapDepartment" class="form-select" required></select></div>
       <div class="col-md-4"><label class="form-label">Position</label><input name="position" class="form-control" value="School Administrator" required></div>
-      <div class="col-md-4"><label class="form-label">Employment date</label><input name="employment_date" type="date" class="form-control" required></div>
+      <div class="col-md-4"><label class="form-label">Employment date</label><input name="employment_date" type="date" class="form-control" required data-kw-validate="not_future"></div>
       <div class="col-md-4"><label class="form-label">Contract type</label><select name="contract_type" class="form-select" required><option value="permanent">Permanent</option><option value="contract">Contract</option><option value="temporary">Temporary</option></select></div>
       <div class="col-md-4"><label class="form-label">Supervisor <span class="text-muted">(optional)</span></label><select name="supervisor_id" id="bootstrapSupervisor" class="form-select"><option value="">None</option></select></div>
       <div class="col-md-6"><label class="form-label">Staff type</label><select name="staff_type_id" id="bootstrapStaffType" class="form-select" required></select></div>

@@ -3386,7 +3386,7 @@ final class PrintService
                 $classId = (int) ($data['classId'] ?? 0);
             }
             $studentType = strtolower((string) ($data['studentType'] ?? $data['student_type'] ?? 'both'));
-            $typeCodes = $studentType === 'day' ? ['DAY'] : ($studentType === 'boarder' ? ['BOARD', 'WEEKLY'] : ['DAY', 'BOARD', 'WEEKLY']);
+        $typeCodes = $studentType === 'day' ? ['DAY'] : ($studentType === 'boarder' ? ['BOARD'] : ['DAY', 'BOARD']);
             $typePlaceholders = implode(',', array_fill(0, count($typeCodes), '?'));
             $scopeSql = " AND (
                 ec.target_scope IN ('all_students', 'new_admissions', 'existing_students')
@@ -3394,7 +3394,7 @@ final class PrintService
                     SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
                 ))
                 OR (ec.target_scope = 'boarders' AND EXISTS (
-                    SELECT 1 FROM student_types stx WHERE stx.code IN ('BOARD','WEEKLY') AND stx.code IN ($typePlaceholders)
+                    SELECT 1 FROM student_types stx WHERE stx.code = 'BOARD' AND stx.code IN ($typePlaceholders)
                 ))
                 OR (ec.target_scope = 'day_students' AND EXISTS (
                     SELECT 1 FROM student_types stx WHERE stx.code = 'DAY' AND stx.code IN ($typePlaceholders)

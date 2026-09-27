@@ -674,6 +674,101 @@ return $this->serverError('An internal error occurred.');
     }
 
     /**
+     * POST /api/staff/my-admission-application
+     * Staff self-service admission for their own child. The staff person's
+     * identity is resolved from the authenticated account; the browser can
+     * provide only learner details and the relationship.
+     */
+    public function postMyAdmissionApplication($id = null, $data = [], $segments = [])
+    {
+        try {
+            $staffId = $this->access->staffId();
+            if (!$staffId) return $this->forbidden('No staff profile is linked to this account.');
+
+            $pdo = $this->db->getConnection();
+            $personStmt = $pdo->prepare(
+                'SELECT s.person_id, p.first_name, p.middle_name, p.last_name, p.phone, p.email, p.national_id_no
+                   FROM staff s JOIN persons p ON p.id = s.person_id
+                  WHERE s.id = ? AND s.status = \'active\' LIMIT 1'
+            );
+            $personStmt->execute([(int) $staffId]);
+            $person = $personStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$person) return $this->forbidden('Active staff profile not found.');
+
+            $parentStmt = $pdo->prepare('SELECT id FROM parents WHERE person_id = ? LIMIT 1');
+            $parentStmt->execute([(int) $person['person_id']]);
+            $parentId = (int) ($parentStmt->fetchColumn() ?: 0);
+            if (!$parentId) {
+                $insert = $pdo->prepare("INSERT INTO parents (person_id, status) VALUES (?, 'active')");
+                $insert->execute([(int) $person['person_id']]);
+                $parentId = (int) $pdo->lastInsertId();
+            }
+
+            $files = [];
+            foreach ([
+                'birth_certificate' => 'doc_birth_certificate',
+                'passport_photo' => 'doc_passport_photo',
+                'previous_school_report' => 'doc_previous_school_report',
+                'immunization_card' => 'doc_immunization_card',
+                'progress_report' => 'doc_progress_report',
+                'leaving_certificate' => 'doc_leaving_certificate',
+                'transfer_letter' => 'doc_transfer_letter',
+                'medical_records' => 'doc_medical_records',
+                'other' => 'doc_other',
+            ] as $type => $field) {
+                if (isset($_FILES[$field])) $files[$type] = $_FILES[$field];
+            }
+
+            $payload = [
+                'applicant_name' => trim((string) ($data['child_name'] ?? '')),
+                'date_of_birth' => trim((string) ($data['child_dob'] ?? '')),
+                'gender' => trim((string) ($data['child_gender'] ?? '')),
+                'grade_applying_for' => trim((string) ($data['grade_applying'] ?? '')),
+                'birth_certificate_no' => trim((string) ($data['birth_certificate_no'] ?? '')),
+                'boarding_preference' => trim((string) ($data['boarding_preference'] ?? 'day')),
+                'admission_window_id' => (int) ($data['admission_window_id'] ?? 0),
+                'application_source' => 'staff_portal',
+                'parent_id' => $parentId,
+                'parent_relationship' => trim((string) ($data['parent_relationship'] ?? '')),
+                'special_needs' => trim((string) ($data['special_needs'] ?? '')),
+            ];
+
+            $result = $this->contract('App\\API\\Modules\\admission\\StudentAdmissionWorkflow')
+                ->submitApplication($payload, $files);
+            if (($result['code'] ?? 0) < 400) {
+                $application = $result['data'] ?? [];
+                return $this->created([
+                    'ref' => $application['ref'] ?? $application['application_no'] ?? '',
+                    'application_no' => $application['application_no'] ?? '',
+                ], $result['message'] ?? 'Application received.');
+            }
+            return $this->respond(null, $result['message'] ?? 'Submission failed.', (int) ($result['code'] ?? 422), false);
+        } catch (\Throwable $error) {
+            return $this->serverError('Unable to submit the staff admission application.');
+        }
+    }
+
+    /** GET /api/staff/my-admission-options */
+    public function getMyAdmissionOptions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->staffId()) return $this->forbidden('No staff profile is linked to this account.');
+        $pdo = $this->db->getConnection();
+        $windows = $pdo->query(
+            "SELECT aw.id AS admission_window_id, aw.label AS admission_window_label,
+                    ayt.id AS target_term_id, ay.year_code
+               FROM admission_windows aw
+               JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+               JOIN academic_years ay ON ay.id = ayt.academic_year_id
+              WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+                AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+              ORDER BY aw.application_open_at, ayt.opening_date"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $grades = $pdo->query("SELECT DISTINCT name FROM classes WHERE name IS NOT NULL AND name <> '' ORDER BY name")->fetchAll(\PDO::FETCH_COLUMN);
+        return $this->success(['windows' => $windows, 'grades' => $grades]);
+    }
+
+    /**
      * Account-level profile for authenticated users with no linked staff record.
      * Sourced from the person + user auth payload; never carries school
      * employment, payroll, or statutory data.

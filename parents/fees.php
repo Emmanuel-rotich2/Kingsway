@@ -14,7 +14,7 @@ require __DIR__ . '/_head.php';
         <div class="pp-sidebar-title">My children</div>
         <div class="pp-child-list" id="ppChildList"></div>
         <div class="pp-sidebar-actions">
-          <button class="btn btn-success btn-sm w-100 rounded-pill" type="button" id="ppPayNow"><i class="bi bi-phone me-1"></i>Make a payment</button>
+          <button class="btn btn-success btn-sm w-100 rounded-pill" type="button" id="ppPayNow"><i class="bi bi-cash-coin me-1"></i>Pay Fees</button>
         </div>
       </aside>
     </div>

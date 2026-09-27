@@ -72,6 +72,10 @@
   function submitEmailLogin() {
     var email = val('loginEmail');
     var password = val('loginPassword');
+    // If the identifier is a phone number, send it in the canonical
+    // 2547XXXXXXXX format used everywhere in the system.
+    var canonicalPhone = P.normalizePhone(email);
+    if (canonicalPhone) email = canonicalPhone;
     var errEl = document.getElementById('loginError');
     var spinner = document.getElementById('loginSpinner');
     errEl.classList.add('d-none');

@@ -15,6 +15,12 @@ define('DEBUG', true);
 
 define('APP_BASE_PATH', __DIR__ . '/..');
 
+$requestScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$requestHost = (string) ($_SERVER['HTTP_HOST'] ?? 'localhost');
+$requestScript = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+$requestBasePath = preg_replace('#/(?:api/)?[^/]+$#', '', $requestScript) ?: '';
+$environmentBaseUrl = $requestScheme . '://' . $requestHost . rtrim($requestBasePath, '/');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root
@@ -24,7 +30,7 @@ define('APP_BASE_PATH', __DIR__ . '/..');
 define(
     'BASE_URL',
     rtrim(
-        (string) ($_ENV['BASE_URL'] ?? 'http://localhost/Kingsway'),
+        (string) ($_ENV['BASE_URL'] ?? $environmentBaseUrl),
         '/'
     )
 );

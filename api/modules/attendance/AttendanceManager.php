@@ -658,6 +658,7 @@ class AttendanceManager extends BaseAPI
                            sp.reason AS permission_reason
                     FROM student_academic_enrollments en
                     JOIN students s ON s.id = en.student_id
+                    LEFT JOIN admission_applications aa ON aa.id = s.application_id
                     JOIN persons p ON p.id = s.person_id
                     LEFT JOIN student_types st ON st.id = s.student_type_id
                     LEFT JOIN student_attendance sa ON sa.student_academic_enrollment_id = en.id
@@ -784,11 +785,14 @@ class AttendanceManager extends BaseAPI
                 $notes = $notes === '' ? null : substr($notes, 0, 1000);
 
                 $enrollStmt = $this->db->prepare(
-                    "SELECT id FROM student_academic_enrollments
-                     WHERE student_id = ? AND academic_year_class_stream_id = ? AND enrollment_status = 'active'
+                    "SELECT en.id FROM student_academic_enrollments en
+                     JOIN students s ON s.id=en.student_id
+                     LEFT JOIN admission_applications aa ON aa.id=s.application_id
+                     WHERE en.student_id = ? AND en.academic_year_class_stream_id = ? AND en.enrollment_status = 'active'
+                       AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END) <= ?
                      LIMIT 1"
                 );
-                $enrollStmt->execute([(int) $studentId, (int) $streamId]);
+                $enrollStmt->execute([(int) $studentId, (int) $streamId, $date]);
                 $enrollmentId = $enrollStmt->fetchColumn();
                 if (!$enrollmentId) {
                     continue;
@@ -1182,11 +1186,14 @@ class AttendanceManager extends BaseAPI
                 }
 
                 $enrollStmt = $this->db->prepare(
-                    "SELECT id FROM student_academic_enrollments
-                     WHERE student_id = ? AND academic_year_class_stream_id = ? AND enrollment_status = 'active'
+                    "SELECT en.id FROM student_academic_enrollments en
+                     JOIN students s ON s.id=en.student_id
+                     LEFT JOIN admission_applications aa ON aa.id=s.application_id
+                     WHERE en.student_id = ? AND en.academic_year_class_stream_id = ? AND en.enrollment_status = 'active'
+                       AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END) <= ?
                      LIMIT 1"
                 );
-                $enrollStmt->execute([(int) $studentId, (int) $streamId]);
+                $enrollStmt->execute([(int) $studentId, (int) $streamId, $date]);
                 $enrollmentId = $enrollStmt->fetchColumn();
                 if (!$enrollmentId) {
                     continue;
@@ -1321,6 +1328,32 @@ class AttendanceManager extends BaseAPI
 
             $students = $this->applyAcademicStatusFilter($students, $statusFilter);
             $summary = $this->summarizeAcademicRows($students);
+            $byClass = [];
+            foreach ($students as $student) {
+                $className = (string) ($student['class_name'] ?? 'Unassigned');
+                if (!isset($byClass[$className])) {
+                    $byClass[$className] = [
+                        'class_name' => $className,
+                        'total_enrolled' => 0,
+                        'present_today' => 0,
+                        'absent_today' => 0,
+                        'total_days' => 0,
+                        'present' => 0,
+                    ];
+                }
+                $byClass[$className]['total_enrolled']++;
+                $byClass[$className]['present'] += (int) ($student['present'] ?? 0);
+                $byClass[$className]['total_days'] += (int) ($student['total_days'] ?? 0);
+                $byClass[$className]['present_today'] += (int) ($student['present'] ?? 0) > 0 ? 1 : 0;
+                $byClass[$className]['absent_today'] += (int) ($student['absent'] ?? 0) > 0 ? 1 : 0;
+            }
+            $byClass = array_values(array_map(static function (array $row): array {
+                $row['attendance_rate'] = $row['total_days'] > 0
+                    ? round($row['present'] / $row['total_days'] * 100, 1)
+                    : null;
+                unset($row['present'], $row['total_days']);
+                return $row;
+            }, $byClass));
 
             $trendSql = "SELECT
                             date,
@@ -1376,14 +1409,24 @@ class AttendanceManager extends BaseAPI
                 return ($student['total_days'] ?? 0) > 0 && ($student['attendance_percentage'] ?? 0) < 80;
             })));
 
+            // Marked attendance alone is not a complete report. Include the
+            // expected-register audit so unmarked dates remain visible.
+            $registerAudit = $this->contract('App\\API\\Services\\AttendanceRegisterService', $this->db)->listRange([
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'stream_ids' => $streamId ? [(int) $streamId] : [],
+            ]);
+
             return $this->successResponse([
                 'date_from' => $dateFrom,
                 'date_to' => $dateTo,
                 'stream_id' => $streamId ? (int) $streamId : null,
                 'students' => $students,
                 'summary' => $summary,
+                'by_class' => $byClass,
                 'trend' => $trend,
                 'low_attendance' => $lowAttendance,
+                'register_audit' => $registerAudit,
             ], 'Academic attendance summary retrieved');
         } catch (Exception $e) {
             $this->logError($e, 'getAcademicSummary');
@@ -1467,7 +1510,10 @@ class AttendanceManager extends BaseAPI
                     LEFT JOIN attendance_sessions ass ON ass.id = sa.session_id
                     WHERE s.status = 'active'
                       AND en.enrollment_status IN ('active','completed','transferred','graduated')
-                      AND (en.enrolled_on IS NULL OR en.enrolled_on <= ?)";
+                      AND COALESCE(
+                            CASE WHEN s.entry_source='admission' THEN aa.enrolled_at END,
+                            CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END
+                          ) <= ?";
             array_unshift($params, $date);
             $params[] = $date;
 
@@ -1603,6 +1649,7 @@ class AttendanceManager extends BaseAPI
                                  st.name AS student_type, st.code AS student_type_code
                           FROM student_academic_enrollments en
                           JOIN students s ON s.id = en.student_id
+                          LEFT JOIN admission_applications aa ON aa.id = s.application_id
                           JOIN persons p ON p.id = s.person_id
                           LEFT JOIN student_types st ON st.id = s.student_type_id
                           LEFT JOIN academic_year_class_streams aycs ON aycs.id = en.academic_year_class_stream_id
@@ -1611,7 +1658,10 @@ class AttendanceManager extends BaseAPI
                           LEFT JOIN classes c ON c.id = ayc.class_id
                           WHERE s.status = 'active'
                             AND en.enrollment_status IN ('active','completed','transferred','graduated')
-                            AND (en.enrolled_on IS NULL OR en.enrolled_on <= ?)";
+                            AND COALESCE(
+                                  CASE WHEN s.entry_source='admission' THEN aa.enrolled_at END,
+                                  CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END
+                                ) <= ?";
             $rosterParams = [$to];
             $rosterScope = $this->buildStreamScopeClause($scopeStreamId, $scope);
             $rosterSql .= $rosterScope['sql'];
@@ -3275,6 +3325,7 @@ class AttendanceManager extends BaseAPI
                 'average_attendance' => 0,
                 'student_count' => 0,
             ],
+            'by_class' => [],
             'trend' => [],
             'low_attendance' => [],
         ];

@@ -12,11 +12,11 @@
           </div>
           <div class="col-md-6">
             <label class="form-label">Phone <span class="text-danger">*</span></label>
-            <input name="phone" class="form-control" required>
+            <input name="phone" class="form-control" required type="tel" data-phone-canonical data-kw-validate="phone">
           </div>
           <div class="col-md-6">
             <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
-            <input name="date_of_birth" type="date" class="form-control" required>
+            <input name="date_of_birth" type="date" class="form-control" required data-kw-validate="dob">
           </div>
           <div class="col-md-4">
             <label class="form-label">Gender <span class="text-danger">*</span></label>
@@ -32,7 +32,7 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">Address <span class="text-danger">*</span></label>
-            <textarea name="address" class="form-control" required></textarea>
+            <textarea name="address" class="form-control" required data-kw-validate="address"></textarea>
           </div>
 
           <div class="col-12 mt-3">
@@ -47,19 +47,19 @@
           </div>
           <div class="col-md-6">
             <label class="form-label">Communication Email <span class="text-danger">*</span></label>
-            <input name="communication_email" type="email" class="form-control" required>
+            <input name="communication_email" type="email" class="form-control" required data-kw-validate="email">
           </div>
           <div class="col-md-6">
             <label class="form-label">Communication Phone</label>
-            <input name="communication_phone" type="tel" class="form-control">
+            <input name="communication_phone" type="tel" class="form-control" data-phone-canonical data-kw-validate="phone">
           </div>
           <div class="col-md-6">
             <label class="form-label">Emergency Contact Name</label>
-            <input name="emergency_contact_name" class="form-control">
+            <input name="emergency_contact_name" class="form-control" data-kw-validate="name">
           </div>
           <div class="col-md-6">
             <label class="form-label">Emergency Contact Phone</label>
-            <input name="emergency_contact_phone" class="form-control">
+            <input name="emergency_contact_phone" class="form-control" data-phone-canonical data-kw-validate="phone">
           </div>
 
           <div class="col-12 mt-3">

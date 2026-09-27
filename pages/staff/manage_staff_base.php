@@ -499,7 +499,7 @@
                         </div>
                         <div class="input-group" style="width: 250px;">
                             <input type="date" class="form-control" id="attendanceDate" 
-                                   value="<?php echo date('Y-m-d'); ?>">
+                                   value="<?php echo date('Y-m-d'); ?>" data-kw-validate="not_future">
                             <button class="btn btn-outline-secondary" onclick="staffManagementController.loadAttendance()">
                                 <i class="bi bi-search"></i>
                             </button>

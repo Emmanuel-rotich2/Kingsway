@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\academic\AcademicYearManager;
 use App\API\Modules\students\PromotionManager;
 use App\API\Services\AdmissionNumberService;
+use App\API\Services\FieldCleaner;
 use PDO;
 use Exception;
 
@@ -184,12 +185,12 @@ class StudentsAPI extends BaseAPI
                     per.last_name AS last_name,
                     per.gender,
                     per.dob AS date_of_birth,
+                    per.photo_url,
                     st.name AS student_type_name,
                     st.name AS student_type,
                     st.code AS student_type_code,
                     CASE
                         WHEN st.code = 'BOARD' THEN 'boarding'
-                        WHEN st.code = 'WEEKLY' THEN 'weekly_boarding'
                         ELSE 'day'
                     END AS boarding_status,
                     COALESCE(fee_summary.total_due, 0) AS total_fees,
@@ -258,6 +259,10 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge($joinBindings, $bindings, [$limit, $offset]));
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($students as &$student) {
+                $student['photo_url'] = $this->normalizePublicAssetPath($student['photo_url'] ?? '');
+            }
+            unset($student);
 
             $this->logAction('read', null, 'Listed students');
 
@@ -278,6 +283,145 @@ class StudentsAPI extends BaseAPI
         }
     }
 
+    /**
+     * Return the authoritative context used by the existing-learner import
+     * form.  The import screen must not reproduce fee amounts or academic
+     * context in JavaScript; those values belong to the configured database.
+     */
+    public function getExistingStudentImportContext(): array
+    {
+        $year = $this->db->query(
+            "SELECT id, year_code, start_date, end_date
+             FROM academic_years
+             WHERE is_current = 1
+             ORDER BY id DESC
+             LIMIT 1"
+        )->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        $transportPeriods = [
+            ['code' => 'day', 'label' => 'Specific day'],
+            ['code' => 'week', 'label' => 'Specific week'],
+            ['code' => 'month', 'label' => 'Specific month'],
+            ['code' => 'term', 'label' => 'School term'],
+            ['code' => 'year', 'label' => 'School year'],
+            ['code' => 'custom', 'label' => 'Custom dates'],
+        ];
+
+        $transportRoutes = $this->db->query(
+            "SELECT id, name, code, status
+             FROM transport_routes
+             WHERE status = 'active'
+             ORDER BY name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $transportStops = $this->db->query(
+            "SELECT id, route_id, name, sequence, status
+             FROM transport_stops
+             WHERE status = 'active'
+             ORDER BY route_id, sequence, name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $scholarshipPrograms = $this->db->query(
+            "SELECT id, code, name, coverage_type, default_percentage,
+                    default_amount, description
+             FROM scholarship_programs
+             WHERE is_active = 1
+             ORDER BY name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        $waiverTypes = ['none'];
+        $waiverColumn = $this->db->query(
+            "SHOW COLUMNS FROM fee_discounts_waivers LIKE 'discount_type'"
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!empty($waiverColumn['Type']) && preg_match("/^enum\\((.*)\\)$/", $waiverColumn['Type'], $matches)) {
+            $waiverTypes = array_merge(
+                ['none'],
+                array_values(array_filter(array_map(
+                    static fn(string $value): string => trim($value, "'"),
+                    str_getcsv($matches[1], ',', "'", '\\')
+                )))
+            );
+        }
+
+        if (!$year) {
+            return [
+                'academic_year' => null,
+                'current_term' => null,
+                'academic_year_terms' => [],
+                'fee_schedules' => [],
+                'transport_routes' => $transportRoutes,
+                'transport_stops' => $transportStops,
+                'transport_periods' => $transportPeriods,
+                'scholarship_programs' => $scholarshipPrograms,
+                'fee_waiver_types' => $waiverTypes,
+            ];
+        }
+
+        $termStmt = $this->db->prepare(
+            "SELECT ayt.id, t.id AS term_number, t.code, t.name
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+               AND (
+                   ayt.status = 'current'
+                   OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date
+               )
+             ORDER BY CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END, t.id
+             LIMIT 1"
+        );
+        $termStmt->execute([(int) $year['id']]);
+        $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        $termsStmt = $this->db->prepare(
+            "SELECT ayt.id, ayt.term_id, ayt.opening_date, ayt.closing_date,
+                    t.code, t.name
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+             ORDER BY t.id"
+        );
+        $termsStmt->execute([(int) $year['id']]);
+
+        $scheduleStmt = $this->db->prepare(
+            "SELECT
+                afs.academic_year_id,
+                afs.academic_year_term_id,
+                t.id AS term_number,
+                t.code AS term_code,
+                t.name AS term_name,
+                ayc.class_id,
+                c.name AS class_name,
+                afs.student_type_id,
+                st.code AS student_type_code,
+                st.name AS student_type_name,
+                fc.code AS fee_code,
+                fc.name AS fee_name,
+                afs.amount
+             FROM academic_year_fee_schedules afs
+             JOIN academic_years ay ON ay.id = afs.academic_year_id
+             LEFT JOIN academic_year_terms ayt ON ayt.id = afs.academic_year_term_id
+             LEFT JOIN terms t ON t.id = ayt.term_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN student_types st ON st.id = afs.student_type_id
+             JOIN fee_catalog fc ON fc.id = afs.fee_catalog_id
+             WHERE afs.academic_year_id = ?
+               AND afs.status = 'active'
+             ORDER BY ayc.class_id, afs.student_type_id, t.id, fc.code"
+        );
+        $scheduleStmt->execute([(int) $year['id']]);
+
+        return [
+            'academic_year' => $year,
+            'current_term' => $term,
+            'academic_year_terms' => $termsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'fee_schedules' => $scheduleStmt->fetchAll(PDO::FETCH_ASSOC),
+            'transport_routes' => $transportRoutes,
+            'transport_stops' => $transportStops,
+            'transport_periods' => $transportPeriods,
+            'scholarship_programs' => $scholarshipPrograms,
+            'fee_waiver_types' => $waiverTypes,
+        ];
+    }
+
     // Get single student
     public function get($id)
     {
@@ -292,6 +436,16 @@ class StudentsAPI extends BaseAPI
             if (!$student) {
                 return $this->response(['status' => 'error', 'message' => 'Student not found'], 404);
             }
+
+            $student['learning_areas'] = $this->getCurrentStudentLearningAreas((int) $id);
+            $student['active_sponsorships'] = $this->getCurrentStudentSponsorships((int) $id);
+            $student['transport_arrangements'] = $this->getCurrentStudentTransport((int) $id);
+            $student['parents'] = $this->getStudentParents((int) $id);
+            $student['fee_waiver'] = $this->getCurrentStudentFeeWaiver((int) $id);
+            $student['financial_migration'] = $this->getExistingStudentMigrationPosition(
+                (int) $id,
+                $this->getCurrentAcademicYearValue()
+            );
 
             // Optionally, add more details if available (e.g., attendance, fee summary)
             // $student['attendance'] = $this->getAttendanceSummary($id);
@@ -882,6 +1036,8 @@ class StudentsAPI extends BaseAPI
                 per.gender,
                 per.dob AS date_of_birth,
                 per.photo_url,
+                per.email,
+                per.phone,
                 (
                     SELECT sic.qr_code_path
                     FROM student_id_cards sic
@@ -892,6 +1048,8 @@ class StudentsAPI extends BaseAPI
                 ) AS qr_code_path,
                 ayc.class_id as class_id,
                 c.name as class_name,
+                aycs.stream_id AS stream_id,
+                aycs.id AS academic_year_class_stream_id,
                 sm.name AS stream_name,
                 CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                 st.name AS student_type_name,
@@ -899,8 +1057,7 @@ class StudentsAPI extends BaseAPI
                 st.code AS student_type_code,
                 CASE
                     WHEN st.code = 'BOARD' THEN 'boarding'
-                    WHEN st.code = 'WEEKLY' THEN 'weekly_boarding'
-                    ELSE 'day'
+                        ELSE 'day'
                 END AS boarding_status,
                 (
                     SELECT CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name)
@@ -961,6 +1118,79 @@ class StudentsAPI extends BaseAPI
         $stmt->execute([$id]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    private function getCurrentStudentLearningAreas(int $studentId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT la.id, la.name, la.code
+             FROM student_academic_enrollments sae
+             JOIN academic_year_class_streams aycs
+               ON aycs.id = sae.academic_year_class_stream_id
+             JOIN academic_year_class_stream_learning_areas scla
+               ON scla.academic_year_class_stream_id = aycs.id
+              AND scla.status IN ('active', 'planned')
+             JOIN academic_year_class_learning_areas acla
+               ON acla.id = scla.academic_year_class_learning_area_id
+              AND acla.status IN ('active', 'planned')
+             JOIN learning_areas la ON la.id = acla.learning_area_id
+             WHERE sae.student_id = ?
+               AND sae.enrollment_status = 'active'
+             ORDER BY la.name"
+        );
+        $stmt->execute([$studentId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function getCurrentStudentSponsorships(int $studentId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ssa.scholarship_program_id, ssa.coverage_type, ssa.coverage_percentage, ssa.coverage_amount,
+                    ssa.period_type, ssa.starts_on, ssa.ends_on, ssa.reason,
+                    sp.name AS programme_name
+             FROM student_scholarship_awards ssa
+             JOIN scholarship_programs sp ON sp.id = ssa.scholarship_program_id
+             WHERE ssa.student_id = ? AND ssa.status = 'active'
+             ORDER BY ssa.id DESC"
+        );
+        $stmt->execute([$studentId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function getCurrentStudentTransport(int $studentId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT sta.route_id, sta.pickup_stop_id, sta.dropoff_stop_id, tr.name AS route_name, sta.status,
+                    sta.month, sta.year, sta.expected_amount,
+                    ps.name AS pickup_stop, ds.name AS dropoff_stop,
+                    sta.pickup_time, sta.dropoff_time, sta.notes,
+                    ep.period_type, ep.period_start, ep.period_end,
+                    te.amount_due AS entitlement_amount
+             FROM student_transport_assignments sta
+             JOIN transport_routes tr ON tr.id = sta.route_id
+             LEFT JOIN transport_stops ps ON ps.id = COALESCE(sta.pickup_stop_id, sta.stop_id)
+             LEFT JOIN transport_stops ds ON ds.id = sta.dropoff_stop_id
+             LEFT JOIN student_transport_entitlements te
+               ON te.assignment_id = sta.id AND te.entitlement_status IN ('active', 'suspended')
+             LEFT JOIN transport_entitlement_periods ep ON ep.id = te.period_id
+             WHERE sta.student_id = ? AND sta.status IN ('active', 'suspended')
+             ORDER BY sta.year DESC, sta.month DESC, sta.id DESC"
+        );
+        $stmt->execute([$studentId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function getCurrentStudentFeeWaiver(int $studentId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT fdw.discount_type, fdw.discount_value, fdw.discount_percentage,
+                    fdw.reason, fdw.academic_year, fdw.term_id
+             FROM fee_discounts_waivers fdw
+             WHERE fdw.student_id = ? AND fdw.status = 'active'
+             ORDER BY fdw.id DESC LIMIT 1"
+        );
+        $stmt->execute([$studentId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     private function refreshStudentPaymentSummary($studentId, $academicYear, $termId)
@@ -1227,6 +1457,7 @@ class StudentsAPI extends BaseAPI
 
         $structureStmt = $this->db->prepare("
             SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount,
+                   ayt.opening_date AS term_opening_date, ayt.closing_date AS term_closing_date,
                    COALESCE(ayfs.due_date, ayt.closing_date) AS due_date
             FROM academic_year_fee_schedules ayfs
             JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
@@ -1255,29 +1486,30 @@ class StudentsAPI extends BaseAPI
         // newly generated obligations receive the same treatment as existing
         // obligations immediately.
         $awardStmt = $this->db->prepare(
-            "SELECT coverage_type, coverage_percentage, coverage_amount
+            "SELECT coverage_type, coverage_percentage, coverage_amount, starts_on, ends_on
              FROM student_scholarship_awards
              WHERE student_id=? AND academic_year_id=? AND status='active'
-               AND (starts_on IS NULL OR starts_on <= CURDATE())
-               AND (ends_on IS NULL OR ends_on >= CURDATE())
              LIMIT 1"
         );
         $awardStmt->execute([$studentId, $academicYearId]);
         $annualAward = $awardStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        $isSponsored = !empty($sponsorship['is_sponsored']) || !empty($annualAward);
+        $isSponsored = !empty($sponsorship['is_sponsored']);
         $waiverPercent = (float) ($sponsorship['sponsor_waiver_percentage'] ?? 0);
         $fixedAwardAmount = 0.0;
-        if ($annualAward) {
-            if ($annualAward['coverage_type'] === 'full') $waiverPercent = 100.0;
-            if ($annualAward['coverage_type'] === 'percentage') $waiverPercent = (float)$annualAward['coverage_percentage'];
-            if ($annualAward['coverage_type'] === 'fixed_amount') $fixedAwardAmount = (float)$annualAward['coverage_amount'];
-        }
-        if ($waiverPercent > 0) {
-            $isSponsored = true;
-        }
         $createdCount = 0;
 
         foreach ($feeStructures as $row) {
+            $awardApplies = $annualAward &&
+                (!$annualAward['starts_on'] || $row['term_closing_date'] >= $annualAward['starts_on']) &&
+                (!$annualAward['ends_on'] || $row['term_opening_date'] <= $annualAward['ends_on']);
+            $rowSponsored = $isSponsored || $awardApplies;
+            $rowWaiverPercent = $waiverPercent;
+            $rowFixedAwardAmount = 0.0;
+            if ($awardApplies) {
+                if ($annualAward['coverage_type'] === 'full') $rowWaiverPercent = 100.0;
+                if ($annualAward['coverage_type'] === 'percentage') $rowWaiverPercent = (float)$annualAward['coverage_percentage'];
+                if ($annualAward['coverage_type'] === 'fixed_amount') $rowFixedAwardAmount = (float)$annualAward['coverage_amount'];
+            }
             $existsStmt = $this->db->prepare("
                 SELECT sfo.id
                 FROM student_fee_obligations sfo
@@ -1296,9 +1528,9 @@ class StudentsAPI extends BaseAPI
             }
 
             $amountDue = (float) $row['amount'];
-            $waivedAmount = $isSponsored && $waiverPercent > 0
-                ? round($amountDue * ($waiverPercent / 100), 2)
-                : ($isSponsored && $fixedAwardAmount > 0 ? $fixedAwardAmount : 0.0);
+            $waivedAmount = $rowSponsored && $rowWaiverPercent > 0
+                ? round($amountDue * ($rowWaiverPercent / 100), 2)
+                : ($rowSponsored && $rowFixedAwardAmount > 0 ? $rowFixedAwardAmount : 0.0);
             $waivedAmount = min($waivedAmount, $amountDue);
             $netBalance = max(0, $amountDue - $waivedAmount);
             $status = $netBalance <= 0 ? 'paid' : 'pending';
@@ -1481,15 +1713,49 @@ class StudentsAPI extends BaseAPI
             // Start transaction so parent linking and student insert are atomic
             $this->db->beginTransaction();
 
+            // Clean person-level free-text fields before storage (letters-only
+            // names, title-cased; DOB strictly in the past). Reject when a
+            // required cleaned field comes back empty.
+            $studentClean = FieldCleaner::clean($data, [
+                'first_name' => 'name',
+                'last_name' => 'name',
+                'date_of_birth' => 'dob'
+            ]);
+            $studentCleanErrors = $studentClean['errors'];
+            if (isset($studentCleanErrors['first_name'])) {
+                $this->db->rollBack();
+                return $this->response(['status' => 'error', 'message' => $studentCleanErrors['first_name']], 400);
+            }
+            if (isset($studentCleanErrors['last_name'])) {
+                $this->db->rollBack();
+                return $this->response(['status' => 'error', 'message' => $studentCleanErrors['last_name']], 400);
+            }
+            if (isset($studentCleanErrors['date_of_birth'])) {
+                $this->db->rollBack();
+                return $this->response(['status' => 'error', 'message' => $studentCleanErrors['date_of_birth']], 400);
+            }
+            $studentCleaned = $studentClean['cleaned'];
+
+            // middle_name is optional: only clean when actually provided.
+            $middleName = $data['middle_name'] ?? null;
+            if ($middleName !== null && trim((string) $middleName) !== '') {
+                $cleanedMiddle = FieldCleaner::cleanName((string) $middleName);
+                if ($cleanedMiddle === null) {
+                    $this->db->rollBack();
+                    return $this->response(['status' => 'error', 'message' => 'Middle name must contain letters only (no digits or symbols)'], 400);
+                }
+                $middleName = $cleanedMiddle;
+            }
+
             $personStmt = $this->db->prepare("
                 INSERT INTO persons (first_name, middle_name, last_name, dob, gender, photo_url)
                 VALUES (?, ?, ?, ?, ?, ?)
             ");
             $personStmt->execute([
-                $data['first_name'],
-                $data['middle_name'] ?? null,
-                $data['last_name'],
-                $data['date_of_birth'] ?? null,
+                $studentCleaned['first_name'],
+                $middleName,
+                $studentCleaned['last_name'],
+                $studentCleaned['date_of_birth'],
                 $data['gender'] ?? null,
                 $data['photo_url'] ?? null
             ]);
@@ -1507,8 +1773,9 @@ class StudentsAPI extends BaseAPI
                     nemis_status,
                     status,
                     application_id,
+                    entry_source,
                     blood_group
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1516,13 +1783,14 @@ class StudentsAPI extends BaseAPI
                 $newPersonId,
                 $admissionNo,
                 $data['student_type_id'] ?? null,
-                $data['admission_date'],
+                $data['admission_date'] ?? null,
                 $data['assessment_number'] ?? null,
-                $data['assessment_status'] ?? 'not_assigned',
+                !empty($data['assessment_number']) ? 'assigned' : ($data['assessment_status'] ?? 'not_assigned'),
                 $data['nemis_number'] ?? null,
-                $data['nemis_status'] ?? 'not_assigned',
+                !empty($data['nemis_number']) ? 'assigned' : ($data['nemis_status'] ?? 'not_assigned'),
                 $data['status'] ?? 'active',
                 $data['application_id'] ?? null,
+                !empty($data['application_id']) ? 'admission' : 'existing_student',
                 $data['blood_group'] ?? null
             ]);
 
@@ -1594,6 +1862,14 @@ class StudentsAPI extends BaseAPI
                     'fee_obligations_created' => $feeObligationsCreated
                 ]
             ], 201);
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return $this->response([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], 400);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -1668,7 +1944,9 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Person-level fields (normalized into persons)
+            // Person-level fields (normalized into persons). Free-text fields
+            // are cleaned before storage (letters-only names title-cased; DOB
+            // strictly in the past).
             $personFieldMap = [
                 'first_name' => 'first_name',
                 'middle_name' => 'middle_name',
@@ -1681,6 +1959,23 @@ class StudentsAPI extends BaseAPI
             $personParams = [];
             foreach ($personFieldMap as $inputKey => $column) {
                 if (isset($data[$inputKey])) {
+                    if ($inputKey === 'first_name' || $inputKey === 'last_name' || $inputKey === 'middle_name') {
+                        if (trim((string) $data[$inputKey]) === '') {
+                            continue;
+                        }
+                        $cleanedName = FieldCleaner::cleanName((string) $data[$inputKey]);
+                        if ($cleanedName === null) {
+                            return $this->response(['status' => 'error', 'message' => ucfirst(str_replace('_', ' ', $inputKey)) . ' must contain letters only (no digits or symbols)'], 400);
+                        }
+                        $data[$inputKey] = $cleanedName;
+                    }
+                    if ($inputKey === 'date_of_birth') {
+                        $cleanedDob = FieldCleaner::cleanDob((string) $data[$inputKey]);
+                        if ($cleanedDob === null) {
+                            return $this->response(['status' => 'error', 'message' => 'Date of birth must be a date strictly in the past (not today or future)'], 400);
+                        }
+                        $data[$inputKey] = $cleanedDob;
+                    }
                     $personUpdates[] = "{$column} = ?";
                     $personParams[] = $data[$inputKey];
                 }
@@ -1712,12 +2007,28 @@ class StudentsAPI extends BaseAPI
                 'blood_group'
             ];
 
+            foreach ([
+                'assessment_number' => 'assessment_status',
+                'nemis_number' => 'nemis_status',
+            ] as $numberField => $statusField) {
+                if (array_key_exists($numberField, $data)) {
+                    $number = trim((string) ($data[$numberField] ?? ''));
+                    if ($number !== '') {
+                        $data[$numberField] = $number;
+                        $data[$statusField] = 'assigned';
+                    } elseif (!isset($data[$statusField])) {
+                        $data[$statusField] = 'not_assigned';
+                    }
+                }
+            }
+
             foreach ($allowedFields as $field) {
                 if (isset($data[$field])) {
                     $updates[] = "$field = ?";
                     $params[] = $data[$field];
                 }
             }
+
 
             if (!empty($updates)) {
                 $params[] = $id;
@@ -1755,6 +2066,30 @@ class StudentsAPI extends BaseAPI
                         $reason
                     );
                 }
+            }
+
+            // The manual student form also edits the learner's financial
+            // onboarding records. Keep these writes on the same API path as
+            // the student update instead of silently dropping them.
+            if (!empty($data['school_sponsorship'])) {
+                $this->saveExistingSchoolSponsorship((int) $id, $data['school_sponsorship']);
+                $this->applyExistingStudentSponsorshipToObligations((int) $id);
+            }
+            if (!empty($data['school_fee_waiver'])) {
+                $this->saveExistingSchoolFeeWaiver((int) $id, $data['school_fee_waiver']);
+            }
+            if (!empty($data['financial_migration'])) {
+                $financial = !empty($data['financial_migration']['calculate_from_schedule'])
+                    ? $this->deriveExistingImportFinancialPosition($data, (int) $id)
+                    : $data['financial_migration'];
+                $this->saveFinancialMigrationSnapshot((int) $id, $financial);
+                $this->applyFinancialMigrationToObligations((int) $id, $financial);
+            }
+            if (!empty($data['transport_arrangement'])) {
+                (new \App\API\Modules\transport\StudentTransportEntitlementManager($this->db))->enrollStudent(
+                    array_merge($data['transport_arrangement'], ['student_id' => (int) $id]),
+                    (int) ($this->getCurrentUserId() ?? 0)
+                );
             }
 
             $this->logAction('update', $id, "Updated student details");
@@ -1851,6 +2186,34 @@ class StudentsAPI extends BaseAPI
         // Validate gender if provided
         if (isset($parentData['gender']) && !in_array($parentData['gender'], ['male', 'female', 'other'])) {
             throw new Exception('Invalid gender value. Must be: male, female, or other');
+        }
+
+        // Clean parent free-text/contact fields before lookup and storage
+        // (letters-only names, canonical phones, canonical email).
+        foreach (['first_name', 'last_name'] as $nameField) {
+            if (isset($parentData[$nameField]) && trim((string) $parentData[$nameField]) !== '') {
+                $cleanedRelName = FieldCleaner::cleanName((string) $parentData[$nameField]);
+                if ($cleanedRelName === null) {
+                    throw new Exception(ucfirst(str_replace('_', ' ', $nameField)) . ' must contain letters only (no digits or symbols)');
+                }
+                $parentData[$nameField] = $cleanedRelName;
+            }
+        }
+        foreach (['phone_1', 'phone_2'] as $phoneField) {
+            if (isset($parentData[$phoneField]) && trim((string) $parentData[$phoneField]) !== '') {
+                $cleanedRelPhone = FieldCleaner::cleanPhone((string) $parentData[$phoneField]);
+                if ($cleanedRelPhone === null) {
+                    throw new Exception(ucfirst(str_replace('_', ' ', $phoneField)) . ' is not a valid Kenyan phone number');
+                }
+                $parentData[$phoneField] = $cleanedRelPhone;
+            }
+        }
+        if (isset($parentData['email']) && trim((string) $parentData['email']) !== '') {
+            $cleanedRelEmail = FieldCleaner::cleanEmail((string) $parentData['email']);
+            if ($cleanedRelEmail === null || !filter_var($cleanedRelEmail, FILTER_VALIDATE_EMAIL)) {
+                throw new Exception('Email is not a valid email address');
+            }
+            $parentData['email'] = $cleanedRelEmail;
         }
 
         // Robust parent lookup: match existing person+parent by phone or email
@@ -2063,9 +2426,9 @@ class StudentsAPI extends BaseAPI
         $stmt->execute($paymentBindings);
         $paymentMeta = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-        $totalFees = (float) ($summary['total_fees'] ?? 0);
-        $totalPaid = (float) ($summary['total_paid'] ?? 0);
-        $balance = (float) ($summary['balance'] ?? 0);
+        $tuitionFees = (float) ($summary['total_fees'] ?? 0);
+        $tuitionPaid = (float) ($summary['total_paid'] ?? 0);
+        $tuitionBalance = (float) ($summary['balance'] ?? 0);
 
         // Admission/registration is a separate obligation from tuition. It
         // is stored in admission_payments while tuition is stored in the fee
@@ -2104,14 +2467,61 @@ class StudentsAPI extends BaseAPI
             $admissionPaid = (float) $admissionPaidStmt->fetchColumn();
         }
 
-        $tuitionFees = $totalFees;
-        $tuitionPaid = $totalPaid;
-        $tuitionBalance = $balance;
-        $totalFees += $admissionDue;
-        $totalPaid += min($admissionPaid, $admissionDue);
+        // Migration credit is already included in vw_student_fee_balances.
+        // Keep the snapshot for provenance and the year/term breakdown, but
+        // do not add it to these totals a second time.
+        $migration = $this->getExistingStudentMigrationPosition((int) $studentId, $academicYear);
+        $totalFees = $tuitionFees + $admissionDue;
+        $totalPaid = $tuitionPaid + min($admissionPaid, $admissionDue);
         $balance = $tuitionBalance + max(0.0, $admissionDue - $admissionPaid);
 
-        return [
+        $currentTermStmt = $this->db->prepare(
+            "SELECT ayt.id AS id, t.name AS name
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = (SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1)
+               AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
+             ORDER BY ayt.status='current' DESC, ayt.opening_date
+             LIMIT 1"
+        );
+        $currentTermStmt->execute();
+        $currentTerm = $currentTermStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $currentTermSummary = [
+            'total_fees' => 0,
+            'gross_expected' => 0,
+            'net_expected' => 0,
+            'total_paid' => 0,
+            'total_waived' => 0,
+            'balance' => 0,
+        ];
+        if ($currentTerm) {
+            $termSummaryStmt = $this->db->prepare(
+                "SELECT
+                    COALESCE(SUM(CASE WHEN academic_year_term_id < ? THEN balance ELSE 0 END),0)
+                      + COALESCE(SUM(CASE WHEN academic_year_term_id = ? THEN amount_due - amount_waived ELSE 0 END),0) AS total_fees,
+                    COALESCE(SUM(CASE WHEN academic_year_term_id = ? THEN amount_due ELSE 0 END),0) AS gross_expected,
+                    COALESCE(SUM(CASE WHEN academic_year_term_id = ? THEN amount_due - amount_waived ELSE 0 END),0) AS net_expected,
+                    COALESCE(SUM(CASE WHEN academic_year_term_id = ? THEN amount_paid ELSE 0 END),0) AS total_paid,
+                    COALESCE(SUM(CASE WHEN academic_year_term_id = ? THEN amount_waived ELSE 0 END),0) AS total_waived,
+                    COALESCE(SUM(CASE WHEN academic_year_term_id <= ? THEN balance ELSE 0 END),0) AS balance
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
+                 WHERE student_id=? AND academic_year= (SELECT year_code FROM academic_years WHERE is_current=1 LIMIT 1)"
+            );
+            $termSummaryStmt->execute([
+                (int) $currentTerm['id'], (int) $currentTerm['id'],
+                (int) $currentTerm['id'], (int) $currentTerm['id'],
+                (int) $currentTerm['id'], (int) $currentTerm['id'],
+                (int) $currentTerm['id'], $studentId,
+            ]);
+            $currentTermSummary = $termSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: $currentTermSummary;
+        }
+
+        $coveredAmount = min($tuitionFees, $tuitionPaid + (float) ($summary['total_waived'] ?? 0));
+        $coveragePercentage = $tuitionFees > 0
+            ? round(($coveredAmount / $tuitionFees) * 100, 2)
+            : 0.0;
+
+        $result = [
             'academic_year' => $academicYear,
             'total_fees' => $totalFees,
             'total_paid' => $totalPaid,
@@ -2120,10 +2530,24 @@ class StudentsAPI extends BaseAPI
             'tuition_fees' => $tuitionFees,
             'tuition_paid' => $tuitionPaid,
             'tuition_balance' => $tuitionBalance,
+            'annual_expected' => $tuitionFees,
+            'annual_paid' => $tuitionPaid,
+            'annual_balance' => $tuitionBalance,
+            'current_term' => $currentTerm['name'] ?? null,
+            'current_term_expected' => (float) $currentTermSummary['total_fees'],
+            'current_term_gross_expected' => (float) $currentTermSummary['gross_expected'],
+            'current_term_net_expected' => (float) $currentTermSummary['net_expected'],
+            'current_term_paid' => $migration !== null
+                ? (float) $migration['current_term_paid_amount']
+                : (float) $currentTermSummary['total_paid'],
+            'current_term_waived' => (float) $currentTermSummary['total_waived'],
+            'current_term_balance' => (float) $currentTermSummary['balance'],
+            'covered_amount' => $coveredAmount,
+            'coverage_percentage' => $coveragePercentage,
             'admission_fee_due' => $admissionDue,
             'admission_fee_paid' => min($admissionPaid, $admissionDue),
             'admission_fee_balance' => max(0.0, $admissionDue - $admissionPaid),
-            'payment_percentage' => $totalFees > 0 ? round(($totalPaid / $totalFees) * 100, 2) : 0,
+            'payment_percentage' => $coveragePercentage,
             'payment_status' => $balance <= 0 && $totalFees > 0
                 ? 'paid'
                 : ($totalPaid > 0 ? 'partial' : 'pending'),
@@ -2132,6 +2556,89 @@ class StudentsAPI extends BaseAPI
             'arrears_status' => ($balance > 0 && !empty($summary['earliest_due_date']) && $summary['earliest_due_date'] < date('Y-m-d'))
                 ? 'overdue'
                 : 'current'
+        ];
+        if ($migration !== null) {
+            $result['migration_position'] = $migration;
+        }
+        return $result;
+    }
+
+    /** Return the schedule-based annual position and historical figures, if supplied. */
+    private function getExistingStudentMigrationPosition(int $studentId, ?int $academicYear): ?array
+    {
+        $snapshotStmt = $this->db->prepare(
+            "SELECT snap.*, ay.year_code
+             FROM student_fee_migration_snapshots snap
+             JOIN academic_years ay ON ay.id = snap.academic_year_id
+             WHERE snap.student_id = ?
+               AND (? IS NULL OR CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?)
+             ORDER BY snap.academic_year_id DESC LIMIT 1"
+        );
+        $snapshotStmt->execute([$studentId, $academicYear, $academicYear]);
+        $snapshot = $snapshotStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$snapshot) return null;
+
+        $yearId = (int) $snapshot['academic_year_id'];
+        $classStmt = $this->db->prepare(
+            "SELECT ayc.class_id, s.student_type_id
+             FROM student_academic_enrollments sae
+             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN students s ON s.id = sae.student_id
+             WHERE sae.student_id = ? AND sae.academic_year_id = ?
+             ORDER BY sae.id DESC LIMIT 1"
+        );
+        $classStmt->execute([$studentId, $yearId]);
+        $placement = $classStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$placement) return null;
+
+        $feesStmt = $this->db->prepare(
+            "SELECT afs.amount, ayt.opening_date, ayt.closing_date
+             FROM academic_year_fee_schedules afs
+             JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+             JOIN academic_year_terms ayt ON ayt.id = afs.academic_year_term_id
+             WHERE afs.academic_year_id = ? AND ayc.class_id = ?
+               AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
+               AND afs.status = 'active'"
+        );
+        $feesStmt->execute([$yearId, (int) $placement['class_id'], (int) $placement['student_type_id']]);
+        $feeRows = $feesStmt->fetchAll(PDO::FETCH_ASSOC);
+        $gross = array_sum(array_map(static fn($row) => (float) $row['amount'], $feeRows));
+
+        $awardsStmt = $this->db->prepare(
+            "SELECT coverage_type, coverage_percentage, coverage_amount, starts_on, ends_on
+             FROM student_scholarship_awards
+             WHERE student_id = ? AND academic_year_id = ? AND status = 'active'"
+        );
+        $awardsStmt->execute([$studentId, $yearId]);
+        $relief = 0.0;
+        foreach ($awardsStmt->fetchAll(PDO::FETCH_ASSOC) as $award) {
+            foreach ($feeRows as $fee) {
+                if (($award['starts_on'] && $fee['closing_date'] < $award['starts_on'])
+                    || ($award['ends_on'] && $fee['opening_date'] > $award['ends_on'])) continue;
+                $amount = (float) $fee['amount'];
+                $cover = match ($award['coverage_type']) {
+                    'full' => $amount,
+                    'percentage' => $amount * (float) ($award['coverage_percentage'] ?? 0) / 100,
+                    default => (float) ($award['coverage_amount'] ?? 0),
+                };
+                $relief += min($amount, max(0, $cover));
+            }
+        }
+
+        $annualPaid = (float) $snapshot['academic_year_paid_amount'];
+        $annualBalance = max(0, round($gross - $relief - $annualPaid, 2));
+        return [
+            'academic_year' => $snapshot['year_code'],
+            'gross_annual_fees' => round($gross, 2),
+            'annual_sponsorship' => round($relief, 2),
+            'net_annual_fees' => round(max(0, $gross - $relief), 2),
+            'academic_year_paid_amount' => $annualPaid,
+            'current_term_paid_amount' => (float) $snapshot['current_term_paid_amount'],
+            'arrears_amount' => (float) $snapshot['arrears_amount'],
+            'annual_balance' => $annualBalance,
+            'advance_amount' => (float) $snapshot['advance_amount'],
+            'label' => 'Includes amounts transcribed from prior school records; not payment transactions',
         ];
     }
 
@@ -2290,6 +2797,79 @@ class StudentsAPI extends BaseAPI
             'absent' => $absent,
             'late' => $late,
             'attendance_rate' => $attendanceRate
+        ];
+    }
+
+    /** Compare marked rows with attendance-required school-calendar dates. */
+    private function getAttendanceCoverage(int $studentId, array $params, array $records): array
+    {
+        $academicYear = $params['academic_year'] ?? $params['year'] ?? null;
+        $yearFilter = $academicYear !== null && ctype_digit((string) $academicYear)
+            ? 'AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?'
+            : 'AND ay.is_current = 1';
+        $yearBindings = $academicYear !== null && ctype_digit((string) $academicYear)
+            ? [(int) $academicYear] : [];
+        $stmt = $this->db->prepare(
+            "SELECT sae.id, sae.academic_year_id, ay.start_date, ay.end_date,
+                    CASE WHEN s.entry_source='admission'
+                         THEN COALESCE(DATE(aa.enrolled_at),s.admission_date,sae.enrolled_on)
+                         ELSE sae.enrolled_on END AS attendance_start
+             FROM student_academic_enrollments sae
+             JOIN academic_years ay ON ay.id=sae.academic_year_id
+             JOIN students s ON s.id=sae.student_id
+             LEFT JOIN admission_applications aa ON aa.enrolled_student_id=s.id
+             WHERE sae.student_id=? AND sae.enrollment_status IN ('active','completed','transferred','graduated')
+             {$yearFilter} ORDER BY sae.id DESC LIMIT 1"
+        );
+        $stmt->execute(array_merge([$studentId], $yearBindings));
+        $enrollment = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$enrollment) {
+            return ['expected_days'=>0,'marked_days'=>0,'unmarked_days'=>0,'unmarked_dates'=>[],
+                'attendance_date_from'=>null,'attendance_date_to'=>null,'unmarked_date_from'=>null,
+                'unmarked_date_to'=>null,'coverage_percentage'=>0];
+        }
+
+        $start = max(
+            (string)($enrollment['start_date'] ?? '9999-12-31'),
+            (string)($enrollment['attendance_start'] ?? $enrollment['start_date'] ?? '9999-12-31'),
+            (string)($params['date_from'] ?? '0000-01-01')
+        );
+        $end = min(
+            (string)($enrollment['end_date'] ?? date('Y-m-d')),
+            date('Y-m-d'),
+            (string)($params['date_to'] ?? '9999-12-31')
+        );
+        $calendar = $this->db->prepare(
+            "SELECT acd.date,COALESCE(cdt.affects_day_students,1) affects_day_students,
+                    COALESCE(cdt.requires_attendance,1) requires_attendance
+             FROM academic_year_calendar_days acd
+             JOIN academic_year_calendar ac ON ac.id=acd.academic_year_calendar_id
+             JOIN academic_year_terms ayt ON ayt.id=ac.academic_year_term_id
+             LEFT JOIN calendar_day_types cdt ON cdt.id=acd.calendar_day_type_id
+             WHERE ayt.academic_year_id=? AND acd.date BETWEEN ? AND ? ORDER BY acd.date"
+        );
+        $calendar->execute([(int)$enrollment['academic_year_id'], $start, $end]);
+        $expected = [];
+        foreach ($calendar->fetchAll(PDO::FETCH_ASSOC) as $day) {
+            if ((int)$day['affects_day_students'] === 1 && (int)$day['requires_attendance'] === 1) {
+                $expected[] = $day['date'];
+            }
+        }
+        $marked = array_values(array_unique(array_filter(array_map(static fn($r)=>$r['date']??null, $records))));
+        $markedSet = array_fill_keys($marked, true);
+        $missing = array_values(array_filter($expected, static fn($date)=>!isset($markedSet[$date])));
+        $expectedCount = count($expected);
+        $markedCount = count(array_intersect($expected, $marked));
+        return [
+            'expected_days'=>$expectedCount,
+            'marked_days'=>$markedCount,
+            'unmarked_days'=>count($missing),
+            'unmarked_dates'=>$missing,
+            'attendance_date_from'=>$expected[0]??null,
+            'attendance_date_to'=>$expectedCount?$expected[$expectedCount-1]:null,
+            'unmarked_date_from'=>$missing[0]??null,
+            'unmarked_date_to'=>$missing?$missing[count($missing)-1]:null,
+            'coverage_percentage'=>$expectedCount?round($markedCount/$expectedCount*100,2):0,
         ];
     }
 
@@ -2867,9 +3447,17 @@ class StudentsAPI extends BaseAPI
                 ], 500);
             }
 
-            // Instantiate classes dynamically to avoid static analyzer errors if library is missing
+            // Use SVG when the active PHP runtime lacks GD. SVG QR assets do
+            // not depend on image extensions and remain suitable for cards.
             $qrClass = '\Endroid\QrCode\QrCode';
-            $writerClass = '\Endroid\QrCode\Writer\PngWriter';
+            $hasGd = extension_loaded('gd') && function_exists('imagecreatetruecolor');
+            $writerClass = $hasGd
+                ? '\Endroid\QrCode\Writer\PngWriter'
+                : '\Endroid\QrCode\Writer\SvgWriter';
+            $qrExtension = $hasGd ? 'png' : 'svg';
+            if (!class_exists($writerClass)) {
+                throw new Exception('No supported QR writer is available in this PHP environment');
+            }
 
             // Print only an opaque, non-enumerable credential. The scanner API
             // resolves it server-side and never trusts identity, fees, or URLs
@@ -2886,7 +3474,7 @@ class StudentsAPI extends BaseAPI
             $result = $writer->write($qrCode);
 
             // Persist through the inherited UploadService gateway.
-            $qrFilename = $student['admission_no'] . '.png';
+            $qrFilename = $student['admission_no'] . '.' . $qrExtension;
             $qrPath = $this->managedPath(
                 'student_photo',
                 (string) $id,
@@ -2997,6 +3585,7 @@ class StudentsAPI extends BaseAPI
             $params = array_merge($_GET ?? [], $params ?? []);
             $records = $this->getAttendanceRecord($id, $params);
             $summary = $this->buildAttendanceSummary($records);
+            $summary = array_merge($summary, $this->getAttendanceCoverage((int) $id, $params, $records));
 
             return $this->response([
                 'status' => 'success',
@@ -3348,7 +3937,9 @@ class StudentsAPI extends BaseAPI
                     'is_sponsored' => 'is_sponsored',
                     'sponsor_name' => 'sponsor_name',
                     'sponsor_type' => 'sponsor_type',
-                    'sponsor_waiver_percentage' => 'sponsor_waiver_percentage'
+                    'sponsor_waiver_percentage' => 'sponsor_waiver_percentage',
+                    'paid_this_academic_year' => 'academic_year_paid_amount',
+                    'paid_this_term' => 'current_term_paid_amount'
                 ];
 
                 $canon = [];
@@ -3378,7 +3969,9 @@ class StudentsAPI extends BaseAPI
                 $lastName = $canon['last_name'] ?? null;
                 $dob = $canon['date_of_birth'] ?? null;
                 $gender = $canon['gender'] ?? null;
-                $admissionDate = $canon['admission_date'] ?? date('Y-m-d');
+                // Existing learners predate this system. Do not invent an
+                // admission date when the source records do not provide one.
+                $admissionDate = $canon['admission_date'] ?? null;
 
                 if (empty($firstName) || empty($lastName) || empty($dob) || empty($gender)) {
                     $errors[] = [
@@ -3496,8 +4089,6 @@ class StudentsAPI extends BaseAPI
                                 $studentTypeId = 1;
                             } elseif (in_array($stypeRaw, ['board', 'full_boarder'], true)) {
                                 $studentTypeId = 2;
-                            } elseif (in_array($stypeRaw, ['weekly', 'weekly_boarder'], true)) {
-                                $studentTypeId = 3;
                             } else {
                                 $studentTypeId = 1;
                             }
@@ -3596,8 +4187,8 @@ class StudentsAPI extends BaseAPI
                         INSERT INTO students (
                             person_id, admission_no, student_type_id, assessment_number,
                             assessment_status, nemis_number, nemis_status, status,
-                            admission_date, blood_group, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                            admission_date, blood_group, entry_source, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'existing_student', NOW())
                     ");
                     $studentStmt->execute([
                         $personId,
@@ -3608,7 +4199,7 @@ class StudentsAPI extends BaseAPI
                         $row['nemis_number'] ?? null,
                         $row['nemis_status'] ?? 'not_assigned',
                         $row['status'] ?? 'active',
-                        $row['admission_date'] ?? date('Y-m-d'),
+                        $row['admission_date'] ?? null,
                         $row['blood_group'] ?? null,
                     ]);
                     $studentId = (int) $this->db->lastInsertId();
@@ -4649,39 +5240,78 @@ class StudentsAPI extends BaseAPI
     public function getStudentStatistics($params = [])
     {
         try {
-            // Total students
-            $stmt = $this->db->query("SELECT COUNT(*) as total FROM students WHERE status = 'active'");
-            $total = $stmt->fetchColumn();
+            $year = $this->db->query("SELECT year_code FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn();
+            $termStmt = $this->db->query(
+                "SELECT ayt.opening_date, ayt.closing_date
+                 FROM academic_year_terms ayt
+                 JOIN academic_years ay ON ay.id=ayt.academic_year_id
+                 WHERE ay.is_current=1 AND ayt.status='current'
+                 ORDER BY ayt.id DESC LIMIT 1"
+            );
+            $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-            // By gender (gender now lives on persons)
-            $stmt = $this->db->query("
-                SELECT per.gender, COUNT(*) AS count
-                FROM students s
-                JOIN persons per ON per.id = s.person_id
-                WHERE s.status = 'active'
-                GROUP BY per.gender
-            ");
-            $byGender = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $conditions = [];
+            $bindings = [];
+            $scope = $this->buildStudentVisibilityScope();
+            if (!empty($scope['restricted'])) {
+                $scopeParts = [];
+                if (!empty($scope['student_ids'])) {
+                    $scopeParts[] = 's.id IN (' . implode(',', array_fill(0, count($scope['student_ids']), '?')) . ')';
+                    $bindings = array_merge($bindings, $scope['student_ids']);
+                }
+                if (!empty($scope['stream_ids'])) {
+                    $scopeParts[] = 'aycs.id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
+                    $bindings = array_merge($bindings, $scope['stream_ids']);
+                }
+                if (!empty($scope['class_ids'])) {
+                    $scopeParts[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
+                    $bindings = array_merge($bindings, $scope['class_ids']);
+                }
+                $conditions[] = $scopeParts ? '(' . implode(' OR ', $scopeParts) . ')' : '1=0';
+            }
 
-            // By class (via academic_year_classes -> academic_year_class_streams -> student_academic_enrollments)
-            $stmt = $this->db->query("
-                SELECT c.name AS class_name, COUNT(s.id) AS count
-                FROM classes c
-                JOIN academic_year_classes ayc ON ayc.class_id = c.id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                JOIN student_academic_enrollments sae
-                    ON sae.academic_year_class_stream_id = aycs.id
-                   AND sae.enrollment_status = 'active'
-                JOIN students s ON s.id = sae.student_id AND s.status = 'active'
-                GROUP BY c.id
-                ORDER BY c.name
-            ");
-            $byClass = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+            $feeYear = $year ? 'WHERE CAST(SUBSTRING(academic_year,1,4) AS UNSIGNED)=?' : '';
+            $feeParams = $year ? [(int)preg_replace('/[^0-9].*$/', '', (string)$year)] : [];
+            $feeView = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances');
+            $joins = "
+                LEFT JOIN student_academic_enrollments sae ON sae.student_id=s.id
+                    AND sae.enrollment_status='active'
+                    AND sae.id=(SELECT MAX(x.id) FROM student_academic_enrollments x
+                                WHERE x.student_id=s.id AND x.enrollment_status='active')
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+                LEFT JOIN (
+                    SELECT student_id, SUM(balance) AS total_balance, SUM(amount_due) AS total_due
+                    FROM {$feeView} {$feeYear} GROUP BY student_id
+                ) fees ON fees.student_id=s.id";
+            $sql = "SELECT COUNT(*) AS total,
+                           SUM(s.status='active') AS active,
+                           SUM(s.status<>'active') AS inactive,
+                           SUM(CASE WHEN ? IS NOT NULL AND COALESCE(s.admission_date, sae.enrolled_on, s.created_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS new_this_term,
+                           SUM(CASE WHEN COALESCE(fees.total_balance,0)>0 THEN 1 ELSE 0 END) AS with_outstanding_fees,
+                           SUM(CASE WHEN COALESCE(fees.total_due,0)>0 AND COALESCE(fees.total_balance,0)<=0 THEN 1 ELSE 0 END) AS fully_paid,
+                           COALESCE(SUM(GREATEST(COALESCE(fees.total_balance,0),0)),0) AS total_outstanding
+                    FROM students s JOIN persons per ON per.id=s.person_id {$joins} {$where}";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge([$term['opening_date'] ?? null, $term['opening_date'] ?? null, $term['closing_date'] ?? null], $feeParams, $bindings));
+            $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $byGenderStmt = $this->db->prepare("SELECT per.gender, COUNT(*) AS count FROM students s JOIN persons per ON per.id=s.person_id {$joins} {$where} GROUP BY per.gender");
+            $byGenderStmt->execute(array_merge($feeParams, $bindings));
+            $byGender = $byGenderStmt->fetchAll(PDO::FETCH_ASSOC);
+            $byClass = [];
 
             return $this->response([
                 'status' => 'success',
                 'data' => [
-                    'total' => $total,
+                    'total' => (int)($summary['total'] ?? 0),
+                    'active' => (int)($summary['active'] ?? 0),
+                    'inactive' => (int)($summary['inactive'] ?? 0),
+                    'new_this_term' => (int)($summary['new_this_term'] ?? 0),
+                    'with_outstanding_fees' => (int)($summary['with_outstanding_fees'] ?? 0),
+                    'fully_paid' => (int)($summary['fully_paid'] ?? 0),
+                    'total_outstanding' => (float)($summary['total_outstanding'] ?? 0),
                     'by_gender' => $byGender,
                     'by_class' => $byClass
                 ]
@@ -5156,8 +5786,15 @@ class StudentsAPI extends BaseAPI
     public function addExistingStudent($data)
     {
         try {
+            if (!empty($data['application_id'])) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Admissions must be completed through the admissions workflow; existing-student registration cannot carry an application.'
+                ], 400);
+            }
+
             // Required fields for existing students
-            $required = ['first_name', 'last_name', 'date_of_birth', 'gender', 'class_id', 'admission_date'];
+            $required = ['first_name', 'last_name', 'date_of_birth', 'gender', 'class_id'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -5176,12 +5813,28 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            $validStatuses = ['active', 'inactive', 'graduated', 'transferred', 'suspended'];
+            $studentStatus = (string) ($data['status'] ?? 'active');
+            if (!in_array($studentStatus, $validStatuses, true)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Invalid student status'
+                ], 400);
+            }
+
             $this->db->beginTransaction();
 
-            // Generate admission number if not provided
-            if (empty($data['admission_no'])) {
-                $data['admission_no'] = $this->generateAdmissionNumber();
-            }
+            // Existing learners may supply their numeric school register
+            // number. Store it with the canonical KPS prefix; otherwise carry
+            // on from the latest inserted KPS number.
+            $admissionNumbers = new AdmissionNumberService($this->db);
+            $submittedAdmissionNo = trim((string) ($data['admission_no'] ?? ''));
+            $candidate = $submittedAdmissionNo !== ''
+                ? $admissionNumbers->normalizeExisting($submittedAdmissionNo)
+                : null;
+            $data['admission_no'] = ($candidate !== null && $admissionNumbers->isAvailable($candidate))
+                ? $candidate
+                : $admissionNumbers->generateNextExisting();
 
             if (empty($data['stream_name'])) {
                 throw new Exception('A configured stream is required for an existing learner');
@@ -5207,18 +5860,29 @@ class StudentsAPI extends BaseAPI
             $studentStmt = $this->db->prepare("
                 INSERT INTO students (
                     person_id, admission_no, student_type_id, admission_date,
-                    assessment_number, blood_group, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
+                    assessment_number, assessment_status, nemis_number, nemis_status,
+                    blood_group, status, entry_source, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'existing_student', NOW())
             ");
             $studentStmt->execute([
                 $personId,
                 $data['admission_no'],
                 $data['student_type_id'] ?? 1,
-                $data['admission_date'],
+                $data['admission_date'] ?? null,
                 $data['assessment_number'] ?? null,
+                !empty($data['assessment_number']) ? 'assigned' : ($data['assessment_status'] ?? 'not_assigned'),
+                $data['nemis_number'] ?? null,
+                $data['nemis_status'] ?? (!empty($data['nemis_number']) ? 'assigned' : 'not_assigned'),
                 $data['blood_group'] ?? null,
+                $studentStatus,
             ]);
             $studentId = (int) $this->db->lastInsertId();
+
+            // Persist the school sponsorship award before enrollment billing
+            // creates fee obligations, so the trigger sees the award.
+            if (!empty($data['school_sponsorship'])) {
+                $this->saveExistingSchoolSponsorship($studentId, $data['school_sponsorship']);
+            }
 
             // Enroll into class/stream for the current year
             $enrollmentId = $this->ensureClassEnrollment($studentId, $streamId);
@@ -5252,6 +5916,16 @@ class StudentsAPI extends BaseAPI
                 $cleanStmt->execute([(int) $enrollmentId, $currentTermNumber]);
             }
 
+            // The enrollment trigger creates the obligations before returning.
+            // Apply this learner's active school award to those rows so the
+            // first ledger balance already reflects the approved sponsorship.
+            $this->applyExistingStudentSponsorshipToObligations($studentId);
+
+            // Fee waivers are separate concessions from sponsorship awards.
+            if (!empty($data['school_fee_waiver'])) {
+                $this->saveExistingSchoolFeeWaiver($studentId, $data['school_fee_waiver']);
+            }
+
             // The AFTER INSERT enrollment trigger is the single billing
             // authority. It invokes sp_onboard_student_enrollment, which now
             // applies the current-term/future-term rule. Calling the legacy
@@ -5277,7 +5951,9 @@ class StudentsAPI extends BaseAPI
             }
 
             if (!empty($data['financial_migration'])) {
-                $financial = $data['financial_migration'];
+                $financial = (!empty($data['migration_mode']) || !empty($data['financial_migration']['calculate_from_schedule']))
+                    ? $this->deriveExistingImportFinancialPosition($data, $studentId)
+                    : $data['financial_migration'];
                 foreach (['academic_year_paid_amount', 'current_term_paid_amount', 'fee_arrears_amount', 'advance_amount'] as $field) {
                     if (isset($financial[$field]) && (!is_numeric($financial[$field]) || (float) $financial[$field] < 0)) {
                         throw new \InvalidArgumentException("{$field} must be a non-negative number");
@@ -5287,13 +5963,35 @@ class StudentsAPI extends BaseAPI
                     throw new \InvalidArgumentException('Current-term paid amount cannot exceed academic-year paid amount');
                 }
                 $this->saveFinancialMigrationSnapshot($studentId, $financial);
+                $this->applyFinancialMigrationToObligations($studentId, $financial);
             }
-
-            // Generate QR code
-            $this->generateQRCode($studentId);
 
             if ($this->db->inTransaction()) {
                 $this->db->commit();
+            }
+
+            // Transport is part of the manual registration payload. Persist it
+            // on the server after the student transaction commits so the
+            // browser cannot silently discard a valid arrangement when the
+            // second request is skipped or interrupted.
+            $transportSaved = false;
+            if (!empty($data['transport_arrangement'])) {
+                $transport = new \App\API\Modules\transport\StudentTransportEntitlementManager($this->db);
+                $transport->enrollStudent(
+                    array_merge($data['transport_arrangement'], ['student_id' => $studentId]),
+                    (int) ($this->getCurrentUserId() ?? 0)
+                );
+                $transportSaved = true;
+            }
+
+            // QR artwork is supplementary. A missing image extension or
+            // storage problem must never roll back the learner's registration.
+            $qrGenerated = false;
+            try {
+                $qrResult = $this->generateQRCode($studentId);
+                $qrGenerated = ($qrResult['status'] ?? null) === 'success';
+            } catch (\Throwable $qrError) {
+                $this->logError($qrError, 'Existing student QR generation failed after registration');
             }
 
             $this->logAction('create', $studentId, "Added existing student: {$data['first_name']} {$data['last_name']} (Quick Add)");
@@ -5303,15 +6001,220 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Existing student added successfully',
                 'data' => [
                     'id' => $studentId,
-                    'admission_no' => $data['admission_no']
+                    'admission_no' => $data['admission_no'],
+                    'transport_saved' => $transportSaved,
+                    'qr_generated' => $qrGenerated,
                 ]
             ], 201);
 
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return $this->response([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], 400);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             return $this->handleException($e);
+        }
+    }
+
+    /** Store a school scholarship programme award for an existing learner. */
+    private function saveExistingSchoolSponsorship(int $studentId, array $data): void
+    {
+        $programId = (int) ($data['scholarship_program_id'] ?? 0);
+        $reason = trim((string) ($data['reason'] ?? ''));
+        if ($programId <= 0 || $reason === '') {
+            throw new \InvalidArgumentException('A school sponsorship programme and approval reason are required');
+        }
+
+        $programStmt = $this->db->prepare(
+            "SELECT id, coverage_type, default_percentage, default_amount
+             FROM scholarship_programs WHERE id=? AND is_active=1 LIMIT 1"
+        );
+        $programStmt->execute([$programId]);
+        $program = $programStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$program) throw new \InvalidArgumentException('The selected school sponsorship programme is not active');
+
+        $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1");
+        $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);
+        if ($academicYearId <= 0) throw new \InvalidArgumentException('No current academic year is configured');
+
+        $coverageType = (string) $program['coverage_type'];
+        $coveragePercentage = null;
+        $coverageAmount = null;
+        if ($coverageType === 'percentage') {
+            $coveragePercentage = (float) ($data['coverage_percentage'] ?? $program['default_percentage'] ?? 0);
+            if ($coveragePercentage < 0 || $coveragePercentage > 100) {
+                throw new \InvalidArgumentException('Sponsorship percentage must be between 0 and 100');
+            }
+        } elseif ($coverageType === 'fixed_amount') {
+            $coverageAmount = (float) ($data['coverage_amount'] ?? $program['default_amount'] ?? 0);
+            if ($coverageAmount <= 0) throw new \InvalidArgumentException('A fixed school grant amount per obligation is required');
+        }
+
+        $periodType = (string) ($data['period_type'] ?? 'academic_year');
+        if (!in_array($periodType, ['term', 'academic_year', 'custom'], true)) {
+            throw new \InvalidArgumentException('Invalid sponsorship period');
+        }
+        if ($periodType === 'term') {
+            $termStmt = $this->db->prepare('SELECT opening_date, closing_date FROM academic_year_terms WHERE id=? AND academic_year_id=?');
+            $termStmt->execute([(int) ($data['academic_year_term_id'] ?? 0), $academicYearId]);
+            $term = $termStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$term) throw new \InvalidArgumentException('The selected sponsorship term is invalid');
+            $startsOn = $term['opening_date'];
+            $endsOn = $term['closing_date'];
+        } elseif ($periodType === 'custom') {
+            $startsOn = $data['starts_on'] ?? null;
+            $endsOn = $data['ends_on'] ?? null;
+            if (!$startsOn || !$endsOn || $startsOn > $endsOn) {
+                throw new \InvalidArgumentException('Custom sponsorship period must have valid start and end dates');
+            }
+        } else {
+            $yearDates = $this->db->prepare('SELECT start_date, end_date FROM academic_years WHERE id=?');
+            $yearDates->execute([$academicYearId]);
+            $dates = $yearDates->fetch(PDO::FETCH_ASSOC);
+            if (!$dates) throw new \InvalidArgumentException('The selected academic year is invalid');
+            $startsOn = $dates['start_date'];
+            $endsOn = $dates['end_date'];
+        }
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO student_scholarship_awards
+                (student_id, scholarship_program_id, academic_year_id, period_type, coverage_type,
+                 coverage_percentage, coverage_amount, reason, starts_on, ends_on, status, awarded_by, notes)
+             VALUES (?,?,?,?,?,?,?,?,?,?, 'active',?,?)
+             ON DUPLICATE KEY UPDATE
+                scholarship_program_id=VALUES(scholarship_program_id),
+                period_type=VALUES(period_type), coverage_type=VALUES(coverage_type), coverage_percentage=VALUES(coverage_percentage),
+                coverage_amount=VALUES(coverage_amount), reason=VALUES(reason), status='active',
+                starts_on=VALUES(starts_on), ends_on=VALUES(ends_on),
+                awarded_by=VALUES(awarded_by), revoked_by=NULL, revoked_at=NULL,
+                updated_at=NOW()"
+        );
+        $stmt->execute([
+            $studentId, $programId, $academicYearId, $periodType, $coverageType,
+            $coveragePercentage, $coverageAmount, $reason, $startsOn, $endsOn,
+            (int) ($this->getCurrentUserId() ?? 0),
+            'Created during existing-student registration',
+        ]);
+    }
+
+    /** Apply active school sponsorship awards to generated fee obligations. */
+    private function applyExistingStudentSponsorshipToObligations(int $studentId): void
+    {
+        $awardsStmt = $this->db->prepare(
+            "SELECT id, academic_year_id, coverage_type, coverage_percentage, coverage_amount,
+                    starts_on, ends_on
+             FROM student_scholarship_awards
+             WHERE student_id = ? AND status = 'active'
+             ORDER BY id"
+        );
+        $awardsStmt->execute([$studentId]);
+        $update = $this->db->prepare(
+            "UPDATE student_fee_obligations sfo
+             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+             JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+             SET sfo.is_sponsored = 1,
+                 sfo.sponsored_waiver_amount = LEAST(sfo.amount_due, CASE
+                    WHEN ? = 'full' THEN sfo.amount_due
+                    WHEN ? = 'percentage' THEN sfo.amount_due * ? / 100
+                    ELSE ? END),
+                 sfo.status = CASE
+                    WHEN LEAST(sfo.amount_due, CASE
+                        WHEN ? = 'full' THEN sfo.amount_due
+                        WHEN ? = 'percentage' THEN sfo.amount_due * ? / 100
+                        ELSE ? END) >= sfo.amount_due THEN 'paid'
+                    ELSE sfo.status END,
+                 sfo.updated_at = NOW()
+             WHERE sae.student_id = ? AND sfo.academic_year_id = ?
+               AND ( ? IS NULL OR ayt.closing_date >= ? )
+               AND ( ? IS NULL OR ayt.opening_date <= ? )"
+        );
+        foreach ($awardsStmt->fetchAll(PDO::FETCH_ASSOC) as $award) {
+            $type = (string) $award['coverage_type'];
+            $percentage = (float) ($award['coverage_percentage'] ?? 0);
+            $amount = (float) ($award['coverage_amount'] ?? 0);
+            $starts = $award['starts_on'] ?: null;
+            $ends = $award['ends_on'] ?: null;
+            $update->execute([
+                $type, $type, $percentage, $amount,
+                $type, $type, $percentage, $amount,
+                $studentId, (int) $award['academic_year_id'],
+                $starts, $starts, $ends, $ends,
+            ]);
+        }
+    }
+
+    /** Store a current-term fee waiver separately from school sponsorship. */
+    private function saveExistingSchoolFeeWaiver(int $studentId, array $data): void
+    {
+        $type = trim((string) ($data['discount_type'] ?? ''));
+        $reason = trim((string) ($data['reason'] ?? ''));
+        $allowed = ['percentage', 'fixed_amount', 'full_waiver', 'merit', 'need_based', 'sibling', 'other'];
+        if (!in_array($type, $allowed, true) || $reason === '') {
+            throw new \InvalidArgumentException('A valid fee-waiver type and approval reason are required');
+        }
+
+        $year = $this->db->query(
+            "SELECT id, year_code FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1"
+        )->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!$year) throw new \InvalidArgumentException('No current academic year is configured');
+
+        $termStmt = $this->db->prepare(
+            "SELECT id, term_id FROM academic_year_terms
+             WHERE academic_year_id=? AND (status='current' OR CURDATE() BETWEEN opening_date AND closing_date)
+             ORDER BY CASE WHEN status='current' THEN 0 ELSE 1 END, id LIMIT 1"
+        );
+        $termStmt->execute([(int) $year['id']]);
+        $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $academicYearTermId = (int) ($term['id'] ?? 0);
+        $termId = (int) ($term['term_id'] ?? 0);
+        if ($academicYearTermId <= 0 || $termId <= 0) throw new \InvalidArgumentException('No current term is configured');
+
+        $value = max(0, (float) ($data['discount_value'] ?? 0));
+        $percentage = $type === 'percentage' ? $value : null;
+        if ($type === 'percentage' && $value > 100) throw new \InvalidArgumentException('Fee-waiver percentage must be between 0 and 100');
+        if ($type !== 'full_waiver' && $value <= 0) throw new \InvalidArgumentException('A fee-waiver value is required');
+
+        $obligationStmt = $this->db->prepare(
+            "SELECT sfo.id, sfo.amount_due, COALESCE(sfo.sponsored_waiver_amount,0) AS sponsored_waiver_amount
+             FROM student_fee_obligations sfo
+             JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+             WHERE sae.student_id=? AND sfo.academic_year_id=? AND sfo.academic_year_term_id=?
+               AND sfo.status <> 'paid' ORDER BY sfo.id"
+        );
+        $obligationStmt->execute([$studentId, (int) $year['id'], $academicYearTermId]);
+        $obligations = $obligationStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!$obligations) return;
+
+        $yearValue = (int) preg_replace('/[^0-9].*$/', '', (string) $year['year_code']);
+        $remaining = $type === 'full_waiver' ? PHP_FLOAT_MAX : $value;
+        $insert = $this->db->prepare(
+            "INSERT INTO fee_discounts_waivers
+                (student_id, student_fee_obligation_id, discount_type, discount_value,
+                 discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status)
+             VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active')"
+        );
+        foreach ($obligations as $obligation) {
+            $net = max(0, (float) $obligation['amount_due'] - (float) $obligation['sponsored_waiver_amount']);
+            if ($net <= 0) continue;
+            $amount = $type === 'full_waiver'
+                ? $net
+                : ($type === 'percentage' ? round($net * $value / 100, 2) : min($net, $remaining));
+            if ($amount <= 0) continue;
+            $insert->execute([
+                $studentId, (int) $obligation['id'], $type, $amount, $percentage,
+                $reason, $yearValue, $termId, (int) ($this->getCurrentUserId() ?? 0),
+            ]);
+            if ($type !== 'full_waiver') {
+                $remaining -= $amount;
+                if ($remaining <= 0) break;
+            }
         }
     }
 
@@ -5412,15 +6315,28 @@ class StudentsAPI extends BaseAPI
                 'failed' => 0,
                 'skipped' => 0,
                 'errors' => [],
-                'warnings' => []
+                'warnings' => [],
+                'duplicates' => []
             ];
+            $seenAdmissions = [];
 
             foreach ($fileResult['data'] as $index => $row) {
                 $rowNum = $index + 2; // +2 for header row and 0-based index
 
                 try {
-                    // Validate required fields
-                    $requiredFields = ['first_name', 'last_name', 'date_of_birth', 'gender', 'class_id'];
+                    if (!array_filter($row, static fn($value) => trim((string) $value) !== '')) {
+                        continue;
+                    }
+                    // The migration sheet is intentionally limited to learner
+                    // creation, placement, identifiers, fee-paid figures and
+                    // parent contact. Optional service arrangements are added
+                    // later by the responsible school staff.
+                    $row = $this->normalizeExistingStudentImportRow($row);
+                    $requiredFields = [
+                        'first_name', 'last_name', 'date_of_birth', 'gender',
+                        'class_name', 'student_type', 'status', 'parent_relationship',
+                        'parent_first_name', 'parent_last_name', 'parent_phone'
+                    ];
                     $missingFields = [];
 
                     foreach ($requiredFields as $field) {
@@ -5438,30 +6354,49 @@ class StudentsAPI extends BaseAPI
                         continue;
                     }
 
+                    $row['stream_name'] = trim((string) ($row['stream_name'] ?? '')) ?: 'A';
+                    $row['class_id'] = $this->resolveExistingImportClassId((string) $row['class_name']);
+                    if (!$row['class_id']) {
+                        throw new \InvalidArgumentException("Class '{$row['class_name']}' is not configured for the current academic year");
+                    }
+                    $row['student_type_id'] = $this->resolveExistingImportStudentTypeId((string) $row['student_type']);
+                    if (!$row['student_type_id']) {
+                        throw new \InvalidArgumentException("Student type '{$row['student_type']}' is not configured");
+                    }
+
                     // Check for duplicate admission number
-                    if (!empty($row['admission_no'])) {
-                        $stmt = $this->db->prepare("SELECT id FROM students WHERE admission_no = ?");
-                        $stmt->execute([$row['admission_no']]);
-                        if ($stmt->fetch()) {
-                            $results['skipped']++;
+                    $admissionNumbers = new AdmissionNumberService($this->db);
+                    $submittedAdmissionNo = trim((string) ($row['admission_no'] ?? ''));
+                    $candidate = $submittedAdmissionNo !== ''
+                        ? $admissionNumbers->normalizeExisting($submittedAdmissionNo)
+                        : null;
+                    if ($candidate !== null && (isset($seenAdmissions[$candidate]) || !$admissionNumbers->isAvailable($candidate))) {
+                        $results['skipped']++;
+                        $results['duplicates'][] = [
+                            'row' => $rowNum,
+                            'admission_no' => $candidate,
+                            'message' => isset($seenAdmissions[$candidate])
+                                ? 'Admission number is repeated in this file'
+                                : 'Admission number already exists in the student register'
+                        ];
+                        continue;
+                    }
+                    if ($candidate !== null) {
+                        $row['admission_no'] = $candidate;
+                    } else {
+                        $row['admission_no'] = $admissionNumbers->generateNextExisting();
+                        if ($submittedAdmissionNo !== '') {
                             $results['warnings'][] = [
                                 'row' => $rowNum,
-                                'message' => "Student with admission number {$row['admission_no']} already exists"
+                                'message' => "Submitted admission number was unavailable or invalid; assigned {$row['admission_no']} using the next KPS number"
                             ];
-                            continue;
                         }
-                    } else {
-                        $row['admission_no'] = $this->generateAdmissionNumber();
                     }
 
                     // Set default admission date if not provided
-                    if (empty($row['admission_date'])) {
-                        $row['admission_date'] = date('Y-m-d');
-                    }
-
                     // Prepare student data
                     $studentData = [
-                        'admission_no' => $row['admission_no'],
+                        'admission_no' => $row['admission_no'] ?? null,
                         'first_name' => $row['first_name'],
                         'middle_name' => $row['middle_name'] ?? null,
                         'last_name' => $row['last_name'],
@@ -5470,91 +6405,58 @@ class StudentsAPI extends BaseAPI
                         'class_id' => $row['class_id'],
                         'stream_name' => $row['stream_name'] ?? null,
                         'student_type_id' => !empty($row['student_type_id']) ? (int) $row['student_type_id'] : 1,
-                        'admission_date' => $row['admission_date'],
+                        'status' => $row['status'] ?? 'active',
                         'assessment_number' => $row['assessment_number'] ?? null,
-                        'nationality' => $row['nationality'] ?? 'Kenyan',
-                        'religion' => $row['religion'] ?? null
+                        'nemis_number' => $row['nemis_number'] ?? null,
+                        'assessment_status' => !empty($row['assessment_number']) ? 'assigned' : 'not_assigned',
+                        'nemis_status' => !empty($row['nemis_number']) ? 'assigned' : 'not_assigned',
                     ];
 
                     if (empty($studentData['stream_name'])) {
                         throw new Exception('stream_name is required for existing-student migration');
                     }
 
-                    if ((float) ($row['opening_payment_amount'] ?? 0) > 0) {
-                        $studentData['initial_payment'] = (float) $row['opening_payment_amount'];
-                        $studentData['payment_method'] = $row['opening_payment_method'] ?? 'bank_transfer';
-                        $studentData['payment_reference'] = $row['opening_payment_reference'] ?? null;
-                        $studentData['payment_date'] = $row['opening_payment_date'] ?? null;
-                        $studentData['receipt_no'] = $row['opening_payment_receipt'] ?? null;
-                    }
-
-                    $financialFields = [
-                        'academic_year_paid_amount',
-                        'current_term_paid_amount',
-                        'fee_arrears_amount',
-                        'advance_amount'
-                    ];
-                    $hasFinancialSnapshot = false;
-                    foreach ($financialFields as $financialField) {
-                        if (trim((string) ($row[$financialField] ?? '')) !== '') {
-                            $hasFinancialSnapshot = true;
-                            break;
-                        }
-                    }
+                    $annualPaidRaw = $this->normalizeImportAmount($row['academic_year_paid_amount'] ?? '');
+                    $termPaidRaw = $this->normalizeImportAmount($row['current_term_paid_amount'] ?? '');
+                    $hasFinancialSnapshot = $annualPaidRaw !== '' || $termPaidRaw !== '';
                     if ($hasFinancialSnapshot) {
-                        if ((float) ($row['opening_payment_amount'] ?? 0) > 0) {
-                            throw new \InvalidArgumentException('Use the financial migration fields instead of opening_payment_amount; do not enter the same payment twice');
-                        }
-                        $snapshot = [];
-                        foreach ($financialFields as $financialField) {
-                            $value = trim((string) ($row[$financialField] ?? '0'));
-                            if ($value === '') {
-                                $value = '0';
+                        foreach (['academic_year_paid_amount'=>$annualPaidRaw, 'current_term_paid_amount'=>$termPaidRaw] as $field=>$value) {
+                            if ($value !== '' && (!is_numeric($value) || (float) $value < 0)) {
+                                throw new \InvalidArgumentException("{$field} must be a non-negative amount");
                             }
-                            if (!is_numeric($value) || (float) $value < 0) {
-                                throw new \InvalidArgumentException("{$financialField} must be a non-negative number");
-                            }
-                            $snapshot[$financialField] = round((float) $value, 2);
                         }
-                        if ($snapshot['current_term_paid_amount'] > $snapshot['academic_year_paid_amount']) {
+                        $annualPaid = $annualPaidRaw === '' ? 0.0 : round((float)$annualPaidRaw, 2);
+                        $termPaid = $termPaidRaw === '' ? 0.0 : round((float)$termPaidRaw, 2);
+                        if ($termPaid > $annualPaid) {
                             throw new \InvalidArgumentException('current_term_paid_amount cannot exceed academic_year_paid_amount');
                         }
                         $studentData['financial_migration'] = [
-                            'academic_year_code' => trim((string) ($row['financial_academic_year_code'] ?? $row['academic_year_code'] ?? '')),
-                            'academic_year_paid_amount' => $snapshot['academic_year_paid_amount'],
-                            'current_term_paid_amount' => $snapshot['current_term_paid_amount'],
-                            'fee_arrears_amount' => $snapshot['fee_arrears_amount'],
-                            'advance_amount' => $snapshot['advance_amount'],
-                            'reference' => $row['opening_balance_reference'] ?? null,
-                            'payment_date' => $row['opening_balance_date'] ?? null,
-                            'payment_method' => $row['opening_balance_method'] ?? null,
-                            'receipt_no' => $row['opening_balance_receipt'] ?? null,
-                            'notes' => $row['opening_balance_notes'] ?? 'Imported existing-student financial snapshot'
+                            'academic_year_paid_amount' => $annualPaid,
+                            'current_term_paid_amount' => $termPaid,
+                            'fee_arrears_amount' => 0,
+                            'advance_amount' => 0,
+                            'calculate_from_schedule' => true,
+                            'notes' => 'Financial position supplied during existing-student import'
                         ];
+                        $studentData['migration_mode'] = true;
                     }
 
-                    // Add parent data if available
-                    if (!empty($row['parent_first_name']) && !empty($row['parent_last_name'])) {
-                        $studentData['parent'] = [
-                            'first_name' => $row['parent_first_name'],
-                            'last_name' => $row['parent_last_name'],
-                            'phone_1' => $row['parent_phone'] ?? null,
-                            'email' => $row['parent_email'] ?? null,
-                            'relationship' => $row['parent_relationship'] ?? 'parent'
-                        ];
-                    }
+                    $studentData['parent'] = [
+                        'first_name' => trim((string)$row['parent_first_name']),
+                        'last_name' => trim((string)$row['parent_last_name']),
+                        'gender' => $row['parent_gender'] ?? null,
+                        'phone_1' => trim((string)$row['parent_phone']),
+                        'phone_2' => $row['parent_secondary_phone'] ?? null,
+                        'email' => $row['parent_email'] ?? null,
+                        'relationship' => trim((string)$row['parent_relationship']),
+                    ];
 
                     // Add the student
                     $response = $this->addExistingStudent($studentData);
 
                     if ($response['status'] === 'success') {
-                        if (!empty($studentData['financial_migration'])) {
-                            $this->saveFinancialMigrationSnapshot(
-                                (int) ($response['data']['id'] ?? 0),
-                                $studentData['financial_migration']
-                            );
-                        }
                         $results['successful']++;
+                        $seenAdmissions[$row['admission_no']] = true;
                     } else {
                         $results['failed']++;
                         $results['errors'][] = [
@@ -5583,6 +6485,10 @@ class StudentsAPI extends BaseAPI
             return $this->response([
                 'status' => $results['failed'] > 0 ? 'partial' : 'success',
                 'message' => "Import completed: {$results['successful']} successful, {$results['failed']} failed, {$results['skipped']} skipped",
+                'processed' => $results['successful'],
+                'errors' => $results['errors'],
+                'warnings' => $results['warnings'],
+                'duplicates' => $results['duplicates'],
                 'data' => $results
             ]);
 
@@ -5599,84 +6505,17 @@ class StudentsAPI extends BaseAPI
     public function getImportTemplate()
     {
         $headers = [
-            'admission_no',
-            'first_name',
-            'middle_name',
-            'last_name',
-            'date_of_birth',
-            'gender',
-            'class_id',
-            'stream_name',
-            'student_type_id',
-            'admission_date',
-            'assessment_number',
-            'birth_certificate_no',
-            'nationality',
-            'religion',
-            'blood_group',
-            'previous_school',
-            'previous_class',
-            'parent_first_name',
-            'parent_last_name',
-            'parent_phone',
-            'parent_email',
-            'parent_relationship',
-            'opening_payment_amount',
-            'opening_payment_method',
-            'opening_payment_reference',
-            'opening_payment_date',
-            'opening_payment_receipt',
-            'financial_academic_year_code',
-            'academic_year_paid_amount',
-            'current_term_paid_amount',
-            'fee_arrears_amount',
-            'advance_amount',
-            'opening_balance_reference',
-            'opening_balance_date',
-            'opening_balance_method',
-            'opening_balance_receipt',
-            'opening_balance_notes'
+            'Admission Number','First Name *','Middle Name','Last Name *','Date of Birth *','Gender *',
+            'Class *','Stream','Student Type *','Status *','KNEC Assessment No.','NEMIS Number',
+            'Paid This Academic Year (KES)','Paid This Term (KES)','Parent Relationship *',
+            'Parent First Name *','Parent Last Name *','Parent Gender','Primary Phone *',
+            'Secondary Phone','Parent Email'
         ];
 
         $sampleData = [
             [
-                'KWA/2024/001',
-                'John',
-                'Kamau',
-                'Doe',
-                '2010-05-15',
-                'male',
-                '5',
-                'A',
-                '1',
-                '2020-01-15',
-                'NEM123456',
-                'BC123456',
-                'Kenyan',
-                'Christian',
-                'O+',
-                'Previous Primary School',
-                'Grade 4',
-                'Jane',
-                'Doe',
-                '0712345678',
-                'jane.doe@email.com',
-                'mother',
-                '0',
-                'bank_transfer',
-                '',
-                '',
-                '',
-                '2026/2027',
-                '15000',
-                '3500',
-                '2000',
-                '0',
-                'MIG-EXAMPLE-001',
-                '2026-08-19',
-                'bank_transfer',
-                'KCB-EXAMPLE-001',
-                'Historical paid amount is cumulative; current term paid is the amount applied now.'
+                'KWA/2026/001','John','','Kamau','2015-05-15','male','Grade 5','A',
+                'Day Student','active','','','15000','3500','mother','Jane','Kamau','female','0712345678','',''
             ]
         ];
 
@@ -5686,19 +6525,15 @@ class StudentsAPI extends BaseAPI
                 'headers' => $headers,
                 'sample' => $sampleData,
                 'instructions' => [
-                    'Required fields: first_name, last_name, date_of_birth, gender, class_id',
+                    'Required: first name, last name, date of birth, gender, class, student type, status, parent relationship, parent names and primary parent phone',
                     'Date format: YYYY-MM-DD',
-                    'Gender: male, female, or other',
-                    'class_id: Numeric ID of the class (e.g., 1 for Grade 1)',
-                    'stream_name: Existing stream configured for the class and current academic year; no default stream is created',
-                    'financial_academic_year_code: Full code such as 2026/2027',
-                    'academic_year_paid_amount: Cumulative amount already paid during the academic year; informational and never double-counted',
-                    'current_term_paid_amount: Portion of the cumulative amount applied to the current term; must not exceed academic_year_paid_amount',
-                    'fee_arrears_amount: Opening debit to carry into the imported learner balance',
-                    'advance_amount: Confirmed fee credit available for current/future obligations',
-                    'Financial fields are optional, but if one is supplied all four amount fields should be completed',
-                    'If admission_no is empty, it will be auto-generated',
-                    'If admission_date is empty, current date will be used'
+                    'Use the class and student type names shown in the dropdowns; do not enter database IDs',
+                    'Stream is optional. A blank stream is placed in stream A',
+                    'KNEC assessment number, NEMIS number and the two paid amounts are optional',
+                    'Paid amounts are confirmed historical figures used to update the learner fee obligations; they do not create a duplicate payment',
+                    'Transport, sponsorship, waivers, photo, blood group and other optional profile data are added later from the relevant staff screens',
+                    'Admission Number is optional: enter digits such as 400 and the system stores KPS400; blank continues from the latest KPS number',
+                    'This is for existing learners only; newly admitted learners must come through admissions'
                 ]
             ]
         ]);
@@ -5707,6 +6542,237 @@ class StudentsAPI extends BaseAPI
     // ========================================================================
     // HELPER METHODS FOR EXISTING STUDENT IMPORT
     // ========================================================================
+
+    /**
+     * Convert the human-facing import headers into the internal import contract.
+     * The workbook intentionally exposes labels, while CSV users may use either
+     * those labels or the older snake_case names.
+     */
+    private function normalizeExistingStudentImportRow(array $row): array
+    {
+        $normalized = [];
+        foreach ($row as $key => $value) {
+            $key = strtolower(trim((string) $key));
+            $key = preg_replace('/[^a-z0-9]+/', '_', $key);
+            $key = trim((string) $key, '_');
+            $normalized[$key] = is_string($value) ? trim($value) : $value;
+        }
+
+        $aliases = [
+            'admission_number' => 'admission_no',
+            'first_name_' => 'first_name', 'last_name_' => 'last_name',
+            'date_of_birth_' => 'date_of_birth', 'gender_' => 'gender',
+            'class' => 'class_name', 'class_name_' => 'class_name',
+            'stream' => 'stream_name', 'stream_name_' => 'stream_name',
+            'student_type_name' => 'student_type', 'student_type_' => 'student_type',
+            'status_' => 'status', 'knec_assessment_no' => 'assessment_number',
+            'assessment_number_' => 'assessment_number', 'nemis_number_' => 'nemis_number',
+            'paid_this_academic_year_kes' => 'academic_year_paid_amount',
+            'academic_year_paid_amount_kes' => 'academic_year_paid_amount',
+            'paid_this_term_kes' => 'current_term_paid_amount',
+            'current_term_paid_amount_kes' => 'current_term_paid_amount',
+            'parent_relationship_' => 'parent_relationship',
+            'parent_first_name_' => 'parent_first_name', 'parent_last_name_' => 'parent_last_name',
+            'primary_phone' => 'parent_phone', 'parent_phone_primary' => 'parent_phone',
+            'secondary_phone' => 'parent_secondary_phone',
+        ];
+        foreach ($aliases as $from => $to) {
+            if (array_key_exists($from, $normalized) && !array_key_exists($to, $normalized)) {
+                $normalized[$to] = $normalized[$from];
+            }
+        }
+
+        foreach (['date_of_birth'] as $field) {
+            if (isset($normalized[$field]) && $normalized[$field] !== '') {
+                $normalized[$field] = $this->normalizeImportDate($normalized[$field]);
+            }
+        }
+        foreach (['gender', 'status', 'parent_relationship', 'parent_gender'] as $field) {
+            if (isset($normalized[$field]) && is_string($normalized[$field])) {
+                $normalized[$field] = strtolower(trim($normalized[$field]));
+            }
+        }
+        return $normalized;
+    }
+
+    private function normalizeImportDate($value): string
+    {
+        if (is_numeric($value)) {
+            try {
+                return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            } catch (\Throwable $e) {
+                throw new \InvalidArgumentException('Date of birth is not a valid date');
+            }
+        }
+        $value = trim((string) $value);
+        foreach (['!Y-m-d', '!d/m/Y', '!d-m-Y'] as $format) {
+            $date = \DateTimeImmutable::createFromFormat($format, $value);
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($date && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+                return $date->format('Y-m-d');
+            }
+        }
+        throw new \InvalidArgumentException('Date of birth must use YYYY-MM-DD or DD/MM/YYYY format');
+    }
+
+    private function normalizeImportAmount($value): string
+    {
+        $value = trim((string) $value);
+        if ($value === '') return '';
+        $value = preg_replace('/^(?:KES|KSH)\\s*/i', '', $value);
+        $value = preg_replace('/[\\s,\\x{00A0}]+/u', '', $value);
+        if (!is_numeric($value)) {
+            throw new \InvalidArgumentException('Fee amounts must be numeric values, optionally formatted as KES/Ksh with commas');
+        }
+        return $value;
+    }
+
+    private function resolveExistingImportClassId(string $className): int
+    {
+        $year = $this->db->query(
+            "SELECT id FROM academic_years
+             WHERE is_current = 1 OR status = 'active'
+             ORDER BY is_current DESC, start_date DESC, id DESC LIMIT 1"
+        )->fetchColumn();
+        if (!$year) return 0;
+
+        $stmt = $this->db->prepare(
+            "SELECT c.id
+             FROM classes c
+             JOIN academic_year_classes ayc ON ayc.class_id = c.id
+             WHERE ayc.academic_year_id = ? AND LOWER(TRIM(c.name)) = LOWER(TRIM(?))
+             LIMIT 1"
+        );
+        $stmt->execute([(int) $year, $className]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    private function resolveExistingImportStudentTypeId(string $studentType): int
+    {
+        $stmt = $this->db->query("SELECT id, code, name FROM student_types WHERE status = 'active' ORDER BY id");
+        $needle = strtolower(trim($studentType));
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $type) {
+            $values = [strtolower(trim((string) $type['name'])), strtolower(trim((string) $type['code']))];
+            if (in_array($needle, $values, true)) return (int) $type['id'];
+            if (($needle === 'day' || $needle === 'day student') && in_array('day', $values, true)) return (int) $type['id'];
+            if (($needle === 'board' || $needle === 'full boarder') && in_array('board', $values, true)) return (int) $type['id'];
+            if (($needle === 'weekly' || $needle === 'weekly boarder') && in_array('weekly', $values, true)) return (int) $type['id'];
+        }
+        return 0;
+    }
+
+    /**
+     * Rebuild the import figures from the active fee schedules on the server.
+     * The browser may display the preview, but it is never the authority for
+     * the amount due or for the migration snapshot.
+     */
+    private function deriveExistingImportFinancialPosition(array $data, int $studentId): array
+    {
+        $year = $this->db->query(
+            "SELECT id, year_code FROM academic_years
+             WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!$year) {
+            throw new \InvalidArgumentException('No current academic year is configured');
+        }
+
+        $termStmt = $this->db->prepare(
+            "SELECT ayt.id
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+               AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
+             ORDER BY CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END, t.id
+             LIMIT 1"
+        );
+        $termStmt->execute([(int) $year['id']]);
+        $currentTermId = (int) ($termStmt->fetchColumn() ?: 0);
+
+        $scheduleStmt = $this->db->prepare(
+            "SELECT
+                COALESCE(SUM(afs.amount), 0) AS annual_due,
+                COALESCE(SUM(CASE WHEN afs.academic_year_term_id = ? THEN afs.amount ELSE 0 END), 0) AS current_term_due
+             FROM academic_year_fee_schedules afs
+             JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+             WHERE afs.academic_year_id = ?
+               AND ayc.class_id = ?
+               AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
+               AND afs.status = 'active'"
+        );
+        $scheduleStmt->execute([
+            $currentTermId,
+            (int) $year['id'],
+            (int) ($data['class_id'] ?? 0),
+            (int) ($data['student_type_id'] ?? 0),
+        ]);
+        $schedule = $scheduleStmt->fetch(PDO::FETCH_ASSOC) ?: ['annual_due' => 0, 'current_term_due' => 0];
+        $annualDue = round((float) $schedule['annual_due'], 2);
+        $currentTermDue = round((float) $schedule['current_term_due'], 2);
+        $awardStmt = $this->db->prepare(
+            "SELECT coverage_type, coverage_percentage, coverage_amount, starts_on, ends_on
+             FROM student_scholarship_awards
+             WHERE student_id = ? AND academic_year_id = ? AND status = 'active'"
+        );
+        $awardStmt->execute([$studentId, (int) $year['id']]);
+        $annualRelief = 0.0;
+        foreach ($awardStmt->fetchAll(PDO::FETCH_ASSOC) as $award) {
+            $parts = $this->db->prepare(
+                "SELECT afs.amount, ayt.opening_date, ayt.closing_date
+                 FROM academic_year_fee_schedules afs
+                 JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+                 JOIN academic_year_terms ayt ON ayt.id = afs.academic_year_term_id
+                 WHERE afs.academic_year_id = ? AND ayc.class_id = ?
+                   AND (afs.student_type_id = ? OR afs.student_type_id IS NULL)
+                   AND afs.status = 'active'
+                   AND (? IS NULL OR ayt.closing_date >= ?)
+                   AND (? IS NULL OR ayt.opening_date <= ?)"
+            );
+            $starts = $award['starts_on'] ?: null;
+            $ends = $award['ends_on'] ?: null;
+            $parts->execute([
+                (int) $year['id'], (int) ($data['class_id'] ?? 0),
+                (int) ($data['student_type_id'] ?? 0), $starts, $starts, $ends, $ends,
+            ]);
+            foreach ($parts->fetchAll(PDO::FETCH_ASSOC) as $part) {
+                $amount = (float) $part['amount'];
+                $coverage = match ($award['coverage_type']) {
+                    'full' => $amount,
+                    'percentage' => $amount * (float) ($award['coverage_percentage'] ?? 0) / 100,
+                    default => (float) ($award['coverage_amount'] ?? 0),
+                };
+                $annualRelief += min($amount, max(0, $coverage));
+            }
+        }
+        $annualNetDue = max(0, round($annualDue - $annualRelief, 2));
+        $source = $data['financial_migration'] ?? [];
+        if (array_key_exists('legacy_financial_amount', $data)) {
+            $supplied = max(0, round((float) $data['legacy_financial_amount'], 2));
+            $basis = ($data['legacy_financial_basis'] ?? 'paid') === 'balance' ? 'balance' : 'paid';
+            $paid = $basis === 'balance' ? max(0, $annualNetDue - $supplied) : $supplied;
+            $currentPaid = min($paid, $currentTermDue);
+            $arrears = $basis === 'balance' ? $supplied : max(0, $annualNetDue - $paid);
+            $advance = $basis === 'paid' ? max(0, $paid - $annualNetDue) : 0;
+        } else {
+            $paid = max(0, round((float) ($source['academic_year_paid_amount'] ?? 0), 2));
+            $currentPaid = max(0, round((float) ($source['current_term_paid_amount'] ?? 0), 2));
+            // Unpaid current-year fees remain on their normal obligations;
+            // arrears_amount is reserved for a separately confirmed opening
+            // debt and must not duplicate the ordinary outstanding balance.
+            $arrears = 0.0;
+            $advance = max(0, $paid - $annualNetDue);
+        }
+        return [
+            'academic_year_code' => (string) $year['year_code'],
+            'academic_year_paid_amount' => round($paid, 2),
+            'current_term_paid_amount' => round($currentPaid, 2),
+            'fee_arrears_amount' => round($arrears, 2),
+            'advance_amount' => round($advance, 2),
+            'reference' => $source['reference'] ?? null,
+            'payment_date' => $source['payment_date'] ?? null,
+            'payment_method' => $source['payment_method'] ?? 'other',
+            'notes' => $source['notes'] ?? null,
+        ];
+    }
 
     /**
      * Store the financial position supplied during migration. The snapshot is
@@ -5790,6 +6856,147 @@ class StudentsAPI extends BaseAPI
             $financial['notes'] ?? null,
             $this->getCurrentUserId()
         ]);
+    }
+
+    /**
+     * Convert verified historical fee figures into normal obligation credit.
+     * The migration snapshot remains the audit source, while balances and
+     * statuses are driven by student_fee_obligations like every later payment.
+     */
+    private function applyFinancialMigrationToObligations(int $studentId, array $financial): void
+    {
+        $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1");
+        $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);
+        if ($academicYearId <= 0) return;
+
+        // A migration may happen in Term 2 or Term 3. Rebuild missing prior
+        // term obligations so the annual paid figure can be applied to the
+        // complete academic-year ledger.
+        $this->generateStudentFeeObligationsForCurrentYear($studentId, $academicYearId);
+        // Apply awards before allocating the migrated credit. This also
+        // repairs records where the snapshot was created after enrollment.
+        $this->applyExistingStudentSponsorshipToObligations($studentId);
+
+        $enrollmentStmt = $this->db->prepare(
+            "SELECT sae.id
+             FROM student_academic_enrollments sae
+             WHERE sae.student_id=? AND sae.academic_year_id=?
+             ORDER BY sae.id DESC LIMIT 1"
+        );
+        $enrollmentStmt->execute([$studentId, $academicYearId]);
+        $enrollmentId = (int) ($enrollmentStmt->fetchColumn() ?: 0);
+        if ($enrollmentId <= 0) return;
+
+        $obligationStmt = $this->db->prepare(
+            "SELECT sfo.id, sfo.amount_due, COALESCE(sfo.sponsored_waiver_amount,0) AS sponsored_waiver_amount,
+                    sfo.academic_year_term_id, ayt.opening_date, t.code AS term_code,
+                    COALESCE((SELECT SUM(fdw.discount_value)
+                              FROM fee_discounts_waivers fdw
+                              WHERE fdw.student_fee_obligation_id=sfo.id AND fdw.status='active'),0) AS fee_waiver
+             FROM student_fee_obligations sfo
+             JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
+             JOIN terms t ON t.id=ayt.term_id
+             WHERE sfo.student_academic_enrollment_id=? AND sfo.academic_year_id=?
+             ORDER BY ayt.opening_date, sfo.id"
+        );
+        $obligationStmt->execute([$enrollmentId, $academicYearId]);
+        $obligations = $obligationStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$obligations) return;
+
+        $this->db->prepare(
+            "UPDATE student_fee_obligations
+             SET migration_paid_amount=0, opening_arrears_amount=0, updated_at=NOW()
+             WHERE student_academic_enrollment_id=? AND academic_year_id=?"
+        )->execute([$enrollmentId, $academicYearId]);
+
+        $openingArrears = max(0, round((float) ($financial['fee_arrears_amount'] ?? 0), 2));
+        if ($openingArrears > 0) {
+            $firstObligation = $this->db->prepare(
+                "SELECT sfo.id FROM student_fee_obligations sfo
+                 JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
+                 WHERE sfo.student_academic_enrollment_id=? AND sfo.academic_year_id=?
+                   AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
+                 ORDER BY ayt.opening_date, sfo.id LIMIT 1"
+            );
+            $firstObligation->execute([$enrollmentId, $academicYearId]);
+            $firstId = (int) ($firstObligation->fetchColumn() ?: 0);
+            if ($firstId > 0) {
+                $this->db->prepare(
+                    "UPDATE student_fee_obligations SET opening_arrears_amount=?, updated_at=NOW() WHERE id=?"
+                )->execute([$openingArrears, $firstId]);
+            }
+        }
+
+        $currentTermStmt = $this->db->prepare(
+            "SELECT ayt.id
+             FROM academic_year_terms ayt
+             WHERE ayt.academic_year_id=?
+               AND (ayt.status='current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
+             ORDER BY ayt.status='current' DESC, ayt.opening_date
+             LIMIT 1"
+        );
+        $currentTermStmt->execute([$academicYearId]);
+        $currentTermId = (int) ($currentTermStmt->fetchColumn() ?: 0);
+        $annualPaid = max(0, round((float) ($financial['academic_year_paid_amount'] ?? 0), 2));
+        $currentTermPaid = max(0, round((float) ($financial['current_term_paid_amount'] ?? 0), 2));
+        $preCurrentPaid = max(0, round($annualPaid - $currentTermPaid, 2));
+        $credits = [];
+
+        // Historical annual payments settle earlier terms first. The amount
+        // recorded for the current term then settles any carried balance
+        // before it is applied to the current term itself.
+        foreach ($obligations as $index => $obligation) {
+            if ((int) $obligation['academic_year_term_id'] === $currentTermId) break;
+            $netDue = max(0, (float) $obligation['amount_due']
+                - (float) $obligation['sponsored_waiver_amount']
+                - (float) $obligation['fee_waiver']);
+            $credit = min($preCurrentPaid, $netDue);
+            $credits[$index] = $credit;
+            $preCurrentPaid = round($preCurrentPaid - $credit, 2);
+        }
+
+        $currentContextPaid = $currentTermPaid;
+        foreach ($obligations as $index => $obligation) {
+            if ((int) $obligation['academic_year_term_id'] > $currentTermId) continue;
+            $netDue = max(0, (float) $obligation['amount_due']
+                - (float) $obligation['sponsored_waiver_amount']
+                - (float) $obligation['fee_waiver']);
+            $already = (float) ($credits[$index] ?? 0);
+            $credit = min($currentContextPaid, max(0, $netDue - $already));
+            $credits[$index] = round($already + $credit, 2);
+            $currentContextPaid = round($currentContextPaid - $credit, 2);
+            if ($currentContextPaid <= 0) break;
+        }
+
+        if ($currentTermId <= 0) {
+            $credits = [];
+            $remainingPaid = $annualPaid;
+            foreach ($obligations as $index => $obligation) {
+                $netDue = max(0, (float) $obligation['amount_due']
+                    - (float) $obligation['sponsored_waiver_amount']
+                    - (float) $obligation['fee_waiver']);
+                $credits[$index] = min($remainingPaid, $netDue);
+                $remainingPaid = round($remainingPaid - $credits[$index], 2);
+                if ($remainingPaid <= 0) break;
+            }
+        }
+
+        $update = $this->db->prepare(
+            "UPDATE student_fee_obligations
+             SET migration_paid_amount=?,
+                 status=CASE
+                    WHEN amount_due + COALESCE(opening_arrears_amount,0)
+                         - COALESCE(sponsored_waiver_amount,0) - COALESCE(?,0) - COALESCE(migration_paid_amount,0) <= 0 THEN 'paid'
+                    WHEN COALESCE(?,0) + COALESCE(migration_paid_amount,0) > 0 THEN 'partial'
+                    ELSE 'pending' END,
+                 updated_at=NOW()
+             WHERE id=?"
+        );
+
+        foreach ($obligations as $index => $obligation) {
+            $credit = (float) ($credits[$index] ?? 0);
+            $update->execute([$credit, $obligation['fee_waiver'], $credit, (int) $obligation['id']]);
+        }
     }
 
     /**
@@ -5919,7 +7126,59 @@ class StudentsAPI extends BaseAPI
      */
     public function uploadPhoto($studentId, $fileData)
     {
-        return $this->idCardGenerator->uploadStudentPhoto($studentId, $fileData);
+        $workflow = new \App\API\Services\StudentPhotoWorkflowService($this->db);
+        $result = $workflow->submit(
+            (int) $studentId,
+            $fileData,
+            (int) ($this->user_id ?? 0),
+            'staff_upload',
+            true
+        );
+        $media = new \App\API\Modules\system\MediaManager($this->db);
+        $result['photo_url'] = $media->getFileUrl((int) $result['media_id']);
+        return $this->response(['status' => 'success', 'data' => $result, 'message' => 'Student photo approved and updated.']);
+    }
+
+    public function getPhotoHistory(int $studentId)
+    {
+        $rows = (new \App\API\Services\StudentPhotoWorkflowService($this->db))->list($studentId);
+        $media = new \App\API\Modules\system\MediaManager($this->db);
+        foreach ($rows as &$row) {
+            $row['file_url'] = !empty($row['media_id']) ? $media->getFileUrl((int) $row['media_id']) : null;
+        }
+        unset($row);
+        return $this->response(['status' => 'success', 'data' => ['photos' => $rows]]);
+    }
+
+    public function approvePhoto(int $versionId, string $reason = '')
+    {
+        $result = (new \App\API\Services\StudentPhotoWorkflowService($this->db))->approve(
+            $versionId,
+            (int) ($this->user_id ?? 0),
+            $reason
+        );
+        return $this->response(['status' => 'success', 'data' => $result, 'message' => 'Student photo approved.']);
+    }
+
+    public function getPendingPhotos()
+    {
+        $rows = (new \App\API\Services\StudentPhotoWorkflowService($this->db))->listPending();
+        $media = new \App\API\Modules\system\MediaManager($this->db);
+        foreach ($rows as &$row) {
+            $row['file_url'] = !empty($row['media_id']) ? $media->getFileUrl((int) $row['media_id']) : null;
+        }
+        unset($row);
+        return $this->response(['status' => 'success', 'data' => ['photos' => $rows]]);
+    }
+
+    public function rejectPhoto(int $versionId, string $reason)
+    {
+        $result = (new \App\API\Services\StudentPhotoWorkflowService($this->db))->reject(
+            $versionId,
+            (int) ($this->user_id ?? 0),
+            $reason
+        );
+        return $this->response(['status' => 'success', 'data' => $result, 'message' => 'Student photo rejected.']);
     }
 
     /**
@@ -6091,19 +7350,27 @@ class StudentsAPI extends BaseAPI
         if ($value === '' || $value === 'NULL') {
             // No photo on record: fall back to the canonical default avatar so the
             // frontend never references a missing path.
-            $value = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : $this->publicUploadAssetUrl('students', 'avatar.jpg');
+            $value = $this->publicUploadAssetUrl('students', 'avatar.jpg');
         }
 
-        if (preg_match('#^https?://#i', $value) || str_starts_with($value, 'data:')) {
+        if (str_starts_with($value, 'data:')) {
             return $value;
         }
 
-        // Strip any environment-specific web-root prefix (e.g. '/Kingsway') so the path
-        // can be rebuilt portably from BASE_URL for the current environment.
-        $clean = preg_replace('#^/Kingsway#i', '', $value);
-        $clean = '/' . ltrim($clean, '/');
+        $base = rtrim((string) (defined('UPLOAD_URL') ? UPLOAD_URL : ''), '/');
+        if ($base === '') {
+            return $value;
+        }
 
-        return rtrim(BASE_URL, '/') . $clean;
+        $clean = preg_match('#^https?://#i', $value)
+            ? (string) (parse_url($value, PHP_URL_PATH) ?: '')
+            : $value;
+        $clean = '/' . ltrim($clean, '/');
+        if (preg_match('#(?:^|/)uploads/(.+)$#i', $clean, $match)) {
+            $clean = '/' . ltrim($match[1], '/');
+        }
+
+        return $base . '/' . ltrim($clean, '/');
     }
 
     // ============================================================

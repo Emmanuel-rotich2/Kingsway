@@ -6,9 +6,9 @@
 
     <div class="app-footer-meta">
         <span>
-            <a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#apply" target="_blank" rel="noopener" class="text-reset text-decoration-none">
+            <a href="<?= $appBase ?>/home.php?route=staff_my_admission" class="text-reset text-decoration-none">
                 <i class="bi bi-person-plus"></i>
-                Apply for Admission
+                Apply for my child
             </a>
         </span>
         <span>

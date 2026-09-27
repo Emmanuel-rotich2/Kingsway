@@ -143,6 +143,51 @@ a:hover{color:var(--parent-green)}
 .pp-card-header h1,.pp-card-header h2,.pp-card-header h3{margin:0; font-family:"Playfair Display",serif; font-size:1.15rem}
 .pp-card-body{padding:1.25rem}
 
+/* The children overview uses a page-owned grid so cards cannot stretch to
+   the height of another row or fall back to full-width blocks when the
+   optional Bootstrap CDN is unavailable. */
+#ppChildrenCards,
+.pp-child-grid{
+  display:grid!important; grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  grid-auto-flow:row; align-items:start; gap:1rem;
+}
+#ppChildrenCards > [class*="col-"],
+.pp-child-grid-item{min-width:0; width:auto!important; max-width:none!important; padding:0!important; margin:0!important}
+#ppChildrenCards .child-card{height:auto!important; width:100%}
+#ppChildrenCards .child-card .card-body{padding:1.15rem; display:flex; flex-direction:column}
+.pp-child-photo-wrap{
+  flex:0 0 auto; width:52px; height:52px; overflow:hidden; border-radius:50%;
+  display:grid; place-items:center; background:#e8f1ff; color:#1769e0;
+  font-size:1.25rem; font-weight:700;
+}
+.pp-child-photo{width:100%; height:100%; object-fit:cover; display:block}
+.pp-child-avatar-fallback{display:grid; place-items:center; width:100%; height:100%}
+.pp-pending-title{font-family:"Playfair Display",serif; font-size:1.05rem; margin:0}
+.pp-pending-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:.8rem}
+.pp-pending-card{background:#fff; border:1px solid #f1d38b; border-left:4px solid var(--parent-gold); border-radius:12px; padding:1rem; box-shadow:0 4px 14px rgba(25,70,48,.06)}
+.pp-pending-card h3{font-size:.95rem; margin:0; font-weight:700}
+.pp-pending-card small{color:var(--parent-muted); font-size:.72rem}
+.pp-pending-flow{display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:.65rem}
+.pp-pending-flow div{display:flex; flex-direction:column; gap:.15rem; min-width:0}
+.pp-pending-flow strong{font-size:.78rem; line-height:1.25}
+
+body.pp-phone-layout #ppChildrenCards,
+body.pp-phone-layout .pp-child-grid{
+  grid-template-columns:1fr!important;
+}
+
+@media (max-width:575.98px){
+  /* Keep the phone override opt-in. Laptop browser zoom must not turn the
+     desktop portal into a one-column layout. */
+  #ppChildrenCards,
+  .pp-child-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media (max-width:380px){
+  body.pp-phone-layout #ppChildrenCards,
+  body.pp-phone-layout .pp-child-grid{
+    grid-template-columns:1fr!important;
+  }
+}
 .child-card{
   border:1px solid var(--parent-line); border-top:0; border-radius:13px;
   box-shadow:0 5px 18px rgba(25,70,48,.07); transition:transform .18s ease, box-shadow .18s ease;
@@ -302,6 +347,15 @@ a:hover{color:var(--parent-green)}
 /* order cards */
 .store-order{background:#fff}
 .store-order .badge{font-weight:600; letter-spacing:.02em}
+
+/* ── Admission application stepper ────────────────────────────────────── */
+.pp-app-stepper{max-width:100%}
+.pp-app-stage{max-width:170px}
+.pp-app-dot{display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background:var(--parent-muted,#e9ecef); color:#adb5bd; font-size:.8rem; flex-shrink:0}
+.pp-app-dot.done{background:var(--parent-green,#198754); color:#fff}
+.pp-app-dot.current{background:var(--parent-green-2,#20c997); color:#fff; box-shadow:0 0 0 3px rgba(32,201,151,.25)}
+.pp-app-connector{width:18px; height:2px; background:#dee2e6; flex-shrink:0}
+.pp-app-stage.done .pp-app-connector, .pp-app-stage .pp-app-connector.done{background:var(--parent-green,#198754)}
 
 /* ── Print: hide chrome, landscape for wide matrices ───────────────────── */
 @media print{

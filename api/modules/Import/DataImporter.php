@@ -313,9 +313,9 @@ class DataImporter
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO students
-                     (person_id, admission_no, student_type_id, admission_date, status, blood_group, created_at, updated_at)
+                     (person_id, admission_no, student_type_id, admission_date, status, blood_group, entry_source, created_at, updated_at)
                      VALUES
-                     (:pid,:a,:st,:ad,:s,:bg,NOW(),NOW())
+                     (:pid,:a,:st,:ad,:s,:bg,\'existing_student\',NOW(),NOW())
                      ON DUPLICATE KEY UPDATE
                      person_id=VALUES(person_id), student_type_id=VALUES(student_type_id),
                      status=VALUES(status), updated_at=NOW()'
@@ -324,7 +324,7 @@ class DataImporter
                     ':pid' => $personId,
                     ':a'   => $row['admission_no'],
                     ':st'  => $this->resolveStudentTypeId($row['student_type'] ?? 'DAY'),
-                    ':ad'  => $row['admission_date'] ?? date('Y-m-d'),
+                    ':ad'  => $row['admission_date'] ?? null,
                     ':s'   => $row['status'] ?? 'active',
                     ':bg'  => $row['blood_group'] ?? null,
                 ]);

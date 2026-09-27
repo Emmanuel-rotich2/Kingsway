@@ -57,6 +57,10 @@ class AdmissionAdminManager extends BaseAPI
         'review_application' => [
             'admission_manage',
         ],
+        'skip_stage' => [
+            'admission_manage',
+            'admission_workflow_skip',
+        ],
         'upload_document' => [
             'admission_manage',
             'admission_documents_upload',
@@ -119,7 +123,11 @@ class AdmissionAdminManager extends BaseAPI
 
     private const ACTION_STAGE_RULES = [
         'review_application' => ['application_received', 'application_review'],
-        'upload_document' => ['application_applied'],
+        // New admin applications are submitted to application_received before
+        // their multipart documents are uploaded by the browser. Keep the
+        // original draft stage supported as well.
+        'upload_document' => ['application_applied', 'application_received'],
+        'verify_document' => ['application_received', 'application_review'],
         // Scheduling permission also covers moving an already-booked applicant
         // to another session; that applicant is already at interview_results.
         'schedule_interview' => ['interview_scheduling', 'interview_results'],
@@ -338,6 +346,13 @@ class AdmissionAdminManager extends BaseAPI
                                AND sae3.enrollment_status = 'active'
                              ORDER BY sae3.id DESC LIMIT 1) AS assigned_stream_name,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
+                           (SELECT ad.document_path
+                              FROM admission_documents ad
+                             WHERE ad.application_id = aa.id
+                               AND ad.document_type = 'passport_photo'
+                               AND ad.verification_status <> 'rejected'
+                             ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
+                             LIMIT 1) AS passport_photo_url,
                            wi.current_stage, wi.data_json,
                            aa.workflow_data_json,
                            (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id) as doc_count,
@@ -353,6 +368,13 @@ class AdmissionAdminManager extends BaseAPI
             $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.updated_at,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
+                           (SELECT ad.document_path
+                              FROM admission_documents ad
+                             WHERE ad.application_id = aa.id
+                               AND ad.document_type = 'passport_photo'
+                               AND ad.verification_status <> 'rejected'
+                             ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
+                             LIMIT 1) AS passport_photo_url,
                            wi.current_stage, wi.data_json,
                            ai.id AS interview_id, ai.session_id AS interview_session_id,
                            ai.scheduled_date AS interview_date, ai.scheduled_time AS interview_time,
@@ -532,7 +554,14 @@ class AdmissionAdminManager extends BaseAPI
                                 AND sae1.enrollment_status = 'active'
                               ORDER BY sae1.id DESC LIMIT 1) AS assigned_stream_name,
                             pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
-                            wi.current_stage, wi.data_json,
+                           (SELECT ad.document_path
+                              FROM admission_documents ad
+                             WHERE ad.application_id = aa.id
+                               AND ad.document_type = 'passport_photo'
+                               AND ad.verification_status <> 'rejected'
+                             ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
+                             LIMIT 1) AS passport_photo_url,
+                           wi.current_stage, wi.data_json,
                             JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.total_fees')) as total_fees,
                             JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.assigned_class_id')) as assigned_class_id,
                             (SELECT ap0.id FROM admission_payments ap0
@@ -544,6 +573,9 @@ class AdmissionAdminManager extends BaseAPI
                             (SELECT ap2.amount FROM admission_payments ap2
                               WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
                               ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_amount
+                            ,(SELECT ap2.payment_method FROM admission_payments ap2
+                              WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
+                              ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_method
                             ,(SELECT COALESCE(SUM(CASE WHEN ap3.status IN ('recorded', 'posted') THEN ap3.amount ELSE 0 END), 0)
                               FROM admission_payments ap3 WHERE ap3.application_id = aa.id) AS recorded_payment_amount
                      FROM admission_applications aa
@@ -563,6 +595,7 @@ class AdmissionAdminManager extends BaseAPI
                 foreach ($paymentRows as &$paymentRow) {
                     try {
                         $paymentRow['registration_fee_due'] = $chargeService->admissionTotalDue((int) ($paymentRow['id'] ?? 0));
+                        $paymentRow['financial_relief'] = $chargeService->admissionFinancialRelief((int) ($paymentRow['id'] ?? 0));
                     } catch (\Throwable $ignored) {
                         // Retain the SQL fallback on older installations.
                     }
@@ -597,11 +630,27 @@ class AdmissionAdminManager extends BaseAPI
                 "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
                         aa.status, aa.created_at, aa.updated_at, aa.enrolled_student_id, aa.application_source,
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
+                        COALESCE(
+                            (SELECT sp.photo_url
+                               FROM students ss
+                               JOIN persons sp ON sp.id = ss.person_id
+                              WHERE ss.id = aa.enrolled_student_id
+                              LIMIT 1),
+                            (SELECT ad.document_path
+                               FROM admission_documents ad
+                              WHERE ad.application_id = aa.id
+                                AND ad.document_type = 'passport_photo'
+                                AND ad.verification_status <> 'rejected'
+                              ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
+                              LIMIT 1)
+                        ) AS passport_photo_url,
                         wi.current_stage, wi.data_json
                  FROM admission_applications aa
                  LEFT JOIN parents p ON aa.parent_id = p.id
                  LEFT JOIN persons pp ON pp.id = p.person_id
                  LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                                   WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)
                  WHERE wi.current_stage = 'enrolled'
                  {$scopeFilter}
                  ORDER BY aa.created_at DESC"
@@ -677,6 +726,20 @@ class AdmissionAdminManager extends BaseAPI
                           WHERE sae1.student_id = aa.enrolled_student_id
                             AND sae1.enrollment_status = 'active'
                           ORDER BY sae1.id DESC LIMIT 1) as assigned_stream_name,
+                        (SELECT ap0.id FROM admission_payments ap0
+                           WHERE ap0.application_id = aa.id AND ap0.status = 'pending_verification'
+                           ORDER BY ap0.id DESC LIMIT 1) as pending_payment_id,
+                        (SELECT ap1.reference_no FROM admission_payments ap1
+                           WHERE ap1.application_id = aa.id AND ap1.status = 'pending_verification'
+                           ORDER BY ap1.id DESC LIMIT 1) as pending_payment_reference,
+                        (SELECT ap2.amount FROM admission_payments ap2
+                           WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
+                           ORDER BY ap2.id DESC LIMIT 1) as pending_payment_amount,
+                        (SELECT ap3.payment_method FROM admission_payments ap3
+                           WHERE ap3.application_id = aa.id AND ap3.status = 'pending_verification'
+                           ORDER BY ap3.id DESC LIMIT 1) as pending_payment_method,
+                        (SELECT COALESCE(SUM(CASE WHEN ap4.status IN ('recorded', 'posted') THEN ap4.amount ELSE 0 END), 0)
+                           FROM admission_payments ap4 WHERE ap4.application_id = aa.id) as recorded_payment_amount,
                         wi.id as workflow_instance_id, wi.current_stage, wi.status as workflow_status, wi.data_json,
                         wi.started_by, wi.started_at
                  FROM admission_applications aa
@@ -702,8 +765,10 @@ class AdmissionAdminManager extends BaseAPI
             // Keep single-application callers on the same canonical
             // existing/new-parent obligation amount as the payment queue.
             try {
-                $application['registration_fee_due'] = (new \App\API\Services\ExtraChargeService($this->db))
-                    ->admissionTotalDue((int) $id);
+                $chargeService = new \App\API\Services\ExtraChargeService($this->db);
+                $application['registration_fee_due'] = $chargeService->admissionTotalDue((int) $id);
+                $application['financial_relief'] = $chargeService->admissionFinancialRelief((int) $id);
+                $application['admission_fee_configured'] = !empty($chargeService->resolveAdmissionObligations((int) $id));
             } catch (\Throwable $ignored) {
                 // Older installations without charge configuration can still
                 // load the application details.
@@ -816,6 +881,12 @@ class AdmissionAdminManager extends BaseAPI
             $stageMeta = $this->getCurrentStageMetadata($application['current_stage']);
             $currentStageCode = $this->normalizeStageCode($application['current_stage']) ?? $this->inferStageFromApplication($application);
             $currentStageRequiredRole = $stageMeta['required_role'] ?? null;
+            $stageContract = $this->buildApplicationStageContract(
+                $application,
+                $availableActions,
+                $currentStageCode,
+                $ctx
+            );
 
             return $this->successResponse([
                 'application' => $application,
@@ -824,6 +895,7 @@ class AdmissionAdminManager extends BaseAPI
                 'interview_learning_areas' => array_values($interviewLearningAreas),
                 'workflow_data' => $workflowData,
                 'available_actions' => $availableActions,
+                'stage_contract' => $stageContract,
                 'stage_metadata' => [
                     'current_stage' => $currentStageCode,
                     'display_name' => $stageMeta['name'] ?? null,
@@ -837,6 +909,144 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->errorResponse('An internal error occurred.');
         }
+    }
+
+    /**
+     * Canonical stage snapshot consumed by every admissions modal.
+     *
+     * Queue rows are intentionally not used here: they are projections and
+     * may be stale while an action modal is open.  This contract is built
+     * from workflow_instances, workflow_stages and workflow_stage_history,
+     * with the application's current financial relief included by getApplication.
+     */
+    private function buildApplicationStageContract(array $application, array $availableActions, ?string $currentStage, array $ctx): array
+    {
+        $config = $this->getWorkflowStageConfig();
+        $currentStage = $this->normalizeStageCode($currentStage) ?? 'application_received';
+        $workflowInstanceId = (int) ($application['workflow_instance_id'] ?? 0);
+        $history = [];
+
+        if ($workflowInstanceId > 0) {
+            try {
+                $stmt = $this->db->prepare(
+                    'SELECT from_stage, to_stage, action_taken, processed_at, remarks
+                       FROM workflow_stage_history
+                      WHERE instance_id = ?
+                      ORDER BY processed_at ASC, id ASC'
+                );
+                $stmt->execute([$workflowInstanceId]);
+                $history = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            } catch (Exception $ignored) {
+                $history = [];
+            }
+        }
+
+        $completed = [];
+        foreach ($history as $entry) {
+            $to = $this->normalizeStageCode($entry['to_stage'] ?? null);
+            if ($to) {
+                $completed[$to] = [
+                    'status' => 'completed',
+                    'action' => (string) ($entry['action_taken'] ?? 'entered'),
+                    'processed_at' => $entry['processed_at'] ?? null,
+                    'remarks' => $entry['remarks'] ?? null,
+                ];
+            }
+        }
+
+        $skipped = [];
+        try {
+            $skipStmt = $this->db->prepare(
+                'SELECT skipped_stage, destination_stage, reason_code, reason, waiver_type, waiver_amount, skipped_at
+                   FROM admission_stage_skip_audit
+                  WHERE application_id = ?
+                  ORDER BY id ASC'
+            );
+            $skipStmt->execute([(int) ($application['id'] ?? 0)]);
+            foreach (($skipStmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $entry) {
+                $stage = $this->normalizeStageCode($entry['skipped_stage'] ?? null);
+                $skipDetails = json_decode((string) ($entry['waiver_details'] ?? ''), true) ?: [];
+                if (!empty($skipDetails['financial_only'])) {
+                    continue;
+                }
+                if ($stage) {
+                    $skipped[$stage] = $entry;
+                    $completed[$stage] = [
+                        'status' => 'skipped',
+                        'action' => 'skipped',
+                        'processed_at' => $entry['skipped_at'] ?? null,
+                        'remarks' => $entry['reason'] ?? null,
+                    ];
+                }
+            }
+        } catch (Exception $ignored) {
+            // Skip history is an optional extension on older installations.
+        }
+
+        $stageRows = [];
+        foreach ($config as $code => $meta) {
+            $isCurrent = $code === $currentStage;
+            $state = $isCurrent ? 'current' : ($completed[$code]['status'] ?? 'pending');
+            $stageRows[] = [
+                'code' => $code,
+                'name' => $meta['name'] ?? str_replace('_', ' ', $code),
+                'sequence' => (int) ($meta['sequence'] ?? 0),
+                'state' => $state,
+                'required_role' => $meta['required_role'] ?? null,
+                'history' => $completed[$code] ?? null,
+            ];
+        }
+        usort($stageRows, static fn (array $a, array $b): int => $a['sequence'] <=> $b['sequence']);
+
+        $next = array_values(array_filter(
+            $this->getAllowedTransitionsForStage($currentStage),
+            static fn (string $stage): bool => $stage !== 'rejected'
+        ));
+        $actionDefinitions = [
+            'review-application' => ['key' => 'review_application', 'label' => 'Review application', 'modal' => 'application_review'],
+            'verify-documents' => ['key' => 'verify_document', 'label' => 'Review documents', 'modal' => 'document_verification'],
+            'pause-review' => ['key' => 'review_application', 'label' => 'Pause for missing information', 'modal' => 'pause_review'],
+            'reject-application' => ['key' => 'review_application', 'label' => 'Reject application', 'modal' => 'reject_application'],
+            'schedule-interview' => ['key' => 'schedule_interview', 'label' => 'Schedule interview', 'modal' => 'schedule_interview'],
+            'record-interview' => ['key' => 'record_interview', 'label' => 'Record interview assessment', 'modal' => 'interview_assessment'],
+            'admit-student' => ['key' => 'admit_student', 'label' => 'Approve interview decision', 'modal' => 'interview_decision'],
+            'create-student-admission-number' => ['key' => 'create_provisional_student', 'label' => 'Create admission number', 'modal' => 'admission_number'],
+            'record-payment' => ['key' => 'record_payment', 'label' => 'Record or reconcile payment', 'modal' => 'payment'],
+            'verify-payment' => ['key' => 'record_payment', 'label' => 'Verify matched payment', 'modal' => 'payment_verification'],
+            'complete-enrollment' => ['key' => 'complete_enrollment', 'label' => 'Place learner in class and stream', 'modal' => 'placement'],
+            'generate-id-card' => ['key' => 'generate_id_card', 'label' => 'Generate student ID', 'modal' => 'student_id'],
+            'final-enrollment' => ['key' => 'final_approval', 'label' => 'Complete final enrollment', 'modal' => 'final_enrollment'],
+        ];
+        $actions = [];
+        foreach ($availableActions as $action) {
+            if (isset($actionDefinitions[$action])) {
+                $actions[] = $actionDefinitions[$action] + ['code' => $action, 'allowed' => true];
+            }
+        }
+        if (!empty($application['pending_payment_id'])
+            && $this->canProcessAdmissionActionForStage('record_payment', $currentStage, $ctx)) {
+            array_unshift($actions, $actionDefinitions['verify-payment'] + ['code' => 'verify-payment', 'allowed' => true]);
+        }
+
+        return [
+            'current_stage' => $currentStage,
+            'current_stage_name' => $config[$currentStage]['name'] ?? str_replace('_', ' ', $currentStage),
+            'next_stages' => $next,
+            'stages' => $stageRows,
+            'actions' => $actions,
+            'history' => $history,
+            'skipped_stages' => $skipped,
+            'financial' => [
+                'registration_fee_due' => (float) ($application['registration_fee_due'] ?? 0),
+                'financial_relief' => $application['financial_relief'] ?? [],
+                'pending_payment_id' => !empty($application['pending_payment_id']) ? (int) $application['pending_payment_id'] : null,
+                'pending_payment_reference' => $application['pending_payment_reference'] ?? null,
+                'pending_payment_amount' => $application['pending_payment_amount'] !== null ? (float) $application['pending_payment_amount'] : null,
+                'pending_payment_method' => $application['pending_payment_method'] ?? null,
+                'recorded_payment_amount' => (float) ($application['recorded_payment_amount'] ?? 0),
+            ],
+            'source' => 'workflow_instances + workflow_stages + workflow_stage_history + admission_applications',
+        ];
     }
 
     /**
@@ -916,7 +1126,9 @@ class AdmissionAdminManager extends BaseAPI
                 "SELECT aw.id, aw.academic_year_id, aw.academic_year_term_id, aw.label,
                         aw.status, aw.accepts_new_applications, aw.eligible_grades,
                         aw.default_admission_category, aw.application_open_at,
-                        aw.application_close_at, aw.calendar_event_id, aw.notes, aw.opened_by,
+                        aw.application_close_at, aw.interview_start_at, aw.interview_end_at,
+                        aw.interview_results_deadline_at, aw.admission_start_at, aw.admission_end_at,
+                        aw.calendar_event_id, aw.notes, aw.opened_by,
                         aw.opened_at, aw.closed_at, aw.updated_at,
                         ay.year_code, ay.year_name,
                         ayt.opening_date, ayt.closing_date, ayt.status AS term_status,
@@ -981,8 +1193,22 @@ class AdmissionAdminManager extends BaseAPI
         $category = $category ?: null;
         $openAt = $this->normalizeWindowDate($data['application_open_at'] ?? $data['open_at'] ?? null);
         $closeAt = $this->normalizeWindowDate($data['application_close_at'] ?? $data['close_at'] ?? null);
+        $interviewStart = $this->normalizeWindowDate($data['interview_start_at'] ?? null);
+        $interviewEnd = $this->normalizeWindowDate($data['interview_end_at'] ?? null);
+        $interviewResultsDeadline = $this->normalizeWindowDate($data['interview_results_deadline_at'] ?? null);
+        $admissionStart = $this->normalizeWindowDate($data['admission_start_at'] ?? null);
+        $admissionEnd = $this->normalizeWindowDate($data['admission_end_at'] ?? null);
         if ($openAt !== null && $closeAt !== null && strtotime($closeAt) <= strtotime($openAt)) {
             return $this->errorResponse('Application close date must be after the open date', 422);
+        }
+        if (($interviewStart === null) !== ($interviewEnd === null) || ($admissionStart === null) !== ($admissionEnd === null)) {
+            return $this->errorResponse('Interview and admission periods require both a start and an end date', 422);
+        }
+        if ($interviewStart !== null && strtotime($interviewEnd) <= strtotime($interviewStart)) {
+            return $this->errorResponse('Interview end must be after interview start', 422);
+        }
+        if ($admissionStart !== null && strtotime($admissionEnd) <= strtotime($admissionStart)) {
+            return $this->errorResponse('Admission end must be after admission start', 422);
         }
         $userId = $this->ctxUserId($ctx);
         $now = date('Y-m-d H:i:s');
@@ -997,17 +1223,20 @@ class AdmissionAdminManager extends BaseAPI
                     "UPDATE admission_windows
                      SET academic_year_id = ?, academic_year_term_id = ?, label = ?,
                          status = ?, accepts_new_applications = ?, application_open_at = ?,
-                         application_close_at = ?, eligible_grades = ?, default_admission_category = ?, notes = ?,
+                         application_close_at = ?, interview_start_at = ?, interview_end_at = ?,
+                         interview_results_deadline_at = ?, admission_start_at = ?, admission_end_at = ?,
+                         eligible_grades = ?, default_admission_category = ?, notes = ?,
                          opened_by = ?, opened_at = ?, closed_at = ?
                      WHERE id = ?"
                 );
-                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $openAt, $closeAt, $eligibleGradesJson, $category, $notes, $userId, $openedAt, $closedAt, $id]);
+                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $openAt, $closeAt, $interviewStart, $interviewEnd, $interviewResultsDeadline, $admissionStart, $admissionEnd, $eligibleGradesJson, $category, $notes, $userId, $openedAt, $closedAt, $id]);
             } else {
                 $stmt = $this->db->prepare(
                     "INSERT INTO admission_windows
                         (academic_year_id, academic_year_term_id, label, status,
                          accepts_new_applications, eligible_grades, default_admission_category,
-                         application_open_at, application_close_at,
+                         application_open_at, application_close_at, interview_start_at, interview_end_at,
+                         interview_results_deadline_at, admission_start_at, admission_end_at,
                          notes, opened_by, opened_at, closed_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE
@@ -1015,6 +1244,11 @@ class AdmissionAdminManager extends BaseAPI
                         status = VALUES(status),
                         accepts_new_applications = VALUES(accepts_new_applications),
                         eligible_grades = VALUES(eligible_grades),
+                        interview_start_at = VALUES(interview_start_at),
+                        interview_end_at = VALUES(interview_end_at),
+                        interview_results_deadline_at = VALUES(interview_results_deadline_at),
+                        admission_start_at = VALUES(admission_start_at),
+                        admission_end_at = VALUES(admission_end_at),
                         default_admission_category = VALUES(default_admission_category),
                         application_open_at = VALUES(application_open_at),
                         application_close_at = VALUES(application_close_at),
@@ -1023,7 +1257,7 @@ class AdmissionAdminManager extends BaseAPI
                         opened_at = VALUES(opened_at),
                         closed_at = VALUES(closed_at)"
                 );
-                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $eligibleGradesJson, $category, $openAt, $closeAt, $notes, $userId, $openedAt, $closedAt]);
+                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $eligibleGradesJson, $category, $openAt, $closeAt, $interviewStart, $interviewEnd, $interviewResultsDeadline, $admissionStart, $admissionEnd, $notes, $userId, $openedAt, $closedAt]);
             }
 
             $windowId = $id > 0 ? $id : (int) $this->db->lastInsertId();
@@ -1229,6 +1463,12 @@ class AdmissionAdminManager extends BaseAPI
             if ($window['valid_until'] && $date > $window['valid_until']) {
                 return $this->errorResponse('Interview session must be within the intake period or seven days after closing', 422);
             }
+            if (!empty($window['interview_start_at']) && $date < substr((string) $window['interview_start_at'], 0, 10)) {
+                return $this->errorResponse('Interview session is before the configured interview period for this window', 422);
+            }
+            if (!empty($window['interview_end_at']) && $date > substr((string) $window['interview_end_at'], 0, 10)) {
+                return $this->errorResponse('Interview session is after the configured interview period for this window', 422);
+            }
             $id = (int) ($data['id'] ?? 0);
             if ($id > 0) {
                 $oldStmt = $this->db->prepare('SELECT session_date,start_time,end_time,venue,interviewer_id FROM admission_interview_sessions WHERE id=?');
@@ -1380,7 +1620,7 @@ class AdmissionAdminManager extends BaseAPI
         $active = !empty($data['is_active']) ? 1 : 0;
         if ($title === '' || $description === '') return $this->errorResponse('Requirement title and description are required', 422);
         if (!in_array($gender, ['all', 'male', 'female'], true)) return $this->errorResponse('Invalid gender scope', 422);
-        if (!in_array($studentType, ['all', 'day', 'weekly', 'boarder'], true)) return $this->errorResponse('Invalid student type scope', 422);
+        if (!in_array($studentType, ['all', 'day', 'boarder'], true)) return $this->errorResponse('Invalid student type scope', 422);
         if ($grade !== null && !in_array($grade, ['Playgroup','Playground','PP1','PP2','Grade1','Grade2','Grade3','Grade4','Grade5','Grade6','Grade7','Grade8','Grade9'], true)) return $this->errorResponse('Invalid grade scope', 422);
         try {
             if ($id > 0) {
@@ -1450,7 +1690,7 @@ class AdmissionAdminManager extends BaseAPI
         }
 
         $allowed = [
-            'applicant_name', 'date_of_birth', 'gender', 'grade_applying_for',
+            'applicant_name', 'date_of_birth', 'birth_certificate_no', 'gender', 'grade_applying_for',
             'academic_year', 'target_term_id', 'previous_school',
             'admission_category', 'application_source', 'has_special_needs',
             'special_needs_details',
@@ -1481,8 +1721,8 @@ class AdmissionAdminManager extends BaseAPI
                 }
             } elseif ($field === 'student_type_code') {
                 $value = strtolower(trim((string) $value));
-                if ($value !== '' && !in_array($value, ['day', 'weekly', 'boarder'], true)) {
-                    return $this->errorResponse('Student type must be day, weekly, or boarder', 422);
+                if ($value !== '' && !in_array($value, ['day', 'boarder'], true)) {
+                    return $this->errorResponse('Student type must be day or boarder', 422);
                 }
                 $value = $value !== '' ? $value : null;
             } elseif ($field === 'admission_appointment_date') {
@@ -2019,6 +2259,15 @@ class AdmissionAdminManager extends BaseAPI
             $actualStage = (string) ($result['to_stage'] ?? $toStage);
             if ($actualStage === 'interview_scheduling') {
                 $this->workflow()->queueParentAdmissionNotification($applicationId, 'reviewed_interview');
+            } elseif ($actualStage === 'student_admission_number') {
+                $grade = strtolower((string) preg_replace('/[^a-z0-9]/i', '', (string) ($application['grade_applying_for'] ?? '')));
+                if (!in_array($grade, ['grade4', 'grade5', 'grade6', 'grade7', 'grade8', 'grade9'], true)) {
+                    // Playgroup–Grade 3 do not have an interview gate. Once
+                    // review has approved the clean application, send the
+                    // admission invitation using the window period; do not
+                    // manufacture an individual reporting date here.
+                    $this->workflow()->queueParentAdmissionNotification($applicationId, 'admission_invitation');
+                }
             } elseif ($actualStage === 'rejected') {
                 $this->workflow()->queueParentAdmissionNotification($applicationId, 'rejected', (string) ($notes ?: 'The application did not meet the admission requirements or has missing information.'));
             }
@@ -2033,6 +2282,590 @@ class AdmissionAdminManager extends BaseAPI
 
             return $this->errorResponse('An internal error occurred.');
         }
+    }
+
+    /**
+     * Pause review without inventing a workflow stage. The application stays
+     * in application_review, while the durable workflow payload records the
+     * correction request and queues the normal parent communication path.
+     */
+    public function pauseApplicationReview(array $data, array $ctx): array
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $notes = trim((string) ($data['notes'] ?? ''));
+        if ($applicationId <= 0 || $notes === '') {
+            return $this->errorResponse('Application ID and missing-information notes are required', 422);
+        }
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('You do not have access to this admission application', 403);
+        }
+        if (!$this->hasAnyAdmissionPermission('review_application', $ctx)) {
+            return $this->errorResponse('Insufficient permission to pause application review', 403);
+        }
+        if (!in_array((string) ($application['current_stage'] ?? ''), ['application_received', 'application_review'], true)) {
+            return $this->errorResponse('Only applications at the review stage can be paused for corrections', 422);
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $existing = json_decode((string) ($application['workflow_data_json'] ?? '{}'), true) ?: [];
+            $existing['review_state'] = 'paused_missing_information';
+            $existing['review_notes'] = $notes;
+            $existing['review_paused_at'] = date('c');
+            $existing['review_paused_by'] = $this->ctxUserId($ctx);
+            $json = json_encode($existing, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            $stmt = $this->db->prepare('UPDATE admission_applications SET workflow_data_json = ? WHERE id = ?');
+            $stmt->execute([$json, $applicationId]);
+
+            $workflow = $this->db->prepare("SELECT id, data_json FROM workflow_instances WHERE reference_type='admission_application' AND reference_id=? ORDER BY id DESC LIMIT 1");
+            $workflow->execute([$applicationId]);
+            $instance = $workflow->fetch(PDO::FETCH_ASSOC);
+            if ($instance) {
+                $instanceData = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+                $instanceData['review_state'] = 'paused_missing_information';
+                $instanceData['review_notes'] = $notes;
+                $instanceData['review_paused_at'] = date('c');
+                $update = $this->db->prepare('UPDATE workflow_instances SET data_json = ? WHERE id = ?');
+                $update->execute([json_encode($instanceData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (int) $instance['id']]);
+            }
+            $this->db->commit();
+            $this->workflow()->queueParentAdmissionNotification($applicationId, 'review_missing', $notes);
+            return $this->successResponse(['application_id' => $applicationId, 'review_state' => 'paused_missing_information'], 'Application paused and parent notification queued');
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] pause review failed: ' . $e->getMessage());
+            return $this->errorResponse('Unable to pause application review', 500);
+        }
+    }
+
+    /** Save reviewer notes while keeping the application in its current stage. */
+    public function saveApplicationReviewDraft(array $data, array $ctx): array
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $notes = trim((string) ($data['review_notes'] ?? ''));
+        if ($applicationId < 1) return $this->errorResponse('Application ID is required', 422);
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('You do not have access to this admission application', 403);
+        }
+        if (!$this->hasAnyAdmissionPermission('review_application', $ctx)) {
+            return $this->errorResponse('Insufficient permission to save the application review', 403);
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $stmt = $this->db->prepare("SELECT id, data_json FROM workflow_instances WHERE reference_type='admission_application' AND reference_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $stmt->execute([$applicationId]);
+            $instance = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$instance) throw new RuntimeException('Active admission workflow was not found');
+
+            $workflowData = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+            $workflowData['review_notes'] = $notes !== '' ? $notes : null;
+            $workflowData['review_saved_at'] = date('c');
+            $workflowData['review_saved_by'] = $this->ctxUserId($ctx);
+            $update = $this->db->prepare('UPDATE workflow_instances SET data_json=? WHERE id=?');
+            $update->execute([json_encode($workflowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (int) $instance['id']]);
+            $this->db->commit();
+            return $this->successResponse(['application_id' => $applicationId, 'review_notes' => $notes], 'Review saved without advancing the workflow');
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] review draft save failed: ' . $e->getMessage());
+            return $this->errorResponse('Unable to save the application review', 500);
+        }
+    }
+
+    /**
+     * Skip one or more pending stages as a controlled administrative
+     * exception. Every skipped stage is written to the normal workflow history
+     * and to a dedicated exception ledger; the destination remains visible as
+     * the current stage. No browser-supplied SQL or arbitrary stage is trusted.
+     */
+    public function skipAdmissionStage(array $data, array $ctx): array
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $destination = trim((string) ($data['destination_stage'] ?? ''));
+        $reasonCode = trim((string) ($data['reason_code'] ?? ''));
+        $reason = trim((string) ($data['reason'] ?? ''));
+        $waiverType = trim((string) ($data['waiver_type'] ?? '')) ?: null;
+        $registrationWaived = filter_var($data['registration_fee_waived'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $schoolWaiverType = trim((string) ($data['school_fee_waiver_type'] ?? 'none')) ?: 'none';
+        $schoolWaiverValue = max(0, (float) ($data['school_fee_waiver_value'] ?? 0));
+        if ($waiverType === 'registration_fee_waiver') $registrationWaived = true;
+        if (in_array($waiverType, ['full_waiver', 'sponsored'], true)) {
+            $registrationWaived = true;
+            if ($schoolWaiverType === 'none') $schoolWaiverType = 'full';
+        }
+        if ($waiverType === null && ($registrationWaived || $schoolWaiverType !== 'none')) {
+            $waiverType = $schoolWaiverType !== 'none' ? 'sponsored' : 'registration_fee_waiver';
+        }
+        if (!in_array($schoolWaiverType, ['none', 'full', 'percentage', 'fixed'], true)) {
+            return $this->errorResponse('Invalid school-fee waiver type', 422);
+        }
+        if ($schoolWaiverType === 'percentage' && $schoolWaiverValue > 100) {
+            return $this->errorResponse('School-fee waiver percentage cannot exceed 100', 422);
+        }
+        $waiverDetails = [
+            'waiver_type' => $waiverType,
+            'registration_fee_waived' => $registrationWaived,
+            'school_fee_waiver_type' => $schoolWaiverType,
+            'school_fee_waiver_value' => $schoolWaiverValue,
+            'reason_code' => $reasonCode,
+            'reason' => $reason,
+        ];
+        if ($applicationId < 1 || $destination === '' || $reasonCode === '' || $reason === '') {
+            return $this->errorResponse('Application, destination stage, skip reason and explanation are required', 422);
+        }
+        if (!$this->hasAnyAdmissionPermission('skip_stage', $ctx)) {
+            return $this->errorResponse('You do not have permission to skip admission stages', 403);
+        }
+        $allowedReasons = ['sponsored', 'exempted', 'special_case', 'administrative_exception', 'other'];
+        if (!in_array($reasonCode, $allowedReasons, true)) return $this->errorResponse('Invalid skip reason', 422);
+        $allowedStages = ['application_applied','application_received','application_review','interview_scheduling','interview_results','student_admission_number','class_placement','fees_payment','student_id_generation','final_enrollment'];
+        if (!in_array($destination, $allowedStages, true)) return $this->errorResponse('Invalid destination stage', 422);
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) return $this->errorResponse('You do not have access to this application', 403);
+        $current = (string) ($application['current_stage'] ?? 'application_received');
+        $index = array_search($current, $allowedStages, true);
+        $destinationIndex = array_search($destination, $allowedStages, true);
+        if ($index === false || $destinationIndex === false || $destinationIndex <= $index) {
+            return $this->errorResponse('Choose a later stage as the destination for the skipped stage', 422);
+        }
+        if (in_array($destination, ['student_id_generation','final_enrollment'], true) && empty($application['enrolled_student_id'])) {
+            return $this->errorResponse('A student record must exist before skipping to this destination', 422);
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $instanceStmt = $this->db->prepare("SELECT id, current_stage, data_json FROM workflow_instances WHERE reference_type='admission_application' AND reference_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $instanceStmt->execute([$applicationId]);
+            $instance = $instanceStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$instance) throw new RuntimeException('Active admission workflow was not found');
+            $instanceId = (int) $instance['id'];
+            $dataJson = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+            // The current stage is itself being waived, but it must not be
+            // sent to the advance procedure as a transition to itself. Record
+            // it in the exception ledger, then advance only through later
+            // stages that lie between the current stage and the destination.
+            $skipped = [$current];
+            $dataJson = array_merge($dataJson, [
+                'stage_skipped' => true,
+                'skipped_stage' => $current,
+                'skip_reason_code' => $reasonCode,
+                'skip_reason' => $reason,
+                'skipped_at' => date('c'),
+                'skipped_by' => $this->ctxUserId($ctx),
+                'waiver_type' => $waiverType,
+            ]);
+            $waiverJson = json_encode($waiverDetails, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $this->db->prepare('INSERT INTO admission_stage_skip_audit (application_id,workflow_instance_id,from_stage,skipped_stage,destination_stage,reason_code,reason,waiver_type,waiver_amount,waiver_details,skipped_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$applicationId, $instanceId, $current, $current, $destination, $reasonCode, $reason, $waiverType, $schoolWaiverType === 'fixed' ? $schoolWaiverValue : null, $waiverJson, $this->ctxUserId($ctx)]);
+
+            for ($i = $index + 1; $i < $destinationIndex; $i++) {
+                $skippedStage = $allowedStages[$i];
+                $skipped[] = $skippedStage;
+                $updates = array_merge($dataJson, [
+                    'stage_skipped' => true,
+                    'skipped_stage' => $skippedStage,
+                    'skip_reason_code' => $reasonCode,
+                    'skip_reason' => $reason,
+                    'skipped_at' => date('c'),
+                    'skipped_by' => $this->ctxUserId($ctx),
+                    'waiver_type' => $waiverType,
+                ]);
+                $json = json_encode($updates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $proc = $this->db->prepare('CALL sp_advance_admission_workflow_stage(?,?,?,?,?,?)');
+                $proc->execute([$applicationId, $skippedStage, 'stage_skipped', $this->ctxUserId($ctx), $reason, $json]);
+                while ($proc->nextRowset()) {}
+                $proc->closeCursor();
+                $this->db->prepare('INSERT INTO admission_stage_skip_audit (application_id,workflow_instance_id,from_stage,skipped_stage,destination_stage,reason_code,reason,waiver_type,waiver_amount,waiver_details,skipped_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+                    ->execute([$applicationId, $instanceId, $current, $skippedStage, $destination, $reasonCode, $reason, $waiverType, $schoolWaiverType === 'fixed' ? $schoolWaiverValue : null, $waiverJson, $this->ctxUserId($ctx)]);
+                $dataJson = $updates;
+                $current = $skippedStage;
+            }
+            $finalUpdates = array_merge($dataJson, ['stage_skip_completed' => true, 'stage_skip_destination' => $destination]);
+            $json = json_encode($finalUpdates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $proc = $this->db->prepare('CALL sp_advance_admission_workflow_stage(?,?,?,?,?,?)');
+            $proc->execute([$applicationId, $destination, 'stage_skip_destination', $this->ctxUserId($ctx), $reason, $json]);
+            while ($proc->nextRowset()) {}
+            $proc->closeCursor();
+            if ($registrationWaived || $schoolWaiverType !== 'none') {
+                $reliefService = new \App\API\Services\ExtraChargeService($this->db);
+                $enrollmentId = null;
+                if (!empty($application['enrolled_student_id'])) {
+                    $enrollment = $this->db->prepare("SELECT id FROM student_academic_enrollments WHERE student_id=? ORDER BY id DESC LIMIT 1");
+                    $enrollment->execute([(int) $application['enrolled_student_id']]);
+                    $enrollmentId = (int) ($enrollment->fetchColumn() ?: 0) ?: null;
+                }
+                $reliefService->applyAdmissionFinancialRelief($applicationId, $enrollmentId);
+            }
+            $this->db->commit();
+            return $this->successResponse(['application_id' => $applicationId, 'skipped_stages' => $skipped, 'destination_stage' => $destination], 'Admission stage exception recorded');
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] stage skip failed: ' . $e->getMessage());
+            return $this->errorResponse('Unable to record the stage exception', 500);
+        }
+    }
+
+    /**
+     * Apply or replace an authorized financial concession while an admission
+     * is at the payment stage. This is deliberately separate from skipping a
+     * workflow stage: the learner remains in fees_payment until the resulting
+     * due amount is settled or another authorized stage action is taken.
+     */
+    public function applyAdmissionFinancialRelief(array $data, array $ctx): array
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $registrationType = trim((string) ($data['registration_fee_waiver_type'] ?? 'none')) ?: 'none';
+        $registrationValue = max(0, (float) ($data['registration_fee_waiver_value'] ?? 0));
+        $registrationWaived = filter_var($data['registration_fee_waived'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($registrationWaived && $registrationType === 'none') $registrationType = 'full';
+        $schoolType = trim((string) ($data['school_fee_waiver_type'] ?? 'none')) ?: 'none';
+        $schoolValue = max(0, (float) ($data['school_fee_waiver_value'] ?? 0));
+        $reasonCode = trim((string) ($data['reason_code'] ?? 'sponsored')) ?: 'sponsored';
+        $reason = trim((string) ($data['reason'] ?? ''));
+
+        if ($applicationId < 1 || $reason === '') {
+            return $this->errorResponse('Application and an authorization reason are required.', 422);
+        }
+        if (!in_array($reasonCode, ['sponsored', 'exempted', 'special_case', 'administrative_exception', 'other'], true)) {
+            return $this->errorResponse('Invalid financial-relief reason.', 422);
+        }
+        if (!in_array($schoolType, ['none', 'full', 'percentage', 'fixed'], true)) {
+            return $this->errorResponse('Invalid school-fee relief type.', 422);
+        }
+        if (!in_array($registrationType, ['none', 'full', 'percentage', 'fixed'], true)) {
+            return $this->errorResponse('Invalid registration-fee relief type.', 422);
+        }
+        if ($registrationType === 'percentage' && $registrationValue > 100) {
+            return $this->errorResponse('Registration-fee relief percentage cannot exceed 100.', 422);
+        }
+        if ($schoolType === 'percentage' && $schoolValue > 100) {
+            return $this->errorResponse('School-fee relief percentage cannot exceed 100.', 422);
+        }
+        if ($registrationType === 'none' && $schoolType === 'none') {
+            return $this->errorResponse('Select a registration-fee waiver or school-fee relief before saving.', 422);
+        }
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('You do not have access to this admission application.', 403);
+        }
+        $currentStage = $this->normalizeStageCode($application['current_stage'] ?? null);
+        if (!in_array($currentStage, ['class_placement', 'fees_payment', 'student_id_generation'], true)) {
+            return $this->errorResponse('Financial relief can only be changed during placement, payment, or ID-generation stages.', 409);
+        }
+        if (!$this->canProcessAdmissionActionForApplication('record_payment', $application, $ctx)) {
+            return $this->errorResponse('You do not have permission to authorize financial relief for this application.', 403);
+        }
+
+        $waiverType = $schoolType !== 'none' ? 'sponsored' : 'registration_fee_waiver';
+        $details = [
+            'financial_only' => true,
+            'waiver_type' => $waiverType,
+            'registration_fee_waived' => $registrationType !== 'none',
+            'registration_fee_waiver_type' => $registrationType,
+            'registration_fee_waiver_value' => $registrationValue,
+            'school_fee_waiver_type' => $schoolType,
+            'school_fee_waiver_value' => $schoolValue,
+            'reason_code' => $reasonCode,
+            'reason' => $reason,
+            'authorized_at' => date('c'),
+            'authorized_by' => $this->ctxUserId($ctx),
+        ];
+
+        try {
+            $this->db->beginTransaction();
+            $instanceStmt = $this->db->prepare(
+                "SELECT id, current_stage, data_json
+                   FROM workflow_instances
+                  WHERE reference_type='admission_application' AND reference_id=?
+                  ORDER BY id DESC LIMIT 1 FOR UPDATE"
+            );
+            $instanceStmt->execute([$applicationId]);
+            $instance = $instanceStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$instance) throw new RuntimeException('Active admission workflow was not found.');
+
+            $this->db->prepare(
+                'INSERT INTO admission_stage_skip_audit
+                    (application_id, workflow_instance_id, from_stage, skipped_stage, destination_stage,
+                     reason_code, reason, waiver_type, waiver_amount, waiver_details, skipped_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([
+                $applicationId,
+                (int) $instance['id'],
+                $currentStage,
+                $currentStage,
+                $currentStage,
+                $reasonCode,
+                $reason,
+                $waiverType,
+                $schoolWaiverType === 'fixed' ? $schoolWaiverValue : null,
+                json_encode($waiverDetails, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                $this->ctxUserId($ctx),
+            ]);
+
+            $workflowData = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+            $workflowData['financial_relief'] = $waiverDetails;
+            $workflowData['financial_relief_updated_at'] = date('c');
+            $workflowData['financial_relief_updated_by'] = $this->ctxUserId($ctx);
+            $this->db->prepare('UPDATE workflow_instances SET data_json=? WHERE id=?')
+                ->execute([json_encode($workflowData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (int) $instance['id']]);
+
+            $enrollmentId = (int) ($application['enrollment_id'] ?? 0);
+            if ($enrollmentId < 1 && !empty($application['enrolled_student_id'])) {
+                $enrollmentStmt = $this->db->prepare(
+                    "SELECT id FROM student_academic_enrollments
+                      WHERE student_id=? AND enrollment_status='active'
+                      ORDER BY id DESC LIMIT 1"
+                );
+                $enrollmentStmt->execute([(int) $application['enrolled_student_id']]);
+                $enrollmentId = (int) ($enrollmentStmt->fetchColumn() ?: 0);
+            }
+            (new \App\API\Services\ExtraChargeService($this->db))
+                ->applyAdmissionFinancialRelief($applicationId, $enrollmentId > 0 ? $enrollmentId : null);
+            $this->db->commit();
+
+            $chargeService = new \App\API\Services\ExtraChargeService($this->db);
+            $amountDue = $chargeService->admissionTotalDue($applicationId);
+            $amountRecorded = $this->paymentService->getTotalRecorded($applicationId);
+            $advanced = false;
+            // A fully relieved payment stage has no remaining human action. Use
+            // the same guarded workflow transition as a confirmed payment; a
+            // concession is never posted as money received.
+            if ($currentStage === 'fees_payment' && $amountRecorded >= $amountDue) {
+                $advanced = $this->workflow()->advanceAfterApprovedRelief($applicationId);
+            }
+            return $this->successResponse([
+                'application_id' => $applicationId,
+                'financial_relief' => $chargeService->admissionFinancialRelief($applicationId),
+                'registration_fee_due' => $amountDue,
+                'amount_recorded' => $amountRecorded,
+                'advanced_to_id_generation' => $advanced,
+            ], 'Financial relief saved and applied to the admission obligations.');
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] payment-stage financial relief failed: ' . $e->getMessage());
+            return $this->errorResponse('Unable to save financial relief.', 500);
+        }
+    }
+
+    /**
+     * Execute a controlled multi-stage skip as resumable, idempotent work.
+     * Operational stages are executed through their owning workflow service;
+     * only non-operational gates are marked skipped. Each request advances one
+     * checkpoint so a failure can be retried without creating duplicate rows.
+     */
+    public function orchestrateAdmissionSkip(array $data, array $ctx): array
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $destination = trim((string) ($data['destination_stage'] ?? ''));
+        $reasonCode = trim((string) ($data['reason_code'] ?? ''));
+        $reason = trim((string) ($data['reason'] ?? ''));
+        if ($applicationId < 1 || $destination === '' || $reasonCode === '' || $reason === '') {
+            return $this->errorResponse('Application, destination, exception type and reason are required.', 422);
+        }
+        if (!$this->hasAnyAdmissionPermission('skip_stage', $ctx)) {
+            return $this->errorResponse('You do not have permission to run an admission skip transaction.', 403);
+        }
+        $allowed = ['application_applied','application_received','application_review','interview_scheduling','interview_results','student_admission_number','class_placement','fees_payment','student_id_generation','final_enrollment'];
+        if (!in_array($destination, $allowed, true)) return $this->errorResponse('Invalid destination stage.', 422);
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application || !$this->canViewApplicationRecord($application, $ctx)) return $this->errorResponse('You do not have access to this application.', 403);
+        $instance = $this->getLatestAdmissionInstance($applicationId);
+        if (!$instance) return $this->errorResponse('Active admission workflow was not found.', 409);
+        $state = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+        $operation = is_array($state['skip_orchestration'] ?? null) ? $state['skip_orchestration'] : null;
+        if (!$operation) {
+            $operation = [
+                'status' => 'running',
+                'target_stage' => $destination,
+                'reason_code' => $reasonCode,
+                'reason' => $reason,
+                'started_at' => date('c'),
+                'started_by' => $this->ctxUserId($ctx),
+                'placement' => is_array($data['placement'] ?? null) ? $data['placement'] : [],
+                'progress' => [],
+            ];
+            $this->saveSkipOrchestrationState($applicationId, $operation);
+        } elseif ($operation['target_stage'] !== $destination) {
+            return $this->errorResponse('Another skip transaction is already in progress for this application.', 409);
+        }
+        if (empty($operation['placement']) && is_array($data['placement'] ?? null)) {
+            $operation['placement'] = $data['placement'];
+            $this->saveSkipOrchestrationState($applicationId, $operation);
+        }
+
+        $current = (string) ($instance['current_stage'] ?? $application['current_stage'] ?? 'application_received');
+        $targetIndex = array_search($destination, $allowed, true);
+        $currentIndex = array_search($current, $allowed, true);
+        if ($currentIndex === false || $targetIndex === false || $targetIndex <= $currentIndex) {
+            return $this->errorResponse('The selected destination must be later than the current stage.', 422);
+        }
+
+        $progress = &$operation['progress'];
+        $step = static function (string $code, string $label) use (&$progress): void {
+            if (!isset($progress[$code])) $progress[$code] = ['code' => $code, 'label' => $label, 'status' => 'pending'];
+        };
+        foreach (['application_review' => 'Application review', 'interview_scheduling' => 'Interview scheduling', 'interview_results' => 'Interview assessment', 'student_admission_number' => 'Student admission number', 'class_placement' => 'Class and stream placement', 'fees_payment' => 'Fees, transport and uniform payments', 'student_id_generation' => 'Student ID generation', 'final_enrollment' => 'Final enrollment'] as $code => $label) {
+            if (($idx = array_search($code, $allowed, true)) !== false && $idx >= $currentIndex && $idx <= $targetIndex) $step($code, $label);
+        }
+
+        try {
+            // Persist the concession before placement creates obligations. The
+            // normal financial-relief reader will then apply it during and
+            // after fee-obligation generation.
+            if (!isset($operation['financial_relief_recorded'])) {
+                $relief = [
+                    'financial_only' => true,
+                    'waiver_type' => 'sponsored',
+                    'registration_fee_waived' => filter_var($data['registration_fee_waived'] ?? false, FILTER_VALIDATE_BOOLEAN),
+                    'registration_fee_waiver_type' => (string) ($data['registration_fee_waiver_type'] ?? (filter_var($data['registration_fee_waived'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'full' : 'none')),
+                    'registration_fee_waiver_value' => max(0, (float) ($data['registration_fee_waiver_value'] ?? 0)),
+                    'school_fee_waiver_type' => (string) ($data['school_fee_waiver_type'] ?? 'none'),
+                    'school_fee_waiver_value' => max(0, (float) ($data['school_fee_waiver_value'] ?? 0)),
+                    'reason_code' => $reasonCode,
+                    'reason' => $reason,
+                    'authorized_at' => date('c'),
+                    'authorized_by' => $this->ctxUserId($ctx),
+                ];
+                if (!in_array($relief['registration_fee_waiver_type'], ['none','full','percentage','fixed'], true) || !in_array($relief['school_fee_waiver_type'], ['none','full','percentage','fixed'], true)) return $this->errorResponse('Invalid financial-relief configuration.', 422);
+                if ($relief['registration_fee_waiver_type'] === 'percentage' && $relief['registration_fee_waiver_value'] > 100) return $this->errorResponse('Registration-fee relief percentage cannot exceed 100.', 422);
+                if ($relief['school_fee_waiver_type'] === 'percentage' && $relief['school_fee_waiver_value'] > 100) return $this->errorResponse('School-fee relief percentage cannot exceed 100.', 422);
+                if ($relief['registration_fee_waiver_type'] !== 'none' || $relief['school_fee_waiver_type'] !== 'none') {
+                    $this->recordSkipFinancialRelief($applicationId, (int) $instance['id'], $current, $relief, $ctx);
+                }
+                $operation['financial_relief_recorded'] = true;
+                $operation['financial_relief'] = $relief;
+            }
+
+            // Mark one non-operational gate skipped at a time.
+            if ($currentIndex < array_search('student_admission_number', $allowed, true) && $currentIndex < $targetIndex) {
+                $next = $allowed[$currentIndex + 1];
+                $this->advanceSkippedCheckpoint($applicationId, $instance, $current, $next, $operation, $ctx);
+                $progress[$current] = ['code' => $current, 'label' => $current, 'status' => 'skipped'];
+                $operation['last_checkpoint'] = $current;
+                $operation['status'] = 'running';
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, $next);
+            }
+
+            $workflow = $this->workflow();
+            if ($current === 'student_admission_number' && $targetIndex >= array_search('student_admission_number', $allowed, true)) {
+                $progress['student_admission_number']['status'] = 'running';
+                $result = $workflow->createStudentAdmissionNumber($applicationId);
+                if (!($result['success'] ?? false)) throw new RuntimeException($result['message'] ?? 'Student admission-number creation failed.');
+                $progress['student_admission_number']['status'] = 'completed';
+                $current = 'class_placement';
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+            }
+
+            if ($current === 'class_placement' && $targetIndex >= array_search('class_placement', $allowed, true)) {
+                $placement = $operation['placement'] ?: (is_array($data['placement'] ?? null) ? $data['placement'] : []);
+                if (empty($placement['academic_year_class_stream_id']) && empty($placement['class_id'])) {
+                    $operation['status'] = 'blocked';
+                    $operation['blocked_reason'] = 'Select a class and stream before automated placement can continue.';
+                    $this->saveSkipOrchestrationState($applicationId, $operation);
+                    return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+                }
+                $progress['class_placement']['status'] = 'running';
+                $result = $workflow->completeEnrollment($applicationId, $placement);
+                if (!($result['success'] ?? false)) throw new RuntimeException($result['message'] ?? 'Class placement failed.');
+                $progress['class_placement']['status'] = 'completed';
+                $current = (string) (($result['data']['next_stage'] ?? null) ?: 'fees_payment');
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+            }
+
+            if ($current === 'fees_payment' && $targetIndex >= array_search('fees_payment', $allowed, true)) {
+                $due = (new \App\API\Services\ExtraChargeService($this->db))->admissionTotalDue($applicationId);
+                $paid = $this->paymentService->getTotalRecorded($applicationId);
+                if ($due > 0 && $paid < $due) {
+                    $operation['status'] = 'blocked';
+                    $operation['blocked_reason'] = 'Financial treatment leaves an amount due. Verify payment or authorize additional relief before continuing.';
+                    $this->saveSkipOrchestrationState($applicationId, $operation);
+                    return $this->skipOrchestrationResponse($applicationId, $operation, $current, ['amount_due' => $due, 'amount_paid' => $paid]);
+                }
+                $progress['fees_payment']['status'] = 'running';
+                if (!$this->workflow()->advanceAfterConfirmedPayment($applicationId)) throw new RuntimeException('Payment/waiver threshold could not be satisfied.');
+                $progress['fees_payment']['status'] = $due > 0 ? 'completed' : 'completed_with_waiver';
+                $current = 'student_id_generation';
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+            }
+
+            if ($current === 'student_id_generation' && $targetIndex >= array_search('student_id_generation', $allowed, true)) {
+                $progress['student_id_generation']['status'] = 'running';
+                $result = $workflow->generateStudentIdCard($applicationId);
+                if (!($result['success'] ?? false)) throw new RuntimeException($result['message'] ?? 'Student ID generation failed.');
+                $progress['student_id_generation']['status'] = 'completed';
+                $current = 'final_enrollment';
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+            }
+
+            if ($current === 'final_enrollment' && $targetIndex >= array_search('final_enrollment', $allowed, true)) {
+                $progress['final_enrollment']['status'] = 'running';
+                $result = $workflow->finalApproval($applicationId);
+                if (!($result['success'] ?? false)) throw new RuntimeException($result['message'] ?? 'Final enrollment failed.');
+                $progress['final_enrollment']['status'] = 'completed';
+                $operation['status'] = 'completed';
+                $operation['completed_at'] = date('c');
+                $this->saveSkipOrchestrationState($applicationId, $operation);
+                return $this->skipOrchestrationResponse($applicationId, $operation, 'enrolled');
+            }
+
+            return $this->skipOrchestrationResponse($applicationId, $operation, $current);
+        } catch (Throwable $e) {
+            $operation['status'] = 'failed';
+            $operation['blocked_reason'] = $e->getMessage();
+            $this->saveSkipOrchestrationState($applicationId, $operation);
+            \App\API\Services\Logger::legacyError('[AdmissionAdminManager] skip orchestration failed: ' . $e->getMessage());
+            return $this->errorResponse($e->getMessage(), 422);
+        }
+    }
+
+    private function getLatestAdmissionInstance(int $applicationId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT id, current_stage, data_json FROM workflow_instances WHERE reference_type='admission_application' AND reference_id=? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$applicationId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    private function saveSkipOrchestrationState(int $applicationId, array $operation): void
+    {
+        $instance = $this->getLatestAdmissionInstance($applicationId);
+        if (!$instance) throw new RuntimeException('Active admission workflow was not found.');
+        $data = json_decode((string) ($instance['data_json'] ?? '{}'), true) ?: [];
+        $data['skip_orchestration'] = $operation;
+        $this->db->prepare('UPDATE workflow_instances SET data_json=? WHERE id=?')->execute([json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), (int) $instance['id']]);
+    }
+
+    private function skipOrchestrationResponse(int $applicationId, array $operation, string $current, array $extra = []): array
+    {
+        return $this->successResponse(array_merge(['application_id' => $applicationId, 'status' => $operation['status'], 'current_stage' => $current, 'progress' => array_values($operation['progress']), 'blocked_reason' => $operation['blocked_reason'] ?? null], $extra), $operation['status'] === 'blocked' ? 'Skip transaction requires attention.' : 'Skip transaction checkpoint completed.');
+    }
+
+    private function recordSkipFinancialRelief(int $applicationId, int $instanceId, string $stage, array $relief, array $ctx): void
+    {
+        $waiverType = $relief['school_fee_waiver_type'] !== 'none' ? 'sponsored' : 'registration_fee_waiver';
+        $this->db->prepare('INSERT INTO admission_stage_skip_audit (application_id,workflow_instance_id,from_stage,skipped_stage,destination_stage,reason_code,reason,waiver_type,waiver_amount,waiver_details,skipped_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)')->execute([$applicationId, $instanceId, $stage, $stage, $stage, $relief['reason_code'], $relief['reason'], $waiverType, $relief['school_fee_waiver_type'] === 'fixed' ? $relief['school_fee_waiver_value'] : null, json_encode($relief, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $this->ctxUserId($ctx)]);
+    }
+
+    private function advanceSkippedCheckpoint(int $applicationId, array $instance, string $from, string $to, array $operation, array $ctx): void
+    {
+        $updates = ['skip_orchestration' => $operation, 'stage_skipped' => true, 'skipped_stage' => $from, 'skip_reason' => $operation['reason'], 'skip_reason_code' => $operation['reason_code'], 'skipped_at' => date('c'), 'skipped_by' => $this->ctxUserId($ctx)];
+        $proc = $this->db->prepare('CALL sp_advance_admission_workflow_stage(?,?,?,?,?,?)');
+        $proc->execute([$applicationId, $to, 'stage_skipped', $this->ctxUserId($ctx), $operation['reason'], json_encode($updates, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+        while ($proc->nextRowset()) {}
+        $proc->closeCursor();
+        $this->db->prepare('INSERT INTO admission_stage_skip_audit (application_id,workflow_instance_id,from_stage,skipped_stage,destination_stage,reason_code,reason,waiver_type,waiver_amount,waiver_details,skipped_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)')->execute([$applicationId, (int) $instance['id'], $from, $from, $operation['target_stage'], $operation['reason_code'], $operation['reason'], null, null, json_encode(['orchestration' => true], JSON_UNESCAPED_UNICODE), $this->ctxUserId($ctx)]);
     }
 
     public function getStageMatrix(array $ctx): array
@@ -2303,6 +3136,13 @@ class AdmissionAdminManager extends BaseAPI
                 if ($this->canProcessAdmissionActionForStage('review_application', $normalizedStage, $ctx)) {
                     $actions[] = 'review-application';
                 }
+                if ($this->canProcessAdmissionActionForStage('verify_document', $normalizedStage, $ctx)) {
+                    $actions[] = 'verify-documents';
+                }
+                if ($this->canProcessAdmissionActionForStage('review_application', $normalizedStage, $ctx)) {
+                    $actions[] = 'pause-review';
+                    $actions[] = 'reject-application';
+                }
                 break;
             case 'interview_scheduling':
                 if ($this->canProcessAdmissionActionForStage('schedule_interview', $normalizedStage, $ctx)) {
@@ -2464,6 +3304,9 @@ class AdmissionAdminManager extends BaseAPI
     private function attachQueueActions(array $records, array $ctx): array
     {
         foreach ($records as &$record) {
+            if (!empty($record['passport_photo_url'])) {
+                $record['passport_photo_url'] = $this->normalizePublicAssetUrl($record['passport_photo_url']);
+            }
             $currentStage = $record['current_stage'] ?? null;
             $status = $record['status'] ?? null;
             $record['available_actions'] = $this->getAvailableActions($currentStage, $status, $ctx);
@@ -2471,6 +3314,31 @@ class AdmissionAdminManager extends BaseAPI
         unset($record);
 
         return $records;
+    }
+
+    /** Resolve persisted upload paths against the configured deployment URL. */
+    private function normalizePublicAssetUrl($value): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '' || str_starts_with($value, 'data:')) {
+            return $value !== '' ? $value : null;
+        }
+
+        $base = rtrim((string) (defined('UPLOAD_URL') ? UPLOAD_URL : ''), '/');
+        if ($base === '') {
+            return $value;
+        }
+
+        $path = $value;
+        if (preg_match('#^https?://#i', $value)) {
+            $path = (string) (parse_url($value, PHP_URL_PATH) ?: '');
+        }
+        $path = '/' . ltrim($path, '/');
+        if (preg_match('#(?:^|/)uploads/(.+)$#i', $path, $match)) {
+            $path = '/' . ltrim($match[1], '/');
+        }
+
+        return $base . '/' . ltrim($path, '/');
     }
 
     /** Add canonical payment values to placement-stage rows. */
@@ -2483,6 +3351,7 @@ class AdmissionAdminManager extends BaseAPI
 
             try {
                 $record['registration_fee_due'] = $chargeService->admissionTotalDue($applicationId);
+                $record['financial_relief'] = $chargeService->admissionFinancialRelief($applicationId);
             } catch (\Throwable $ignored) {
                 // Leave the amount absent only when charge configuration is
                 // unavailable; the client must not invent a price.
@@ -3024,7 +3893,7 @@ class AdmissionAdminManager extends BaseAPI
     {
         $path = trim((string) ($document['document_path'] ?? ''));
         if ($path !== '' && !ctype_digit($path)) {
-            return $path;
+            return $this->normalizePublicAssetUrl($path);
         }
 
         if (empty($document['media_filename']) || empty($document['media_context'])) {
@@ -3041,13 +3910,8 @@ class AdmissionAdminManager extends BaseAPI
 
     private function buildAppUrl(string $path): string
     {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
-        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
-
-        return $scheme . '://' . $host . rtrim($appBase, '/') . '/' . ltrim($path, '/');
+        $base = defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '';
+        return $base . '/' . ltrim($path, '/');
     }
 
     // ------------------------------------------------------------------------

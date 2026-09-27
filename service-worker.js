@@ -48,9 +48,9 @@ self.addEventListener('fetch', (event) => {
   // Never intercept API/auth/session requests or mutations.
   if (request.method !== 'GET' || url.pathname.includes('/api/')) return;
   // Never intercept upload or asset paths — must load fresh from server.
-  // The app lives under a subdirectory (e.g. /Kingsway/), so url.pathname
-  // is /Kingsway/uploads/..., not /uploads/... — use includes() not startsWith().
-  if (url.pathname.includes('/uploads/') || url.pathname.includes('/uploads_backup/') || url.pathname.includes('/assets/')) return;
+  // Uploads may live under any configured application base path; inspect the
+  // URL path instead of assuming a deployment directory.
+  if (url.pathname.includes('/uploads/') || url.pathname.includes('/assets/')) return;
   if (url.origin !== self.location.origin) return;
 
   // Never cache PHP/application navigations. Use network and offline fallback only.

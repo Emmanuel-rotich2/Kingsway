@@ -5,7 +5,11 @@
   'use strict';
   var P = window.ParentCommon;
 
-  function renderChildrenCards(children) {
+  function childApplication(applications, id) {
+    return (applications || []).find(function (a) { return String(a.enrolled_student_id || '') === String(id || ''); }) || null;
+  }
+
+  function renderChildrenCards(children, applications) {
     var el = document.getElementById('ppChildrenCards');
     if (!el) return;
     if (!children.length) {
@@ -13,7 +17,9 @@
       return;
     }
     el.innerHTML = children.map(function (c) {
-      var bal = parseFloat(c.current_balance || 0);
+      var application = childApplication(applications, c.id);
+      var registrationDue = application ? parseFloat(application.registration_fee_due || 0) : 0;
+      var bal = parseFloat(c.current_balance || 0) + registrationDue;
       var bc = bal <= 0 ? 'success' : (bal < 5000 ? 'warning' : 'danger');
       var bt = bal <= 0 ? 'Fees Cleared' : 'KES ' + bal.toLocaleString() + ' Due';
       return '<div class="col-md-6 col-lg-4 mb-3">' +
@@ -25,16 +31,20 @@
         '<div><h6 class="mb-0 fw-bold">' + P.esc(c.first_name + ' ' + c.last_name) + '</h6>' +
         '<small class="text-muted">' + P.esc(c.class_name || '') + ' · ' + P.esc(c.admission_no || '') + '</small></div></div>' +
         '<div class="d-flex justify-content-between align-items-center">' +
-        '<span class="text-muted small">Current balance</span>' +
+        '<span class="text-muted small">' + (registrationDue > 0 ? 'Total due' : 'Current balance') + '</span>' +
         '<span class="badge bg-' + bc + ' px-3 py-2">' + bt + '</span></div>' +
+        (application && application.status !== 'enrolled' ? '<div class="small mt-2"><span class="badge bg-warning-subtle text-warning-emphasis">' + P.esc(application.status_label || 'Admission in progress') + '</span><br><strong>Current:</strong> ' + P.esc(application.current_stage_name || 'Application received') + '<br><span class="text-muted"><strong>Next:</strong> ' + P.esc((application.stages || []).find(function (s) { return s.state === 'todo'; })?.name || 'Awaiting finalisation') + '</span></div>' : '') +
         '</div></a></div>';
     }).join('');
   }
 
-  function renderKpis(children) {
+  function renderKpis(children, applications) {
     var el = document.getElementById('ppKpis');
     if (!el) return;
-    var total = children.reduce(function (s, c) { return s + parseFloat(c.current_balance || 0); }, 0);
+    var total = children.reduce(function (s, c) {
+      var app = childApplication(applications, c.id);
+      return s + parseFloat(c.current_balance || 0) + (app ? parseFloat(app.registration_fee_due || 0) : 0);
+    }, 0);
     var cleared = children.filter(function (c) { return parseFloat(c.current_balance || 0) <= 0; }).length;
     var items = [
       ['bi-people-fill', 'Children linked', children.length, 'primary'],
@@ -54,8 +64,14 @@
     if (!(await P.ensureAuth())) return;
     var d = await P.loadDashboard();
     var children = d.children || [];
-    renderKpis(children);
-    renderChildrenCards(children);
+    var applications = [];
+    try {
+      var response = await P.apiFetch('/admission-applications', 'GET');
+      var data = response && response.data !== undefined ? response.data : response;
+      applications = data && data.applications ? data.applications : [];
+    } catch (_) { /* dashboard remains usable */ }
+    renderKpis(children, applications);
+    renderChildrenCards(children, applications);
     P.storeGuardian(d.parent || {});
     var heading = document.getElementById('ppChildrenHeading');
     if (heading) heading.textContent = 'My children';

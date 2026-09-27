@@ -129,12 +129,12 @@
 
     /* ── API transport ──────────────────────────────────────────────── */
 
-    apiFetch: function (path, method, body) {
+    apiFetch: function (path, method, body, options) {
       // Thin pass-through. The unified api.js transport owns token attachment,
       // parent session expiry renewal (X-Parent-Session-Expires) and parent
       // 401 redirects; parent pages must not re-implement token/CSRF handling.
       return Promise.resolve(
-        apiCall(getBase() + path, method || 'GET', body, null, { noRedirect: true }),
+        apiCall(getBase() + path, method || 'GET', body, null, Object.assign({ noRedirect: true }, options || {})),
       ).then(function (data) {
         return data;
       });
@@ -169,7 +169,10 @@
     },
 
     async loadDashboard() {
-      var resp = await this.apiFetch('/dashboard', 'GET');
+      // Parent balances are live financial data.  Keep the request
+      // explicitly cache-busting so a proxy/browser cannot replay an older
+      // dashboard after a payment or fee correction.
+      var resp = await this.apiFetch('/dashboard?fresh=' + Date.now(), 'GET');
       var d = resp && resp.data !== undefined ? resp.data : resp;
       this.setParentName((d.parent || {}).first_name);
       this.storeGuardian(d.parent || {});
@@ -268,6 +271,7 @@
         ppParentName: g.parent_name,
         ppParentPhone: g.parent_phone,
         ppParentEmail: g.parent_email,
+        ppParentAddress: g.parent_address,
       };
       Object.keys(fields).forEach(function (id) {
         if (!fields[id]) return;
@@ -288,20 +292,24 @@
         return;
       }
       var fd = new FormData(form);
-      var termSel = document.getElementById('ppPreferredStart');
-      var termId =
-        termSel && termSel.selectedOptions && termSel.selectedOptions[0]
-          ? termSel.selectedOptions[0].dataset.termId
-          : null;
-      if (termId) fd.append('target_term_id', termId);
+      // Phone numbers are stored in the canonical 2547XXXXXXXX format.
+      this.canonicalizePhoneInput(document.getElementById('ppParentPhone'));
+      var windowSel = document.getElementById('ppAdmissionWindow');
+      var windowId = windowSel && windowSel.value ? windowSel.value : null;
+      if (windowId) fd.set('admission_window_id', windowId);
 
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
-      apiCall('/public/applications', 'POST', fd, null, {
+      var apiOptions = {
         isFile: true,
         noRedirect: true,
         checkPermission: false,
-      })
+      };
+      // Parent admissions are a parent-portal operation, not a public-web
+      // operation. The server derives parent_id from the authenticated token.
+      var portalToken = this.getToken();
+      if (portalToken) apiOptions.headers = { Authorization: 'Bearer ' + portalToken };
+      apiCall('/parent-portal/admission-application', 'POST', fd, null, apiOptions)
         .then(function (json) {
           json = json && json.data !== undefined ? json.data : json;
           if (json && json.success) {
@@ -340,9 +348,82 @@
       window.location.replace((window.APP_BASE || '') + '/parent_portal.php');
     },
 
-    /* ── M-Pesa shared modal ────────────────────────────────────────── */
+    /* ── M-Pesa shared modal ──────────────────────────────────────────
+     * The payment channel is a system decision (fees → Buni, transport →
+     * Daraja, uniforms → PayHero), so parents are never asked to pick a
+     * provider or a purpose. The caller opens the modal for a specific
+     * purpose, and the amount + phone are pre-filled from the system and
+     * can be edited before the STK push.
+     *
+     * openMpesaModal({
+     *   children, studentId, purpose ('fees'|'transport'|'uniforms'),
+     *   amount    // optional; fees default to the child's balance
+     * })
+     */
 
-    openMpesaModal: function (children, amount, defaultStudentId, purpose) {
+    setMpesaPurpose: function (purpose) {
+      var labels = { fees: 'Fees payment', transport: 'Transport payment', uniforms: 'Uniform payment' };
+      var payLabels = { fees: 'Pay fees', transport: 'Pay transport', uniforms: 'Pay now' };
+      var hidden = document.getElementById('mpesaPurpose');
+      if (hidden) hidden.value = purpose || 'fees';
+      var badge = document.getElementById('mpesaPurposeBadge');
+      var label = labels[purpose] || 'Payment';
+      if (badge) badge.innerHTML = '<i class="bi bi-phone me-1"></i>' + ParentCommon.esc(label);
+      var payLabel = document.getElementById('mpesaPayLabel');
+      if (payLabel) payLabel.textContent = payLabels[purpose] || 'Pay now';
+    },
+
+    guardianPhone: function () {
+      var raw = sessionStorage.getItem(GUARDIAN_KEY);
+      if (!raw) return '';
+      try {
+        var g = JSON.parse(raw);
+        return (g.parent_phone || g.phone || '').trim();
+      } catch (_) {
+        return '';
+      }
+    },
+
+    /* ── Canonical phone format ──────────────────────────────────────
+     * One format everywhere: 2547XXXXXXXX (12 digits, no "+", no spaces).
+     * Users may type +254..., 254..., 07... or 7...; inputs marked with
+     * [data-phone-canonical] are rewritten to the canonical form on blur,
+     * and every submit path normalizes again before sending.
+     */
+    normalizePhone: function (value) {
+      var raw = String(value || '').trim();
+      if (!raw || raw.indexOf('@') !== -1) return '';
+      var digits = raw.replace(/\D+/g, '');
+      if (!digits) return '';
+      if (digits.length === 13 && digits.indexOf('254') === 0) digits = digits.substr(0, 12);
+      else if (digits.length === 10 && digits.charAt(0) === '0') digits = '254' + digits.substr(1);
+      else if (digits.length === 9 && digits.charAt(0) === '7') digits = '254' + digits;
+      else if (!(digits.length === 12 && digits.indexOf('254') === 0)) return '';
+      return /^2547\d{8}$/.test(digits) ? digits : '';
+    },
+
+    canonicalizePhoneInput: function (el) {
+      if (!el) return false;
+      var normalized = this.normalizePhone(el.value);
+      if (normalized && el.value.trim() !== normalized) {
+        el.value = normalized;
+        return true;
+      }
+      return false;
+    },
+
+    openMpesaModal: function (opts) {
+      var options = opts || {};
+      var children = options.children || [];
+      var amount = options.amount;
+      var studentId = options.studentId;
+      var purpose = options.purpose || 'fees';
+      if (Array.isArray(opts)) {
+        children = opts;
+        amount = arguments[1];
+        studentId = arguments[2];
+        purpose = arguments[3] || 'fees';
+      }
       var modalEl = document.getElementById('mpesaPaymentModal');
       var studentEl = document.getElementById('mpesaStudent');
       if (studentEl) {
@@ -353,14 +434,26 @@
             );
           })
           .join('');
-        if (defaultStudentId) studentEl.value = String(defaultStudentId);
+        if (studentId) studentEl.value = String(studentId);
       }
-      var purposeEl = document.getElementById('mpesaPurpose');
-      if (purposeEl) purposeEl.value = purpose || 'fees';
+      this.setMpesaPurpose(purpose);
       var amountEl = document.getElementById('mpesaAmount');
-      if (amountEl) amountEl.value = amount || '';
+      if (amountEl) amountEl.value = '';
+      if (amount && parseFloat(amount) > 0) {
+        if (amountEl) amountEl.value = amount;
+      } else if (purpose === 'fees' && studentId) {
+        var self = this;
+        this.apiFetch('/fee-balance/' + studentId, 'GET')
+          .then(function (resp) {
+            var d = resp.data !== undefined ? resp.data : resp;
+            var balance = parseFloat(d.total_balance || 0);
+            var input = document.getElementById('mpesaAmount');
+            if (balance > 0 && input && !input.value) input.value = balance;
+          })
+          .catch(function () {});
+      }
       var phoneEl = document.getElementById('mpesaPhone');
-      if (phoneEl) phoneEl.value = '';
+      if (phoneEl) phoneEl.value = this.guardianPhone() || '';
       this.setView('mpesaPaymentForm', true);
       this.setView('mpesaWaiting', false);
       var err = document.getElementById('mpesaError');
@@ -372,7 +465,7 @@
     initiateMpesaPayment: function () {
       var amount = (document.getElementById('mpesaAmount') || {}).value;
       var phone = ((document.getElementById('mpesaPhone') || {}).value || '').trim();
-      var provider = (document.getElementById('mpesaProvider') || {}).value;
+      phone = this.normalizePhone(phone) || phone;
       var studentId = (document.getElementById('mpesaStudent') || {}).value;
       var purpose = (document.getElementById('mpesaPurpose') || {}).value || 'fees';
       var errEl = document.getElementById('mpesaError');
@@ -389,17 +482,24 @@
         errEl.classList.remove('d-none');
         return;
       }
+      var canonicalPhone = this.normalizePhone(phone);
+      if (!canonicalPhone) {
+        errEl.textContent = 'Enter a valid M-Pesa phone number (e.g. 2547XXXXXXXX).';
+        errEl.classList.remove('d-none');
+        return;
+      }
+      phone = canonicalPhone;
       spinner.classList.remove('d-none');
       // Purpose-aware payment: fees keep the original fee flow; transport and
       // uniforms route through the governed payment services so references are
-      // posted to the correct purpose ledger.
+      // posted to the correct purpose ledger. The provider is fixed by purpose
+      // server-side; the portal never asks the parent to choose one.
       var endpoint = purpose === 'fees' ? '/initiate-mpesa-payment' : '/payment';
       var payload = {
         student_id: studentId,
         purpose: purpose,
         amount: parseFloat(amount),
         phone: phone,
-        provider: provider,
       };
       this.apiFetch(endpoint, 'POST', payload)
         .then(function (resp) {
@@ -429,6 +529,10 @@
     setIntentStatus: function (message) {
       var statusEl = document.getElementById('mpesaPollingStatus');
       if (statusEl) statusEl.textContent = message;
+    },
+
+    requestTransportSubscription: function (studentId) {
+      return this.apiFetch('/transport-subscribe-request', 'POST', { student_id: studentId });
     },
 
     startPolling: function (checkoutRequestId) {
@@ -551,6 +655,14 @@
     if (mpesaModal) {
       mpesaModal.addEventListener('hidden.bs.modal', function () { ParentCommon.resetMpesaModal(); });
     }
+    // Canonical phone format on every phone field (login, payments, apply,
+    // uniform checkout): blur rewrites +254/254/07/7 to the one standard.
+    document.addEventListener('blur', function (e) {
+      var el = e.target;
+      if (el && el.getAttribute && el.hasAttribute('data-phone-canonical') && el.value) {
+        ParentCommon.canonicalizePhoneInput(el);
+      }
+    }, true);
   }
 
   if (document.readyState === 'loading') {

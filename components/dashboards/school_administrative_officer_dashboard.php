@@ -264,7 +264,10 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <canvas id="attendanceTrendChart" height="280"></canvas>
+                    <div class="school-admin-chart-wrap">
+                        <canvas id="attendanceTrendChart"></canvas>
+                    </div>
+                    <div id="attendanceTrendNote" class="small text-muted mt-2"></div>
                 </div>
             </div>
         </div>
@@ -277,15 +280,13 @@
                         <h5 class="mb-0"><i class="bi bi-bar-chart me-2 text-primary"></i>Class Distribution</h5>
                         <select class="form-select form-select-sm" style="width: auto;" id="classDistributionFilter">
                             <option value="all">All Classes</option>
-                            <option value="form1">Form 1</option>
-                            <option value="form2">Form 2</option>
-                            <option value="form3">Form 3</option>
-                            <option value="form4">Form 4</option>
                         </select>
                     </div>
                 </div>
                 <div class="card-body">
-                    <canvas id="classDistributionChart" height="280"></canvas>
+                    <div class="school-admin-chart-wrap">
+                        <canvas id="classDistributionChart"></canvas>
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,5 +1,5 @@
 /**
- * Import Existing Students Page Controller
+ * Add Multiple Existing Students Page Controller
  * Handles CSV/Excel uploads for learners already enrolled at the school.
  */
 
@@ -24,13 +24,12 @@ const ImportExistingStudentsController = {
     const skipHeader = document.getElementById("skipHeader");
 
     if (!fileInput || !fileInput.files.length) {
-      showNotification("Please select a file to import", "warning");
+      showNotification("Please select a CSV or Excel file", "warning");
       return;
     }
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
-    formData.append("update_existing", 1); // existing students workflow
     formData.append("skip_header", skipHeader?.checked ? 1 : 0);
 
     const progress = document.getElementById("importProgress");
@@ -57,10 +56,10 @@ const ImportExistingStudentsController = {
 
       this.showResults(resp);
     } catch (error) {
-      console.error("Import failed:", error);
+      console.error("Adding existing students failed:", error);
       this.showResults({
         status: "error",
-        message: error.message || "Import failed",
+        message: error.message || "Adding existing students failed",
       });
     }
   },
@@ -83,7 +82,7 @@ const ImportExistingStudentsController = {
 
     if (resp?.status === "success") {
       alertEl.className = "alert alert-success";
-      alertEl.textContent = resp.message || "Import completed";
+      alertEl.textContent = resp.message || "Students added";
       summaryEl.innerHTML = `
         <p><strong>Processed:</strong> ${processed}</p>
         <p><strong>Errors:</strong> ${errors.length}</p>
@@ -92,7 +91,7 @@ const ImportExistingStudentsController = {
       `;
     } else {
       alertEl.className = "alert alert-danger";
-      alertEl.textContent = resp?.message || "Import failed";
+      alertEl.textContent = resp?.message || "Adding students failed";
       summaryEl.innerHTML = `
         <p><strong>Processed:</strong> ${processed}</p>
         <p><strong>Errors:</strong> ${errors.length}</p>

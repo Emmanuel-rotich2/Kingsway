@@ -486,6 +486,7 @@
     if (!state.checkoutAccount) { checkoutError('No payment account is configured for this method.'); return; }
     var phone = String(document.getElementById('storeCheckoutPhone').value || '').trim();
     if (!phone) { checkoutError('Enter the M-Pesa phone number registered with your provider.'); return; }
+    phone = P.normalizePhone(phone) || phone;
     var note = String(document.getElementById('storeCheckoutNote').value || '').trim();
     var payload = {
       student_id: Number(studentId),

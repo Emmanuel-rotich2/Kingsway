@@ -133,7 +133,7 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-semibold">Date</label>
-                    <input type="date" id="rollCallDate" class="form-control">
+                    <input type="date" id="rollCallDate" class="form-control" data-kw-validate="not_future">
                 </div>
                 <div class="col-md-2">
                     <button id="refreshBtn" class="btn btn-outline-secondary w-100">

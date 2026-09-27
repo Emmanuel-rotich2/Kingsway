@@ -8,6 +8,8 @@ const admissionsWorkspaceController = {
     queueData: null,
     initialized: false,
     dom: {},
+    pendingStageSkip: null,
+    workspaceModalParentState: null,
 
     init: async function() {
         if (this.initialized) return;
@@ -258,6 +260,14 @@ const admissionsWorkspaceController = {
 
         return applications;
     },
+
+    navigateApplication: function(offset) {
+        const applications = this.getAllQueueApplications();
+        const currentIndex = applications.findIndex((application) => Number(application.id) === Number(this.currentApplicationId));
+        const nextIndex = (currentIndex < 0 ? 0 : currentIndex) + Number(offset);
+        if (nextIndex < 0 || nextIndex >= applications.length) return;
+        this.viewApplication(Number(applications[nextIndex].id));
+    },
     
     switchTab: function(tabName) {
         this.currentTab = tabName;
@@ -357,6 +367,12 @@ const admissionsWorkspaceController = {
                                     const docCount = Number(app.doc_count || 0);
                                     const verifiedCount = Number(app.verified_count || 0);
                                     const hasRejectedDocs = (app.rejected_count || 0) > 0;
+                                    const applicantName = String(app.applicant_name || 'Unknown').trim();
+                                    const applicantInitials = applicantName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
+                                    const applicantPhotoUrl = window.KingswayFileLifecycle?.resolveUrl?.(app.passport_photo_url);
+                                    const applicantPhoto = applicantPhotoUrl && !/^\d+$/.test(applicantPhotoUrl)
+                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="" class="rounded-circle border" style="width:38px;height:38px;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+                                        : '';
                                     
                                     // Mock documents array for communication helper
                                     const mockDocuments = [];
@@ -371,7 +387,13 @@ const admissionsWorkspaceController = {
                                     return `
                                         <tr>
                                             <td><strong>${this.escapeHtml(app.application_no || '—')}</strong></td>
-                                            <td>${this.escapeHtml(app.applicant_name || 'Unknown')}</td>
+                                            <td>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    ${applicantPhoto}
+                                                    <span class="rounded-circle bg-success-subtle text-success fw-semibold align-items-center justify-content-center" style="width:38px;height:38px;display:${applicantPhoto ? 'none' : 'flex'}">${this.escapeHtml(applicantInitials)}</span>
+                                                    <div><strong>${this.escapeHtml(applicantName)}</strong><small class="d-block text-muted">${this.escapeHtml(app.gender || '')}</small></div>
+                                                </div>
+                                            </td>
                                             <td>${this.escapeHtml(app.grade_applying_for || '—')}</td>
                                             <td>${this.escapeHtml(this.formatLabel(app.application_source || 'physical'))}</td>
                                             <td>
@@ -508,6 +530,7 @@ const admissionsWorkspaceController = {
                 queues[queueName].forEach(app => applications.push(app));
             }
         });
+        const uniqueApplications = Array.from(new Map(applications.map(app => [String(app.id), app])).values());
         
         if (applications.length === 0) {
             contentDiv.innerHTML = '<div class="card border-0 shadow-sm"><div class="card-body text-center py-4"><p class="text-muted">No applicants are currently waiting for interview assignment.</p><button class="btn btn-primary" type="button" onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-plus me-1"></i>Manage Interview Sessions</button></div></div>';
@@ -531,7 +554,7 @@ const admissionsWorkspaceController = {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${applications.map(app => {
+                                ${uniqueApplications.map(app => {
                                     const interviewDate = this.extractInterviewDate(app);
                                     return `
                                         <tr>
@@ -768,10 +791,16 @@ const admissionsWorkspaceController = {
                             <tbody>
                                 ${applications.map(app => {
                                     const readiness = this.calculateReadiness(app);
+                                    const applicantName = String(app.applicant_name || 'Unknown').trim();
+                                    const applicantInitials = applicantName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
+                                    const applicantPhotoUrl = window.KingswayFileLifecycle?.resolveUrl?.(app.passport_photo_url);
+                                    const applicantPhoto = applicantPhotoUrl && !/^\d+$/.test(applicantPhotoUrl)
+                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="${this.escapeHtml(applicantName)}" class="rounded-circle border" style="width:42px;height:42px;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+                                        : '';
                                     return `
                                         <tr>
                                             <td><strong>${this.escapeHtml(app.application_no || '—')}</strong></td>
-                                            <td>${this.escapeHtml(app.applicant_name || 'Unknown')}</td>
+                                            <td><div class="d-flex align-items-center gap-2"><div class="position-relative">${applicantPhoto}<span class="rounded-circle bg-success-subtle text-success fw-semibold align-items-center justify-content-center" style="width:42px;height:42px;display:${applicantPhoto ? 'none' : 'flex'}">${this.escapeHtml(applicantInitials)}</span></div><div><strong>${this.escapeHtml(applicantName)}</strong><small class="d-block text-muted">${this.escapeHtml(app.gender || '')}</small></div></div></td>
                                             <td>${readiness}%</td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
@@ -1006,6 +1035,27 @@ const admissionsWorkspaceController = {
                             <label class="form-label small fw-semibold">Applications close</label>
                             <input type="datetime-local" name="application_close_at" class="form-control">
                         </div>
+                        <div class="col-12"><hr class="my-1"><div class="small text-muted fw-semibold">Window-controlled workflow calendar</div></div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Interviews start</label>
+                            <input type="datetime-local" name="interview_start_at" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Interviews end</label>
+                            <input type="datetime-local" name="interview_end_at" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Interview grades deadline</label>
+                            <input type="datetime-local" name="interview_results_deadline_at" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Admissions start</label>
+                            <input type="datetime-local" name="admission_start_at" class="form-control">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-semibold">Admissions end</label>
+                            <input type="datetime-local" name="admission_end_at" class="form-control">
+                        </div>
                         <div class="col-md-2">
                             <label class="form-label small fw-semibold">Status</label>
                             <select name="status" class="form-select">
@@ -1116,6 +1166,11 @@ const admissionsWorkspaceController = {
             accepts_new_applications: formData.has('accepts_new_applications') ? 1 : 0,
             application_open_at: formData.get('application_open_at') || null,
             application_close_at: formData.get('application_close_at') || null,
+            interview_start_at: formData.get('interview_start_at') || null,
+            interview_end_at: formData.get('interview_end_at') || null,
+            interview_results_deadline_at: formData.get('interview_results_deadline_at') || null,
+            admission_start_at: formData.get('admission_start_at') || null,
+            admission_end_at: formData.get('admission_end_at') || null,
             eligible_grades: formData.getAll('eligible_grades[]'),
             default_admission_category: formData.get('default_admission_category') || null,
             notes: formData.get('notes') || null,
@@ -1190,7 +1245,7 @@ const admissionsWorkspaceController = {
         try { const parsed = JSON.parse(w.eligible_grades || '[]'); if (parsed.length) grades = parsed.join(', '); } catch (_) {}
         const modalId = 'admissionWindowViewModal';
         document.getElementById(modalId)?.remove();
-        document.body.insertAdjacentHTML('beforeend', `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Admission Intake Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><dl class="row mb-0"><dt class="col-5">Label</dt><dd class="col-7">${this.escapeHtml(w.label || '')}</dd><dt class="col-5">Academic year</dt><dd class="col-7">${this.escapeHtml(w.year_code || '')}</dd><dt class="col-5">Term</dt><dd class="col-7">${this.escapeHtml(w.term_name || '')}</dd><dt class="col-5">Eligible grades</dt><dd class="col-7">${this.escapeHtml(grades)}</dd><dt class="col-5">Default category</dt><dd class="col-7">${this.escapeHtml(w.default_admission_category || 'Applicant choice')}</dd><dt class="col-5">Applications</dt><dd class="col-7">${this.escapeHtml(this.formatDate(w.application_open_at) || 'Immediately')} to ${this.escapeHtml(this.formatDate(w.application_close_at) || 'Until closed')}</dd><dt class="col-5">Notes</dt><dd class="col-7">${this.escapeHtml(w.notes || '—')}</dd></dl></div></div></div></div>`);
+        document.body.insertAdjacentHTML('beforeend', `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Admission Intake Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><dl class="row mb-0"><dt class="col-5">Label</dt><dd class="col-7">${this.escapeHtml(w.label || '')}</dd><dt class="col-5">Academic year</dt><dd class="col-7">${this.escapeHtml(w.year_code || '')}</dd><dt class="col-5">Term</dt><dd class="col-7">${this.escapeHtml(w.term_name || '')}</dd><dt class="col-5">Eligible grades</dt><dd class="col-7">${this.escapeHtml(grades)}</dd><dt class="col-5">Default category</dt><dd class="col-7">${this.escapeHtml(w.default_admission_category || 'Applicant choice')}</dd><dt class="col-5">Applications</dt><dd class="col-7">${this.escapeHtml(this.formatDate(w.application_open_at) || 'Immediately')} to ${this.escapeHtml(this.formatDate(w.application_close_at) || 'Until closed')}</dd><dt class="col-5">Interview period</dt><dd class="col-7">${this.escapeHtml(this.formatDate(w.interview_start_at) || 'Not set')} to ${this.escapeHtml(this.formatDate(w.interview_end_at) || 'Not set')}</dd><dt class="col-5">Interview grades deadline</dt><dd class="col-7">${this.escapeHtml(this.formatDate(w.interview_results_deadline_at) || 'Not set')}</dd><dt class="col-5">Admission period</dt><dd class="col-7">${this.escapeHtml(this.formatDate(w.admission_start_at) || 'Not set')} to ${this.escapeHtml(this.formatDate(w.admission_end_at) || 'Not set')}</dd><dt class="col-5">Notes</dt><dd class="col-7">${this.escapeHtml(w.notes || '—')}</dd></dl></div></div></div></div>`);
         bootstrap.Modal.getOrCreateInstance(document.getElementById(modalId)).show();
     },
 
@@ -1207,6 +1262,11 @@ const admissionsWorkspaceController = {
         form.querySelector('[name="accepts_new_applications"]').checked = Number(w.accepts_new_applications) === 1;
         form.querySelector('[name="application_open_at"]').value = this.toDateTimeLocal(w.application_open_at);
         form.querySelector('[name="application_close_at"]').value = this.toDateTimeLocal(w.application_close_at);
+        form.querySelector('[name="interview_start_at"]').value = this.toDateTimeLocal(w.interview_start_at);
+        form.querySelector('[name="interview_end_at"]').value = this.toDateTimeLocal(w.interview_end_at);
+        form.querySelector('[name="interview_results_deadline_at"]').value = this.toDateTimeLocal(w.interview_results_deadline_at);
+        form.querySelector('[name="admission_start_at"]').value = this.toDateTimeLocal(w.admission_start_at);
+        form.querySelector('[name="admission_end_at"]').value = this.toDateTimeLocal(w.admission_end_at);
         form.querySelector('[name="default_admission_category"]').value = w.default_admission_category || '';
         let grades = []; try { grades = JSON.parse(w.eligible_grades || '[]'); } catch (_) {}
         form.querySelectorAll('[name="eligible_grades[]"] option').forEach((option) => { option.selected = grades.includes(option.value); });
@@ -1328,10 +1388,23 @@ const admissionsWorkspaceController = {
     },
     
     newApplication: function() {
-        // Navigate to new applications page
-        window.location.href = window.APP_BASE + '/home.php?route=new_applications';
+        // The workspace is the single admissions surface. The shared form
+        // controller owns the modal, while this controller owns the queues.
+        if (window.newApplicationsController?.showNewApplicationModal) {
+            window.newApplicationsController.showNewApplicationModal();
+            return;
+        }
+        this.notify('error', 'The admission application form is not available. Please reload the workspace.');
     },
     
+    fetchApplicationSnapshot: async function(applicationId) {
+        const response = await this.apiCall(`/admission/application/${Number(applicationId)}`, 'GET');
+        // API responses are normalized by api.js in most deployments, while
+        // older deployments still wrap the payload in data. Accept both
+        // shapes here, but always return the same application snapshot.
+        return response?.data?.application ? response.data : (response?.application ? response : (response?.data || response));
+    },
+
     viewApplication: async function(applicationId) {
         if (!applicationId || Number.isNaN(Number(applicationId))) {
             this.notify("error", "Invalid application selected");
@@ -1339,35 +1412,13 @@ const admissionsWorkspaceController = {
         }
 
         try {
-            let payload;
-            
-            // Try DataStore first for caching
-            if (typeof DataStore !== 'undefined') {
-                try {
-                    payload = await DataStore.get(`admissions:${applicationId}`, {
-                        strategy: 'network-first',
-                        ttl: 300000, // 5 minutes
-                        storeName: 'admission_queue_cache',
-                        endpoint: `/admission/application/${applicationId}`,
-                        params: { id: applicationId }
-                    });
-                } catch (dataStoreError) {
-                    console.warn("DataStore failed, falling back to API:", dataStoreError);
-                }
+            if (Number(this.currentApplicationId || 0) !== Number(applicationId)) {
+                this.pendingStageSkip = null;
             }
-            
-            // Fallback to direct API call
-            if (!payload) {
-                payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
-                
-                // Cache in DataStore
-                if (typeof DataStore !== 'undefined') {
-                    await DataStore.set(`admissions:${applicationId}`, payload, {
-                        ttl: 300000,
-                        storeName: 'admission_queue_cache'
-                    });
-                }
-            }
+            // Application details are the workflow authority. Do not open a
+            // modal from a cached queue projection: payments, interview
+            // assessments, document verification and waivers can change it.
+            const payload = await this.fetchApplicationSnapshot(applicationId);
 
             if (!payload?.application) {
                 throw new Error("Application details were not returned");
@@ -1386,7 +1437,11 @@ const admissionsWorkspaceController = {
             this.showWorkspaceModal(
                 '<i class="bi bi-person-badge me-2"></i>Application Details',
                 contentElement?.innerHTML || "",
-                this.renderApplicationActionFooter(applicationId, payload.application, documents, workflowData)
+                this.renderApplicationActionFooter(applicationId, {
+                    ...payload.application,
+                    stage_contract: payload.stage_contract,
+                    available_actions: payload.available_actions
+                }, documents, workflowData)
             );
             void this.loadAiDraftsForApplication(applicationId);
             if (['application_received', 'application_review'].includes(payload.application.current_stage)) {
@@ -1409,10 +1464,14 @@ const admissionsWorkspaceController = {
         const stageMeta = payload.stage_metadata || {};
         const parentName = [app.parent_first_name, app.parent_last_name].filter(Boolean).join(" ") || "N/A";
         const currentStage = stageMeta.display_name || this.formatLabel(stageMeta.current_stage || app.current_stage || "N/A");
+        const passportDocument = documents.find((doc) => doc.document_type === 'passport_photo');
+        const passportPhotoUrl = String(passportDocument?.file_url || passportDocument?.download_url || passportDocument?.document_path || '')
+            .replace(/^https?:\/\/[^/]+/i, "");
         const documentsHtml = documents.length
             ? documents.map((doc) => {
                 const status = doc.verification_status || "pending";
-                const fileUrl = doc.file_url || doc.download_url || doc.document_path || "";
+                const fileUrl = String(doc.file_url || doc.download_url || doc.document_path || "")
+                    .replace(/^https?:\/\/[^/]+/i, "");
                 return `
                     <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                         <div>
@@ -1421,9 +1480,9 @@ const admissionsWorkspaceController = {
                             ${Number(doc.is_mandatory) === 1 ? '<span class="badge bg-danger ms-1">Required</span>' : ""}
                             ${fileUrl ? `
                                 <div class="small mt-1">
-                                    <a href="${this.escapeHtml(fileUrl)}" target="_blank" rel="noopener" class="text-decoration-none">
-                                        <i class="bi bi-box-arrow-up-right me-1"></i>Open document
-                                    </a>
+                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-kw-document-preview data-application-id="${Number(app.id || 0)}" data-document-id="${Number(doc.id || 0)}" data-url="${this.escapeHtml(fileUrl)}" data-label="${this.escapeHtml(this.formatLabel(doc.document_type || 'Document'))}">
+                                        <i class="bi bi-eye me-1"></i>View inside system
+                                    </button>
                                 </div>
                             ` : ""}
                         </div>
@@ -1436,9 +1495,11 @@ const admissionsWorkspaceController = {
         const currentStageCode = stageMeta.current_stage || app.current_stage || "application_received";
         const isReviewStage = ['application_received', 'application_review'].includes(currentStageCode);
         const gender = String(app.gender || '').toLowerCase();
+        const studentType = String(app.student_type_code || '').trim().toLowerCase();
         const gradeOptions = ['Playground', 'PP1', 'PP2', 'Grade1', 'Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6', 'Grade7', 'Grade8', 'Grade9'];
 
-        contentElement.innerHTML = `
+        contentElement.innerHTML = `${window.KingswayDetailModal?.profileHeader(app, passportPhotoUrl)}
+            ${this.renderStageWorkspacePanel(app, documents, workflowData, currentStageCode, payload.stage_contract || {})}
             <div class="row g-4">
                 <div class="col-lg-6">
                     <h6 class="fw-semibold mb-3">Review Applicant Information</h6>
@@ -1448,6 +1509,11 @@ const admissionsWorkspaceController = {
                             <div class="mb-2">
                                 <label class="form-label small fw-semibold">Full Name</label>
                                 <input required type="text" name="applicant_name" class="form-control" value="${this.escapeHtml(app.applicant_name || '')}">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small fw-semibold">Birth Certificate Number</label>
+                                <input type="text" name="birth_certificate_no" class="form-control" maxlength="64" autocomplete="off" value="${this.escapeHtml(app.birth_certificate_no || '')}">
+                                <div class="form-text">Permanent learner identity anchor used to prevent duplicate applications.</div>
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-6">
@@ -1468,25 +1534,12 @@ const admissionsWorkspaceController = {
                                 <div class="col-md-4">
                                     <label class="form-label small fw-semibold">Student category</label>
                                     <select name="student_type_code" class="form-select" required>
-                                        <option value="">Select category</option>
-                                        <option value="day" ${app.student_type_code === 'day' ? 'selected' : ''}>Day scholar</option>
-                                        <option value="weekly" ${app.student_type_code === 'weekly' ? 'selected' : ''}>Weekly boarder</option>
-                                        <option value="boarder" ${app.student_type_code === 'boarder' ? 'selected' : ''}>Full boarder</option>
+                                        <option value="" ${studentType ? '' : 'selected'}>Not supplied — select category</option>
+                                        <option value="day" ${studentType === 'day' ? 'selected' : ''}>Day scholar</option>
+                                        <option value="boarder" ${studentType === 'boarder' ? 'selected' : ''}>Full boarder</option>
                                     </select>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label small fw-semibold">Admission date</label>
-                                    <input type="date" name="admission_appointment_date" class="form-control" value="${this.escapeHtml((app.admission_appointment_date || '').substring(0, 10))}" required>
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label small fw-semibold">Starts</label>
-                                    <input type="time" name="admission_appointment_start_time" class="form-control" value="${this.escapeHtml((app.admission_appointment_start_time || '').substring(0, 5))}" required>
-                                </div>
-                                <div class="col-md-2">
-                                    <label class="form-label small fw-semibold">Ends</label>
-                                    <input type="time" name="admission_appointment_end_time" class="form-control" value="${this.escapeHtml((app.admission_appointment_end_time || '').substring(0, 5))}" required>
-                                </div>
-                                <div class="col-12"><div class="form-text">These details appear in the admission invitation. The end time must be after the start time.</div></div>
+                                <div class="col-md-8"><div class="alert alert-info small mb-0">Interview and admission dates are controlled by the selected intake window. A learner-specific reporting date is assigned only after a successful interview and placement.</div></div>
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-6">
@@ -1498,7 +1551,9 @@ const admissionsWorkspaceController = {
                                 </div>
                                 <div class="col-6">
                                     <label class="form-label small fw-semibold">Academic Year</label>
-                                    <input required pattern="[0-9]{4}" maxlength="4" type="text" name="academic_year" class="form-control" value="${this.escapeHtml(app.academic_year || '')}">
+                                    <select required name="academic_year" id="reviewAcademicYearSelect" class="form-select">
+                                        <option value="${this.escapeHtml(app.academic_year || '')}">${this.escapeHtml(app.academic_year || 'Loading academic years…')}</option>
+                                    </select>
                                 </div>
                             </div>
                             <div class="mb-2">
@@ -1541,16 +1596,7 @@ const admissionsWorkspaceController = {
                                 <label class="form-label small fw-semibold">Review Notes</label>
                                 <textarea name="review_notes" class="form-control" rows="3" placeholder="Record corrections, verification notes, or the reason for rejection"></textarea>
                             </div>
-                            ${this.requiresInterviewGrade(app.grade_applying_for) ? `
-                                <div class="mb-2">
-                                    <label class="form-label small fw-semibold">Review Route</label>
-                                    <select name="review_route" id="reviewRouteSelect" class="form-select">
-                                        <option value="normal">Continue to interview</option>
-                                        <option value="skip_interview">Approve and skip interview</option>
-                                    </select>
-                                    <div class="form-text">Skipping is an authorized exception. Record the reason in Review Notes; it is saved in the workflow audit history.</div>
-                                </div>
-                            ` : '<div class="alert alert-info small mt-2">This grade does not require an interview. Approval will proceed directly to student admission-number creation.</div>'}
+                            ${!this.requiresInterviewGrade(app.grade_applying_for) ? '<div class="alert alert-info small mt-2">This grade does not require an interview. Approval will proceed directly to student admission-number creation.</div>' : ''}
                         </form>
                     ` : `<dl class="row mb-0">
                         <dt class="col-sm-5">Application No</dt><dd class="col-sm-7">${this.escapeHtml(app.application_no || "N/A")}</dd>
@@ -1585,9 +1631,11 @@ const admissionsWorkspaceController = {
                     <h6 class="fw-semibold mb-3">Documents (${documents.length})</h6>
                     ${documentsHtml}
                 </div>
-                <div class="col-lg-6">
-                    <h6 class="fw-semibold mb-3">Workflow Data</h6>
-                    ${this.renderWorkflowData(workflowData)}
+                <div class="col-12">
+                    <details class="border rounded-3 p-3 bg-light">
+                        <summary class="fw-semibold">Additional workflow data</summary>
+                        <div class="mt-3">${this.renderWorkflowData(workflowData)}</div>
+                    </details>
                 </div>
             </div>
 
@@ -1595,14 +1643,238 @@ const admissionsWorkspaceController = {
         `;
     },
 
+    renderCanonicalStageActions: function(contract, stage, id, button) {
+        const actions = Array.isArray(contract?.actions) ? contract.actions : [];
+        const methods = {
+            'review-application': stage === 'application_received' ? 'startApplicationReview' : 'reviewApplication',
+            'verify-documents': 'verifyDocuments',
+            'pause-review': 'pauseApplicationReview',
+            'reject-application': 'rejectApplicationFromModal',
+            'schedule-interview': 'scheduleInterview',
+            'record-interview': 'conductInterview',
+            'admit-student': 'makeDecision',
+            'create-student-admission-number': 'createStudentAdmissionNumber',
+            'record-payment': 'recordPayment',
+            'verify-payment': 'verifyPayment',
+            'complete-enrollment': 'completeEnrollment',
+            'generate-id-card': 'generateStudentIdCard',
+            'final-enrollment': 'finalApproval'
+        };
+        return actions.map((action) => {
+            const method = methods[action.code];
+            if (!method || typeof this[method] !== 'function') return '';
+            const tone = action.code === 'reject-application' ? 'outline-danger' : action.code === 'pause-review' ? 'warning' : 'primary';
+            return button(method, action.label, 'arrow-right-circle', tone);
+        }).join('');
+    },
+
+    renderStageWorkspacePanel: function(app, documents, workflowData, stage, contract = {}) {
+        const id = Number(app.id || 0);
+        const stageLabels = {
+            application_received: 'Review pending', application_review: 'Under review',
+            interview_scheduling: 'Interview scheduling', interview_results: 'Interview assessment',
+            student_admission_number: 'Student record creation', class_placement: 'Class and stream placement',
+            fees_payment: 'Fees, transport and uniform payments', student_id_generation: 'Student ID generation',
+            final_enrollment: 'Final enrollment', enrolled: 'Enrolled'
+        };
+        const label = stageLabels[stage] || this.formatLabel(stage);
+        const button = (method, text, icon, tone = 'primary') =>
+            `<button type="button" class="btn btn-${tone} btn-sm" onclick="admissionsWorkspaceController.${method}(${id})"><i class="bi bi-${icon} me-1"></i>${this.escapeHtml(text)}</button>`;
+        const skipButton = button('openStageSkipModal', 'Skip stage with reason', 'skip-forward', 'outline-warning');
+
+        if (['application_received', 'application_review'].includes(stage)) {
+            const pending = documents.filter((doc) => String(doc.verification_status || 'pending') === 'pending').length;
+            const rejected = documents.filter((doc) => String(doc.verification_status || '') === 'rejected').length;
+            return `<section class="border border-primary-subtle rounded-3 p-3 mb-4 bg-primary bg-opacity-10">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                    <div><div class="text-uppercase small fw-bold text-primary">Admissions review workspace</div><h5 class="mb-1">${this.escapeHtml(label)}</h5><p class="small mb-0">Inspect the learner information and submitted documents before deciding the next stage.</p></div>
+                    <span class="badge text-bg-${stage === 'application_review' ? 'primary' : 'warning'}">${stage === 'application_review' ? 'Reviewer action required' : 'Awaiting reviewer'}</span>
+                </div>
+                <div class="row g-2 mt-3"><div class="col-md-4"><div class="bg-white rounded-2 p-2 small"><strong>${documents.length}</strong> documents submitted<br><span class="text-muted">${pending} pending verification</span></div></div><div class="col-md-4"><div class="bg-white rounded-2 p-2 small"><strong>${rejected}</strong> rejected / missing<br><span class="text-muted">parent correction may be required</span></div></div><div class="col-md-4"><div class="bg-white rounded-2 p-2 small"><strong>Next:</strong> ${this.escapeHtml(this.requiresInterviewGrade(app.grade_applying_for) ? 'Interview scheduling' : 'Student admission number')}</div></div></div>
+                <div class="d-flex flex-wrap gap-2 mt-3">${this.renderCanonicalStageActions(contract, stage, id, button)}${stage === 'application_review' ? button('saveApplicationReviewFromModal', 'Approve and continue', 'check-circle', 'success') : ''}${skipButton}</div>
+            </section>`;
+        }
+
+        const stageAction = {
+            interview_scheduling: button('scheduleInterview', 'Schedule interview', 'calendar-plus'),
+            interview_results: button('conductInterview', 'Record interview results', 'clipboard-check', 'info'),
+            student_admission_number: button('createStudentAdmissionNumber', 'Create student admission number', 'person-vcard', 'success'),
+            class_placement: button('completeEnrollment', 'Place in class and stream', 'diagram-3', 'success'),
+            fees_payment: button('recordPayment', 'Record / reconcile payment', 'cash-coin', 'success'),
+            student_id_generation: button('generateStudentIdCard', 'Generate student ID', 'credit-card'),
+            final_enrollment: button('finalApproval', 'Complete final enrollment', 'check2-circle', 'success'),
+            enrolled: '<span class="badge text-bg-success p-2"><i class="bi bi-check-circle me-1"></i>Enrollment complete — no intake action pending</span>'
+        }[stage] || '';
+        const actionButtons = this.renderCanonicalStageActions(contract, stage, id, button) || stageAction;
+        const stageRail = Array.isArray(contract.stages) && contract.stages.length
+            ? `<div class="d-flex flex-wrap gap-1 mt-3 admission-stage-rail">${contract.stages.map((item) => `<span class="badge ${item.state === 'current' ? 'text-bg-primary' : item.state === 'skipped' ? 'text-bg-warning' : item.state === 'completed' ? 'text-bg-success' : 'text-bg-light text-dark border'}" title="${this.escapeHtml(item.name || item.code)}">${this.escapeHtml(String(item.sequence || ''))}. ${this.escapeHtml(item.name || this.formatLabel(item.code))}</span>`).join('')}</div>`
+            : '';
+        const next = Array.isArray(contract.next_stages) && contract.next_stages.length
+            ? `<div class="small text-muted mt-2"><strong>Next permitted stage:</strong> ${this.escapeHtml(contract.next_stages.map((item) => this.formatLabel(item)).join(' / '))}</div>`
+            : '';
+        return `<section class="border rounded-3 p-3 mb-4 bg-light"><div class="d-flex flex-wrap justify-content-between align-items-center gap-2"><div><div class="text-uppercase small fw-bold text-muted">Current workflow stage</div><h5 class="mb-1">${this.escapeHtml(contract.current_stage_name || label)}</h5><p class="small text-muted mb-0">Actions and stage state are supplied by the admissions workflow snapshot.</p></div><span class="badge text-bg-secondary">${this.escapeHtml(contract.current_stage_name || label)}</span></div>${stageRail}${next}<div class="d-flex flex-wrap gap-2 mt-3">${actionButtons}${stage !== 'enrolled' ? skipButton : ''}</div></section>`;
+    },
+
+    openStageSkipModal: function(applicationId) {
+        const app = this.currentApplicationData?.application || {};
+        const reviewForm = document.getElementById('applicationReviewForm');
+        this.pendingSkipReviewPayload = reviewForm ? {
+            applicationId: Number(applicationId),
+            payload: this.reviewFormPayload(new FormData(reviewForm)),
+            reviewNotes: String(new FormData(reviewForm).get('review_notes') || '')
+        } : null;
+        const stages = ['application_applied','application_received','application_review','interview_scheduling','interview_results','student_admission_number','class_placement','fees_payment','student_id_generation','final_enrollment'];
+        const current = app.current_stage || 'application_received';
+        const index = stages.indexOf(current);
+        const destinations = stages.slice(index + 1);
+        if (!destinations.length) return this.notify('error', 'There is no later stage to skip to.');
+        this.showWorkspaceChildModal('<i class="bi bi-skip-forward me-2"></i>Skip admission stage', `<form id="stageSkipForm" class="row g-3"><input type="hidden" name="application_id" value="${Number(applicationId)}"><div class="col-12 alert alert-warning small mb-0"><strong>Current stage:</strong> ${this.escapeHtml(this.formatLabel(current))}<br>The workflow exception and any financial relief will be saved now and carried into later fee generation.</div><div class="col-md-6"><label class="form-label">Continue at</label><select name="destination_stage" class="form-select" required>${destinations.map((stage) => `<option value="${stage}">${this.escapeHtml(this.formatLabel(stage))}</option>`).join('')}</select></div><div class="col-md-6"><label class="form-label">Exception type</label><select name="reason_code" class="form-select" required><option value="sponsored">Sponsored learner</option><option value="exempted">Exempted</option><option value="special_case">Special case</option><option value="administrative_exception">Administrative exception</option><option value="other">Other</option></select></div><div class="col-md-6"><label class="form-label">Admission / registration fee</label><select name="registration_fee_waived" class="form-select"><option value="0">Keep due</option><option value="1">Waive completely</option></select></div><div class="col-md-6"><label class="form-label">School-fee relief</label><select name="school_fee_waiver_type" id="schoolFeeWaiverType" class="form-select"><option value="none">Keep full school fees due</option><option value="percentage">Waive percentage</option><option value="fixed">Waive fixed amount</option><option value="full">Waive all school fees</option></select></div><div class="col-md-6" id="schoolFeeWaiverValueWrap"><label class="form-label">Relief value</label><input type="number" name="school_fee_waiver_value" class="form-control" min="0" step="0.01" placeholder="Percentage or KES amount"><div class="form-text">For percentage, enter 50 for half. For fixed, enter the KES amount.</div></div><div class="col-12"><label class="form-label">Reason and authorization note</label><textarea name="reason" class="form-control" rows="4" required placeholder="Explain the sponsorship/exception, approval authority and any conditions."></textarea></div></form>`, '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button><button type="submit" form="stageSkipForm" class="btn btn-warning">Save exception and return</button>');
+        const skipForm = document.getElementById('stageSkipForm');
+        if (skipForm) {
+            const registration = skipForm.elements.registration_fee_waived;
+            registration?.insertAdjacentHTML('afterend', '<select name="registration_fee_waiver_type" class="form-select mt-2"><option value="none">No registration-fee relief</option><option value="full">Full registration-fee waiver</option><option value="percentage">Percentage registration-fee waiver</option><option value="fixed">Fixed registration-fee waiver</option></select><input name="registration_fee_waiver_value" type="number" min="0" step="0.01" class="form-control mt-2" placeholder="Registration percentage or KES amount">');
+            const placementWrap = document.createElement('div');
+            placementWrap.className = 'col-12 d-none';
+            placementWrap.id = 'skipPlacementWrap';
+            placementWrap.innerHTML = '<label class="form-label">Class / stream required for automated placement</label><select name="placement_option" class="form-select"><option value="">Loading active class streams…</option></select><div class="form-text">The transaction will not guess a class or stream.</div>';
+            skipForm.querySelector('[name="reason"]')?.closest('.col-12')?.before(placementWrap);
+            const destination = skipForm.elements.destination_stage;
+            const loadPlacementChoices = async () => {
+                const needsPlacement = ['class_placement', 'fees_payment', 'student_id_generation', 'final_enrollment'].includes(destination?.value);
+                placementWrap.classList.toggle('d-none', !needsPlacement);
+                if (!needsPlacement || placementWrap.dataset.loaded === '1') return;
+                try {
+                    const response = await this.apiCall('/admission/placement-classes', 'GET');
+                    const rows = response?.classes || response?.data?.classes || [];
+                    const select = placementWrap.querySelector('select');
+                    select.innerHTML = rows.length ? '<option value="">Select class / stream</option>' + rows.filter(row => row.academic_year_class_stream_id && row.stream_id).map(row => `<option value="${Number(row.academic_year_class_stream_id)}:${Number(row.id)}:${Number(row.stream_id)}">${this.escapeHtml(`${row.name || 'Class'}${row.stream_name ? ` — ${row.stream_name}` : ''}`)}</option>`).join('') : '<option value="">No active class streams configured</option>';
+                    placementWrap.dataset.loaded = '1';
+                } catch (error) { placementWrap.querySelector('select').innerHTML = '<option value="">Unable to load class streams</option>'; }
+            };
+            destination?.addEventListener('change', loadPlacementChoices);
+            loadPlacementChoices();
+        }
+        document.getElementById('schoolFeeWaiverType')?.addEventListener('change', (event) => {
+            const wrap = document.getElementById('schoolFeeWaiverValueWrap');
+            if (wrap) wrap.classList.toggle('d-none', event.target.value === 'none' || event.target.value === 'full');
+        });
+        document.getElementById('schoolFeeWaiverType')?.dispatchEvent(new Event('change'));
+        document.getElementById('stageSkipForm')?.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const formData = Object.fromEntries(new FormData(event.currentTarget));
+            const placementParts = String(formData.placement_option || '').split(':');
+            formData.placement = placementParts.length === 3 && placementParts[0] ? {
+                academic_year_class_stream_id: Number(placementParts[0]),
+                class_id: Number(placementParts[1]),
+                stream_id: Number(placementParts[2])
+            } : {};
+            delete formData.placement_option;
+            this.executeSkipOrchestration(formData);
+        });
+    },
+
+    executeSkipOrchestration: async function(request) {
+        this.showWorkspaceChildModal('<i class="bi bi-shuffle me-2"></i>Running skip transaction', '<div id="skipOrchestrationProgress" class="small">Preparing workflow operations…</div>', '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
+        const render = (payload) => {
+            const target = document.getElementById('skipOrchestrationProgress');
+            if (!target) return;
+            const steps = Array.isArray(payload?.progress) ? payload.progress : [];
+            target.innerHTML = `<div class="alert ${payload?.status === 'blocked' ? 'alert-warning' : payload?.status === 'failed' ? 'alert-danger' : 'alert-info'}">${this.escapeHtml(payload?.blocked_reason || 'The system is executing each required operation in order.')}</div><div class="list-group">${steps.map(step => `<div class="list-group-item d-flex justify-content-between align-items-center"><span><i class="bi ${step.status === 'completed' || step.status === 'completed_with_waiver' ? 'bi-check-circle text-success' : step.status === 'skipped' ? 'bi-skip-forward text-warning' : step.status === 'running' ? 'bi-arrow-repeat text-primary' : 'bi-hourglass text-muted'} me-2"></i>${this.escapeHtml(step.label)}</span><span class="badge ${step.status === 'completed' || step.status === 'completed_with_waiver' ? 'text-bg-success' : step.status === 'skipped' ? 'text-bg-warning' : step.status === 'running' ? 'text-bg-primary' : 'text-bg-light text-dark'}">${this.escapeHtml(this.formatLabel(step.status))}</span></div>`).join('')}</div>`;
+        };
+        try {
+            if (this.pendingSkipReviewPayload?.applicationId === Number(request.application_id)) {
+                await this.apiCall(`/admission/application/${Number(request.application_id)}`, 'PUT', this.pendingSkipReviewPayload.payload);
+                await this.apiCall('/admission/save-review-draft', 'POST', { application_id: Number(request.application_id), review_notes: this.pendingSkipReviewPayload.reviewNotes });
+                this.pendingSkipReviewPayload = null;
+            }
+            let payload = null;
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                const response = await this.apiCall('/admission/orchestrate-skip', 'POST', request);
+                payload = response?.data || response || {};
+                render(payload);
+                if (payload.status === 'completed') {
+                    this.notify('success', 'Skip transaction completed and all required stages were processed.');
+                    await this.loadQueueData();
+                    await this.viewApplication(Number(request.application_id));
+                    return;
+                }
+                if (payload.status === 'blocked' || payload.status === 'failed') return;
+            }
+            throw new Error('The skip transaction exceeded its safe retry limit. Reopen it to resume from the saved checkpoint.');
+        } catch (error) {
+            render({ status: 'failed', blocked_reason: error.message, progress: [] });
+            this.notify('error', error.message || 'Skip transaction failed');
+        }
+    },
+
+    startApplicationReview: async function(applicationId) {
+        try {
+            await this.apiCall('/admission/advance-workflow-stage', 'POST', { application_id: Number(applicationId), to_stage: 'application_review', action: 'start_application_review', notes: 'Application review started' });
+            this.notify('success', 'Application review started');
+            await this.viewApplication(applicationId);
+            await this.loadQueueData();
+        } catch (error) { this.notify('error', error.message || 'Unable to start application review'); }
+    },
+
+    saveApplicationReviewFromModal: function() {
+        const form = document.getElementById('applicationReviewForm');
+        if (form) this.saveApplicationReview(form, this.requiresInterviewGrade(form.elements.grade_applying_for?.value) ? 'interview_scheduling' : 'student_admission_number');
+    },
+
+    saveApplicationReviewDraftFromModal: async function() {
+        const form = document.getElementById('applicationReviewForm');
+        if (!form) return;
+        const formData = new FormData(form);
+        const applicationId = Number(formData.get('application_id'));
+        try {
+            await this.apiCall(`/admission/application/${applicationId}`, 'PUT', this.reviewFormPayload(formData));
+            await this.apiCall('/admission/save-review-draft', 'POST', { application_id: applicationId, review_notes: String(formData.get('review_notes') || '') });
+            this.notify('success', 'Review saved. The workflow has not advanced.');
+        } catch (error) {
+            this.notify('error', error.message || 'Unable to save the review');
+        }
+    },
+
+    rejectApplicationFromModal: function() {
+        const form = document.getElementById('applicationReviewForm');
+        if (form) this.rejectApplicationReview(form);
+    },
+
+    pauseApplicationReview: async function(applicationId) {
+        const form = document.getElementById('applicationReviewForm');
+        const notes = String(form?.elements.review_notes?.value || '').trim();
+        if (!notes) { this.notify('error', 'Enter the missing information or correction request in Review Notes first.'); form?.elements.review_notes?.focus(); return; }
+        try {
+            await this.apiCall('/admission/pause-review', 'POST', { application_id: Number(applicationId), notes });
+            this.notify('success', 'Application paused and the parent notification was queued');
+            this.closeWorkspaceModal();
+            await this.loadQueueData();
+        } catch (error) { this.notify('error', error.message || 'Unable to pause application review'); }
+    },
+
     loadReviewAdmissionWindows: async function() {
         const select = document.getElementById('reviewAdmissionWindowSelect');
         if (!select) return;
+        const yearSelect = document.getElementById('reviewAcademicYearSelect');
         try {
             const response = await this.apiCall('/admission/windows', 'GET');
             const payload = response?.windows ? response : (response?.data || response || {});
             const windows = Array.isArray(payload) ? payload : (payload.windows || []);
             const currentTermId = Number(this.currentApplicationData?.application?.target_term_id || 0);
+            const currentYear = String(this.currentApplicationData?.application?.academic_year || '');
+            const years = new Map();
+            windows.forEach((window) => {
+                const code = String(window.year_code || window.year_name || '').trim();
+                const match = code.match(/\d{4}/);
+                const value = String(match ? match[0] : (window.academic_year_id || '')).trim();
+                if (value && !years.has(value)) years.set(value, code || value);
+            });
+            if (yearSelect) {
+                if (currentYear && !years.has(currentYear)) years.set(currentYear, currentYear);
+                yearSelect.innerHTML = Array.from(years.entries()).map(([value, label]) =>
+                    `<option value="${this.escapeHtml(value)}"${value === currentYear ? ' selected' : ''}>${this.escapeHtml(label)}</option>`
+                ).join('') || '<option value="">No academic years configured</option>';
+            }
             select.innerHTML = '<option value="">Select application window</option>' + windows.map((window) => {
                 const label = window.label || `${window.term_name || 'Term'} ${window.year_code || ''}`;
                 const dates = window.application_open_at || window.application_close_at
@@ -1614,6 +1886,16 @@ const admissionsWorkspaceController = {
             if (!windows.length) {
                 select.innerHTML = '<option value="">No application windows configured</option>';
             }
+            select.addEventListener('change', () => {
+                const selectedWindow = windows.find((window) => String(window.id) === String(select.value));
+                if (!selectedWindow || !yearSelect) return;
+                const code = String(selectedWindow.year_code || selectedWindow.year_name || '').trim();
+                const match = code.match(/\d{4}/);
+                const value = String(match ? match[0] : (selectedWindow.academic_year_id || '')).trim();
+                if (value && Array.from(yearSelect.options).some((option) => option.value === value)) {
+                    yearSelect.value = value;
+                }
+            });
         } catch (error) {
             select.innerHTML = '<option value="">Unable to load application windows</option>';
             this.notify('error', error.message || 'Unable to load application windows');
@@ -1636,23 +1918,24 @@ const admissionsWorkspaceController = {
         if (button) button.disabled = true;
         try {
             await this.apiCall(`/admission/application/${applicationId}`, 'PUT', payload);
-            const skipInterview = formData.get('review_route') === 'skip_interview';
-            if (skipInterview && !String(formData.get('review_notes') || '').trim()) {
-                throw new Error('Enter a reason before skipping the interview.');
+            await this.apiCall('/admission/save-review-draft', 'POST', { application_id: applicationId, review_notes: String(formData.get('review_notes') || '') });
+            if (this.pendingStageSkip && Number(this.pendingStageSkip.application_id) === applicationId) {
+                await this.apiCall('/admission/skip-stage', 'POST', this.pendingStageSkip);
+                this.pendingStageSkip = null;
+            } else {
+                await this.apiCall('/admission/advance-workflow-stage', 'POST', {
+                    application_id: applicationId,
+                    to_stage: nextStage,
+                    action: 'review_application',
+                    notes: formData.get('review_notes') || null,
+                    workflow_updates: JSON.stringify({
+                        reviewed: true,
+                        reviewed_at: new Date().toISOString(),
+                        interview_skipped: false,
+                        interview_skip_reason: null
+                    })
+                });
             }
-            const selectedNextStage = skipInterview ? 'student_admission_number' : nextStage;
-            await this.apiCall('/admission/advance-workflow-stage', 'POST', {
-                application_id: applicationId,
-                to_stage: selectedNextStage,
-                action: skipInterview ? 'admin_skip_interview' : 'review_application',
-                notes: formData.get('review_notes') || null,
-                workflow_updates: JSON.stringify({
-                    reviewed: true,
-                    reviewed_at: new Date().toISOString(),
-                    interview_skipped: skipInterview,
-                    interview_skip_reason: skipInterview ? formData.get('review_notes') : null
-                })
-            });
             this.notify('success', 'Application saved and moved to the next stage');
             this.closeWorkspaceModal();
             await this.loadQueueData();
@@ -1697,19 +1980,18 @@ const admissionsWorkspaceController = {
         return {
             applicant_name: String(formData.get('applicant_name') || '').trim(),
             date_of_birth: formData.get('date_of_birth') || null,
+            birth_certificate_no: String(formData.get('birth_certificate_no') || '').trim() || null,
             gender: formData.get('gender') || null,
             grade_applying_for: String(formData.get('grade_applying_for') || '').trim(),
             academic_year: String(formData.get('academic_year') || '').trim(),
             student_type_code: formData.get('student_type_code') || null,
-            admission_appointment_date: formData.get('admission_appointment_date') || null,
-            admission_appointment_start_time: formData.get('admission_appointment_start_time') || null,
-            admission_appointment_end_time: formData.get('admission_appointment_end_time') || null,
             admission_window_id: formData.get('admission_window_id') || null,
             previous_school: String(formData.get('previous_school') || '').trim() || null,
             admission_category: formData.get('admission_category') || 'standard',
             application_source: formData.get('application_source') || 'physical',
             has_special_needs: formData.get('has_special_needs') ? 1 : 0,
-            special_needs_details: String(formData.get('special_needs_details') || '').trim() || null
+            special_needs_details: String(formData.get('special_needs_details') || '').trim() || null,
+            review_notes: String(formData.get('review_notes') || '').trim() || null
         };
     },
 
@@ -1788,6 +2070,56 @@ const admissionsWorkspaceController = {
         return modalElement;
     },
 
+    showWorkspaceChildModal: function(title, bodyHtml, footerHtml = "") {
+        const modalElement = document.getElementById("admissionsWorkspaceApplicationModal");
+        if (!modalElement) {
+            this.notify("error", "Workspace modal is not available");
+            return null;
+        }
+
+        // Keep the currently open application details view intact. Child
+        // workflows (documents, upload, interview, payments, etc.) must return
+        // to their parent view instead of closing the entire workspace.
+        if (!this.workspaceModalParentState && modalElement.classList.contains('show')) {
+            this.workspaceModalParentState = {
+                title: modalElement.querySelector('.modal-title')?.innerHTML || '',
+                body: document.getElementById('admissionsWorkspaceApplicationContent')?.innerHTML || '',
+                footer: modalElement.querySelector('.modal-footer')?.innerHTML || '',
+                scrollTop: document.getElementById('admissionsWorkspaceApplicationContent')?.scrollTop || 0
+            };
+        }
+
+        const restoreOnHidden = () => {
+            if (this.workspaceModalParentState) {
+                this.restoreWorkspaceModal();
+            }
+        };
+        modalElement.addEventListener('hidden.bs.modal', restoreOnHidden, { once: true });
+        this.showWorkspaceModal(title, bodyHtml, footerHtml || '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
+        return modalElement;
+    },
+
+    restoreWorkspaceModal: function() {
+        const state = this.workspaceModalParentState;
+        if (!state) {
+            this.closeWorkspaceModal();
+            return;
+        }
+        const modalElement = document.getElementById("admissionsWorkspaceApplicationModal");
+        if (!modalElement) return;
+        const titleElement = modalElement.querySelector('.modal-title');
+        const bodyElement = document.getElementById('admissionsWorkspaceApplicationContent');
+        const footerElement = modalElement.querySelector('.modal-footer');
+        if (titleElement) titleElement.innerHTML = state.title;
+        if (bodyElement) {
+            bodyElement.innerHTML = state.body;
+            bodyElement.scrollTop = state.scrollTop;
+        }
+        if (footerElement) footerElement.innerHTML = state.footer;
+        this.workspaceModalParentState = null;
+        bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    },
+
     closeWorkspaceModal: function() {
         const modalElement = document.getElementById("admissionsWorkspaceApplicationModal");
         const modal = modalElement ? bootstrap.Modal.getInstance(modalElement) : null;
@@ -1810,16 +2142,64 @@ const admissionsWorkspaceController = {
         this.viewApplication(applicationId);
     },
 
+    methodForStageAction: function(actionCode) {
+        return {
+            'review-application': 'reviewApplication',
+            'schedule-interview': 'scheduleInterview',
+            'record-interview': 'conductInterview',
+            'admit-student': 'makeDecision',
+            'create-student-admission-number': 'createStudentAdmissionNumber',
+            'record-payment': 'recordPayment',
+            'verify-payment': 'verifyPayment',
+            'complete-enrollment': 'completeEnrollment',
+            'generate-id-card': 'generateStudentIdCard',
+            'final-enrollment': 'finalApproval'
+        }[actionCode] || null;
+    },
+
+    renderWorkflowContext: function(snapshot, purpose = 'Current workflow context') {
+        const app = snapshot?.application || {};
+        const contract = snapshot?.stage_contract || {};
+        const parent = [app.parent_first_name, app.parent_last_name].filter(Boolean).join(' ') || 'Not recorded';
+        const relief = app.financial_relief || {};
+        const reliefText = relief.registration_fee_waived || relief.school_fee_waiver_type && relief.school_fee_waiver_type !== 'none'
+            ? 'Approved financial relief applies — confirm the displayed due amount before posting.'
+            : 'No approved financial relief recorded.';
+        return `<div class="admission-workflow-context border rounded-3 bg-light p-3 mb-3">
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2"><strong>${this.escapeHtml(purpose)}</strong><span class="badge text-bg-primary">${this.escapeHtml(contract.current_stage_name || this.formatLabel(app.current_stage || '—'))}</span></div>
+            <div class="row g-2 small">
+                <div class="col-md-4"><span class="text-muted d-block">Learner</span><strong>${this.escapeHtml(app.applicant_name || '—')}</strong></div>
+                <div class="col-md-4"><span class="text-muted d-block">Application</span><strong>${this.escapeHtml(app.application_no || '—')}</strong></div>
+                <div class="col-md-4"><span class="text-muted d-block">Grade / student type</span><strong>${this.escapeHtml(`${app.grade_applying_for || '—'} · ${app.student_type_code || 'Not recorded'}`)}</strong></div>
+                <div class="col-md-4"><span class="text-muted d-block">Parent / guardian</span>${this.escapeHtml(parent)}</div>
+                <div class="col-md-4"><span class="text-muted d-block">Academic year / term</span>${this.escapeHtml(`${app.academic_year || '—'} · ${app.target_term_id || '—'}`)}</div>
+                <div class="col-md-4"><span class="text-muted d-block">Financial treatment</span>${this.escapeHtml(reliefText)}</div>
+            </div>
+        </div>`;
+    },
+
     startIntake: async function(applicationId) {
         try {
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
             const app = payload?.application || {};
             const workflowData = this.parseJsonSafe(app.workflow_data_json || app.data_json || payload.workflow_data || {});
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
             const currentStage = app.current_stage || payload?.stage_metadata?.current_stage || "application_received";
             
             // Get workflow communication
-            const workflowComm = this.getApplicationWorkflowCommunication(app, documents, workflowData);
+            const contractAction = Array.isArray(payload.stage_contract?.actions)
+                ? payload.stage_contract.actions.find((action) => action.allowed !== false)
+                : null;
+            const workflowComm = contractAction
+                ? {
+                    nextActionLabel: contractAction.label,
+                    nextActionMethod: this.methodForStageAction(contractAction.code),
+                    blockingReason: null,
+                    label: payload.stage_contract.current_stage_name || 'Workflow action',
+                    description: 'Continue using the action authorized by the current workflow snapshot.',
+                    waitingFor: 'Admissions workflow'
+                }
+                : this.getApplicationWorkflowCommunication(app, documents, workflowData);
             
             // Route to appropriate action based on current stage and data
             this.routeToWorkflowAction(applicationId, currentStage, workflowComm, app, documents, workflowData);
@@ -1944,7 +2324,14 @@ const admissionsWorkspaceController = {
                 break;
                 
             case 'fees_payment':
-                if (workflowData.payment_status === 'paid') {
+                if (workflowData.payment_status === 'waived') {
+                    label = 'Payment Requirement Waived - Awaiting ID Generation';
+                    description = 'Approved financial relief covers the admission payment requirement. No money was received or posted; generate the student ID card.';
+                    waitingFor = 'School Admin';
+                    nextActionLabel = 'Generate ID Card';
+                    nextActionMethod = 'generateStudentIdCard';
+                    tone = 'success';
+                } else if (workflowData.payment_status === 'paid') {
                     label = 'Fees Paid - Awaiting ID Generation';
                     description = 'Admission fees have been recorded. Student ID card generation pending.';
                     waitingFor = 'School Admin';
@@ -2098,8 +2485,17 @@ const admissionsWorkspaceController = {
 
     renderApplicationActionFooter: function(applicationId, app = {}, documents = [], workflowData = {}) {
         const closeBtn = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>';
-        const aiBtn = `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>`;
+        const applications = this.getAllQueueApplications();
+        const currentIndex = applications.findIndex((application) => Number(application.id) === Number(applicationId));
+        const previousBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex <= 0 ? 'disabled' : ''} onclick="admissionsWorkspaceController.navigateApplication(-1)"><i class="bi bi-chevron-left me-1"></i>Previous</button>`;
+        const nextBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex < 0 || currentIndex >= applications.length - 1 ? 'disabled' : ''} onclick="admissionsWorkspaceController.navigateApplication(1)">Next<i class="bi bi-chevron-right ms-1"></i></button>`;
+        const navigation = `<span class="small text-muted me-auto">${currentIndex >= 0 ? currentIndex + 1 : 0} of ${applications.length}</span>${previousBtn}${nextBtn}`;
         const stage = app.current_stage || "application_received";
+        if (app.status === 'enrolled' || stage === 'enrolled') {
+            return `${navigation}${closeBtn}`;
+        }
+        const aiBtn = ['application_received', 'application_review'].includes(stage)
+            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>` : '';
         const aiInterviewBtn = ['interview_scheduling', 'interview_results'].includes(stage)
             ? `<button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-person-video3 me-1"></i>Prepare interview</button>` : '';
         const aiPlacementBtn = stage === 'class_placement'
@@ -2111,8 +2507,11 @@ const admissionsWorkspaceController = {
                 : (this.requiresInterviewGrade(app.grade_applying_for)
                     ? 'interview_scheduling'
                     : 'student_admission_number');
-            return `${closeBtn}
+            return `${navigation}${closeBtn}
                 ${aiBtn}${aiInterviewBtn}${aiPlacementBtn}
+                <button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.saveApplicationReviewDraftFromModal()">
+                    <i class="bi bi-save me-1"></i>Save review
+                </button>
                 <button type="button" class="btn btn-outline-danger" onclick="admissionsWorkspaceController.rejectApplicationReview(document.getElementById('applicationReviewForm'))">
                     <i class="bi bi-x-circle me-1"></i>Reject
                 </button>
@@ -2121,17 +2520,26 @@ const admissionsWorkspaceController = {
                 </button>`;
         }
 
-        // Single source of truth: derive the next action exactly as startIntake does.
+        // The API stage contract is authoritative. The legacy communication
+        // resolver remains only as a compatibility fallback for older API
+        // deployments that do not yet return stage_contract.
+        const contractAction = Array.isArray(app.stage_contract?.actions)
+            ? app.stage_contract.actions.find((action) => action.allowed !== false)
+            : null;
+        if (contractAction) {
+            const method = this.methodForStageAction(contractAction.code);
+            if (method && typeof this[method] === 'function') {
+                const btn = `<button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${method}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(contractAction.label)}</button>`;
+                return navigation + closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn + btn;
+            }
+        }
         const comm = this.getApplicationWorkflowCommunication(app, documents, workflowData);
         if (comm && comm.nextActionMethod && comm.nextActionLabel) {
-            const method = comm.nextActionMethod;
-            const label = comm.nextActionLabel;
-            const icon = comm.actionIcon || "bi-arrow-right-circle";
-            const btn = `<button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${method}(${Number(applicationId)})"><i class="bi ${icon} me-1"></i>${this.escapeHtml(label)}</button>`;
-            return closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn + btn;
+            const btn = `<button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${comm.nextActionMethod}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(comm.nextActionLabel)}</button>`;
+            return navigation + closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn + btn;
         }
 
-        return closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn;
+        return navigation + closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn;
     },
 
     queueInterviewPreparation: async function(applicationId) {
@@ -2264,7 +2672,7 @@ const admissionsWorkspaceController = {
         let existingDocuments = [];
 
         try {
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
             existingDocuments = Array.isArray(payload.documents) ? payload.documents : [];
             this.currentApplicationId = applicationId;
             this.currentApplicationData = payload;
@@ -2576,7 +2984,7 @@ const admissionsWorkspaceController = {
                 }
             }
 
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
 
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
             if (documents.length < initialDocumentCount + uploadedCount) {
@@ -2640,12 +3048,12 @@ const admissionsWorkspaceController = {
                         <div class="min-w-0">
                             <div class="fw-semibold">${this.escapeHtml(this.formatLabel(doc.document_type || "Document"))}</div>
                             ${doc.file_url || doc.download_url || doc.document_path ? `
-                                <a href="${this.escapeHtml(doc.file_url || doc.download_url || doc.document_path)}"
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="small text-break">
-                                    ${this.escapeHtml(doc.display_name || doc.document_path || "Open saved document")}
-                                </a>
+                                <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-break" data-kw-document-preview data-application-id="${Number(this.currentApplicationId || this.currentVerificationApplicationId || 0)}" data-document-id="${Number(doc.id || 0)}" data-url="${this.escapeHtml(String(doc.file_url || doc.download_url || doc.document_path).replace(/^https?:\/\/[^/]+/i, ""))}" data-label="${this.escapeHtml(this.formatLabel(doc.document_type || 'Document'))}">
+                                    <i class="bi bi-eye me-1"></i>View inside system
+                                </button>
+                                ${doc.document_type === 'passport_photo' ? `
+                                    <div><img src="${this.escapeHtml(window.KingswayFileLifecycle?.resolveUrl?.(doc.file_url || doc.download_url || doc.document_path))}" alt="Passport photo" class="rounded border mt-2" style="width:72px;height:88px;object-fit:cover;" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></div>
+                                ` : ''}
                             ` : '<small class="text-muted">Path recorded</small>'}
                         </div>
                         ${this.getStatusBadge(doc.verification_status || "pending")}
@@ -2657,11 +3065,11 @@ const admissionsWorkspaceController = {
 
     verifyDocuments: async function(applicationId) {
         try {
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
 
             if (documents.length === 0) {
-                this.showWorkspaceModal(
+                this.showWorkspaceChildModal(
                     '<i class="bi bi-file-earmark-check me-2"></i>Verify Documents',
                     '<div class="alert alert-warning mb-0">No documents have been uploaded for this application. Upload documents first, then verify them.</div>',
                     `
@@ -2676,7 +3084,7 @@ const admissionsWorkspaceController = {
 
             this.currentVerificationApplicationId = applicationId;
 
-            this.showWorkspaceModal(
+            this.showWorkspaceChildModal(
                 '<i class="bi bi-file-earmark-check me-2"></i>Verify Documents',
                 `
                     <div class="list-group">
@@ -2688,11 +3096,12 @@ const admissionsWorkspaceController = {
                                         <small class="${doc.verification_status === "verified" ? "text-success" : doc.verification_status === "rejected" ? "text-danger" : "text-muted"}" id="document-verification-status-${Number(doc.id)}">Status: ${this.escapeHtml(this.formatLabel(doc.verification_status || "pending"))}</small>
                                         ${doc.file_url || doc.download_url || doc.document_path ? `
                                             <div class="small mt-1">
-                                                <a href="${this.escapeHtml(doc.file_url || doc.download_url || doc.document_path)}" target="_blank" rel="noopener">
-                                                    Open uploaded file
-                                                </a>
+                                                <button type="button" class="btn btn-link btn-sm p-0" data-kw-document-preview data-application-id="${Number(this.currentApplicationId || this.currentVerificationApplicationId || 0)}" data-document-id="${Number(doc.id || 0)}" data-url="${this.escapeHtml(String(doc.file_url || doc.download_url || doc.document_path).replace(/^https?:\/\/[^/]+/i, ""))}" data-label="${this.escapeHtml(this.formatLabel(doc.document_type || 'Document'))}">
+                                                    View inside system
+                                                </button>
                                             </div>
                                         ` : ""}
+                                        <textarea class="form-control form-control-sm mt-2" id="document-verification-notes-${Number(doc.id)}" rows="2" placeholder="Verification note or missing correction requested"></textarea>
                                     </div>
                                     <div class="btn-group btn-group-sm" id="document-verification-actions-${Number(doc.id)}">
                                         ${doc.verification_status === "verified" ? '<span class="badge bg-success">Verified</span>' : doc.verification_status === "rejected" ? '<span class="badge bg-danger">Rejected</span>' : `
@@ -2731,10 +3140,11 @@ const admissionsWorkspaceController = {
         }
 
         try {
+            const notes = String(document.getElementById(`document-verification-notes-${numericDocumentId}`)?.value || '').trim();
             await this.apiCall("/admission/verify-document", "POST", {
                 document_id: documentId,
                 status,
-                notes: status === "verified" ? "Verified from admissions workspace" : "Rejected from admissions workspace"
+                notes: notes || (status === "verified" ? "Verified from admissions workspace" : "Rejected from admissions workspace")
             });
 
             if (statusElement) {
@@ -2791,46 +3201,92 @@ const admissionsWorkspaceController = {
 
     scheduleInterview: async function(applicationId) {
         let response;
+        let applicationResponse;
         try {
-            response = await this.apiCall('/admission/interview-sessions', 'GET');
+            [response, applicationResponse] = await Promise.all([
+                this.apiCall('/admission/interview-sessions', 'GET'),
+                this.fetchApplicationSnapshot(applicationId)
+            ]);
         } catch (error) {
-            this.notify('error', error.message || 'Unable to load interview sessions');
+            this.notify('error', error.message || 'Unable to load interview scheduling details');
             return;
         }
         const payload = response?.data ?? response ?? {};
         const sessions = Array.isArray(payload) ? payload : (payload.sessions || []);
         const available = sessions.filter((session) => ['scheduled', 'full'].includes(session.status) && Number(session.assigned_count || 0) < Number(session.capacity || 0));
+        const applicationPayload = applicationResponse?.data ?? applicationResponse ?? {};
+        const application = applicationPayload.application || {};
+        const learningAreas = applicationPayload.interview_learning_areas || [];
         this.showWorkspaceModal(
             '<i class="bi bi-calendar-plus me-2"></i>Schedule Interview',
             `
                 <form id="workspaceScheduleInterviewForm" class="row g-3">
                     <input type="hidden" name="application_id" value="${Number(applicationId)}">
-                    <div class="col-12"><label class="form-label">Interview session</label><select name="session_id" class="form-select" required><option value="">Select an existing session</option>${available.map((session) => `<option value="${Number(session.id)}">${this.escapeHtml(session.session_date)} ${this.escapeHtml(String(session.start_time).slice(0,5))}–${this.escapeHtml(String(session.end_time).slice(0,5))} · ${this.escapeHtml(session.venue)} · ${Number(session.assigned_count || 0)}/${Number(session.capacity || 0)}</option>`).join('')}</select>${available.length ? '' : '<div class="form-text text-danger">No available sessions exist. Create an interview session for this intake first.</div>'}</div>
+                    ${this.renderWorkflowContext(applicationPayload, 'Interview scheduling context')}
+                    <div class="col-12"><label class="form-label fw-semibold">Interview session <span class="text-danger">*</span></label><select name="session_id" class="form-select" required><option value="">Select an existing session</option>${available.map((session) => `<option value="${Number(session.id)}">${this.escapeHtml(session.window_label || '')} · ${this.escapeHtml(session.session_date)} ${this.escapeHtml(String(session.start_time).slice(0,5))}–${this.escapeHtml(String(session.end_time).slice(0,5))} · ${this.escapeHtml(session.venue || '')} · ${Number(session.assigned_count || 0)}/${Number(session.capacity || 0)}</option>`).join('')}</select>${available.length ? '<div class="form-text">The selected session supplies the interview date, time, venue and interviewer.</div>' : '<div class="form-text text-danger">No available sessions exist. Create an interview session for this intake first.</div>'}</div>
+                    <div class="col-12"><label class="form-label fw-semibold" for="workspaceInterviewLearningAreas">Learning areas / subjects to be tested <span class="text-danger">*</span></label><select id="workspaceInterviewLearningAreas" name="learning_area_ids[]" class="form-select" multiple size="6" required aria-multiselectable="true">${learningAreas.length ? learningAreas.map((area) => `<option value="${Number(area.id)}">${this.escapeHtml(area.name || '')}</option>`).join('') : '<option disabled>No curriculum areas configured for the applicant\'s current class</option>'}</select><div class="form-text">Select 1–3 learning areas from the applicant’s current class curriculum. Click an area to select or deselect it.</div></div>
                 </form>
             `,
             `
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-week me-1"></i>Manage sessions</button>
                 <button type="submit" form="workspaceScheduleInterviewForm" class="btn btn-primary">Schedule</button>
             `
         );
 
+        const learningAreaSelect = document.getElementById('workspaceInterviewLearningAreas');
+        learningAreaSelect?.addEventListener('mousedown', (event) => {
+            const option = event.target.closest('option');
+            if (!option || option.disabled) return;
+            event.preventDefault();
+            if (!option.selected && learningAreaSelect.selectedOptions.length >= 3) {
+                this.notify('error', 'Select at most three learning areas.');
+                return;
+            }
+            option.selected = !option.selected;
+        });
+
         document.getElementById("workspaceScheduleInterviewForm")?.addEventListener("submit", (event) => {
             event.preventDefault();
+            const submitButton = document.querySelector('button[form="workspaceScheduleInterviewForm"]');
+            if (submitButton?.disabled) return;
+            const formData = new FormData(event.currentTarget);
+            const learningAreaIds = [...(learningAreaSelect?.selectedOptions || [])]
+                .map((option) => Number(option.value))
+                .filter(Boolean);
+            if (learningAreaIds.length < 1 || learningAreaIds.length > 3) {
+                this.notify('error', 'Select between one and three learning areas from the applicant\'s current class.');
+                return;
+            }
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Scheduling…';
+            }
             this.runAdmissionAction(
-                this.apiCall("/admission/schedule-interview", "POST", Object.fromEntries(new FormData(event.currentTarget))),
+                this.apiCall("/admission/schedule-interview", "POST", {
+                    application_id: Number(formData.get('application_id')),
+                    session_id: Number(formData.get('session_id')),
+                    learning_area_ids: learningAreaIds,
+                    reason: 'Interview session selected by admissions staff'
+                }),
                 "Interview scheduled successfully"
-            );
+            ).finally(() => {
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = 'Schedule';
+                }
+            });
         });
     },
 
     conductInterview: async function(applicationId) {
         let app = {};
         let assessmentItems = [];
+        let snapshotPayload = {};
         try {
-            const response = await this.apiCall(`/admission/application/${applicationId}`, "GET");
-            const payload = response?.data || response || {};
-            app = payload.application || {};
-            assessmentItems = payload.assessment_items || payload.interview_learning_areas || [];
+            snapshotPayload = await this.fetchApplicationSnapshot(applicationId);
+            app = snapshotPayload.application || {};
+            assessmentItems = snapshotPayload.assessment_items || snapshotPayload.interview_learning_areas || [];
         } catch (error) {
             this.notify("error", error.message || "Unable to load interview assessment details");
             return;
@@ -2841,11 +3297,7 @@ const admissionsWorkspaceController = {
             `
                 <form id="workspaceInterviewResultForm" class="row g-3">
                     <input type="hidden" name="application_id" value="${Number(applicationId)}">
-                    <div class="col-12 alert alert-info mb-0">
-                        <strong>Applicant:</strong> ${this.escapeHtml(app.applicant_name || '—')}<br>
-                        <strong>Grade:</strong> ${this.escapeHtml(app.grade_applying_for || '—')}<br>
-                        <strong>Application No:</strong> ${this.escapeHtml(app.application_no || '—')}
-                    </div>
+                    ${this.renderWorkflowContext(snapshotPayload, 'Interview assessment context')}
                     <div class="col-12"><h6 class="fw-semibold mb-0">Assessment Scores (0-100)</h6></div>
                     ${rows.map(item => `<div class="col-md-6"><label class="form-label">${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}</label><input type="number" class="form-control workspace-assessment-score" min="0" max="${Number(item.max_score || 100)}" data-learning-area-id="${this.escapeHtml(item.learning_area_id || item.id || '')}" data-learning-area-name="${this.escapeHtml(item.learning_area_name || item.name || 'Assessment')}" placeholder="0-${Number(item.max_score || 100)}" required></div>`).join('')}
                     <div class="col-12 d-flex justify-content-between border-top pt-3"><strong>Overall Score:</strong><span id="workspaceInterviewOverallScore" class="fw-bold">—</span></div>
@@ -2961,8 +3413,8 @@ const admissionsWorkspaceController = {
         // before opening any payment modal so the canonical existing-parent
         // amount is never replaced by a zero fallback.
         try {
-            const response = await this.apiCall(`/admission/application/${Number(applicationId)}`, 'GET');
-            const detail = response?.data?.application || response?.application || {};
+            const snapshot = await this.fetchApplicationSnapshot(applicationId);
+            const detail = snapshot?.application || {};
             application = { ...application, ...detail };
         } catch (error) {
             console.warn('Could not refresh admission payment amount:', error);
@@ -2974,32 +3426,118 @@ const admissionsWorkspaceController = {
                 ? Number(registrationFee)
                 : 0;
         if (resolvedFee <= 0) {
-            return this.notify('error', 'The canonical admission amount could not be resolved. Refresh the page or ask Accounts to confirm the charge configuration.');
+            const relief = application.financial_relief || {};
+            const hasApprovedRelief = relief.registration_fee_waived
+                || ['full', 'percentage', 'fixed'].includes(String(relief.school_fee_waiver_type || ''));
+            if (hasApprovedRelief) {
+                return this.notify('info', 'No admission balance is due because approved financial relief covers the current obligation. No payment transaction is required.');
+            }
+            if (application.admission_fee_configured === false) {
+                return this.notify('error', 'No admission fee has been configured for this academic year and intake. Accounts must configure the charge before payment can be recorded.');
+            }
+            return this.notify('info', 'There is currently no admission balance due for this application. No payment transaction was found or created.');
         }
 
         window.AdmissionPaymentModal.open({ application: { ...application, id: applicationId }, registrationFee: resolvedFee, apiCall: this.apiCall.bind(this), onSuccess: () => this.loadQueueData() });
     },
 
     verifyPayment: async function(applicationId) {
-        const application = this.getAllQueueApplications().find(row => Number(row.id) === Number(applicationId)) || {};
+        let application;
+        try {
+            const snapshot = await this.fetchApplicationSnapshot(applicationId);
+            application = snapshot?.application || {};
+        } catch (error) {
+            this.notify('error', error.message || 'Unable to refresh payment state');
+            return;
+        }
         const paymentId = Number(application.pending_payment_id || 0);
         if (!paymentId) {
             this.notify('error', 'No pending payment verification was found. Refresh the queue.');
             return;
         }
+        const paymentMethod = String(application.pending_payment_method || '').toLowerCase();
+        const isMpesa = paymentMethod === 'mpesa';
+        const verificationSource = isMpesa ? 'mpesa_reconciliation' : 'kcb_statement';
+        const verificationLabel = isMpesa ? 'Verified M-Pesa callback/reconciliation' : 'Matched imported KCB statement';
+        const relief = application.financial_relief || {};
+        const registrationReliefType = String(relief.registration_fee_waiver_type || (relief.registration_fee_waived ? 'full' : 'none'));
+        const schoolReliefType = String(relief.school_fee_waiver_type || 'none');
         this.showWorkspaceModal(
             '<i class="bi bi-shield-check me-2"></i>Verify Payment',
             `<form id="paymentVerificationForm" class="row g-3">
-                <div class="col-12"><div class="alert alert-info small mb-0">Match <strong>${this.escapeHtml(application.pending_payment_reference || '')}</strong> against the official KCB statement or M-Pesa reconciliation record before confirming.</div></div>
-                <div class="col-md-6"><label class="form-label">Verification source</label><select name="verification_source" class="form-select" required><option value="kcb_statement">KCB bank statement</option><option value="mpesa_reconciliation">M-Pesa reconciliation</option></select></div>
-                <div class="col-12"><label class="form-label">Verification note</label><textarea name="verification_notes" class="form-control" rows="2" placeholder="Optional statement date, batch, or reconciliation note"></textarea></div>
+                <div class="col-12">${this.renderWorkflowContext({ application, stage_contract: { current_stage_name: this.formatLabel(application.current_stage || '') } }, 'Payment verification context')}<div class="alert alert-info small mb-2">The system will match <strong>${this.escapeHtml(application.pending_payment_reference || '')}</strong> against the official ${isMpesa ? 'M-Pesa callback/reconciliation record' : 'imported KCB statement record'} using the exact reference, amount, school account and transaction status. A receipt or note alone cannot confirm money received.</div><div class="alert alert-warning small mb-0"><strong>Until a match is found:</strong> this payment remains pending, the learner balance is unchanged, no fee ledger entry is posted, and the application cannot advance from Fees Payment.</div></div>
+                <div class="col-12"><details class="border rounded-3 p-3" id="verifyPaymentFinancialReliefDetails"><summary class="fw-semibold"><i class="bi bi-shield-check me-1"></i>Authorize fee relief instead of payment</summary><div class="small text-muted mt-2">Use this only when the school has approved sponsorship or an exemption. Relief is recorded as an authorized concession; it is never represented as money received.</div><div class="row g-3 mt-1"><div class="col-md-6"><label class="form-label">Registration fee</label><select id="verifyRegistrationReliefType" class="form-select"><option value="none" ${registrationReliefType === 'none' ? 'selected' : ''}>Keep registration fee due</option><option value="full" ${registrationReliefType === 'full' ? 'selected' : ''}>Waive registration fee completely</option><option value="percentage" ${registrationReliefType === 'percentage' ? 'selected' : ''}>Waive a percentage</option><option value="fixed" ${registrationReliefType === 'fixed' ? 'selected' : ''}>Waive a fixed KES amount</option></select></div><div class="col-md-6"><label class="form-label">School fees</label><select id="verifySchoolReliefType" class="form-select"><option value="none" ${schoolReliefType === 'none' ? 'selected' : ''}>No school-fee relief</option><option value="percentage" ${schoolReliefType === 'percentage' ? 'selected' : ''}>Waive a percentage</option><option value="fixed" ${schoolReliefType === 'fixed' ? 'selected' : ''}>Waive a fixed KES amount</option><option value="full" ${schoolReliefType === 'full' ? 'selected' : ''}>Waive all school fees</option></select></div><div class="col-md-6"><label class="form-label">Registration relief value</label><input id="verifyRegistrationReliefValue" type="number" min="0" step="0.01" class="form-control" value="${this.escapeHtml(relief.registration_fee_waiver_value || '')}" placeholder="Percentage or KES amount"><div class="form-text">Required for percentage or fixed relief.</div></div><div class="col-md-6"><label class="form-label">School-fee relief value</label><input id="verifySchoolReliefValue" type="number" min="0" step="0.01" class="form-control" value="${this.escapeHtml(relief.school_fee_waiver_value || '')}" placeholder="Percentage or KES amount"><div class="form-text">For example, enter 50 for half of school fees.</div></div><div class="col-md-6"><label class="form-label">Exception type</label><select id="verifyReliefReasonCode" class="form-select"><option value="sponsored">Sponsored learner</option><option value="exempted">Exempted</option><option value="special_case">Special case</option><option value="administrative_exception">Administrative exception</option><option value="other">Other</option></select></div><div class="col-12"><label class="form-label">Authorization reason <span class="text-danger">*</span></label><textarea id="verifyReliefReason" class="form-control" rows="2" placeholder="Record who authorized the concession and why."></textarea></div><div class="col-12 d-flex justify-content-end"><button type="button" class="btn btn-outline-success" id="saveVerifyPaymentRelief"><i class="bi bi-shield-check me-1"></i>Save and apply approved relief</button></div></div></details></div>
+                <div class="col-md-6"><label class="form-label">Verification source</label><select name="verification_source" class="form-select" required><option value="${verificationSource}">${verificationLabel}</option></select></div>
+                <div class="col-12"><label class="form-label">Verification note</label><textarea name="verification_notes" class="form-control" rows="2" placeholder="Optional statement batch, reconciliation date, or finance review note"></textarea></div>
+                <div class="col-12"><div id="paymentVerificationResult" class="alert d-none mb-0" role="alert" aria-live="polite"></div></div>
             </form>`,
             '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" form="paymentVerificationForm" class="btn btn-success">Confirm matched payment</button>'
         );
-        document.getElementById('paymentVerificationForm')?.addEventListener('submit', (event) => {
+        document.getElementById('saveVerifyPaymentRelief')?.addEventListener('click', async (event) => {
+            const registrationType = document.getElementById('verifyRegistrationReliefType')?.value || 'none';
+            const schoolType = document.getElementById('verifySchoolReliefType')?.value || 'none';
+            const registrationValue = Number(document.getElementById('verifyRegistrationReliefValue')?.value || 0);
+            const schoolValue = Number(document.getElementById('verifySchoolReliefValue')?.value || 0);
+            const reason = String(document.getElementById('verifyReliefReason')?.value || '').trim();
+            const result = document.getElementById('paymentVerificationResult');
+            if (registrationType === 'none' && schoolType === 'none') return this.notify('error', 'Select registration-fee or school-fee relief first.');
+            if (!reason) return this.notify('error', 'Enter the authorization reason for the relief.');
+            if ((registrationType === 'percentage' && registrationValue > 100) || (schoolType === 'percentage' && schoolValue > 100)) return this.notify('error', 'Percentage relief cannot exceed 100.');
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+                const response = await this.apiCall('/admission/apply-financial-relief', 'POST', {
+                    application_id: applicationId,
+                    registration_fee_waived: registrationType !== 'none' ? 1 : 0,
+                    registration_fee_waiver_type: registrationType,
+                    registration_fee_waiver_value: registrationValue,
+                    school_fee_waiver_type: schoolType,
+                    school_fee_waiver_value: schoolValue,
+                    reason_code: document.getElementById('verifyReliefReasonCode')?.value || 'sponsored',
+                    reason
+                });
+                if (result) {
+                    result.className = 'alert alert-success mb-0';
+                    result.textContent = 'Approved relief was saved and applied. The concession is not a payment. Refreshing the workflow context…';
+                }
+                this.notify('success', response?.advanced_to_id_generation
+                    ? 'Financial relief applied. No payment was required, so the application advanced to ID Generation.'
+                    : 'Financial relief saved and applied.');
+                await this.loadQueueData();
+                setTimeout(() => this.closeWorkspaceModal(), 700);
+            } catch (error) {
+                this.notify('error', error.message || 'Unable to save financial relief.');
+                button.disabled = false;
+            }
+        });
+        document.getElementById('paymentVerificationForm')?.addEventListener('submit', async (event) => {
             event.preventDefault();
+            const form = event.currentTarget;
+            const submitButton = document.querySelector('button[type="submit"][form="paymentVerificationForm"]');
+            const result = document.getElementById('paymentVerificationResult');
             const data = Object.fromEntries(new FormData(event.currentTarget));
-            this.runAdmissionAction(this.apiCall('/admission/confirm-fee-payment', 'POST', { application_id: applicationId, payment_id: paymentId, ...data }), 'Payment verified successfully');
+            if (submitButton) submitButton.disabled = true;
+            if (result) {
+                result.className = 'alert alert-info mb-0';
+                result.textContent = 'Checking the official reconciliation record…';
+            }
+            try {
+                await this.apiCall('/admission/confirm-fee-payment', 'POST', { application_id: applicationId, payment_id: paymentId, ...data });
+                if (result) {
+                    result.className = 'alert alert-success mb-0';
+                    result.textContent = 'Matched successfully. The payment was verified, posted to the fee ledger, and the workflow may advance.';
+                }
+                this.notify('success', 'Payment verified successfully');
+                await this.loadQueueData();
+                setTimeout(() => this.closeWorkspaceModal(), 700);
+            } catch (error) {
+                if (result) {
+                    result.className = 'alert alert-danger mb-0';
+                    result.textContent = `${error.message || 'No official payment match was found.'} No ledger entry was posted and the application remains at Fees Payment.`;
+                }
+                this.notify('error', error.message || 'Payment could not be verified');
+                if (submitButton) submitButton.disabled = false;
+            }
         });
     },
 
@@ -3011,7 +3549,8 @@ const admissionsWorkspaceController = {
                 this.notify('error', 'No class streams are configured for placement. Configure the academic year class streams first.');
                 return;
             }
-            const application = this.getAllQueueApplications().find(row => Number(row.id) === Number(applicationId)) || { id: applicationId };
+            const snapshot = await this.fetchApplicationSnapshot(applicationId);
+            const application = snapshot?.application || { id: applicationId };
             window.AdmissionPlacementModal.open({
                 application,
                 classes,
@@ -3026,10 +3565,11 @@ const admissionsWorkspaceController = {
     finalApproval: async function(applicationId) {
         let application = {};
         let workflowData = {};
+        let snapshotPayload = {};
         try {
-            const payload = await this.apiCall(`/admission/application/${Number(applicationId)}`, 'GET');
-            application = payload?.application || payload || {};
-            workflowData = this.parseJsonSafe(payload.workflow_data || application.workflow_data_json || application.data_json || {});
+            snapshotPayload = await this.fetchApplicationSnapshot(applicationId);
+            application = snapshotPayload?.application || {};
+            workflowData = this.parseJsonSafe(snapshotPayload.workflow_data || application.workflow_data_json || application.data_json || {});
         } catch (error) {
             this.notify('error', error.message || 'Unable to load approval details');
             return;
@@ -3048,6 +3588,7 @@ const admissionsWorkspaceController = {
             `
                 <form id="workspaceConfirmEnrollmentForm">
                     <input type="hidden" name="application_id" value="${Number(applicationId)}">
+                    ${this.renderWorkflowContext(snapshotPayload, 'Final enrollment context')}
                     <div class="row g-2 mb-3">
                         <div class="col-md-6"><div class="small text-muted">Application No.</div><div class="fw-semibold">${this.escapeHtml(application.application_no || '—')}</div></div>
                         <div class="col-md-6"><div class="small text-muted">Applicant</div><div class="fw-semibold">${this.escapeHtml(application.applicant_name || '—')}</div></div>
@@ -3173,7 +3714,7 @@ const admissionsWorkspaceController = {
 
     admitStudent: async function(applicationId) {
         try {
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
             const app = payload?.application || {};
             
             this.showWorkspaceModal(
@@ -3253,7 +3794,7 @@ const admissionsWorkspaceController = {
 
     generateStudentIdCard: async function(applicationId) {
         try {
-            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+            const payload = await this.fetchApplicationSnapshot(applicationId);
             const app = payload?.application || {};
             const workflowData = this.parseJsonSafe(app.workflow_data_json || '{}');
             
@@ -3268,11 +3809,7 @@ const admissionsWorkspaceController = {
             this.showWorkspaceModal(
                 '<i class="bi bi-credit-card me-2"></i>Generate Student ID Card',
                 `
-                    <div class="alert alert-info mb-3">
-                        <h6 class="alert-heading">Student ID Card Generation</h6>
-                        <p class="mb-2">Generate ID card for <strong>${this.escapeHtml(app.applicant_name)}</strong></p>
-                        <p class="mb-0">Admission No: ${this.escapeHtml(workflowData.admission_number || 'N/A')}</p>
-                    </div>
+                    ${this.renderWorkflowContext(payload, 'Student ID generation context')}
                     <form id="workspaceGenerateIdCardForm">
                         <input type="hidden" name="application_id" value="${Number(applicationId)}">
                         <input type="hidden" name="student_id" value="${Number(studentId)}">
