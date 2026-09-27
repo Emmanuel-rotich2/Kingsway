@@ -465,6 +465,36 @@ class AdmissionController extends BaseController
         return $this->handleApiResponse($this->admin->advanceWorkflowStage($data, $this->buildAdmissionContext()));
     }
 
+    /** POST /api/admission/pause-review - keep the application in review while requesting corrections */
+    public function postPauseReview($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->pauseApplicationReview($data, $this->buildAdmissionContext()));
+    }
+
+    /** POST /api/admission/save-review-draft - save review notes without advancing */
+    public function postSaveReviewDraft($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->saveApplicationReviewDraft($data, $this->buildAdmissionContext()));
+    }
+
+    /** POST /api/admission/skip-stage - authorized, audited stage exception */
+    public function postSkipStage($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->skipAdmissionStage($data, $this->buildAdmissionContext()));
+    }
+
+    /** POST /api/admission/apply-financial-relief - save a payment-stage waiver without skipping the stage */
+    public function postApplyFinancialRelief($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->applyAdmissionFinancialRelief($data, $this->buildAdmissionContext()));
+    }
+
+    /** POST /api/admission/orchestrate-skip - resumable automated skip transaction */
+    public function postOrchestrateSkip($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->orchestrateAdmissionSkip($data, $this->buildAdmissionContext()));
+    }
+
     /**
      * POST /api/admission/create-provisional-student/{id} - Create provisional student record
      */
@@ -517,6 +547,98 @@ class AdmissionController extends BaseController
         }
 
         return $this->handleApiResponse($this->admin->getApplication((int) $id, $this->buildAdmissionContext()));
+    }
+
+    /**
+     * GET /api/admission/applications/{application}/document-preview?document_id=...
+     * Convert office/open-document files to a PDF preview without exposing a
+     * filesystem path or embedding the protected original URL in an iframe.
+     */
+    public function getDocumentPreview($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to preview admission documents');
+        }
+
+        $url = trim((string) ($data['url'] ?? ''));
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        if ($applicationId < 1) {
+            return $this->badRequest('application_id is required for document preview.');
+        }
+        $application = $this->admin->getApplication($applicationId, $this->buildAdmissionContext());
+        if (!($application['success'] ?? false)) {
+            return $this->forbidden('You do not have access to this admission document.');
+        }
+        $documentId = (int) ($data['document_id'] ?? 0);
+        if ($documentId < 1 || !in_array($documentId, array_map(static fn ($document) => (int) ($document['id'] ?? 0), $application['documents'] ?? []), true)) {
+            return $this->forbidden('This document is not attached to the selected application.');
+        }
+        $allowedUrls = [];
+        foreach (($application['documents'] ?? []) as $document) {
+            foreach (['file_url', 'download_url', 'document_path'] as $field) {
+                $candidate = (string) ($document[$field] ?? '');
+                if ($candidate !== '') {
+                    $allowedUrls[] = parse_url($candidate, PHP_URL_PATH) ?: $candidate;
+                }
+            }
+        }
+        $normalizedUrl = parse_url($url, PHP_URL_PATH) ?: $url;
+        if (!in_array($normalizedUrl, $allowedUrls, true)) {
+            return $this->forbidden('This document is not attached to the selected application.');
+        }
+        $urlPath = parse_url($url, PHP_URL_PATH);
+        if (!$urlPath || str_contains($urlPath, "\0") || str_contains($urlPath, '..')) {
+            return $this->badRequest('Only managed school documents can be previewed.');
+        }
+
+        $uploadsRoot = defined('UPLOAD_PATH') ? realpath((string) UPLOAD_PATH) : false;
+        $uploadUrlPath = defined('UPLOAD_URL') ? (string) (parse_url((string) UPLOAD_URL, PHP_URL_PATH) ?: '') : '/uploads';
+        $uploadUrlPath = rtrim('/' . ltrim($uploadUrlPath, '/'), '/');
+        if (!$uploadsRoot || !str_starts_with($urlPath, $uploadUrlPath . '/')) {
+            return $this->notFound('Document not found.');
+        }
+        $relative = ltrim(substr($urlPath, strlen($uploadUrlPath)), '/');
+        $file = realpath($uploadsRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relative));
+        if (!$file || !is_file($file) || !str_starts_with($file, $uploadsRoot . DIRECTORY_SEPARATOR)) {
+            return $this->notFound('Document not found.');
+        }
+
+        $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'odg', 'rtf'];
+        if (!in_array($extension, $officeExtensions, true)) {
+            return $this->badRequest('This file type does not require conversion.');
+        }
+
+        $tempDir = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'kingsway-preview-' . bin2hex(random_bytes(8));
+        if (!mkdir($tempDir, 0700, true)) {
+            return $this->serverError('Unable to prepare document preview.');
+        }
+        try {
+            $officeBinary = trim((string) (getenv('LIBREOFFICE_BIN') ?: 'libreoffice'));
+            $command = escapeshellarg($officeBinary) . ' --headless --convert-to pdf --outdir ' . escapeshellarg($tempDir) . ' ' . escapeshellarg($file) . ' 2>&1';
+            exec($command, $output, $exitCode);
+            $converted = $tempDir . DIRECTORY_SEPARATOR . pathinfo($file, PATHINFO_FILENAME) . '.pdf';
+            if ($exitCode !== 0 || !is_file($converted)) {
+                return $this->serverError('This document could not be converted for preview.');
+            }
+            return $this->success([
+                'mime' => 'application/pdf',
+                'filename' => pathinfo($file, PATHINFO_FILENAME) . '.pdf',
+                'content_base64' => base64_encode((string) file_get_contents($converted)),
+            ]);
+        } finally {
+            foreach (glob($tempDir . DIRECTORY_SEPARATOR . '*') ?: [] as $temporaryFile) {
+                @unlink($temporaryFile);
+            }
+            @rmdir($tempDir);
+        }
+    }
+
+    /** GET /api/admission/applications/{application}/document-preview?document_id=... */
+    public function getApplicationsDocumentPreview($id = null, $data = [], $segments = [])
+    {
+        $data['application_id'] = (int) $id;
+        return $this->getDocumentPreview($id, $data, $segments);
     }
 
     /** POST /api/admission/ai-followup-draft-queue */

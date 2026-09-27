@@ -492,10 +492,17 @@ class SchoolAdminAnalyticsService
         try {
             $labels = [];
             $data = [];
+            $details = [];
+
+            // Derive both boundaries from the same Monday. Calculating
+            // "Monday" and "Friday" independently from today's date can
+            // produce a reversed range on Fridays (and an empty chart).
+            $currentMonday = new \DateTimeImmutable('monday this week');
 
             for ($i = $weeks - 1; $i >= 0; $i--) {
-                $weekStart = date('Y-m-d', strtotime("-{$i} weeks Monday"));
-                $weekEnd = date('Y-m-d', strtotime("-{$i} weeks Friday"));
+                $weekStartDate = $currentMonday->modify("-{$i} weeks");
+                $weekStart = $weekStartDate->format('Y-m-d');
+                $weekEnd = $weekStartDate->modify('+4 days')->format('Y-m-d');
 
                 // Attendance stored in student_attendance table with (student_academic_enrollment_id, date, status)
                 $query = "SELECT 
@@ -508,26 +515,40 @@ class SchoolAdminAnalyticsService
 
                 $total = (int) ($result['total'] ?? 0);
                 $present = (int) ($result['present'] ?? 0);
-                $percentage = $total > 0 ? round(($present / $total) * 100, 1) : 0;
+                $percentage = $total > 0 ? round(($present / $total) * 100, 1) : null;
 
-                $labels[] = "Week " . ($weeks - $i);
-                $data[] = $percentage > 0 ? $percentage : null;
+                // Keep the axis compact; the full Monday-Friday range is
+                // available in the tooltip details.
+                $labels[] = date('d M', strtotime($weekStart));
+                // A school week with no marked rows is explicitly zero, not a
+                // missing datapoint. The details/tooltip still explain that
+                // zero means "no records marked", rather than zero learners
+                // being present.
+                $data[] = $percentage ?? 0;
+                $details[] = [
+                    'start' => $weekStart,
+                    'end' => $weekEnd,
+                    'marked_records' => $total,
+                    'present_records' => $present,
+                    'has_data' => $total > 0,
+                ];
             }
 
             return [
                 'labels' => $labels,
                 'data' => $data,
+                'details' => $details,
                 'weeks' => $weeks
             ];
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("getWeeklyAttendanceTrend error: " . $e->getMessage());
-            return ['labels' => [], 'data' => [], 'weeks' => $weeks];
+            return ['labels' => [], 'data' => [], 'details' => [], 'weeks' => $weeks];
         }
     }
 
     /**
      * Get class distribution data for bar chart
-     * @param string $filter Optional filter by form (form1, form2, etc.)
+     * @param string $filter Optional live class name, or "all"
      */
     public function getClassDistributionChart(string $filter = 'all'): array
     {
@@ -612,21 +633,46 @@ class SchoolAdminAnalyticsService
                 ];
             }
 
-            // Attendance is register/session scoped.  A global student-minus-marked
-            // count incorrectly treats one session as the whole school day.
-            $attendanceQuery = "SELECT COUNT(*) FROM attendance_registers
-                                 WHERE register_date <= CURDATE() AND status IN ('overdue','not_marked')";
-            $stmt = $this->db->query($attendanceQuery);
-            $overdueRegisters = (int) $stmt->fetchColumn();
-            if ($overdueRegisters > 0) {
+            // Attendance is reported in school terms: class/stream, session,
+            // date and learner names. Do not expose an unexplained register
+            // count to staff.
+            $attendanceAudit = (new AttendanceRegisterService($this->db->getConnection()))->listRange([
+                'date_from' => date('Y-m-01'),
+                'date_to' => date('Y-m-d'),
+            ]);
+            $groups = [];
+            foreach (($attendanceAudit['exception_registers'] ?? []) as $exception) {
+                $key = ($exception['stream_name'] ?? 'Unassigned class') . '|' . ($exception['session_name'] ?? 'Attendance session');
+                if (!isset($groups[$key])) {
+                    $groups[$key] = ['class' => $exception['stream_name'] ?? 'Unassigned class', 'session' => $exception['session_name'] ?? 'Attendance session', 'learner_ids' => [], 'fallback_learners' => 0, 'dates' => []];
+                }
+                if (is_array($exception['unmarked_learners'] ?? null)) {
+                    foreach ($exception['unmarked_learners'] as $learner) {
+                        $learnerId = (int) ($learner['id'] ?? 0);
+                        if ($learnerId > 0) $groups[$key]['learner_ids'][$learnerId] = true;
+                    }
+                } else {
+                    $groups[$key]['fallback_learners'] = max($groups[$key]['fallback_learners'], max(0, (int) ($exception['expected_count'] ?? 0) - (int) ($exception['marked_count'] ?? 0)));
+                }
+                $groups[$key]['dates'][] = $exception['date'] ?? null;
+            }
+            foreach ($groups as &$group) $group['learners'] = max(count($group['learner_ids']), $group['fallback_learners']);
+            unset($group);
+            $groups = array_values(array_filter($groups, static fn(array $group): bool => $group['learners'] > 0));
+            usort($groups, static fn(array $a, array $b): int => $b['learners'] <=> $a['learners']);
+            if ($groups) {
+                $parts = array_map(static function (array $group): string {
+                    $dates = array_values(array_unique(array_filter($group['dates'])));
+                    return $group['class'] . ' · ' . $group['session'] . ': ' . $group['learners'] . ' learner(s) not marked' . ($dates ? ' (' . implode(', ', array_slice($dates, -3)) . ')' : '');
+                }, array_slice($groups, 0, 3));
                 $items[] = [
                     'type' => 'Attendance',
                     'icon' => 'bi bi-clipboard-check',
-                    'description' => 'Attendance Registers Requiring Attention',
-                    'count' => $overdueRegisters,
+                    'description' => count($groups) . ' class(es) require attendance attention: ' . implode('; ', $parts) . (count($groups) > 3 ? '; more classes below' : ''),
+                    'count' => count($groups),
                     'priority' => 'high',
-                    'action_url' => 'view_attendance',
-                    'action_label' => 'Review'
+                    'action_url' => 'attendance_reports',
+                    'action_label' => 'View classes'
                 ];
             }
 
@@ -730,7 +776,7 @@ class SchoolAdminAnalyticsService
                         s.position,
                         COALESCE(d.name, 'General') as department,
                         p.email as contact,
-                        CASE 
+                        CASE
                             WHEN EXISTS (
                                 SELECT 1 FROM staff_leaves sl 
                                 WHERE sl.staff_id = s.id 
@@ -744,7 +790,19 @@ class SchoolAdminAnalyticsService
                                   AND sa.date = CURDATE() 
                                   AND sa.status = 'present'
                             ) THEN 'Present'
-                            ELSE 'Unknown'
+                            WHEN EXISTS (
+                                SELECT 1 FROM staff_attendance sa
+                                WHERE sa.staff_id = s.id
+                                  AND sa.date = CURDATE()
+                                  AND sa.status = 'late'
+                            ) THEN 'Late'
+                            WHEN EXISTS (
+                                SELECT 1 FROM staff_attendance sa
+                                WHERE sa.staff_id = s.id
+                                  AND sa.date = CURDATE()
+                                  AND sa.status IN ('absent', 'missing')
+                            ) THEN 'Absent'
+                            ELSE 'Not marked'
                         END as status
                       FROM staff s
                       LEFT JOIN persons p ON p.id = s.person_id

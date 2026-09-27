@@ -260,7 +260,10 @@ return errorResponse('An internal error occurred.', 500);
                 $sql = "INSERT INTO student_attendance (student_academic_enrollment_id, date, status, marked_by, created_at)
                         SELECT sae.id, :date, :status, :marked_by, NOW()
                         FROM student_academic_enrollments sae
+                        JOIN students s ON s.id=sae.student_id
+                        LEFT JOIN admission_applications aa ON aa.id=s.application_id
                         WHERE sae.student_id = :student_id AND sae.enrollment_status = 'active'
+                          AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= :eligible_date
                         LIMIT 1";
 
                 $stmt = $this->db->prepare($sql);
@@ -268,7 +271,8 @@ return errorResponse('An internal error occurred.', 500);
                     'student_id' => $data['student_id'],
                     'date' => $data['date'],
                     'status' => $data['status'],
-                    'marked_by' => $this->user_id
+                    'marked_by' => $this->user_id,
+                    'eligible_date' => $data['date'],
                 ]);
 
                 $id = $this->db->lastInsertId();

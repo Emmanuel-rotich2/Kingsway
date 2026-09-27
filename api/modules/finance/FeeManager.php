@@ -3680,7 +3680,10 @@ class FeeManager
                 ];
             }
 
-            return formatResponse(true, ['academic_years' => $academicYears]);
+            return formatResponse(true, [
+                'academic_years' => $academicYears,
+                'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief((int) $studentId),
+            ]);
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'An internal error occurred.');
@@ -3752,6 +3755,12 @@ class FeeManager
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $reliefService = new \App\API\Services\ExtraChargeService($this->db);
+            foreach ($rows as &$row) {
+                $row['financial_relief'] = $reliefService->studentFinancialRelief((int) ($row['id'] ?? 0));
+            }
+            unset($row);
 
             // Compute class aggregates
             $totalStudents      = count($rows);
@@ -4251,7 +4260,7 @@ class FeeManager
                       AND (
                           ec.target_scope = 'all_students'
                           OR (ec.target_scope = 'existing_students' AND ? = 0)
-                          OR (ec.target_scope = 'boarders' AND st.code IN ('BOARD','WEEKLY'))
+                          OR (ec.target_scope = 'boarders' AND st.code = 'BOARD')
                           OR (ec.target_scope = 'day_students' AND st.code = 'DAY')
                           OR (ec.target_scope = 'specific_class' AND EXISTS (SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id=ec.id AND xcc.class_id=? ) )
                           OR EXISTS (SELECT 1 FROM extra_charge_student_types xst WHERE xst.extra_charge_id=ec.id AND xst.student_type_id=? )

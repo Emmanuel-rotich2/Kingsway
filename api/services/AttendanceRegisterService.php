@@ -49,7 +49,7 @@ class AttendanceRegisterService
         foreach ($streams as $stream) {
             foreach ($sessions as $session) {
                 if ($session['type'] === 'academic' && !$this->sessionAppliesToClass((int) $session['id'], (int) $stream['class_id'], (int) $context['term_id'])) continue;
-                $expected = $this->expectedCount((int) $stream['id'], $session['applies_to']);
+                $expected = $this->expectedCount((int) $stream['id'], $session['applies_to'], $date);
                 if ($expected < 1) continue;
                 $registerId = $this->upsertRegister($context, $stream, $session, $date, $session['type'] === 'boarding' ? 'boarding' : 'class');
                 $this->reconcile($registerId, (int) $stream['id'], (int) $session['id'], $date, $expected, $now);
@@ -90,6 +90,170 @@ class AttendanceRegisterService
     }
 
     /**
+     * List the registers that should exist across a date range without
+     * creating or changing any register/attendance rows.  Reports must be
+     * able to distinguish "no attendance was marked" from "no register was
+     * generated"; both are operational exceptions, not zero attendance.
+     */
+    public function listRange(array $filters = []): array
+    {
+        $from = (string) ($filters['date_from'] ?? date('Y-m-01'));
+        $to = (string) ($filters['date_to'] ?? date('Y-m-d'));
+        if ($from > $to) [$from, $to] = [$to, $from];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            throw new \InvalidArgumentException('Invalid attendance date range');
+        }
+        if ((strtotime($to) - strtotime($from)) > 366 * 86400) {
+            throw new \InvalidArgumentException('Attendance register range cannot exceed one year');
+        }
+
+        $streamIds = array_values(array_filter(array_map('intval', (array) ($filters['stream_ids'] ?? []))));
+        $existingSql = "SELECT ar.*, ass.code AS session_code,
+                               COALESCE(cfg.name, ass.name) AS session_name,
+                               CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name
+                          FROM attendance_registers ar
+                          JOIN attendance_sessions ass ON ass.id=ar.session_id
+                          LEFT JOIN attendance_session_term_configs cfg
+                            ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
+                          JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id
+                          JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+                          JOIN classes c ON c.id=ayc.class_id
+                          LEFT JOIN streams st ON st.id=aycs.stream_id
+                         WHERE ar.register_date BETWEEN ? AND ?
+                           AND ar.status <> 'not_required'
+                           AND ar.register_type='class'";
+        $params = [$from, $to];
+        if ($streamIds) {
+            $existingSql .= ' AND ar.stream_id IN (' . implode(',', array_fill(0, count($streamIds), '?')) . ')';
+            $params = array_merge($params, $streamIds);
+        }
+        $stmt = $this->db->prepare($existingSql);
+        $stmt->execute($params);
+        $existing = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $existing[$row['register_date'] . ':' . (int) $row['stream_id'] . ':' . (int) $row['session_id']] = $row;
+        }
+
+        $registers = [];
+        $date = new \DateTimeImmutable($from);
+        $end = new \DateTimeImmutable($to);
+        for (; $date <= $end; $date = $date->modify('+1 day')) {
+            $dateString = $date->format('Y-m-d');
+            $context = $this->context($dateString);
+            if (!$context || !$context['class_day']) continue;
+            $streams = $this->streams((int) $context['year_id']);
+            if ($streamIds) $streams = array_values(array_filter($streams, static fn(array $s): bool => in_array((int) $s['id'], $streamIds, true)));
+            $sessions = $this->sessions($context['day_name'], (bool) $context['saturday_classes'], (int) $context['term_id']);
+            foreach ($streams as $stream) {
+                foreach ($sessions as $session) {
+                    if ($session['type'] !== 'academic') continue;
+                    if (!$this->sessionAppliesToClass((int) $session['id'], (int) $stream['class_id'], (int) $context['term_id'])) continue;
+                    $expected = $this->expectedCount((int) $stream['id'], $session['applies_to'], $dateString);
+                    if ($expected < 1) continue;
+                    $key = $dateString . ':' . (int) $stream['id'] . ':' . (int) $session['id'];
+                    $row = $existing[$key] ?? null;
+                    $storedStatus = $row['status'] ?? ($dateString > date('Y-m-d') ? 'scheduled' : 'missing');
+                    $markedCount = $row ? (int) $row['marked_count'] : 0;
+                    // Register status may predate a corrected effective
+                    // roster. Re-evaluate completion using learners who were
+                    // fully enrolled on this date.
+                    $effectiveStatus = ($row && $markedCount >= $expected && $expected > 0)
+                        ? 'completed'
+                        : $storedStatus;
+                    $registers[] = [
+                        'id' => $row ? (int) $row['id'] : null,
+                        'register_date' => $dateString,
+                        'stream_id' => (int) $stream['id'],
+                        'session_id' => (int) $session['id'],
+                        'stream_name' => $row['stream_name'] ?? $stream['stream_name'],
+                        'session_name' => $row['session_name'] ?? $session['name'],
+                        'applies_to' => (string) ($session['applies_to'] ?? 'all'),
+                        'teacher_name' => $row['teacher_name'] ?? null,
+                        // Recalculate this for the report date. A learner who
+                        // joined after this date must not be counted here,
+                        // even if the register row was created later.
+                        'expected_count' => $expected,
+                        'marked_count' => $markedCount,
+                        'status' => $effectiveStatus,
+                    ];
+                    $lastIndex = count($registers) - 1;
+                    if (in_array($registers[$lastIndex]['status'], ['missing', 'not_marked', 'overdue', 'open'], true)) {
+                        $registers[$lastIndex]['unmarked_learners'] = $this->unmarkedLearners(
+                            (int) $stream['id'], (int) $session['id'], $dateString,
+                            (string) ($session['applies_to'] ?? 'all')
+                        );
+                    }
+                }
+            }
+        }
+
+        $counts = ['completed' => 0, 'open' => 0, 'overdue' => 0, 'not_marked' => 0, 'missing' => 0, 'scheduled' => 0];
+        $missingDates = [];
+        $exceptions = [];
+        foreach ($registers as $register) {
+            $status = $register['status'];
+            if (isset($counts[$status])) $counts[$status]++;
+            if (in_array($status, ['missing', 'not_marked', 'overdue', 'open'], true)) {
+                $missingDates[$register['register_date']] = true;
+                $exceptions[] = [
+                    'date' => $register['register_date'],
+                    'stream_name' => $register['stream_name'],
+                    'session_name' => $register['session_name'],
+                    'applies_to' => $register['applies_to'],
+                    'status' => $status,
+                    'expected_count' => $register['expected_count'],
+                    'marked_count' => $register['marked_count'],
+                    'unmarked_learners' => $register['unmarked_learners'] ?? [],
+                ];
+            }
+        }
+        return [
+            'date_from' => $from,
+            'date_to' => $to,
+            'registers' => $registers,
+            'exception_registers' => $exceptions,
+            'counts' => $counts,
+            'exception_dates' => array_keys($missingDates),
+        ];
+    }
+
+    /** Return named learners with no attendance row for this session/date. */
+    private function unmarkedLearners(int $streamId, int $sessionId, string $date, string $appliesTo): array
+    {
+        $sql = "SELECT s.id, s.admission_no,
+                       CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) AS learner_name,
+                       st.name AS student_type
+                  FROM student_academic_enrollments en
+                  JOIN students s ON s.id=en.student_id
+                  LEFT JOIN admission_applications aa ON aa.id=s.application_id
+                  JOIN persons p ON p.id=s.person_id
+                  LEFT JOIN student_types st ON st.id=s.student_type_id
+                 WHERE en.academic_year_class_stream_id=?
+                   AND s.status='active' AND en.enrollment_status='active'
+                   AND COALESCE(
+                         CASE WHEN s.entry_source='admission' THEN aa.enrolled_at END,
+                         CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END
+                       ) <= ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM student_attendance sa
+                        WHERE sa.student_academic_enrollment_id=en.id
+                          AND sa.date=? AND sa.session_id=? AND sa.register_type='class'
+                   )";
+        if ($appliesTo === 'boarders_only') {
+            $sql .= " AND st.code='BOARD'";
+        }
+        $sql .= ' ORDER BY p.first_name, p.last_name';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$streamId, $date, $date, $sessionId]);
+        return array_map(static fn(array $row): array => [
+            'id' => (int) $row['id'],
+            'admission_no' => $row['admission_no'],
+            'learner_name' => trim((string) $row['learner_name']),
+            'student_type' => $row['student_type'],
+        ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Reconcile one register immediately after a teacher submits its marks.
      * The scheduled worker remains responsible for reminders and escalation,
      * but a successful submission must update the register without waiting
@@ -112,7 +276,7 @@ class AttendanceRegisterService
             return;
         }
 
-        $expected = $this->expectedCount($streamId, (string) ($register['applies_to'] ?? 'all'));
+        $expected = $this->expectedCount($streamId, (string) ($register['applies_to'] ?? 'all'), $date);
         $this->reconcile(
             (int) $register['id'],
             $streamId,
@@ -221,15 +385,20 @@ class AttendanceRegisterService
         return $result;
     }
 
-    private function expectedCount(int $streamId, string $appliesTo): int
+    private function expectedCount(int $streamId, string $appliesTo, string $date): int
     {
         $sql = "SELECT COUNT(*) FROM student_academic_enrollments en
                   JOIN students s ON s.id = en.student_id
+                  LEFT JOIN admission_applications aa ON aa.id=s.application_id
                   LEFT JOIN student_types ty ON ty.id = s.student_type_id
-                 WHERE en.academic_year_class_stream_id = ? AND en.enrollment_status = 'active' AND s.status = 'active'";
+                 WHERE en.academic_year_class_stream_id = ? AND en.enrollment_status = 'active' AND s.status = 'active'
+                   AND COALESCE(
+                         CASE WHEN s.entry_source='admission' THEN aa.enrolled_at END,
+                         CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END
+                       ) <= ?";
         if ($appliesTo === 'day_only') $sql .= " AND COALESCE(ty.code, 'DAY') = 'DAY'";
-        if ($appliesTo === 'boarders_only') $sql .= " AND COALESCE(ty.code, '') IN ('BOARD', 'WEEKLY')";
-        $stmt = $this->db->prepare($sql); $stmt->execute([$streamId]);
+        if ($appliesTo === 'boarders_only') $sql .= " AND COALESCE(ty.code, '') = 'BOARD'";
+        $stmt = $this->db->prepare($sql); $stmt->execute([$streamId, $date]);
         return (int) $stmt->fetchColumn();
     }
 

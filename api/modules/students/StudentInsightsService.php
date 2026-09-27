@@ -245,6 +245,18 @@ class StudentInsightsService
             [$studentId]
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
 
+        $interview = $this->fetchOne(
+            "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
+                    ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
+                    ai.overall_score, ai.recommendation, ai.remarks
+               FROM admission_applications aa
+               JOIN admission_interviews ai ON ai.application_id = aa.id
+              WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
+              ORDER BY ai.id DESC LIMIT 1",
+            [$studentId]
+        );
+        $finance['financial_relief'] = (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId);
+
         $comments = [];
 
         return [
@@ -254,6 +266,7 @@ class StudentInsightsService
             'discipline_summary' => ['count' => count($disciplineRecords), 'records' => $disciplineRecords],
             'activities' => $activities,
             'finance_summary' => $finance,
+            'admission_interview' => $interview,
             'teacher_comments' => $comments,
             'recommendations' => [],
         ];

@@ -10,6 +10,7 @@ const newApplicationsController = {
   parents: [],
   academicYears: [],
   initialized: false,
+  modalOnly: false,
   dom: {},
 
   init: async function () {
@@ -54,12 +55,13 @@ const newApplicationsController = {
       }
 
       this.cacheDom();
+      this.modalOnly = !this.dom.applicationsTableBody;
       this.validateRequiredDom();
       this.attachEvents();
       this.setupSpecialNeedsToggle();
 
       await this.loadMetadata();
-      await this.loadApplications();
+      if (!this.modalOnly) await this.loadApplications();
 
     } catch (error) {
       console.error("Failed to initialize New Applications Controller:", error);
@@ -93,8 +95,7 @@ const newApplicationsController = {
       searchApplications: document.getElementById("searchApplications"),
 
       parentSelect: document.getElementById("parentSelect"),
-      academicYearSelect: document.getElementById("academicYearSelect"),
-      targetTermSelect: document.getElementById("targetTermSelect"),
+      admissionWindowSelect: document.getElementById("admissionWindowSelect"),
       academicYearInput: document.getElementById("academicYearInput"),
       targetTermInput: document.getElementById("targetTermInput"),
 
@@ -184,9 +185,38 @@ const newApplicationsController = {
       this.toggleDocumentRequirements(),
     );
 
-    this.safeListen("targetTermSelect", "change", () =>
-      this.syncYearFromTerm(),
-    );
+    this.safeListen("admissionWindowSelect", "change", () => this.syncAdmissionWindow());
+    this.setupTabNavigation();
+  },
+
+  setupTabNavigation: function () {
+    const modal = this.dom.newApplicationModal;
+    if (!modal) return;
+    const tabs = Array.from(modal.querySelectorAll('[data-bs-toggle="tab"]'));
+    const back = document.getElementById("applicationTabBack");
+    const next = document.getElementById("applicationTabNext");
+    const submit = this.dom.newApplicationForm?.querySelector('button[type="submit"]');
+    if (!tabs.length || !back || !next) return;
+
+    const update = () => {
+      const active = tabs.findIndex((tab) => tab.classList.contains("active"));
+      const index = active < 0 ? 0 : active;
+      back.disabled = index === 0;
+      const last = index === tabs.length - 1;
+      next.classList.toggle("d-none", last);
+      if (submit) submit.classList.toggle("d-none", !last);
+    };
+
+    tabs.forEach((tab) => tab.addEventListener("shown.bs.tab", update));
+    back.addEventListener("click", () => {
+      const active = tabs.findIndex((tab) => tab.classList.contains("active"));
+      if (active > 0) bootstrap.Tab.getOrCreateInstance(tabs[active - 1]).show();
+    });
+    next.addEventListener("click", () => {
+      const active = tabs.findIndex((tab) => tab.classList.contains("active"));
+      if (active >= 0 && active < tabs.length - 1) bootstrap.Tab.getOrCreateInstance(tabs[active + 1]).show();
+    });
+    update();
   },
 
   toggleParentType: function (isNew) {
@@ -204,7 +234,14 @@ const newApplicationsController = {
     );
 
     const parentSelect = this.dom.parentSelect;
-    if (parentSelect) parentSelect.required = !isNew;
+    if (parentSelect) {
+      parentSelect.required = !isNew;
+      // A hidden select still contributes its stale value to FormData. Clear
+      // and disable it while entering a new guardian so an old selection can
+      // never override the newly-created parent record.
+      parentSelect.disabled = isNew;
+      if (isNew) parentSelect.value = '';
+    }
 
     const docParentWrap = this.dom.newParentIdDocWrap;
     if (docParentWrap) {
@@ -310,21 +347,19 @@ const newApplicationsController = {
         this.academicYears = [{ id: yearCode, year_code: yearCode }];
       }
 
-      this.populateAcademicYearDropdown();
-      this.populateTargetTermDropdown(terms);
+      this.populateAdmissionWindowDropdown(terms);
       this.applyIntakeDefaults(terms);
     } catch (error) {
       console.error("Failed to load academic metadata:", error);
       const currentYear = new Date().getFullYear();
       const yearCode = `${currentYear}/${currentYear + 1}`;
       this.academicYears = [{ id: yearCode, year_code: yearCode }];
-      this.populateAcademicYearDropdown();
-      this.populateTargetTermDropdown([]);
+      this.populateAdmissionWindowDropdown([]);
     }
   },
 
   applyIntakeDefaults: function (terms) {
-    const intake = Array.isArray(terms) ? terms[0] : null;
+    const intake = Array.isArray(terms) ? terms.find((t) => String(t.admission_window_id || '') === String(this.dom.admissionWindowSelect?.value || '')) || terms[0] : null;
     const category = document.getElementById('admissionCategorySelect');
     if (category && intake?.default_admission_category) {
       category.value = intake.default_admission_category;
@@ -348,6 +383,37 @@ const newApplicationsController = {
     }
   },
 
+  populateAdmissionWindowDropdown: function (windows = []) {
+    this.openTerms = Array.isArray(windows) ? windows : [];
+    const select = this.dom.admissionWindowSelect;
+    if (!select) return;
+    select.innerHTML = '<option value="">Select an open admission window</option>';
+    this.openTerms.forEach((window) => {
+      const id = window.admission_window_id || window.id;
+      const term = window.term_name || window.name || window.term_number || 'Term';
+      const year = window.year_code || window.year_name || window.year || '';
+      const label = (window.admission_window_label || `${term} ${year}`).trim();
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = `${label} — ${term} ${year}`.replace(/\s+/g, ' ').trim();
+      select.appendChild(option);
+    });
+    select.disabled = this.openTerms.length === 0;
+    if (this.openTerms.length) {
+      select.value = String(this.openTerms[0].admission_window_id || this.openTerms[0].id);
+      this.syncAdmissionWindow();
+    }
+  },
+
+  syncAdmissionWindow: function () {
+    const select = this.dom.admissionWindowSelect;
+    const window = this.openTerms?.find((item) => String(item.admission_window_id || item.id) === String(select?.value || ''));
+    if (!window) return;
+    if (this.dom.targetTermInput) this.dom.targetTermInput.value = window.target_term_id || window.academic_year_term_id || '';
+    if (this.dom.academicYearInput) this.dom.academicYearInput.value = this.intakeYearFromCode(window.year_code || window.year_name || window.year);
+    this.applyIntakeDefaults([window]);
+  },
+
   loadClasses: async function () {
     try {
       let classes = [];
@@ -368,6 +434,18 @@ const newApplicationsController = {
   },
 
   populateClassSelects: function (classes) {
+    // The placement endpoint intentionally returns one row per stream. This
+    // form asks for a grade/class only, so stream rows must not become
+    // duplicate grade options (Grade 1 A/B, for example).
+    const uniqueClasses = [];
+    const seenNames = new Set();
+    classes.forEach((item) => {
+      const name = String(item.name || item.class_name || item.id || '').trim();
+      const key = name.toLowerCase();
+      if (!name || seenNames.has(key)) return;
+      seenNames.add(key);
+      uniqueClasses.push({ ...item, name });
+    });
     ['filterClass', 'gradeSelect'].forEach(selectId => {
       const select = document.getElementById(selectId);
       if (!select) return;
@@ -376,7 +454,7 @@ const newApplicationsController = {
       const firstLabel = firstOption ? firstOption.textContent : 'All Classes';
       const firstValue = firstOption ? firstOption.value : '';
       let html = `<option value="${firstValue}">${firstLabel}</option>`;
-      html += classes.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+      html += uniqueClasses.map(c => `<option value="${this.escapeHtml(c.name)}">${this.escapeHtml(c.name)}</option>`).join('');
       select.innerHTML = html;
       if (currentVal) select.value = currentVal;
     });
@@ -421,37 +499,6 @@ const newApplicationsController = {
     });
   },
 
-  populateAcademicYearDropdown: function () {
-    const select = this.dom.academicYearSelect;
-    if (!select) return;
-
-    select.innerHTML = '<option value="">Select Year</option>';
-
-    this.academicYears.forEach((year) => {
-      const value = this.intakeYearFromCode(year.year_code);
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = year.year_code;
-      select.appendChild(option);
-    });
-
-    // Default to the year of the first term once the term list is loaded;
-    // otherwise pick the first year.
-    if (this.dom.targetTermSelect && this.dom.targetTermSelect.value) {
-      const term = this.openTerms?.find(
-        (t) => String(t.target_term_id) === this.dom.targetTermSelect.value,
-      );
-      if (term) {
-        const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
-        select.value = intakeYear;
-      }
-    }
-
-    if (!select.value && this.academicYears.length > 0) {
-      select.value = this.intakeYearFromCode(this.academicYears[0].year_code);
-    }
-  },
-
   intakeYearFromCode: function (yearCode) {
     const code = String(yearCode || "");
     const match = code.match(/\d{4}/g);
@@ -459,61 +506,6 @@ const newApplicationsController = {
       return match[match.length - 1];
     }
     return match ? match[0] : String(new Date().getFullYear());
-  },
-
-  populateTargetTermDropdown: function (terms = []) {
-    this.openTerms = Array.isArray(terms) ? terms : [];
-    const select = this.dom.targetTermSelect;
-    if (!select) return;
-
-    select.innerHTML = '<option value="">Select Term</option>';
-
-    if (this.openTerms.length === 0) {
-      select.innerHTML +=
-        '<option value="" disabled>No intake windows open — ask an administrator to open one.</option>';
-      select.disabled = true;
-      return;
-    }
-
-    this.openTerms.forEach((term) => {
-      const yearLabel = term.year_code || term.year_name || "";
-      const label = `${term.term_name || term.term_number || "Term"} ${yearLabel}`.trim();
-      const option = document.createElement("option");
-      option.value = term.target_term_id ?? term.academic_year_term_id;
-      option.textContent = label;
-      select.appendChild(option);
-    });
-
-    // Default to the first (current/upcoming) open term and sync the year.
-    if (this.openTerms.length > 0) {
-      select.value = String(
-        this.openTerms[0].target_term_id ?? this.openTerms[0].academic_year_term_id,
-      );
-      select.disabled = false;
-      this.syncYearFromTerm();
-    }
-  },
-
-  syncYearFromTerm: function () {
-    const select = this.dom.targetTermSelect;
-    const yearSelect = this.dom.academicYearSelect;
-    if (!select || !yearSelect) return;
-
-    const term = this.openTerms?.find(
-      (t) => String(t.target_term_id ?? t.academic_year_term_id) === select.value,
-    );
-    if (!term) return;
-
-    const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
-    if (![...yearSelect.options].some((o) => o.value === intakeYear)) {
-      const option = document.createElement("option");
-      option.value = intakeYear;
-      option.textContent = term.year_code || intakeYear;
-      yearSelect.appendChild(option);
-    }
-    yearSelect.value = intakeYear;
-    if (this.dom.academicYearInput) this.dom.academicYearInput.value = intakeYear;
-    if (this.dom.targetTermInput) this.dom.targetTermInput.value = select.value;
   },
 
   loadApplications: async function () {
@@ -532,17 +524,22 @@ const newApplicationsController = {
       const summary = payload?.summary || {};
 
 
-      const allApplications = [];
-
-      Object.keys(queues).forEach((queueName) => {
-        if (!Array.isArray(queues[queueName])) return;
-
-        queues[queueName].forEach((application) => {
-          allApplications.push({
-            ...application,
-            queue_name: queueName,
-          });
-        });
+      // `all_applications` is the canonical list. The other arrays are
+      // workflow views of the same records; concatenating them renders one
+      // application once per stage queue.
+      const canonical = Array.isArray(queues.all_applications)
+        ? queues.all_applications
+        : Object.entries(queues).reduce((rows, [queueName, items]) => {
+            if (queueName === "all_applications" || !Array.isArray(items)) return rows;
+            items.forEach((application) => rows.push({ ...application, queue_name: queueName }));
+            return rows;
+          }, []);
+      const seen = new Set();
+      const allApplications = canonical.filter((application) => {
+        const key = String(application.id || application.application_no || '');
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
 
       this.applications = allApplications;
@@ -713,18 +710,20 @@ const newApplicationsController = {
     );
 
     const status = application.current_stage || application.status || "unknown";
+    const nextAction = this.getNextActionMeta(application);
     const statusLabel = this.escapeHtml(this.formatStatus(status));
-    const queueName = this.escapeHtml(
-      this.formatQueueName(application.queue_name),
-    );
     const createdAt = this.escapeHtml(this.formatDate(application.created_at));
+    const passportPhotoUrl = window.KingswayFileLifecycle?.resolveUrl?.(application.passport_photo_url)
+      || String(application.passport_photo_url || '').trim();
+    const passportPhoto = passportPhotoUrl && !/^\d+$/.test(passportPhotoUrl)
+      ? `<img src="${this.escapeHtml(passportPhotoUrl)}" alt="Passport photo" class="rounded-circle border me-2" style="width:34px;height:34px;object-fit:cover;vertical-align:middle;">`
+      : '';
 
     return `
       <tr>
         <td><strong>${applicationNo}</strong></td>
         <td>
-          <div class="fw-semibold">${applicantName}</div>
-          <small class="text-muted">${queueName}</small>
+          <div class="fw-semibold d-flex align-items-center">${passportPhoto}${applicantName}</div>
         </td>
         <td>${gender}</td>
         <td>${classApplied}</td>
@@ -746,14 +745,14 @@ const newApplicationsController = {
             >
               <i class="bi bi-eye"></i>
             </button>
-            <button
+            ${nextAction ? `<button
               type="button"
               class="btn btn-outline-success"
               onclick="event.preventDefault(); event.stopPropagation(); window.newApplicationsController.startIntake(${Number(id)})"
-              title="Start Intake"
+              title="${this.escapeHtml(nextAction.label)}"
             >
-              <i class="bi bi-arrow-right"></i>
-            </button>
+              <i class="bi bi-arrow-right-circle"></i>
+            </button>` : ''}
           </div>
         </td>
       </tr>
@@ -793,6 +792,27 @@ const newApplicationsController = {
     };
 
     return statusMap[status] || "secondary";
+  },
+
+  getNextActionMeta: function (application = {}) {
+    const lifecycleStatus = String(application.status || '').toLowerCase();
+    if (['enrolled', 'rejected', 'cancelled', 'withdrawn'].includes(lifecycleStatus)) return null;
+    const stage = String(application.current_stage || application.status || '').toLowerCase();
+    if (['enrolled', 'rejected', 'cancelled', 'withdrawn'].includes(stage)) return null;
+    const actions = {
+      application_applied: 'Review application',
+      application_received: 'Review application',
+      application_review: 'Continue application review',
+      interview_scheduling: 'Schedule interview',
+      interview_results: 'Record interview results',
+      student_admission_number: 'Create admission number',
+      class_placement: 'Place in class / stream',
+      fees_payment: 'Continue fees / transport / uniform payments',
+      student_id_generation: 'Generate student ID',
+      final_enrollment: 'Complete final enrollment'
+    };
+    const label = actions[stage];
+    return label ? { label } : null;
   },
 
   formatStatus: function (status) {
@@ -854,6 +874,8 @@ const newApplicationsController = {
       return;
     }
 
+    const firstTab = this.dom.newApplicationModal.querySelector('[data-bs-toggle="tab"]');
+    if (firstTab && bootstrap.Tab) bootstrap.Tab.getOrCreateInstance(firstTab).show();
     const modal = new bootstrap.Modal(this.dom.newApplicationModal);
     modal.show();
   },
@@ -902,6 +924,26 @@ const newApplicationsController = {
 
     const isNewParent = data.parent_type === "new";
 
+    // Required controls live in Bootstrap tabs and conditional document
+    // sections, so native browser validation cannot focus them reliably.
+    const requiredField = (value, message, tabId) => {
+      if (String(value || "").trim()) return true;
+      document.getElementById(tabId)?.click();
+      this.notify("error", message);
+      return false;
+    };
+    if (!requiredField(data.grade_applying_for, "Select the grade applying for.", "tab-academic") ||
+        !requiredField(data.admission_window_id, "Select an open admission application window.", "tab-academic") ||
+        (!isNewParent && !requiredField(data.parent_id, "Select the existing parent or guardian.", "tab-parent")) ||
+        (isNewParent && (!requiredField(data.new_parent_name, "Enter the new parent or guardian name.", "tab-parent") ||
+          !requiredField(data.new_parent_phone, "Enter the new parent or guardian phone number.", "tab-parent")))) {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-send me-1"></i>Submit Application';
+      }
+      return;
+    }
+
     // Documents are part of the application — never allow a submission with no
     // documents (there is no "upload documents later" workflow).
     const fileSet = new Set(files.map((f) => f.docType));
@@ -928,6 +970,9 @@ const newApplicationsController = {
     try {
       // 1. Register a new parent/guardian when one was entered manually.
       if (isNewParent) {
+        // Do not allow a hidden existing-parent selection to survive this
+        // branch and win over the new guardian returned by the API.
+        delete data.parent_id;
         const nameParts = String(data.new_parent_name || "").trim().split(/\s+/);
         const createResp = await this.apiCall("/students/parents/create", "POST", {
           first_name: nameParts[0] || "",
@@ -974,7 +1019,11 @@ const newApplicationsController = {
       // 3. Upload every submitted document through the upload API — in the same
       //    submit action, before the application is considered complete.
       const uploaded = [];
+      const existingDocumentTypes = new Set(payload?.uploaded_document_types || []);
       for (const { docType, file } of files) {
+        // A retry reuses the existing application. Do not create duplicate
+        // document rows when a previous upload already succeeded.
+        if (existingDocumentTypes.has(docType)) continue;
         const fd = new FormData();
         fd.append("application_id", applicationId);
         fd.append("document_type", docType);
@@ -1008,7 +1057,11 @@ const newApplicationsController = {
       this.dom.newApplicationForm.reset();
       this.toggleParentType(false);
       this.toggleDocumentRequirements();
-      await this.loadApplications();
+      if (this.dom.applicationsTableBody) {
+        await this.loadApplications();
+      } else if (window.admissionsWorkspaceController?.loadQueueData) {
+        await window.admissionsWorkspaceController.loadQueueData();
+      }
     } catch (error) {
       console.error("Failed to submit application:", error);
       this.notify("error", error.message || "Failed to submit application.");
@@ -1058,6 +1111,12 @@ const newApplicationsController = {
     }
 
     if (this.dom.startIntakeBtn) {
+      const nextAction = this.getNextActionMeta({ status: this.currentApplicationStatus, current_stage: this.currentApplicationStage });
+      this.dom.startIntakeBtn.hidden = !nextAction;
+      if (nextAction) {
+        this.dom.startIntakeBtn.title = nextAction.label;
+        this.dom.startIntakeBtn.innerHTML = `<i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(nextAction.label)}`;
+      }
       this.dom.startIntakeBtn.onclick = () => {
         const modal = bootstrap.Modal.getInstance(this.dom.viewApplicationModal);
         if (modal) modal.hide();
@@ -1081,9 +1140,16 @@ const newApplicationsController = {
       .join(" ") || "N/A";
     const currentStage =
       stageMeta.display_name || this.formatQueueName(stageMeta.current_stage || app.current_stage);
+    this.currentApplicationStatus = app.status || '';
+    this.currentApplicationStage = stageMeta.current_stage || app.current_stage || '';
+    const passportDocument = documents.find((document) => document.document_type === 'passport_photo');
+    const passportPhotoUrl = String(passportDocument?.file_url || passportDocument?.download_url || passportDocument?.document_path || '')
+      .replace(/^https?:\/\/[^/]+/i, '');
     const documentsHtml = documents.length
       ? documents.map((document) => {
           const status = document.verification_status || "pending";
+          const documentUrl = String(document.file_url || document.download_url || document.document_path || "")
+            .replace(/^https?:\/\/[^/]+/i, "");
           return `
             <div class="d-flex justify-content-between align-items-center border-bottom py-2">
               <div>
@@ -1094,6 +1160,9 @@ const newApplicationsController = {
                     ? '<span class="badge bg-danger ms-1">Required</span>'
                     : ""
                 }
+                ${documentUrl && !/^\d+$/.test(documentUrl) ? `
+                  <div><button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" data-kw-document-preview data-application-id="${Number(app.id || 0)}" data-document-id="${Number(document.id || 0)}" data-url="${this.escapeHtml(documentUrl)}" data-label="${this.escapeHtml(this.formatStatus(document.document_type || "Document"))}"><i class="bi bi-eye me-1"></i>View inside system</button></div>
+                ` : ""}
               </div>
               <span class="badge bg-${this.getStatusBadgeClass(status)}">
                 ${this.escapeHtml(this.formatStatus(status))}
@@ -1103,7 +1172,7 @@ const newApplicationsController = {
         }).join("")
       : '<p class="text-muted mb-0">No documents uploaded.</p>';
 
-    this.dom.viewApplicationContent.innerHTML = `
+    this.dom.viewApplicationContent.innerHTML = `${window.KingswayDetailModal?.profileHeader(app, passportPhotoUrl)}
       <div class="row g-4">
         <div class="col-lg-6">
           <h6 class="fw-semibold mb-3">Applicant Information</h6>
@@ -1150,9 +1219,11 @@ const newApplicationsController = {
           <h6 class="fw-semibold mb-3">Documents (${documents.length})</h6>
           ${documentsHtml}
         </div>
-        <div class="col-lg-6">
-          <h6 class="fw-semibold mb-3">Workflow Data</h6>
-          ${this.renderWorkflowData(workflowData)}
+        <div class="col-12">
+          <details class="border rounded-3 p-3 bg-light">
+            <summary class="fw-semibold">Additional workflow data</summary>
+            <div class="mt-3">${this.renderWorkflowData(workflowData)}</div>
+          </details>
         </div>
       </div>
     `;

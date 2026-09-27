@@ -254,6 +254,10 @@ $adSteps = [
               <input type="text" name="child_nationality" class="form-control-kw" value="Kenyan">
             </div>
             <div class="col-md-4">
+              <label class="form-label small fw-semibold">Birth Certificate Number</label>
+              <input type="text" name="birth_certificate_no" class="form-control-kw" maxlength="64" autocomplete="off" placeholder="As shown on the certificate">
+            </div>
+            <div class="col-md-4">
               <label class="form-label small fw-semibold">Grade Applying For <span class="text-danger">*</span></label>
               <select name="grade_applying" class="form-control-kw" required>
                 <option value="">Select grade</option>
@@ -352,13 +356,12 @@ $adSteps = [
               <select name="boarding_preference" class="form-control-kw" required>
                 <option value="day">Day Scholar</option>
                 <option value="full_boarding">Full Boarding (Mon – Fri)</option>
-                <option value="weekly_boarding">Weekly Boarding (Mon – Fri)</option>
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label small fw-semibold">Preferred Start Term</label>
-              <select name="preferred_start" class="form-control-kw">
-                <option value="">Select term</option>
+              <label class="form-label small fw-semibold">Admission Application Window <span class="text-danger">*</span></label>
+              <select name="admission_window_id" class="form-control-kw" required>
+                <option value="">Select an open admission window</option>
               </select>
             </div>
             <div class="col-12">
@@ -540,12 +543,14 @@ $adSteps = [
       <div class="col-lg-8">
         <div class="accordion" id="faqAccordion">
           <?php foreach ([
-            ['When is the application deadline?','Applications are accepted on a rolling basis throughout the year. However, we recommend applying early as spaces, especially for PP1, Grade 1, and Grade 7, fill up quickly. Applications for Term 1 intake should be submitted by November of the preceding year.'],
-            ['Is there an entrance exam?','Yes, applicants for Grade 2 and above sit a short placement assessment in English, Mathematics, and General Knowledge. This helps us place each child in the right class. There is no pass or fail — it is purely for placement purposes.'],
-            ['Do you offer boarding for all grades?','Full boarding is available for Grade 1 through Grade 9 (ages 6–15). PP1 and PP2 pupils are day scholars only. Half-day boarding options can be discussed with the admissions office.'],
-            ['What is the payment schedule?','Fees are due at the beginning of each term (three terms per year). We accept M-Pesa, bank transfer, and cash at the office. Payment plans are available upon request for families facing financial difficulty.'],
-            ['Do you offer bursaries or scholarships?','Yes, we have a limited number of bursaries available for academically deserving but financially needy students. Applications are reviewed each term. Download the bursary application form from our downloads page.'],
-            ['Can my child join mid-term?','Mid-term admissions are possible depending on space availability. The child will sit the placement assessment, and if space is available, they can join immediately. Contact the admissions office to check availability.'],
+            ['How do I apply for admission?','Choose an open admission application window and complete the learner, parent or guardian, academic, and document sections. The selected window determines the academic year and target term automatically; applicants do not choose those separately.'],
+            ['Which grades can apply?','Kingsway serves learners from Playgroup and pre-primary through Grade 9, within the available class and stream capacity for the selected admission window.'],
+            ['What happens after I submit an application?','The application moves through the admissions workflow: application received and review, interview where required, admission-number creation, class or stream placement, fees/transport/uniform payments, student ID generation, and final enrollment. The next action depends on the current stage.'],
+            ['Is an interview required for every learner?','No. The interview stage applies to Grade 4–9 applicants. Applications for other grades follow the applicable review and approval path without that interview gate.'],
+            ['Which documents should I prepare?','The application may require the learner’s birth certificate, passport photo, immunization card, and parent or guardian identification document. Upload clear, readable files; the admissions team verifies them during the workflow.'],
+            ['How are admission fees handled?','The fees stage covers the obligations applicable to the admission, including registration or admission charges and any selected transport or uniform items. The school confirms the current amount during the application and payment process.'],
+            ['Can I apply for any term or academic year?','Only open admission windows can be selected. Their academic year and target term are fixed by the school, so the form fills those values automatically.'],
+            ['How do parents follow up after applying?','A parent or guardian can use the parent portal when the application is linked to their account. For application questions or cases requiring staff review, contact the admissions office using the contact option below.'],
           ] as $qi => $faq): ?>
           <div class="accordion-item border rounded-3 mb-3 overflow-hidden reveal">
             <h2 class="accordion-header">
@@ -630,9 +635,9 @@ function adUpdateSummary() {
   document.getElementById('sum-grade').textContent    = get('grade_applying');
   document.getElementById('sum-parent').textContent   = get('parent_name');
   document.getElementById('sum-phone').textContent    = get('parent_phone');
-  const boardMap = {day:'Day Scholar', full_boarding:'Full Boarding', weekly_boarding:'Weekly Boarding'};
+  const boardMap = {day:'Day Scholar', full_boarding:'Full Boarding'};
   document.getElementById('sum-boarding').textContent = boardMap[get('boarding_preference')] || 'Day Scholar';
-  document.getElementById('sum-term').textContent     = get('preferred_start') || 'Not specified';
+  document.getElementById('sum-term').textContent     = f.elements['admission_window_id']?.selectedOptions?.[0]?.textContent || 'Not specified';
 }
 
 /* ── Prefill guardian details for logged-in parents applying for siblings ── */
@@ -701,11 +706,8 @@ document.getElementById('admissionForm')?.addEventListener('submit', async funct
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const fd = new FormData(this);
-  // Attach the resolved academic_year_terms.id for the chosen start term so
-  // the server records the target term directly (avoids relying on the label).
-  const termSel = document.querySelector('[name="preferred_start"]');
-  const termId = termSel?.selectedOptions?.[0]?.dataset?.termId;
-  if (termId) fd.append('target_term_id', termId);
+  const windowSel = document.querySelector('[name="admission_window_id"]');
+  if (windowSel) fd.set('admission_window_id', windowSel.value || '');
   try {
     const res  = await fetch('<?= $appBase ?>/api/public/applications', { method:'POST', body:fd });
     const json = await res.json();

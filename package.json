@@ -9,6 +9,7 @@
   "dependencies": {
     "bootstrap": "^5.3.0",
     "openai": "^6.33.0",
-    "puppeteer": "^25.3.0"
+    "puppeteer": "^25.3.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

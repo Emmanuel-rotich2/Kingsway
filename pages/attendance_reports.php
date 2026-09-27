@@ -50,7 +50,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-primary" id="arStatTotal">—</div>
-          <div class="text-muted small">Total Students</div>
+          <div class="text-muted small">Learners in selected period</div>
         </div>
       </div>
     </div>
@@ -58,7 +58,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-success" id="arStatRate">—</div>
-          <div class="text-muted small">Average Attendance Rate</div>
+          <div class="text-muted small">Attendance rate</div>
         </div>
       </div>
     </div>
@@ -66,7 +66,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-danger" id="arStatAbsent">—</div>
-          <div class="text-muted small">Absent Today</div>
+          <div class="text-muted small">Absent records in period</div>
         </div>
       </div>
     </div>
@@ -74,7 +74,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-warning" id="arStatChronic">—</div>
-          <div class="text-muted small">Chronic Absentees (&lt;80%)</div>
+          <div class="text-muted small">Learners below 80%</div>
         </div>
       </div>
     </div>
@@ -83,7 +83,7 @@
   <div class="card border-success-subtle bg-light mb-4">
     <div class="card-body py-2">
       <div class="d-flex justify-content-between align-items-center gap-2">
-        <div><strong><i class="bi bi-stars text-success me-1"></i>Attendance follow-up assistant</strong><div class="small text-muted">Summarizes authorized register exceptions and suggests staff follow-up. It does not create or change attendance records.</div></div>
+        <div><strong><i class="bi bi-stars text-success me-1"></i>Attendance follow-up assistant</strong><div class="small text-muted">Summarizes attendance exceptions and suggests staff follow-up. It does not create or change attendance records.</div></div>
         <div class="d-flex flex-wrap gap-2">
           <button type="button" class="btn btn-outline-success btn-sm" id="queueAiAttendanceSummary"><i class="bi bi-stars me-1"></i>Review today’s exceptions</button>
           <button type="button" class="btn btn-outline-primary btn-sm" id="queueAiAttendanceLateness"><i class="bi bi-graph-up-arrow me-1"></i>Review lateness pattern</button>
@@ -92,6 +92,12 @@
       <div id="aiAttendanceSummaries" class="row g-2 mt-2"></div>
       <div id="aiAttendanceLatenessReviews" class="row g-2 mt-2"></div>
     </div>
+  </div>
+
+  <div id="arRegisterAlert" class="alert alert-warning d-none mb-4" role="alert"></div>
+  <div id="arRegisterDetails" class="card border-warning d-none mb-4">
+    <div class="card-header bg-warning-subtle"><strong>Learners missing attendance by school level</strong><span class="small text-muted ms-2">Each row shows a learner, date and applicable session.</span></div>
+    <div class="list-group list-group-flush" id="arRegisterDetailsList"></div>
   </div>
 
   <!-- Tabs -->
@@ -109,10 +115,10 @@
           <thead class="table-light">
             <tr>
               <th scope="col">Class</th>
-              <th class="text-center">Enrolled</th>
-              <th class="text-center">Present Today</th>
-              <th class="text-center">Absent Today</th>
-              <th class="text-center">Term Rate</th>
+              <th class="text-center">Learners</th>
+              <th class="text-center">With present record</th>
+              <th class="text-center">With absent record</th>
+              <th class="text-center">Selected-period rate</th>
               <th scope="col">Action</th>
             </tr>
           </thead>

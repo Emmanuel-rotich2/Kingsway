@@ -16,7 +16,14 @@ class AiWorkflowService
     /** Return only workflows suitable for the authenticated staff shell. */
     public function describeForContext(array $permissions, string $route = '', string $module = 'dashboard', string $audience = 'staff', array $roleNames = []): array
     {
-        $permissions = array_map('strval', $permissions);
+        $permissions = array_values(array_filter(array_map(static function ($permission): string {
+            if (is_array($permission)) {
+                $permission = $permission['code'] ?? $permission['permission_code'] ?? $permission['name'] ?? '';
+            } elseif (is_object($permission)) {
+                $permission = $permission->code ?? $permission->permission_code ?? $permission->name ?? '';
+            }
+            return is_scalar($permission) ? trim((string) $permission) : '';
+        }, $permissions)));
         $route = strtolower(trim($route));
         $module = strtolower(trim($module));
         $routeDomains = [
@@ -37,8 +44,10 @@ class AiWorkflowService
         $roleNames = array_values(array_filter(array_map(static function ($role): string {
             if (is_array($role)) {
                 $role = $role['name'] ?? $role['role_name'] ?? '';
+            } elseif (is_object($role)) {
+                $role = $role->name ?? $role->role_name ?? '';
             }
-            return strtolower(trim((string) $role));
+            return is_scalar($role) ? strtolower(trim((string) $role)) : '';
         }, $roleNames)));
         $visible = array_values(array_filter($this->describe(), static function (array $workflow) use ($permissions, $route, $module, $audience, $routeDomains, $roleNames): bool {
             if (!in_array($audience, (array) ($workflow['audiences'] ?? ['staff']), true)) return false;

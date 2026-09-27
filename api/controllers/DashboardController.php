@@ -220,6 +220,24 @@ class DashboardController extends BaseController
     }
 
     /**
+     * GET /api/dashboard/director/full
+     * One source-of-truth aggregate for the executive dashboard.
+     */
+    public function getDirectorFull($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
+        try {
+            $service = $this->contract('App\\API\\Services\\DirectorAnalyticsService');
+            return $this->success($service->getFullDashboardData($_GET ?? []), 'Director dashboard data retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
+            return $this->serverError('Failed to fetch Director dashboard: ');
+        }
+    }
+
+    /**
      * GET /api/payments/trends
      * CEO-only: Financial trends data
      */

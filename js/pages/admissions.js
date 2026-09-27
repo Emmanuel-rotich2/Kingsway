@@ -595,23 +595,29 @@ const AdmissionsController = {
       const response = await API.admission.getOpenAdmissionTerms();
       const terms = this.unwrapList(response, 'terms');
       this.state.referenceData.openTerms = terms;
-      const termSelect = document.getElementById('targetTermSelect');
-      const yearSelect = document.getElementById('academicYearSelect');
+      const windowSelect = document.getElementById('admissionWindowSelect');
       const termInput = document.getElementById('targetTermInput');
       const yearInput = document.getElementById('academicYearInput');
-      if (!termSelect || !yearSelect || !terms.length) return;
-      termSelect.innerHTML = terms.map((term) => `<option value="${term.target_term_id}">${term.term_name || term.term_number} ${term.year_code || term.year_name}</option>`).join('');
-      termSelect.disabled = false;
-      termSelect.value = String(terms[0].target_term_id);
+      if (!windowSelect || !terms.length) return;
+      windowSelect.innerHTML = terms.map((term) => `<option value="${term.admission_window_id || term.id}">${term.admission_window_label || `${term.term_name || term.term_number} ${term.year_code || term.year_name}`}</option>`).join('');
+      windowSelect.disabled = false;
+      windowSelect.value = String(terms[0].admission_window_id || terms[0].id);
       const term = terms[0];
       const yearCode = term.year_code || term.year_name || '';
       const parts = yearCode.match(/\d{4}/g) || [];
       const year = parts.length > 1 ? parts[parts.length - 1] : parts[0];
-      yearSelect.innerHTML = `<option value="${year}">${yearCode}</option>`;
-      yearSelect.value = year;
-      yearSelect.disabled = true;
       if (termInput) termInput.value = term.target_term_id;
       if (yearInput) yearInput.value = year;
+      windowSelect.onchange = () => {
+        const selected = terms.find((item) => String(item.admission_window_id || item.id) === String(windowSelect.value));
+        if (!selected) return;
+        const code = selected.year_code || selected.year_name || '';
+        const parts = code.match(/\d{4}/g) || [];
+        if (termInput) termInput.value = selected.target_term_id || selected.academic_year_term_id || '';
+        if (yearInput) yearInput.value = parts.length > 1 ? parts[parts.length - 1] : (parts[0] || '');
+        const category = document.getElementById('admissionCategorySelect');
+        if (category && selected.default_admission_category) category.value = selected.default_admission_category;
+      };
     } catch (error) {
       console.warn('[AdmissionsController] No open admission intake:', error);
     }
@@ -1595,6 +1601,20 @@ const AdmissionsController = {
 
     const isNewParent = data.parent_type === "new";
 
+    const requiredField = (value, message, tabId) => {
+      if (String(value || "").trim()) return true;
+      document.getElementById(tabId)?.click();
+      showNotification(message, "error");
+      return false;
+    };
+    if (!requiredField(data.grade_applying_for, "Select the grade applying for.", "tab-academic") ||
+        !requiredField(data.admission_window_id, "Select an open admission application window.", "tab-academic") ||
+        (!isNewParent && !requiredField(data.parent_id, "Select the existing parent or guardian.", "tab-parent")) ||
+        (isNewParent && (!requiredField(data.new_parent_name, "Enter the new parent or guardian name.", "tab-parent") ||
+          !requiredField(data.new_parent_phone, "Enter the new parent or guardian phone number.", "tab-parent")))) {
+      return;
+    }
+
     // Documents are part of the application — never allow a submission with no
     // documents (there is no "upload documents later" workflow).
     const uploadedTypes = new Set(files.map((f) => f.fieldName));
@@ -1618,6 +1638,9 @@ const AdmissionsController = {
 
       // 0. Register a new parent/guardian when one was entered manually.
       if (isNewParent) {
+        // A hidden existing-parent select can retain its old value in
+        // FormData. It must never override the newly-created guardian.
+        delete data.parent_id;
         const nameParts = String(data.new_parent_name || "").trim().split(/\s+/);
         const createResp = await API.callAPI("/students/parents/create", "POST", {
           first_name: nameParts[0] || "",

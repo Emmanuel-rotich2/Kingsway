@@ -302,7 +302,6 @@ private const ROUTE_ROLES = [
     'my_subjects_overview' => [8],  // 1 role(s)
     'my_vehicle' => [23],  // 1 role(s)
     'national_exams' => [6],  // 1 role(s)
-    'new_applications' => [4],  // 1 role(s)
     'observation_feedback' => [9],  // 1 role(s)
     'observation_schedule' => [9],  // 1 role(s)
     'parent_meeting_records' => [7, 24, 63],  // 3 role(s)

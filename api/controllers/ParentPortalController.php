@@ -91,6 +91,84 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->getDashboard());
     }
 
+    /** POST multipart: student_id, photo. */
+    public function postStudentPhoto($id = null, $data = [], $segments = [])
+    {
+        $studentId = (int) ($id ?: ($data['student_id'] ?? 0));
+        if ($studentId < 1 || empty($_FILES['photo'])) return $this->badRequest('Student and photo are required.');
+        return $this->handleApiResponse($this->parent->submitStudentPhoto($studentId, $_FILES['photo']));
+    }
+
+    public function getStudentPhotoHistory($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->getStudentPhotoHistory((int) $id));
+    }
+
+    /**
+     * GET /api/parent-portal/admission-applications
+     */
+    public function getAdmissionApplications($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->getAdmissionApplications());
+    }
+
+    /**
+     * POST /api/parent-portal/admission-application
+     *
+     * Parent self-service admission submission. This is deliberately separate
+     * from /api/public/applications: the authenticated parent is authoritative
+     * and no parent identity fields are accepted from the browser.
+     */
+    public function postAdmissionApplication($id = null, $data = [], $segments = [])
+    {
+        $parentId = (int) ($_SERVER['auth_user']['parent_id'] ?? 0);
+        if ($parentId < 1) {
+            return $this->unauthorized('A linked parent account is required.');
+        }
+
+        $files = [];
+        foreach ([
+            'birth_certificate' => 'doc_birth_certificate',
+            'passport_photo' => 'doc_passport_photo',
+            'parent_id' => 'doc_parent_id',
+            'previous_school_report' => 'doc_previous_school_report',
+            'immunization_card' => 'doc_immunization_card',
+            'progress_report' => 'doc_progress_report',
+            'leaving_certificate' => 'doc_leaving_certificate',
+            'transfer_letter' => 'doc_transfer_letter',
+            'medical_records' => 'doc_medical_records',
+            'other' => 'doc_other',
+        ] as $type => $field) {
+            if (isset($_FILES[$field])) $files[$type] = $_FILES[$field];
+        }
+
+        $payload = [
+            'applicant_name' => trim((string) ($data['child_name'] ?? '')),
+            'date_of_birth' => trim((string) ($data['child_dob'] ?? '')),
+            'gender' => trim((string) ($data['child_gender'] ?? '')),
+            'grade_applying_for' => trim((string) ($data['grade_applying'] ?? '')),
+            'birth_certificate_no' => trim((string) ($data['birth_certificate_no'] ?? '')),
+            'boarding_preference' => trim((string) ($data['boarding_preference'] ?? 'day')),
+            'target_term_token' => trim((string) ($data['preferred_start'] ?? '')),
+            'admission_window_id' => (int) ($data['admission_window_id'] ?? 0),
+            'application_source' => 'parent_portal',
+            'parent_id' => $parentId,
+            'parent_relationship' => trim((string) ($data['parent_relationship'] ?? '')),
+            'special_needs' => trim((string) ($data['special_needs'] ?? '')),
+        ];
+
+        $result = $this->contract('App\\API\\Modules\\admission\\StudentAdmissionWorkflow')
+            ->submitApplication($payload, $files);
+        if (($result['code'] ?? 0) < 400) {
+            $application = $result['data'] ?? [];
+            return $this->created([
+                'ref' => $application['ref'] ?? $application['application_no'] ?? '',
+                'application_no' => $application['application_no'] ?? '',
+            ], $result['message'] ?? 'Application received.');
+        }
+        return $this->respond(null, $result['message'] ?? 'Submission failed.', (int) ($result['code'] ?? 422), false);
+    }
+
     /** POST /api/parent-portal/ai-assistant */
     public function postAiAssistant($id = null, $data = [], $segments = [])
     {
@@ -324,6 +402,12 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->postPortalPayment($data));
     }
 
+    /** POST /api/parent-portal/payment — router alias for the above */
+    public function postPayment($id = null, $data = [], $segments = [])
+    {
+        return $this->postPortalPayment($id, $data, $segments);
+    }
+
     /**
      * GET /api/parent-portal/messages/{studentId?}
      */
@@ -340,6 +424,15 @@ class ParentPortalController extends BaseController
     public function postSendMessage($id = null, $data = [], $segments = [])
     {
         return $this->handleApiResponse($this->parent->postSendMessage($data));
+    }
+
+    /**
+     * POST /api/parent-portal/transport-subscribe-request
+     * Body: {student_id}
+     */
+    public function postTransportSubscribeRequest($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->postTransportSubscribeRequest($data));
     }
 
     /**

@@ -2,6 +2,9 @@
 namespace App\API\Modules\website;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\AuthSessionService;
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 use Exception;
 
 /**
@@ -188,7 +191,8 @@ class WebsiteManager extends BaseAPI
                         ay.id AS academic_year_id, ayt.opening_date AS start_date,
                         ayt.closing_date AS end_date, t.code AS term_number, ayt.status,
                         aw.application_open_at, aw.application_close_at,
-                        aw.eligible_grades, aw.default_admission_category
+                        aw.eligible_grades, aw.default_admission_category,
+                        aw.label AS admission_window_label
                  FROM admission_windows aw
                  JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
                  JOIN terms t ON t.id = ayt.term_id
@@ -1883,6 +1887,59 @@ class WebsiteManager extends BaseAPI
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve an explicitly requested parent-portal binding, if any.
+     *
+     * The anonymous public admissions endpoint must not call this method. Its
+     * guardian is resolved from the submitted identity. The authenticated
+     * parent portal uses its own endpoint and binds the parent server-side.
+     *
+     * @param string $bearerHeader Full Authorization header value (may be '').
+     */
+    public function resolvePortalBindingParentId(string $bearerHeader): int
+    {
+        $bearer = trim((string) $bearerHeader);
+        if ($bearer === '') {
+            return 0;
+        }
+        $token = preg_replace('/^Bearer\s+/i', '', $bearer);
+        if ($token === '') {
+            return 0;
+        }
+
+        try {
+            $decoded = JWT::decode($token, new Key(JWT_SECRET, 'HS256'));
+        } catch (\Exception $e) {
+            return 0;
+        }
+
+        if (($decoded->iss ?? null) !== JWT_ISSUER || ($decoded->aud ?? null) !== JWT_AUDIENCE) {
+            return 0;
+        }
+
+        $parentId = (int) ($decoded->parent_id ?? 0);
+        $userId = (int) ($decoded->user_id ?? $decoded->id ?? 0);
+        if ($parentId <= 0 || $userId <= 0) {
+            return 0;
+        }
+
+        try {
+            // The token must still be an active (non-revoked) access session.
+            $session = (new AuthSessionService($this->db))->validateAccessToken($token, $userId);
+            if ($session === null) {
+                return 0;
+            }
+            $exists = $this->scalar(
+                "SELECT id FROM parents WHERE id = ? AND status = 'active'",
+                [$parentId]
+            );
+            return $exists ? $parentId : 0;
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] portal binding check failed: ' . $e->getMessage());
+            return 0;
+        }
     }
 
     private function allOrdered(string $table, string $where)

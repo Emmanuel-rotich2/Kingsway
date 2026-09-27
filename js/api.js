@@ -1432,6 +1432,7 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "students_edit",
     DELETE: "students_delete",
   },
+  "/students/import-context": "students_create",
   "/students/bulk-create": "students_create",
   "/students/bulk-update": "students_edit",
   "/students/bulk-delete": "students_delete",
@@ -2027,6 +2028,12 @@ const ENDPOINT_PERMISSIONS = {
 
   // System
   "/system/index": "system_view",
+  "/data-quality/audit": {
+    GET: ["system_view", "system.view", "data_quality_view"],
+  },
+  "/data-quality/apply": {
+    POST: ["system_manage", "system.manage", "data_quality_manage"],
+  },
   "/system/logs": { GET: "system_view", DELETE: "system_manage" },
   "/system/roles": {
     GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
@@ -3832,6 +3839,7 @@ window.API = {
         : apiCall("/students/student", "GET"),
     create: async (data) => apiCall("/students/student", "POST", data),
     addExisting: async (data) => apiCall("/students/existing-add", "POST", data),
+    getImportContext: async () => apiCall("/students/import-context", "GET"),
     importExisting: async (formData) =>
       apiCall("/students/import-existing", "POST", formData, {}, { isFile: true }),
     update: async (id, data) => apiCall(`/students/student/${id}`, "PUT", data),
@@ -3844,10 +3852,10 @@ window.API = {
         : apiCall("/students/profile-get", "GET"),
     getMyProfile: async () => apiCall("/students/my-profile", "GET"),
     getMyChildren: async () => apiCall("/students/my-children", "GET"),
-    getAttendance: async (id = null) =>
+    getAttendance: async (id = null, params = {}) =>
       id
-        ? apiCall(`/students/attendance-get/${id}`, "GET")
-        : apiCall("/students/attendance-get", "GET"),
+        ? apiCall(`/students/attendance-get/${id}`, "GET", null, params)
+        : apiCall("/students/attendance-get", "GET", null, params),
     getPerformance: async (id = null) =>
       id
         ? apiCall(`/students/performance-get/${id}`, "GET")
@@ -3956,6 +3964,10 @@ window.API = {
     // Photo
     uploadPhoto: async (formData) =>
       apiCall("/students/photo-upload", "POST", formData, {}, { isFile: true }),
+    getPhotoHistory: async (id) => apiCall(`/students/photo-history/${id}`, "GET"),
+    getPendingPhotos: async () => apiCall("/students/photo-pending", "GET"),
+    approvePhoto: async (id, reason = "") => apiCall(`/students/photo-approve/${id}`, "POST", { reason }),
+    rejectPhoto: async (id, reason) => apiCall(`/students/photo-reject/${id}`, "POST", { reason }),
 
     // Transfer workflow
     startTransferWorkflow: async (data) =>
@@ -7191,6 +7203,12 @@ window.API = {
     getAiReadiness: async () => apiCall("/system/ai-readiness", "GET"),
     getAiProviderHealth: async () => apiCall("/system/ai-provider-health", "GET"),
     queueAiSecurityReview: async () => apiCall("/system/ai-security-review-queue", "POST", {}),
+
+    // Data-quality governance (read-only audit + approval-gated apply)
+    dataQualityAudit: async (params = {}) =>
+      apiCall("/data-quality/audit", "GET", null, params),
+    dataQualityApply: async (fixes = []) =>
+      apiCall("/data-quality/apply", "POST", { confirm: "APPLY_DATA_QUALITY_FIXES", fixes }),
     queueAiOperationsReview: async () =>
       apiCall("/system/ai-operations-review-queue", "POST", {}),
     getAiOperationsReviews: async (scope = "own") =>
@@ -7440,6 +7458,9 @@ window.API = {
 
     getDirectorSummary: async () => {
       return await apiCall("/dashboard/director/summary", "GET");
+    },
+    getDirectorFull: async (params = {}) => {
+      return await apiCall("/dashboard/director/full", "GET", null, params);
     },
     getPaymentsTrends: async () => {
       return await apiCall("/payments/trends", "GET");

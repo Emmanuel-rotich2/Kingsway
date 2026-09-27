@@ -13,7 +13,8 @@ require __DIR__ . '/_head.php';
     </div>
     <div class="pp-card-body">
       <p class="text-muted mb-4">Every child linked to your family account. Select a child to explore fees, results, attendance, messages, documents and transport.</p>
-      <div class="row" id="ppChildrenCards"></div>
+      <div id="ppPendingAdmissions" class="pp-pending-admissions d-none mb-4"></div>
+      <div class="pp-child-grid" id="ppChildrenCards"></div>
     </div>
   </div>
 </div>

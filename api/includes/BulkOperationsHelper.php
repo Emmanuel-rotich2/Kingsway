@@ -9,7 +9,7 @@ use Exception;
 class BulkOperationsHelper
 {
     private $db;
-    private $allowedExtensions = ['csv', 'xlsx', 'xls'];
+    private $allowedExtensions = ['csv', 'xlsx', 'xls', 'ods'];
     private $maxFileSize = 5242880; // 5MB
 
     public function __construct($db)
@@ -29,25 +29,54 @@ class BulkOperationsHelper
             $tempFile = $file['tmp_name'];
 
             try {
-                // Load the spreadsheet
-                $spreadsheet = IOFactory::load($tempFile);
-                $worksheet = $spreadsheet->getActiveSheet();
-                $rows = $worksheet->toArray();
+                if ($extension === 'csv') {
+                    $handle = fopen($tempFile, 'rb');
+                    if (!$handle) {
+                        throw new Exception('Unable to read uploaded CSV file');
+                    }
+                    $firstLine = fgets($handle);
+                    if ($firstLine === false) {
+                        fclose($handle);
+                        throw new Exception('File is empty');
+                    }
+                    $delimiter = $this->detectCsvDelimiter($firstLine);
+                    rewind($handle);
+                    $rows = [];
+                    while (($row = fgetcsv($handle, 0, $delimiter, '"', '')) !== false) {
+                        if (isset($row[0])) {
+                            $row[0] = preg_replace('/^\\xEF\\xBB\\xBF/', '', (string) $row[0]);
+                        }
+                        $rows[] = $row;
+                    }
+                    fclose($handle);
+                } else {
+                    $rows = $this->readOfficeSpreadsheet($tempFile);
+                }
 
                 if (empty($rows)) {
                     throw new Exception('File is empty');
                 }
 
                 // First row is headers
-                $headers = array_map('strtolower', array_map('trim', $rows[0]));
+                $headers = array_map(static fn($header) => strtolower(trim((string) $header)), $rows[0]);
+                $columns = [];
+                foreach ($headers as $index => $header) {
+                    if ($header !== '') $columns[] = $index;
+                }
+                if (!$columns) {
+                    throw new Exception('The uploaded file has no column headers');
+                }
+                $headers = array_map(static fn($index) => $headers[$index], $columns);
                 $data = [];
 
                 // Process each row
                 for ($i = 1; $i < count($rows); $i++) {
-                    if (count($rows[$i]) !== count($headers)) {
-                        continue; // Skip malformed rows
+                    $sourceValues = $rows[$i];
+                    $values = array_map(static fn($column) => $sourceValues[$column] ?? null, $columns);
+                    $row = array_combine($headers, $values);
+                    if (!$row || !array_filter($row, static fn($value) => trim((string) $value) !== '')) {
+                        continue;
                     }
-                    $row = array_combine($headers, $rows[$i]);
                     $data[] = $row;
                 }
 
@@ -65,6 +94,80 @@ class BulkOperationsHelper
                 'message' => 'An internal error occurred.'
             ];
         }
+    }
+
+    private function detectCsvDelimiter(string $line): string
+    {
+        $best = ',';
+        $bestCount = 0;
+        foreach ([',', ';', "\t"] as $delimiter) {
+            $count = count(str_getcsv($line, $delimiter, '"', ''));
+            if ($count > $bestCount) {
+                $best = $delimiter;
+                $bestCount = $count;
+            }
+        }
+        return $best;
+    }
+
+    /**
+     * Read workbooks through PhpSpreadsheet installed by Composer. The active
+     * web PHP runtime must have ext-zip enabled; composer.json declares this
+     * platform requirement so deployment fails early when it is unavailable.
+     */
+    private function readOfficeSpreadsheet(string $file): array
+    {
+        if (!class_exists('ZipArchive') && function_exists('proc_open')) {
+            // Development-only compatibility for local Apache builds whose
+            // PHP SAPI lacks ext-zip while the matching CLI has it. Production
+            // hosting should satisfy composer.json's ext-zip requirement.
+            $binaryCandidates = array_unique(array_filter([
+                PHP_BINDIR . '/php',
+                '/usr/bin/php' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION,
+                '/usr/bin/php',
+            ], static fn($path) => is_file($path) && is_executable($path)));
+            $readerCode = <<<'PHP'
+require $argv[1];
+$workbook = \PhpOffice\PhpSpreadsheet\IOFactory::load($argv[2]);
+$rows = $workbook->getActiveSheet()->toArray(null, true, false, false);
+echo json_encode($rows, JSON_THROW_ON_ERROR);
+PHP;
+            $autoload = dirname(__DIR__, 2) . '/vendor/autoload.php';
+
+            foreach ($binaryCandidates as $binary) {
+                $probe = $this->runCli([$binary, '-r', 'exit(class_exists("ZipArchive") ? 0 : 1);']);
+                if ($probe['exit_code'] !== 0) {
+                    continue;
+                }
+                $result = $this->runCli([$binary, '-r', $readerCode, $autoload, $file]);
+                if ($result['exit_code'] !== 0) {
+                    throw new Exception('Unable to decode uploaded spreadsheet');
+                }
+                $rows = json_decode($result['stdout'], true);
+                if (!is_array($rows)) {
+                    throw new Exception('Spreadsheet reader returned invalid data');
+                }
+                return $rows;
+            }
+        }
+
+        $spreadsheet = IOFactory::load($file);
+        return $spreadsheet->getActiveSheet()->toArray(null, true, false, false);
+    }
+
+    private function runCli(array $command): array
+    {
+        $pipes = [];
+        $process = @proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            return ['exit_code' => 1, 'stdout' => '', 'stderr' => ''];
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        return ['exit_code' => proc_close($process), 'stdout' => (string) $stdout, 'stderr' => (string) $stderr];
     }
 
     /**

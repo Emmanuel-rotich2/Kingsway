@@ -717,8 +717,16 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 'configure_operational_context' => 'current_year_readiness',
                 'current_year_readiness' => 'close_current_year_terms',
                 'close_current_year_terms' => 'review_promotion_candidates',
+                'carry_forward_finances' => 'generate_obligations',
+                'generate_obligations' => 'reconcile_balances',
+                'reconcile_balances' => 'migrate_baselines',
             ][$stageCode] ?? null;
             if (!$next) return formatResponse(false, null, 'This stage has a dedicated workflow action.');
+
+            if (in_array($stageCode, ['carry_forward_finances','generate_obligations','reconcile_balances'], true)) {
+                $financeResult = $this->runFinanceRolloverStage($stageCode, $data);
+                $data['finance_rollover'][$stageCode] = array_merge($financeResult, ['completed_at' => date('Y-m-d H:i:s')]);
+            }
 
             if ($stageCode === 'approve_fee_structures') {
                 $stmt = $this->db->prepare(
@@ -740,10 +748,114 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             }
             $data['canonical_stage_notes'][$stageCode] = ['notes' => $notes, 'completed_at' => date('Y-m-d H:i:s')];
             $this->advanceStage($instance_id, $next, $notes ?: "Completed {$stageCode}", $data);
-            return formatResponse(true, ['current_stage' => $next], 'Stage completed');
+            return formatResponse(true, array_merge(['current_stage' => $next], isset($financeResult) ? ['finance_rollover' => [$stageCode => $financeResult]] : []), 'Stage completed');
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    /** Run an idempotent finance step only for learners actively promoted into the target year. */
+    private function runFinanceRolloverStage(string $stage, array $data): array
+    {
+        $fromId = $this->resolveYearIdFromCode($data['from_year_code'] ?? $data['from_year'] ?? 0);
+        $toId = (int)($data['academic_year_id'] ?? 0);
+        if (!$fromId || !$toId) throw new Exception('Rollover source or target academic year is missing');
+        if ($stage === 'carry_forward_finances') {
+            $rows = $this->db->prepare(
+                "SELECT target.student_id, ROUND(SUM(vfb.balance),2) AS balance
+                 FROM student_academic_enrollments target
+                 JOIN student_transitions st ON st.to_student_academic_enrollment_id=target.id
+                    AND st.academic_year_id=? AND st.transition_type='promotion'
+                 JOIN vw_student_fee_balances vfb ON vfb.student_id=target.student_id AND vfb.academic_year_id=?
+                 WHERE target.academic_year_id=? AND target.enrollment_status='active'
+                 GROUP BY target.student_id"
+            );
+            $rows->execute([$toId,$fromId,$toId]);
+            $save = $this->db->prepare(
+                "INSERT INTO student_fee_rollover_balances
+                 (student_id,from_academic_year_id,to_academic_year_id,source_balance,arrears_carried,credit_carried)
+                 VALUES (?,?,?,?,GREATEST(?,0),GREATEST(-?,0))
+                 ON DUPLICATE KEY UPDATE source_balance=VALUES(source_balance),arrears_carried=VALUES(arrears_carried),credit_carried=VALUES(credit_carried)"
+            );
+            $count=0;
+            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $balance=(float)$row['balance'];
+                $save->execute([(int)$row['student_id'],$fromId,$toId,$balance,$balance,$balance,$balance]);
+                $count++;
+            }
+            return ['learners_recorded'=>$count];
+        }
+        if ($stage === 'generate_obligations') {
+            $bundles=$this->db->prepare(
+                "SELECT DISTINCT ayfs.academic_year_term_id,ayfs.student_type_id
+                 FROM academic_year_fee_schedules ayfs
+                 WHERE ayfs.academic_year_id=? AND ayfs.status='active'
+                 ORDER BY ayfs.academic_year_term_id,ayfs.student_type_id"
+            );
+            $bundles->execute([$toId]);
+            $feeManager = new \App\API\Modules\finance\FeeManager();
+            $processed=0;
+            foreach ($bundles->fetchAll(PDO::FETCH_ASSOC) as $bundle) {
+                $result=$feeManager->activateAndGenerateObligations(null,(int)substr((string)($data['to_year_code'] ?? $data['academic_year_code'] ?? ''),0,4),(int)$bundle['academic_year_term_id'],(int)$bundle['student_type_id'],(int)$this->user_id);
+                if (isset($result['status']) && $result['status']==='error') throw new Exception($result['message'] ?? 'Could not generate target-year fee obligations');
+                $processed++;
+            }
+            return ['fee_bundles_processed'=>$processed];
+        }
+        $records=$this->db->prepare(
+            "SELECT r.*, ay.year_code FROM student_fee_rollover_balances r
+             JOIN academic_years ay ON ay.id=r.to_academic_year_id
+             WHERE r.from_academic_year_id=? AND r.to_academic_year_id=? AND r.reconciled_at IS NULL"
+        );
+        $records->execute([$fromId,$toId]);
+        $done=0;
+        foreach ($records->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $studentId=(int)$row['student_id'];
+            $target=$this->db->prepare(
+                "SELECT MIN(sfo.id) AS id,GREATEST(COALESCE(vfb.balance,0),0) AS outstanding,
+                        sfo.academic_year_term_id
+                 FROM student_fee_obligations sfo JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                 LEFT JOIN vw_student_fee_balances vfb ON vfb.student_academic_enrollment_id=sae.id AND vfb.academic_year_term_id=sfo.academic_year_term_id
+                 JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
+                 WHERE sae.student_id=? AND sae.academic_year_id=? AND sae.enrollment_status='active'
+                 GROUP BY sfo.academic_year_term_id,vfb.balance
+                 ORDER BY ayt.opening_date,MIN(sfo.id)"
+            );
+            $target->execute([$studentId,$toId]);
+            $obligations=$target->fetchAll(PDO::FETCH_ASSOC);
+            if (!$obligations && ((float)$row['arrears_carried']>0 || (float)$row['credit_carried']>0)) throw new Exception('Target-year obligations are missing; complete Generate new-year obligations first');
+            if ((float)$row['arrears_carried']>0 && $obligations) {
+                $this->db->prepare("UPDATE student_fee_obligations SET opening_arrears_amount=GREATEST(COALESCE(opening_arrears_amount,0),?),updated_at=NOW() WHERE id=?")
+                    ->execute([(float)$row['arrears_carried'],(int)$obligations[0]['id']]);
+            }
+            $credit=(float)$row['credit_carried'];
+            if ($credit>0 && $obligations) {
+                $noteId=(int)($row['fee_credit_note_id'] ?? 0);
+                if (!$noteId) {
+                    $number='ROL-'.substr(hash('sha256',$studentId.':'.$fromId.':'.$toId),0,20);
+                    $this->db->prepare(
+                        "INSERT INTO fee_credit_notes (credit_number,student_id,academic_year,credit_amount,credit_reason,notes,created_by)
+                         VALUES (?,?,?,?,'overpayment','Carried forward from academic-year rollover',?)"
+                    )->execute([$number,$studentId,(int)substr($row['year_code'],0,4)-1,$credit,(int)$this->user_id]);
+                    $noteId=(int)$this->db->lastInsertId();
+                    $this->db->prepare("UPDATE student_fee_rollover_balances SET fee_credit_note_id=? WHERE id=?")->execute([$noteId,(int)$row['id']]);
+                }
+                $allocated=0.0;
+                foreach ($obligations as $obligation) {
+                    $piece=min($credit-$allocated,max(0,(float)$obligation['outstanding']));
+                    if ($piece<=0) continue;
+                    $this->db->prepare("INSERT INTO fee_credit_applications (fee_credit_note_id,student_fee_obligation_id,applied_amount,applied_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE applied_amount=GREATEST(applied_amount,VALUES(applied_amount))")
+                        ->execute([$noteId,(int)$obligation['id'],$piece,(int)$this->user_id]);
+                    $allocated=round($allocated+$piece,2);
+                    if ($allocated >= $credit) break;
+                }
+                if ($allocated>0) $this->db->prepare("UPDATE fee_credit_notes SET applied_amount=?,applied_to_year=?,applied_at=NOW(),status=CASE WHEN ?>=credit_amount THEN 'fully_applied' ELSE 'partially_applied' END WHERE id=?")
+                    ->execute([$allocated,(int)substr($row['year_code'],0,4),$allocated,$noteId]);
+            }
+            $this->db->prepare("UPDATE student_fee_rollover_balances SET reconciled_at=NOW() WHERE id=?")->execute([(int)$row['id']]);
+            $done++;
+        }
+        return ['learners_reconciled'=>$done];
     }
 
     /** Save one or many administrator stream assignments. */

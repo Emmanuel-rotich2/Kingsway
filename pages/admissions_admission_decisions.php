@@ -271,8 +271,11 @@ if ($appBase === '.')
 </div>
 
 <!-- View Application Modal -->
-<div class="modal fade" id="viewApplicationModal" tabindex="-1">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+<link rel="stylesheet" href="<?= htmlspecialchars($appBase ?? '/Kingsway', ENT_QUOTES, 'UTF-8') ?>/css/detail-modals.css?v=20260923">
+<?php asset_script($appBase, 'js/utils/detail_modal.js'); ?>
+<?php asset_script($appBase, 'js/utils/document_preview.js'); ?>
+<div class="modal fade kw-detail-modal" id="viewApplicationModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title"><i class="bi bi-person-badge me-2"></i>Application Details</h5>
@@ -302,4 +305,3 @@ if ($appBase === '.')
     onload="console.log('admissions_admission_decisions.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_admission_decisions.js. Check path:', this.src)">
 </script>
-

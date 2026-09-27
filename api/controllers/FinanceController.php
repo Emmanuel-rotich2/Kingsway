@@ -2588,8 +2588,12 @@ return $this->error('An internal error occurred.');
         if ($applyAmount <= 0) {
             return $this->badRequest('apply_amount must be greater than zero');
         }
-        $this->crud->applyFeeCredit((int)$id, $applyAmount, $data);
-        return $this->success(['applied' => $applyAmount]);
+        try {
+            $applied = $this->crud->applyFeeCredit((int)$id, $applyAmount, $data, (int)$this->getUserId());
+            return $this->success(['applied' => $applied]);
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
     }
 
     // ==================== SALARY ADVANCES ====================

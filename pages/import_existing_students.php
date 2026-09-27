@@ -1,6 +1,6 @@
 <?php
 /**
- * Import Existing Students Page
+ * Add Multiple Existing Students Page
  * HTML structure only - logic in js/pages/import_existing_students.js
  * Embedded in app_layout.php
  */
@@ -8,41 +8,42 @@
 
 <div class="card shadow">
   <div class="card-header bg-primary text-white">
-    <h2 class="mb-0">📥 Import Existing Students</h2>
+    <h2 class="mb-0">➕ Add Multiple Students</h2>
   </div>
   <div class="card-body">
     <div class="alert alert-info" role="alert">
-      <strong>Supported Format:</strong> Upload CSV or Excel using the template below.
-      Required columns include: `admission_no`, `first_name`, `last_name`, `date_of_birth`,
-      `gender`, `class_id`, `stream_name`, `student_type_id`, `admission_date`.
+      <strong>Supported Format:</strong> Add multiple students using CSV or Excel.
+      Required columns are the learner's name, date of birth, gender, class, student type,
+      status, parent relationship, parent names, and primary parent phone.
       <br><strong>Date format:</strong> Use <code>YYYY-MM-DD</code> for date fields.
-      Use the numeric class and student-type IDs supplied by the school setup;
-      if a class has multiple streams, ensure <code>stream_name</code> matches
-      an existing stream exactly. The import does not create default streams.
-      <br><strong>Finance migration:</strong> The Excel template includes cumulative academic-year paid,
-      current-term paid, arrears, and advance fields. The current-term amount is applied once;
-      the cumulative amount is retained as historical context. Do not also enter
-      <code>opening_payment_amount</code> when using these finance fields.
+      The Excel sheet provides dropdowns for class, stream, student type, status, gender, and relationship.
+      Enter names instead of database IDs. A blank stream is placed in stream A.
+      Admission number is optional: enter <code>400</code> and it is stored as <code>KPS400</code>; leave it blank to continue from the latest KPS number.
+      <br><strong>Optional:</strong> KNEC number, NEMIS number, and confirmed amounts paid this academic year
+      and current term. Transport, sponsorship, waivers, photos, blood group, and other details are added later
+      by the accountant, school administrator, director, or another authorised staff member.
+      Confirmed paid amounts update the learner's fee obligations and do not create duplicate payments.
     </div>
 
     <div class="mb-3">
-      <button type="button" class="btn btn-outline-primary" onclick="window.open((window.APP_BASE || '') + '/templates/student_import_template.xlsx', '_blank')">
-        Download Excel Template
-      </button>
-      <a class="btn btn-link" href="<?= $appBase ?>/templates/student_import_template.csv" target="_blank">CSV version</a>
+      <div class="btn-group" role="group" aria-label="Download student import template">
+        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.xlsx" download>Excel (.xlsx)</a>
+        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.csv" download>CSV (.csv)</a>
+        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.ods" download>OpenDocument (.ods)</a>
+      </div>
     </div>
 
     <form id="importForm" enctype="multipart/form-data">
       <div class="mb-3">
         <label class="form-label">Select File (CSV or Excel)</label>
-        <input type="file" id="importFile" class="form-control" accept=".csv,.xlsx,.xls" required>
+        <input type="file" id="importFile" class="form-control" accept=".csv,.xlsx,.xls,.ods" required>
         <small class="text-muted">Maximum file size: 5MB</small>
       </div>
       <div class="mb-3 form-check">
         <input type="checkbox" id="skipHeader" class="form-check-input">
         <label class="form-check-label" for="skipHeader">First row contains column headers</label>
       </div>
-      <button type="submit" class="btn btn-primary">Import Students</button>
+      <button type="submit" class="btn btn-primary">Add Students</button>
     </form>
 
     <!-- Progress Section -->

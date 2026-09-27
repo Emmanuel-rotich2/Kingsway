@@ -116,7 +116,7 @@ require __DIR__ . '/_head.php';
           </div>
           <div class="mb-3">
             <label class="form-label fw-semibold">M-Pesa phone number</label>
-            <input type="tel" id="storeCheckoutPhone" class="form-control" placeholder="2547XXXXXXXX">
+            <input type="tel" id="storeCheckoutPhone" class="form-control" placeholder="2547XXXXXXXX" data-phone-canonical>
             <div class="form-text">Only needed for M-Pesa. Enter the number registered with M-Pesa.</div>
           </div>
           <div class="mb-3">

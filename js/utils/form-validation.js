@@ -5,7 +5,9 @@
  * Gives immediate feedback to users before API calls
  */
 
-const FormValidation = {
+// Use a reusable global so page fragments loaded by the authenticated shell
+// cannot throw a second-declaration error when they include this utility.
+var FormValidation = window.FormValidation || {
     /**
      * Validate email format
      */
@@ -362,8 +364,457 @@ const FormValidation = {
                 </small>
             `;
         });
+    },
+
+    // ---- data-kw-validate self-binding kernel (shared with backend FieldCleaner) ----
+
+    /**
+     * Validate a personal name (letters/spaces/hyphens/apostrophes only).
+     *
+     * Mirrors backend FieldCleaner::cleanName: collapses whitespace, rejects
+     * digits/symbols, and returns the title-cased canonical value.
+     *
+     * @param {string} value raw input
+     * @param {string} [fieldName='Name']
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validatePersonName(value, fieldName = 'Name') {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: `${fieldName} is required` };
+        }
+
+        const collapsed = value.trim().replace(/\s{2,}/g, ' ');
+
+        if (!/^[a-zA-Z'’\s\-]+$/.test(collapsed)) {
+            return { valid: false, error: `${fieldName} can only contain letters, spaces, hyphens, and apostrophes (no digits or symbols)` };
+        }
+
+        const titleCased = collapsed.replace(/(^|[\s'’\-])([a-z])/g, (m, sep, letter) => sep + letter.toUpperCase());
+
+        return { valid: true, value: titleCased };
+    },
+
+    /**
+     * Validate a date of birth: parseable and STRICTLY in the past.
+     *
+     * Rejects today and future dates because a date of birth can never be today.
+     * Also rejects implausibly old dates (before 1900) to catch typo'd years.
+     *
+     * @param {string} value
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validateDob(value) {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: 'Date of birth is required' };
+        }
+
+        const d = new Date(value);
+        if (isNaN(d.getTime())) {
+            return { valid: false, error: 'Enter a valid date of birth' };
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        d.setHours(0, 0, 0, 0);
+
+        if (d >= today) {
+            return { valid: false, error: 'Date of birth must be in the past (not today or future)' };
+        }
+
+        if (d.getFullYear() < 1900) {
+            return { valid: false, error: 'Enter a valid date of birth' };
+        }
+
+        return { valid: true, value };
+    },
+
+    /**
+     * Validate any date that must not be today or in the future.
+     *
+     * @param {string} value
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validateNotFuture(value) {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: 'Date is required' };
+        }
+
+        const d = new Date(value);
+        if (isNaN(d.getTime())) {
+            return { valid: false, error: 'Enter a valid date' };
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        d.setHours(0, 0, 0, 0);
+
+        if (d > today) {
+            return { valid: false, error: 'Date must not be in the future' };
+        }
+
+        return { valid: true, value };
+    },
+
+    /**
+     * Canonicalize a Kenyan phone number to 2547XXXXXXXX.
+     *
+     * Mirrors PhoneNumberNormalizer: accepts 07XX, +2547XX, 2547XX; strips
+     * spaces/dashes/plus; returns null when it is not a 2547 number.
+     *
+     * @param {string} value
+     * @returns {string|null}
+     */
+    canonicalizePhone(value) {
+        if (!value) return null;
+        let digits = String(value).replace(/[^0-9]/g, '');
+        if (digits.length === 9 && digits.startsWith('7')) {
+            digits = '254' + digits;
+        }
+        if (digits.startsWith('0')) {
+            digits = '254' + digits.slice(1);
+        }
+        return /^2547[0-9]{8}$/.test(digits) ? digits : null;
+    },
+
+    /**
+     * Validate a Kenyan national ID / passport number.
+     *
+     * Mirrors backend FieldCleaner::cleanNationalId: digits only (separators
+     * stripped), 5-12 characters; a value containing letters is rejected
+     * rather than silently rewritten.
+     *
+     * @param {string} value
+     * @param {string} [fieldName='National ID / Passport']
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validateNationalId(value, fieldName = 'National ID / Passport') {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: `${fieldName} is required` };
+        }
+        const cleaned = String(value).replace(/[\s\-.\/]+/g, '').trim();
+        if (!/^[0-9]+$/.test(cleaned)) {
+            return { valid: false, error: `${fieldName} must be digits only (5-12 characters)` };
+        }
+        if (cleaned.length < 5 || cleaned.length > 12) {
+            return { valid: false, error: `${fieldName} must contain 5-12 digits` };
+        }
+        return { valid: true, value: cleaned };
+    },
+
+    /**
+     * Validate a free-text address.
+     *
+     * Mirrors backend FieldCleaner::cleanAddress: trims, collapses internal
+     * whitespace, allows letters/digits and common address punctuation.
+     *
+     * @param {string} value
+     * @param {string} [fieldName='Address']
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validateAddress(value, fieldName = 'Address') {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: `${fieldName} is required` };
+        }
+        const collapsed = String(value).trim().replace(/\s{2,}/g, ' ');
+        if (collapsed.length > 120) {
+            return { valid: false, error: `${fieldName} must not exceed 120 characters` };
+        }
+        if (!/^[a-zA-Z0-9'’&@\/.,#()\s\-]+$/.test(collapsed)) {
+            return { valid: false, error: `${fieldName} contains characters that are not allowed` };
+        }
+        return { valid: true, value: collapsed };
+    },
+
+    /**
+     * Validate a Kenyan phone number.
+     *
+     * @param {string} value
+     * @param {string} [fieldName='Phone number']
+     * @returns {{valid: boolean, error?: string, value?: string}}
+     */
+    validatePhone(value, fieldName = 'Phone number') {
+        if (!value || value.trim() === '') {
+            return { valid: false, error: `${fieldName} is required` };
+        }
+        const canonical = this.canonicalizePhone(value);
+        if (!canonical) {
+            return { valid: false, error: 'Enter a valid Kenyan phone number (e.g., 0712 345 678)' };
+        }
+        return { valid: true, value: canonical };
+    },
+
+    /**
+     * Resolve the validator(s) declared by a field's data-kw-validate attribute.
+     *
+     * @param {string} attrValue e.g. "name" or "dob,phone"
+     * @returns {string[]}
+     */
+    validatorsFromAttr(attrValue) {
+        return String(attrValue || '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+    },
+
+    /**
+     * Run all declared validators for one field.
+     *
+     * @param {HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement} field
+     * @returns {{valid: boolean, error?: string, value?: any}}
+     */
+    runFieldValidators(field) {
+        const validators = this.validatorsFromAttr(field.dataset.kwValidate);
+        const required = field.required;
+
+        // Optional (unrequired) fields may be left blank.
+        if (!required && !String(field.value).trim()) {
+            return { valid: true, value: field.value };
+        }
+
+        for (const name of validators) {
+            let result;
+            if (name === 'name') {
+                result = this.validatePersonName(field.value, this.fieldLabel(field));
+            } else if (name === 'email') {
+                result = this.validateEmail(field.value);
+            } else if (name === 'phone') {
+                result = this.validatePhone(field.value, this.fieldLabel(field));
+            } else if (name === 'national_id') {
+                result = this.validateNationalId(field.value, this.fieldLabel(field));
+            } else if (name === 'address') {
+                result = this.validateAddress(field.value, this.fieldLabel(field));
+            } else if (name === 'dob') {
+                result = this.validateDob(field.value);
+            } else if (name === 'not_future') {
+                result = this.validateNotFuture(field.value);
+            } else {
+                continue;
+            }
+
+            if (!result.valid) {
+                return result;
+            }
+            // Apply the canonical value from any passing validator in place.
+            if (result.value !== undefined && String(field.value) !== result.value) {
+                field.value = result.value;
+            }
+        }
+
+        return { valid: true, value: field.value };
+    },
+
+    /**
+     * Human label for a field (from name attribute, best effort).
+     */
+    fieldLabel(field) {
+        const name = field.name || field.id || '';
+        return name
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/^\w/, c => c.toUpperCase()) || 'Field';
+    },
+
+    /**
+     * Show an inline error on a field element (Bootstrap invalid-feedback).
+     */
+    showElementError(field, message) {
+        field.classList.add('is-invalid');
+        field.classList.remove('is-valid');
+
+        const parent = field.closest('.form-group, .mb-3, .form-field') || field.parentElement;
+        let error = parent ? parent.querySelector('.invalid-feedback') : null;
+        if (!error) {
+            error = document.createElement('div');
+            error.className = 'invalid-feedback';
+            if (parent) {
+                parent.appendChild(error);
+            } else {
+                field.after(error);
+            }
+        }
+        error.textContent = message;
+    },
+
+    /**
+     * Clear an inline error on a field element.
+     */
+    clearElementError(field) {
+        field.classList.remove('is-invalid');
+        const parent = field.closest('.form-group, .mb-3, .form-field') || field.parentElement;
+        if (parent) {
+            const error = parent.querySelector('.invalid-feedback');
+            if (error) {
+                error.remove();
+            }
+        }
+    },
+
+    /**
+     * Validate an entire form by scanning data-kw-validate fields.
+     *
+     * @param {HTMLFormElement} form
+     * @returns {boolean} true when the form is valid
+     */
+    validateForm(form) {
+        const fields = form.querySelectorAll('[data-kw-validate]');
+        let firstInvalid = null;
+        let isValid = true;
+
+        fields.forEach(field => {
+            if (field.disabled || field.readOnly) return;
+            const result = this.runFieldValidators(field);
+            if (result.valid) {
+                this.clearElementError(field);
+            } else {
+                this.showElementError(field, result.error);
+                isValid = false;
+                if (!firstInvalid) firstInvalid = field;
+            }
+        });
+
+        if (!isValid && firstInvalid) {
+            firstInvalid.focus();
+        }
+        return isValid;
+    },
+
+    /** @type {Set<HTMLFormElement>} forms opted into self-binding */
+    _boundForms: null,
+
+    /**
+     * Bind the self-loading kernel: intercept submit and auto-validate.
+     *
+     * Forms opt in by carrying at least one
+     * data-kw-validate field. Valid forms are not blocked; the regular submit
+     * handler proceeds. Invalid forms are stopped with errors shown inline.
+     *
+     * Uses a single document-level capture listener (once) so validation runs
+     * BEFORE any inline onsubmit/controller handler and can block it.
+     *
+     * @param {HTMLFormElement} form
+     */
+    bindForm(form) {
+        if (!form) return;
+        if (!this._boundForms) {
+            this._boundForms = new Set();
+            this._installGlobalSubmitInterceptor();
+            this._installGlobalBlurFeedback();
+        }
+        this._boundForms.add(form);
+    },
+
+    _installGlobalSubmitInterceptor() {
+        const self = this;
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!form || typeof form.matches !== 'function' || !form.matches('form')) return;
+            if (!self._boundForms || !self._boundForms.has(form)) return;
+            if (!form.querySelector('[data-kw-validate]')) return;
+            if (!self.validateForm(form)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        }, true);
+    },
+
+    _installGlobalBlurFeedback() {
+        const self = this;
+        document.addEventListener('focusout', (event) => {
+            const field = event.target;
+            if (!field || typeof field.matches !== 'function') return;
+            if (!field.matches('[data-kw-validate]')) return;
+            if (!self._boundForms) return;
+            const form = field.form;
+            if (!form || !self._boundForms.has(form)) return;
+
+            if (!String(field.value).trim()) {
+                if (field.required) {
+                    self.showElementError(field, `${self.fieldLabel(field)} is required`);
+                } else {
+                    self.clearElementError(field);
+                }
+                return;
+            }
+            const result = self.runFieldValidators(field);
+            if (result.valid) {
+                self.clearElementError(field);
+            } else {
+                self.showElementError(field, result.error);
+            }
+        }, true);
+    },
+
+    /**
+     * Bind every form on the page carrying data-kw-validate.
+     *
+     * Safe to call once from a page controller; dynamically injected forms are
+     * still covered because bindForm also delegates blur handling globally.
+     */
+    bindAllForms(scope = document) {
+        const forms = scope.querySelectorAll('form');
+        for (const form of forms) {
+            if (form.querySelector('[data-kw-validate]')) {
+                this.bindForm(form);
+            }
+        }
+    },
+
+    /**
+     * Bind date-picker constraints so the calendar cannot even offer invalid
+     * choices:
+     *
+     *   - data-kw-validate contains "dob" (date of birth)  -> max = yesterday
+     *   - data-kw-validate contains "not_future"           -> max = today
+     *   - explicit data-kw-min-date / data-kw-max-date     -> always honoured
+     *
+     * Only sets a max when a stricter one is not already on the input.
+     *
+     * @param {ParentNode} [scope=document]
+     */
+    bindDateConstraints(scope = document) {
+        const iso = (offsetDays) => {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + offsetDays);
+            return d.toISOString().slice(0, 10);
+        };
+
+        scope.querySelectorAll('input[type="date"]').forEach((field) => {
+            const validators = this.validatorsFromAttr(field.dataset.kwValidate);
+
+            const explicitMax = field.dataset.kwMaxDate;
+            const explicitMin = field.dataset.kwMinDate;
+
+            if (explicitMax) {
+                field.max = explicitMax;
+            } else if (validators.includes('dob')) {
+                if (!field.max || field.max > iso(-1)) field.max = iso(-1);
+            } else if (validators.includes('not_future')) {
+                if (!field.max || field.max > iso(0)) field.max = iso(0);
+            }
+
+            if (explicitMin) {
+                field.min = explicitMin;
+            }
+        });
     }
 };
 
 // Make available globally
 window.FormValidation = FormValidation;
+
+// Self-activate on load: any page that includes this file gets date-picker
+// constraints and data-kw-validate/kw sweep automatically (idempotent).
+(function () {
+    const install = () => {
+        if (!window.FormValidation) return;
+        window.FormValidation.bindDateConstraints(document);
+        window.FormValidation.bindAllForms(document);
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', install);
+    } else {
+        install();
+    }
+})();

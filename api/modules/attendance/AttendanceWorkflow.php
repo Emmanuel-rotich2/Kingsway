@@ -65,14 +65,18 @@ class AttendanceWorkflow extends WorkflowHandler
             $sql = "INSERT INTO student_attendance (student_academic_enrollment_id, date, status, marked_by, created_at)
                     SELECT sae.id, ?, ?, ?, NOW()
                     FROM student_academic_enrollments sae
+                    JOIN students s ON s.id=sae.student_id
+                    LEFT JOIN admission_applications aa ON aa.id=s.application_id
                     WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                      AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ?
                     LIMIT 1";
-            $this->db->prepare($sql)->execute([
-                $data['date'],
-                $record['status'],
-                $this->user_id,
-                $record['student_id']
-            ]);
+                $this->db->prepare($sql)->execute([
+                    $data['date'],
+                    $record['status'],
+                    $this->user_id,
+                    $record['student_id'],
+                    $data['date']
+                ]);
         }
         $this->advanceStage($instanceId, 'attendance_recording', 'recorded', $data);
         return true;

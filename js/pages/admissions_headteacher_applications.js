@@ -103,7 +103,7 @@ const headteacherApplicationsController = {
                 }
             });
 
-            this.applications = reviewApplications;
+            this.applications = Array.from(new Map(reviewApplications.map(app => [String(app.id), app])).values());
             this.applyFilters();
             this.updateSummaryCards(payload.summary || {});
         } catch (error) {
@@ -292,7 +292,7 @@ const headteacherApplicationsController = {
         const app = data.application;
         const documents = data.documents || [];
         
-        const html = `
+        const html = `${window.KingswayDetailModal?.profileHeader(app, app.passport_photo_url)}
             <div class="row">
                 <div class="col-md-6">
                     <h6 class="fw-semibold mb-3">Applicant Information</h6>

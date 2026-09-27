@@ -8,6 +8,7 @@ const StudentFeesController = {
     rows: [],
     classes: [],
     years: [],
+    academicYearTerms: [],
     pagination: { page: 1, limit: 25, total: 0 },
     selectedStudentIds: new Set(),
     summary: {
@@ -100,6 +101,13 @@ const StudentFeesController = {
       assistanceStudentLabel: document.getElementById("assistanceStudentLabel"),
       assistanceYear: document.getElementById("assistanceYear"),
       assistanceProgram: document.getElementById("assistanceProgram"),
+      assistancePeriodType: document.getElementById("assistancePeriodType"),
+      assistanceTerm: document.getElementById("assistanceTerm"),
+      assistanceTermWrap: document.getElementById("assistanceTermWrap"),
+      assistanceStartsWrap: document.getElementById("assistanceStartsWrap"),
+      assistanceEndsWrap: document.getElementById("assistanceEndsWrap"),
+      assistanceStartsOn: document.getElementById("assistanceStartsOn"),
+      assistanceEndsOn: document.getElementById("assistanceEndsOn"),
       assistanceCoverage: document.getElementById("assistanceCoverage"),
       assistancePercentageWrap: document.getElementById("assistancePercentageWrap"),
       assistancePercentage: document.getElementById("assistancePercentage"),
@@ -221,7 +229,16 @@ const StudentFeesController = {
     if (this.ui.assistanceCoverage) {
       this.ui.assistanceCoverage.addEventListener("change", () => this.updateAssistanceCoverageFields());
     }
-    if (this.ui.waiverScope) this.ui.waiverScope.addEventListener("change", () => this.ui.waiverAmountWrap?.classList.toggle("d-none", this.ui.waiverScope.value !== "amount"));
+    if (this.ui.assistancePeriodType) {
+      this.ui.assistancePeriodType.addEventListener("change", () => this.updateAssistancePeriodFields());
+    }
+    if (this.ui.waiverScope) this.ui.waiverScope.addEventListener("change", () => {
+      const scoped = this.ui.waiverScope.value !== "full";
+      this.ui.waiverAmountWrap?.classList.toggle("d-none", !scoped);
+      const label = document.getElementById("waiverAmountLabel");
+      if (label) label.textContent = this.ui.waiverScope.value === "percentage" ? "Percentage of current balance (%)" : "Amount per learner (KES)";
+      if (this.ui.waiverAmount) this.ui.waiverAmount.max = this.ui.waiverScope.value === "percentage" ? "100" : "";
+    });
     if (this.ui.saveAssistanceBtn) {
       this.ui.saveAssistanceBtn.addEventListener("click", () => this.saveAssistance());
     }
@@ -251,6 +268,10 @@ const StudentFeesController = {
       const currentYear = years.find(
         (year) => year.is_current == 1 || year.is_current === "1",
       );
+      if (currentYear?.id && window.API.students?.getAcademicYearTerms) {
+        const termsResp = await window.API.students.getAcademicYearTerms(currentYear.id);
+        this.data.academicYearTerms = this.unwrapList(termsResp);
+      }
       let activeAcademicYear = "";
       if (currentYear) {
         activeAcademicYear = this.normalizeAcademicYearValue(
@@ -540,6 +561,16 @@ const StudentFeesController = {
     if (type === "full") this.ui.assistancePercentage.value = 100;
   },
 
+  updateAssistancePeriodFields: function () {
+    const type = this.ui.assistancePeriodType?.value || "academic_year";
+    this.ui.assistanceTermWrap?.classList.toggle("d-none", type !== "term");
+    this.ui.assistanceStartsWrap?.classList.toggle("d-none", type !== "custom");
+    this.ui.assistanceEndsWrap?.classList.toggle("d-none", type !== "custom");
+    if (this.ui.assistanceTerm) this.ui.assistanceTerm.required = type === "term";
+    if (this.ui.assistanceStartsOn) this.ui.assistanceStartsOn.required = type === "custom";
+    if (this.ui.assistanceEndsOn) this.ui.assistanceEndsOn.required = type === "custom";
+  },
+
   openAssistanceModal: async function (studentId) {
     const ids = studentId ? [Number(studentId)] : Array.from(this.data.selectedStudentIds);
     if (!ids.length) { this.notify("Select at least one student first.", "warning"); return; }
@@ -552,6 +583,9 @@ const StudentFeesController = {
     this.ui.assistanceForm.reset();
     this.ui.assistanceStudentId.value = ids.join(",");
     this.ui.assistanceCoverage.value = "full";
+    this.ui.assistancePeriodType.value = "academic_year";
+    this.ui.assistanceTerm.innerHTML = (this.data.academicYearTerms || []).map((term) => `<option value="${term.id}">${term.name || term.code || `Term ${term.term_id}`}</option>`).join("");
+    this.updateAssistancePeriodFields();
     this.ui.assistancePercentage.value = 100;
     this.updateAssistanceCoverageFields();
     const years = this.data.years || [];
@@ -576,11 +610,12 @@ const StudentFeesController = {
     const awards = response?.data ?? response ?? [];
     this.ui.assistanceAwardsBody.innerHTML = (Array.isArray(awards) ? awards : []).map((award) => {
       const coverage = award.coverage_type === "full" ? "100%" : award.coverage_type === "percentage" ? `${award.coverage_percentage}%` : this.formatCurrency(award.coverage_amount);
-      const action = award.status === "active" ? `<button class="btn btn-sm btn-outline-danger" data-revoke-award="${award.id}">Revoke</button>` : "";
-      return `<tr><td>${award.year_code || award.academic_year_id}</td><td>${award.programme_name}</td><td>${coverage}</td><td>${award.status}</td><td>${action}</td></tr>`;
+      const period = award.period_type === "term" ? "Term" : award.period_type === "custom" ? `${award.starts_on || ""} – ${award.ends_on || ""}` : "Academic year";
+      const action = award.status === "active" ? `<button class="btn btn-sm btn-outline-danger" data-revoke-award="${award.id}">Terminate</button>` : "";
+      return `<tr><td>${award.year_code || award.academic_year_id}</td><td>${award.programme_name}</td><td>${coverage}</td><td>${period}</td><td>${award.status}</td><td>${action}</td></tr>`;
     }).join("") || '<tr><td colspan="5" class="text-muted">No annual awards recorded.</td></tr>';
     this.ui.assistanceAwardsBody.querySelectorAll("[data-revoke-award]").forEach((button) => button.addEventListener("click", async () => {
-      if (!window.confirm("Revoke this award? Unpaid obligations for that year will become payable again.")) return;
+      if (!window.confirm("Terminate this sponsorship prospectively? Approved fee waivers are not affected.")) return;
       await window.API.finance.revokeStudentScholarship(button.dataset.revokeAward);
       await this.loadAssistanceAwards(studentId);
       await this.loadPaymentStatus();
@@ -593,6 +628,10 @@ const StudentFeesController = {
       student_id: Number(String(this.ui.assistanceStudentId.value).split(",")[0]),
       academic_year_id: Number(this.ui.assistanceYear.value),
       scholarship_program_id: Number(this.ui.assistanceProgram.value),
+      period_type: this.ui.assistancePeriodType.value,
+      academic_year_term_id: this.ui.assistancePeriodType.value === "term" ? Number(this.ui.assistanceTerm.value) : null,
+      starts_on: this.ui.assistancePeriodType.value === "custom" ? this.ui.assistanceStartsOn.value : null,
+      ends_on: this.ui.assistancePeriodType.value === "custom" ? this.ui.assistanceEndsOn.value : null,
       coverage_type: type,
       coverage_percentage: type === "percentage" ? Number(this.ui.assistancePercentage.value) : null,
       coverage_amount: type === "fixed_amount" ? Number(this.ui.assistanceAmount.value) : null,
@@ -636,10 +675,12 @@ const StudentFeesController = {
     const rows = ids.map((id) => this.data.rows.find((row) => Number(row.id) === id)).filter(Boolean);
     try {
       for (const row of rows) {
-        const amount = this.ui.waiverScope.value === "full" ? Number(row.current_balance || 0) : Number(this.ui.waiverAmount.value || 0);
+        const scope = this.ui.waiverScope.value;
+        const amount = scope === "full" ? Number(row.current_balance || 0) : Number(this.ui.waiverAmount.value || 0);
         if (amount <= 0) continue;
+        if (scope === "percentage" && amount > 100) throw new Error("Fee-waiver percentage must be between 0 and 100.");
         await window.API.finance.saveFeeWaiver({
-          student_id: Number(row.id), discount_type: this.ui.waiverScope.value === "full" ? "full_waiver" : "fixed_amount", discount_value: amount,
+          student_id: Number(row.id), discount_type: scope === "full" ? "full_waiver" : scope === "percentage" ? "percentage" : "fixed_amount", discount_value: amount,
           academic_year: this.ui.waiverYear.value, reason, notes: this.ui.waiverNotes.value.trim(),
         });
       }
@@ -956,12 +997,18 @@ const StudentFeesController = {
   renderBillingHistory: function(data, studentId) {
     // data.academic_years is array of { year, terms: [{ term_id, term_name, obligations: [...], payments: [...], total_due, total_paid, balance }] }
     var years = data.academic_years || data || [];
+    var relief = data.financial_relief;
+    var reliefHtml = relief ? '<div class="alert alert-warning small"><i class="bi bi-shield-check me-1"></i><strong>Approved financial relief:</strong> ' +
+      (relief.registration_fee_waived ? 'Registration fee waived. ' : '') +
+      (relief.school_fee_waived ? 'School-fee relief: ' + (relief.school_fee_waiver_type || 'approved') + '. ' : '') +
+      (Number(relief.school_fee_waived_amount || 0) > 0 ? 'Waiver applied: KES ' + Number(relief.school_fee_waived_amount).toLocaleString() + '. ' : '') +
+      (relief.reason ? String(relief.reason).replace(/[<>]/g, '') : '') + '</div>' : '';
     if (!years.length) {
-      document.getElementById('billingHistoryContent').innerHTML = '<div class="alert alert-info">No billing history found.</div>';
+      document.getElementById('billingHistoryContent').innerHTML = reliefHtml + '<div class="alert alert-info">No billing history found.</div>';
       return;
     }
 
-    var html = '';
+    var html = reliefHtml;
     years.forEach(function(yr) {
       html += '<div class="card mb-3">';
       html += '<div class="card-header fw-bold bg-light">Academic Year ' + yr.year + '</div>';
@@ -982,10 +1029,10 @@ const StudentFeesController = {
         html += '<h6 class="text-muted mb-2">Fee Obligations</h6>';
         html += '<table class="table table-sm table-bordered mb-3"><thead class="table-light"><tr><th>Fee Type</th><th>Amount Due</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th></tr></thead><tbody>';
         (term.obligations || []).forEach(function(o) {
-          var statusClass = o.payment_status === 'paid' ? 'success' : o.payment_status === 'partial' ? 'warning' : 'danger';
+          var statusClass = ['paid', 'credit'].includes(o.payment_status) ? 'success' : o.payment_status === 'partial' ? 'warning' : 'danger';
           html += '<tr><td>' + (o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_waived || 0).toLocaleString() + '</td><td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td><td><span class="badge bg-' + statusClass + '">' + (o.payment_status || 'pending') + '</span></td></tr>';
         });
-        html += '<tr class="table-light fw-bold"><td>TOTAL</td><td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>—</td><td>KES ' + Number(term.balance || 0).toLocaleString() + '</td><td></td></tr>';
+        html += '<tr class="table-light fw-bold"><td>TOTAL</td><td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>—</td><td>KES ' + Number(term.balance || 0).toLocaleString() + (Number(term.balance || 0) < 0 ? ' credit' : '') + '</td><td></td></tr>';
         html += '</tbody></table>';
 
         // Payments table

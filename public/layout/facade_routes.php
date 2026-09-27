@@ -48,6 +48,7 @@ return [
 
     'parents' => [
         'dashboard'        => 'parents/dashboard.php',
+        'applications'     => 'parents/applications.php',
         'children'         => 'parents/children.php',
         'updates'          => 'parents/updates.php',
         'results'          => 'parents/results.php',

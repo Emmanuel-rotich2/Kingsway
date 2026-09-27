@@ -599,6 +599,7 @@ const schoolAdminDashboardController = {
       this.state.charts.attendanceTrend = {
         labels: attendanceTrend.labels || [],
         data: attendanceTrend.data || [],
+        details: attendanceTrend.details || [],
       };
     }
 
@@ -606,11 +607,23 @@ const schoolAdminDashboardController = {
     const classDistribution =
       charts.classDistribution || charts.class_distribution;
     if (classDistribution) {
+      this.populateClassDistributionFilter(classDistribution.labels || []);
       this.state.charts.classDistribution = {
         labels: classDistribution.labels || [],
         data: classDistribution.data || [],
       };
     }
+  },
+
+  populateClassDistributionFilter: function (labels) {
+    const select = document.getElementById("classDistributionFilter");
+    if (!select) return;
+    const current = select.value || "all";
+    const uniqueLabels = [...new Set((Array.isArray(labels) ? labels : []).filter(Boolean).map(String))];
+    select.innerHTML = '<option value="all">All Classes</option>' + uniqueLabels
+      .map((label) => `<option value="${this.escapeHtml(label)}">${this.escapeHtml(label)}</option>`)
+      .join("");
+    if (current === "all" || uniqueLabels.includes(current)) select.value = current;
   },
 
   /**
@@ -796,6 +809,15 @@ const schoolAdminDashboardController = {
     }
 
     const data = this.state.charts.attendanceTrend;
+    const details = Array.isArray(data.details) ? data.details : [];
+    const note = document.getElementById("attendanceTrendNote");
+    const missingWeeks = details.filter((week) => !week.has_data).length;
+    if (note) {
+      note.textContent = missingWeeks
+        ? `${missingWeeks} week(s) have 0 marked attendance records. These are shown as 0%, not hidden.`
+        : "Attendance is calculated from marked learner attendance records.";
+      note.className = missingWeeks ? "small text-warning mt-2" : "small text-muted mt-2";
+    }
 
     this.chartInstances.attendanceTrend = new Chart(ctx, {
       type: "line",
@@ -826,16 +848,22 @@ const schoolAdminDashboardController = {
           },
           tooltip: {
             callbacks: {
-              label: function (context) {
-                return `Attendance: ${context.parsed.y}%`;
+              title: function (items) {
+                const week = details[items[0]?.dataIndex];
+                return week ? `${week.start} – ${week.end}` : "Attendance week";
               },
+              label: function (context) {
+                const week = details[context.dataIndex];
+                if (!week || !week.has_data) return "0% — no attendance records marked";
+                return `Attendance: ${context.parsed.y}% (${week.marked_records} records)`;
+            },
             },
           },
         },
         scales: {
           y: {
             beginAtZero: false,
-            min: 70,
+            min: 0,
             max: 100,
             ticks: {
               callback: function (value) {
@@ -1060,11 +1088,7 @@ const schoolAdminDashboardController = {
                     </a>
                 </td>
                 <td>
-                    <span class="badge ${
-                      item.status === "Present"
-                        ? "bg-success"
-                        : "bg-warning text-dark"
-                    }">
+                    <span class="badge ${this.getStaffStatusBadgeClass(item.status)}">
                         ${item.status}
                     </span>
                 </td>
@@ -1074,27 +1098,44 @@ const schoolAdminDashboardController = {
       .join("");
   },
 
+  getStaffStatusBadgeClass: function (status) {
+    switch (String(status || "").toLowerCase()) {
+      case "present": return "bg-success";
+      case "late": return "bg-info text-dark";
+      case "absent": return "bg-danger";
+      case "on leave": return "bg-secondary";
+      default: return "bg-warning text-dark";
+    }
+  },
+
   // =========================================================================
   // EVENT HANDLERS
   // =========================================================================
   handleChartRangeChange: async function (e) {
-    const buttons = e.target.closest(".btn-group").querySelectorAll("button");
+    const button = e.currentTarget || e.target.closest("button");
+    const group = button?.closest(".btn-group");
+    if (!button || !group) return;
+    const buttons = group.querySelectorAll("button");
     buttons.forEach((btn) => btn.classList.remove("active"));
-    e.target.classList.add("active");
+    button.classList.add("active");
 
-    const range = e.target.dataset.range;
+    const range = button.dataset.range;
     this.log(`Chart range changed to: ${range}`);
 
-    // Map range to weeks
-    const weeksMap = { "1w": 1, "2w": 2, "1m": 4, "3m": 12 };
+    // The dashboard buttons use the explicit values 4weeks and 8weeks.
+    // Keep the legacy short aliases too, so older cached/page fragments do
+    // not silently fall back to four weeks.
+    const weeksMap = { "4weeks": 4, "8weeks": 8, "1w": 1, "2w": 2, "1m": 4, "3m": 12 };
     const weeks = weeksMap[range] || 4;
 
     try {
       const response = await API.dashboard.getSchoolAdminAttendanceTrend(weeks);
-      if (response && (response.success || response.status === "success")) {
+      const payload = response?.data?.labels ? response.data : response;
+      if (payload?.labels) {
         this.state.charts.attendanceTrend = {
-          labels: response.data.labels || [],
-          data: response.data.data || [],
+          labels: payload.labels || [],
+          data: payload.data || [],
+          details: payload.details || [],
         };
         this.renderAttendanceTrendChart();
       }
@@ -1111,11 +1152,13 @@ const schoolAdminDashboardController = {
       const response = await API.dashboard.getSchoolAdminClassDistribution(
         filter
       );
-      if (response && (response.success || response.status === "success")) {
+      const payload = response?.data?.labels ? response.data : response;
+      if (payload?.labels) {
         this.state.charts.classDistribution = {
-          labels: response.data.labels || [],
-          data: response.data.data || [],
+          labels: payload.labels || [],
+          data: payload.data || [],
         };
+        this.populateClassDistributionFilter(payload.labels || []);
         this.renderClassDistributionChart();
       }
     } catch (error) {
@@ -1138,8 +1181,9 @@ const schoolAdminDashboardController = {
     // For longer queries, use the API
     try {
       const response = await API.dashboard.getSchoolAdminStaffDirectory(query);
-      if (response && (response.success || response.status === "success")) {
-        this.state.tables.staffDirectory = response.data.staff || [];
+      const payload = response?.data?.staff ? response.data : response;
+      if (payload?.staff) {
+        this.state.tables.staffDirectory = payload.staff || [];
         this.processTablesData({
           staffDirectory: this.state.tables.staffDirectory,
         });
@@ -1161,6 +1205,7 @@ const schoolAdminDashboardController = {
       "Leave Request": "manage_staff",
       Assignment: "manage_staff",
       Communication: "manage_announcements",
+      Attendance: "attendance_reports",
     };
 
     const route = routes[type] || "dashboard";
