@@ -2149,8 +2149,12 @@ window.studentsManagementController = window.studentsManagementController || {
     this.showInfo("Student export is disabled until a routed, permission-checked export API is available.");
   },
 
-  downloadTemplate: function () {
-    window.open((window.APP_BASE || '') + '/templates/student_import_template.xlsx', "_blank");
+  downloadTemplate: async function (format = 'xlsx') {
+    try {
+      await window.API.imports.downloadTemplate('students', format);
+    } catch (error) {
+      this.showError(error?.message || 'Could not download the student import template.');
+    }
   },
 
   renderBulkImportResults: function (result, isError = false) {

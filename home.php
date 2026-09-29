@@ -214,6 +214,7 @@ $files = [
     'js/app_shell_ui.js',
     'js/main.js',
     'js/core/app_bootstrap.js',
+    'js/core/form_draft_manager.js',
 ];
 
 foreach ($files as $file) {

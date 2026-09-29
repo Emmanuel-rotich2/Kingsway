@@ -3,6 +3,8 @@ const StaffAppointmentsPage = {
   newStaff: [],
   staff: [],
   departments: [],
+  staffTypes: [],
+  staffCategories: [],
   roles: [],
   pendingAction: null,
   initialized: false,
@@ -73,9 +75,9 @@ const StaffAppointmentsPage = {
 
   getNewColumns() {
     const mode = this.getRoleMode();
-    if (mode === "approval") return ["candidate", "contact", "position", "department", "start", "status", "actions"];
-    if (mode === "onboarding") return ["candidate", "position", "department", "start", "status", "actions"];
-    return ["candidate", "position", "department", "status"];
+    if (mode === "approval") return ["candidate", "source", "contact", "position", "department", "start", "status", "invitation", "actions"];
+    if (mode === "onboarding") return ["candidate", "source", "position", "department", "start", "status", "invitation", "actions"];
+    return ["candidate", "source", "position", "department", "status"];
   },
 
   applyRoleLayout() {
@@ -101,6 +103,7 @@ const StaffAppointmentsPage = {
     }
 
     document.getElementById("openInternalAppointmentForm")?.toggleAttribute("hidden", !this.canApprove());
+    document.getElementById("openWalkInStaffProposal")?.toggleAttribute("hidden", !this.canApprove());
     this.renderHeaders();
   },
 
@@ -112,6 +115,9 @@ const StaffAppointmentsPage = {
     if (refresh) refresh.addEventListener("click", () => this.loadAll());
 
     document.getElementById("openInternalAppointmentForm")?.addEventListener("click", () => this.openInternalAppointmentModal());
+    document.getElementById("openWalkInStaffProposal")?.addEventListener("click", () => this.openWalkInProposal());
+    document.getElementById("staffAppointmentWalkInConfirm")?.addEventListener("click", () => this.submitWalkInProposal());
+    document.getElementById("walkInStaffType")?.addEventListener("change", () => this.populateWalkInCategories());
     document.getElementById("staffAppointmentInternalConfirm")?.addEventListener("click", () => this.submitInternalAppointment());
     document.getElementById("staffAppointmentReasonConfirm")?.addEventListener("click", () => this.submitReasonAction());
     document.getElementById("staffAppointmentOnboardConfirm")?.addEventListener("click", () => this.submitOnboardAction());
@@ -139,6 +145,8 @@ const StaffAppointmentsPage = {
       candidate: "Candidate",
       contact: "Contact",
       start: "Start Date",
+      source: "Candidate source",
+      invitation: "Account & invitation",
     };
     this.renderHeader("internalAppointmentsHeader", this.getInternalColumns(), labels);
     this.renderHeader("newAppointmentsHeader", this.getNewColumns(), labels);
@@ -172,18 +180,23 @@ const StaffAppointmentsPage = {
   },
 
   async loadReferenceData() {
-    const [staffResponse, departmentsResponse, rolesResponse] = await Promise.all([
+    const [staffResponse, departmentsResponse, rolesResponse, assignmentOptionsResponse] = await Promise.all([
       API.callAPI("/staff/index", "GET", null, { limit: 500, status: "active" }).catch(() => []),
       API.callAPI("/staff/departments-get", "GET").catch(() => []),
       this.canOnboard()
         ? API.callAPI("/staff/available-roles", "GET").catch(() => [])
         : Promise.resolve([]),
+      API.callAPI("/staff-appointments/job-application-options", "GET").catch(() => ({})),
     ]);
 
     this.staff = this.extractList(staffResponse, "staff");
     this.departments = this.extractList(departmentsResponse, "departments");
+    const assignmentOptions = assignmentOptionsResponse?.data || assignmentOptionsResponse || {};
+    this.staffTypes = assignmentOptions.staff_types || [];
+    this.staffCategories = assignmentOptions.staff_categories || [];
     this.roles = this.extractList(rolesResponse, "roles");
     this.populateInternalAppointmentForm();
+    this.populateWalkInProposalOptions();
     this.populateOnboardRoleSelect();
   },
 
@@ -258,6 +271,16 @@ const StaffAppointmentsPage = {
     const candidateName = `${item.candidate_first_name || ""} ${item.candidate_last_name || ""}`.trim() || "Candidate";
     const cells = {
       candidate: () => this.appendStaffCell(row, candidateName, `ID: ${item.candidate_id_number || "Not provided"}`),
+      source: () => this.appendTextCell(row, ({ online_application: "Online application", walk_in: "Walk-in applicant", staff_entered: "School-entered candidate" })[item.candidate_source] || "School-entered candidate"),
+      invitation: () => {
+        if (!item.created_user_id) return this.appendTextCell(row, "Not created");
+        const setup = Number(item.profile_completed) === 1
+          ? "Profile complete"
+          : item.invitation_status === "accepted"
+            ? "Password set · profile pending"
+            : "Profile pending";
+        this.appendStaffCell(row, "Invitation: " + (item.invitation_status || "not_sent"), "Email: " + (item.invitation_delivery_status || "not_queued") + " · " + setup);
+      },
       contact: () => this.appendStaffCell(row, item.candidate_email || "-", item.candidate_phone || ""),
       position: () => this.appendTextCell(row, item.position || "-"),
       department: () => this.appendTextCell(row, item.department_name || "-"),
@@ -289,7 +312,33 @@ const StaffAppointmentsPage = {
     if (item.status === "approved" && this.canOnboard()) {
       buttons.push(this.actionButton("Onboard", "warning", () => this.openOnboardModal(item.id)));
     }
+    if (item.created_user_id && this.canOnboard() && Number(item.setup_required) === 1) {
+      buttons.push(this.actionButton("Resend invitation", "outline-primary", () => this.resendStaffInvitation(item.created_user_id)));
+    }
+    if (item.created_user_id && this.canOnboard() && item.invitation_status === "accepted" && Number(item.profile_completed) !== 1) {
+      buttons.push(this.actionButton("Resend verification code", "outline-primary", () => this.resendStaffSetupOtp(item.created_user_id)));
+    }
     return buttons.length ? buttons : [this.smallText("No actions")];
+  },
+
+  async resendStaffInvitation(userId) {
+    try {
+      await window.API.staffMigration.resendInvitation(Number(userId));
+      showNotification("A new setup invitation was queued for this staff member", NOTIFICATION_TYPES.SUCCESS);
+      await this.loadAll();
+    } catch (error) {
+      showNotification(error.message || "Could not queue a new staff invitation", NOTIFICATION_TYPES.ERROR);
+    }
+  },
+
+  async resendStaffSetupOtp(userId) {
+    try {
+      await window.API.staffMigration.resendSetupOtp(Number(userId));
+      showNotification("A new staff setup verification code was sent", NOTIFICATION_TYPES.SUCCESS);
+      await this.loadAll();
+    } catch (error) {
+      showNotification(error.message || "Could not resend the verification code", NOTIFICATION_TYPES.ERROR);
+    }
   },
 
   async runAction(queue, action, id, body = {}) {
@@ -298,8 +347,13 @@ const StaffAppointmentsPage = {
       return;
     }
     const prefix = queue === "internal" ? "internal" : "new";
-    await this.request(`/staff-appointments/${prefix}-${action}/${id}`, { method: "PUT", body });
-    showNotification(`${queue === "internal" ? "Internal" : "New staff"} appointment ${action} completed`, NOTIFICATION_TYPES.SUCCESS);
+    const response = await this.request(`/staff-appointments/${prefix}-${action}/${id}`, { method: "PUT", body });
+    const result = response?.data?.data?.data || response?.data?.data || response?.data || {};
+    if (queue === "new" && action === "onboard" && result.email_sent === false) {
+      showNotification("Staff account created and invitation queued. Email delivery will retry; check invitation status before resending.", NOTIFICATION_TYPES.WARNING);
+    } else {
+      showNotification(`${queue === "internal" ? "Internal" : "New staff"} appointment ${action} completed`, NOTIFICATION_TYPES.SUCCESS);
+    }
     await this.loadAll();
   },
 
@@ -347,6 +401,59 @@ const StaffAppointmentsPage = {
       departmentSelect.innerHTML = '<option value="">Keep current department</option>' + this.departments.map((department) =>
         `<option value="${this.escapeAttribute(department.id)}">${this.escapeHtml(department.name || department.code || "Department")}</option>`
       ).join("");
+    }
+  },
+
+  populateWalkInProposalOptions() {
+    const departments = document.getElementById("walkInDepartment");
+    const types = document.getElementById("walkInStaffType");
+    if (departments) departments.innerHTML = '<option value="">Select department</option>' + this.departments.map(x => `<option value="${this.escapeAttribute(x.id)}">${this.escapeHtml(x.name || x.code)}</option>`).join("");
+    if (types) types.innerHTML = '<option value="">Select staff type</option>' + this.staffTypes.map(x => `<option value="${this.escapeAttribute(x.id)}">${this.escapeHtml(x.name)}</option>`).join("");
+    this.populateWalkInCategories();
+  },
+
+  populateWalkInCategories() {
+    const typeId = Number(document.getElementById("walkInStaffType")?.value || 0);
+    const select = document.getElementById("walkInStaffCategory");
+    if (!select) return;
+    const categories = this.staffCategories.filter(x => Number(x.staff_type_id) === typeId);
+    select.innerHTML = '<option value="">Select staff category</option>' + categories.map(x => `<option value="${this.escapeAttribute(x.id)}">${this.escapeHtml(x.name)}</option>`).join("");
+  },
+
+  openWalkInProposal() {
+    if (!this.canApprove()) return showNotification("You do not have permission to submit new staff appointments", NOTIFICATION_TYPES.ERROR);
+    document.getElementById("walkInStaffProposalForm")?.reset();
+    this.populateWalkInProposalOptions();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("staffAppointmentWalkInModal")).show();
+  },
+
+  async submitWalkInProposal() {
+    const value = id => document.getElementById(id)?.value?.trim() || "";
+    const payload = {
+      candidate_first_name: value("walkInFirstName"),
+      candidate_last_name: value("walkInLastName"),
+      candidate_email: value("walkInEmail"),
+      candidate_phone: value("walkInPhone") || null,
+      candidate_notes: "[candidate_source=walk_in] Candidate applied in person.",
+      department_id: value("walkInDepartment"),
+      position: value("walkInPosition"),
+      employment_date: value("walkInEmploymentDate"),
+      contract_type: value("walkInContract"),
+      staff_type_id: value("walkInStaffType"),
+      staff_category_id: value("walkInStaffCategory"),
+    };
+    if (!payload.candidate_first_name || !payload.candidate_last_name || !payload.candidate_email
+      || !payload.department_id || !payload.position || !payload.employment_date || !payload.contract_type
+      || !payload.staff_type_id || !payload.staff_category_id) {
+      return showNotification("Complete candidate identity and school employment assignment fields", NOTIFICATION_TYPES.ERROR);
+    }
+    try {
+      await this.request("/staff-appointments/new", { method: "POST", body: payload });
+      bootstrap.Modal.getInstance(document.getElementById("staffAppointmentWalkInModal"))?.hide();
+      showNotification("Walk-in candidate submitted for Director approval", NOTIFICATION_TYPES.SUCCESS);
+      await this.loadAll();
+    } catch (error) {
+      showNotification(error.message || "Could not submit walk-in candidate", NOTIFICATION_TYPES.ERROR);
     }
   },
 
@@ -593,6 +700,26 @@ const StaffAppointmentsPage = {
             </div>
           </div>
         </div>
+      </div>
+      <div class="modal fade" id="staffAppointmentWalkInModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Walk-in candidate employment proposal</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+          <div class="modal-body"><p class="small text-muted">Enter candidate contact details and the school-approved employment assignment. The candidate cannot choose department, position, or employment terms.</p>
+            <form id="walkInStaffProposalForm"><div class="row g-3">
+              <div class="col-md-6"><label class="form-label" for="walkInFirstName">First name *</label><input class="form-control" id="walkInFirstName" required></div>
+              <div class="col-md-6"><label class="form-label" for="walkInLastName">Last name *</label><input class="form-control" id="walkInLastName" required></div>
+              <div class="col-md-6"><label class="form-label" for="walkInEmail">Email *</label><input class="form-control" type="email" id="walkInEmail" required></div>
+              <div class="col-md-6"><label class="form-label" for="walkInPhone">Phone</label><input class="form-control" type="tel" id="walkInPhone"></div>
+              <div class="col-md-6"><label class="form-label" for="walkInDepartment">Department *</label><select class="form-select" id="walkInDepartment" required></select></div>
+              <div class="col-md-6"><label class="form-label" for="walkInPosition">Position *</label><input class="form-control" id="walkInPosition" maxlength="100" required></div>
+              <div class="col-md-6"><label class="form-label" for="walkInEmploymentDate">Employment date *</label><input class="form-control" type="date" id="walkInEmploymentDate" required></div>
+              <div class="col-md-6"><label class="form-label" for="walkInContract">Contract type *</label><select class="form-select" id="walkInContract" required><option value="">Select</option><option value="permanent">Permanent</option><option value="contract">Contract</option><option value="temporary">Temporary</option></select></div>
+              <div class="col-md-6"><label class="form-label" for="walkInStaffType">Staff type *</label><select class="form-select" id="walkInStaffType" required></select></div>
+              <div class="col-md-6"><label class="form-label" for="walkInStaffCategory">Staff category *</label><select class="form-select" id="walkInStaffCategory" required></select></div>
+            </div></form>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-success" id="staffAppointmentWalkInConfirm">Submit for Director approval</button></div>
+        </div></div>
       </div>
       <div class="modal fade" id="staffAppointmentReasonModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-scrollable">

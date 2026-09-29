@@ -705,7 +705,7 @@ class WebsiteController extends BaseController
     public function getLeadershipPositions($id = null, $data = [], $segments = [])
     {
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
-        return $this->handleResponse($this->manager->getLeadershipPositions($data['level_id'] ?? null));
+        return $this->handleResponse($this->manager->getLeadershipPositions($data['leadership_category_id'] ?? $data['level_id'] ?? null));
     }
     public function getPrograms($id = null, $data = [], $segments = [])   { return $this->genericRead('programs', $id, $data); }
     public function getFacilities($id = null, $data = [], $segments = []) { return $this->genericRead('facilities', $id, $data); }

@@ -79,4 +79,27 @@ if ($appBase === '.') $appBase = '';
   </div>
 </div>
 
+<div class="modal fade" id="jobEmploymentProposalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
+    <div class="modal-content">
+      <form id="jobEmploymentProposalForm">
+        <div class="modal-header"><h5 class="modal-title">Prepare school employment proposal</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="jobEmploymentApplicationId">
+          <p class="small text-muted">These are school-assigned details. The applicant cannot choose or change them. The proposal goes to the Director for approval before account creation.</p>
+          <div class="mb-3"><label class="form-label" for="jobEmploymentDepartment">Department *</label><select class="form-select" id="jobEmploymentDepartment" required><option value="">Loading departments…</option></select></div>
+          <div class="mb-3"><label class="form-label" for="jobEmploymentPosition">Position *</label><input class="form-control" id="jobEmploymentPosition" maxlength="100" required></div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label" for="jobEmploymentDate">Employment date *</label><input class="form-control" type="date" id="jobEmploymentDate" required></div>
+            <div class="col-md-6"><label class="form-label" for="jobEmploymentContract">Contract type *</label><select class="form-select" id="jobEmploymentContract" required><option value="">Select</option><option value="permanent">Permanent</option><option value="contract">Contract</option><option value="temporary">Temporary</option></select></div>
+            <div class="col-md-6"><label class="form-label" for="jobEmploymentStaffType">Staff type *</label><select class="form-select" id="jobEmploymentStaffType" required><option value="">Loading types…</option></select></div>
+            <div class="col-md-6"><label class="form-label" for="jobEmploymentStaffCategory">Staff category *</label><select class="form-select" id="jobEmploymentStaffCategory" required><option value="">Choose staff type first</option></select></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">Submit for approval</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <?php asset_script($appBase, 'js/pages/manage_job_applications.js'); ?>

@@ -139,21 +139,32 @@ final class StaffDomainAccessService
         return $filters;
     }
 
-    public function payrollEligibility(int $staffId): array
+    public function payrollEligibility(int $staffId, ?string $payrollDate = null): array
     {
         // Identity (first_name/last_name) now lives ONLY on persons; the payroll
         // Payroll identity and compensation are sourced from the normalized
         // payroll profile; staff is only the employment subtype.
         [$scopeSql, $scopeParams] = DataScopeService::predicateFor('staff', 's');
+        $periodStart = $payrollDate ?: date('Y-m-01');
         $staff = $this->db->query(
-            'SELECT s.id, s.staff_no, s.status, COALESCE(spp.basic_salary,0) AS salary, s.employment_date,
+            'SELECT s.id, s.staff_no, s.status,
+                    COALESCE((SELECT so.gross_salary FROM staff_salary_overrides so
+                        WHERE so.staff_id=s.id AND so.effective_from<=? AND (so.effective_to IS NULL OR so.effective_to>=?)
+                        ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
+                        SELECT rs.gross_salary FROM users u2
+                        JOIN user_roles ur2 ON ur2.user_id=u2.id AND ur2.is_primary=1
+                        JOIN staff_role_salary_rates rs ON rs.role_id=ur2.role_id
+                        WHERE u2.person_id=s.person_id AND rs.effective_from<=?
+                          AND (rs.effective_to IS NULL OR rs.effective_to>=?)
+                        ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
+                    ),0) AS salary, s.employment_date,
                     p.first_name, p.last_name,
-                    spp.bank_name, spp.bank_account, spp.kra_pin, spp.nssf_no, spp.nhif_no
+                    spp.bank_name, spp.bank_account, spp.mpesa_phone, spp.kra_pin, spp.nssf_no, spp.nhif_no
              FROM staff s
              JOIN persons p ON p.id = s.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
              WHERE s.id = ? AND ' . $scopeSql . ' LIMIT 1',
-            array_merge([$staffId], $scopeParams)
+            array_merge([$periodStart, $periodStart, $periodStart, $periodStart, $staffId], $scopeParams)
         )->fetch(PDO::FETCH_ASSOC);
 
         if (!$staff) {
@@ -164,7 +175,9 @@ final class StaffDomainAccessService
         if ($staff['status'] !== 'active') $reasons[] = 'Staff status must be active';
         if ((float)$staff['salary'] <= 0) $reasons[] = 'Basic salary is missing or zero';
         if (empty($staff['employment_date'])) $reasons[] = 'Employment date is missing';
-        if (empty($staff['bank_name']) || empty($staff['bank_account'])) $reasons[] = 'Bank payment details are incomplete';
+        $bankReady = !empty($staff['bank_name']) && !empty($staff['bank_account']);
+        $mobileReady = !empty($staff['mpesa_phone']) || !empty($staff['phone']);
+        if (!$bankReady && !$mobileReady) $reasons[] = 'Bank details or M-Pesa phone number are required';
         if (empty($staff['kra_pin'])) $reasons[] = 'KRA PIN is missing';
         if (empty($staff['nssf_no'])) $reasons[] = 'NSSF number is missing';
         if (empty($staff['nhif_no'])) $reasons[] = 'Health insurance number is missing';
@@ -176,9 +189,9 @@ final class StaffDomainAccessService
         ];
     }
 
-    public function assertPayrollEligible(int $staffId): void
+    public function assertPayrollEligible(int $staffId, ?string $payrollDate = null): void
     {
-        $result = $this->payrollEligibility($staffId);
+        $result = $this->payrollEligibility($staffId, $payrollDate);
         if (!$result['eligible']) {
             throw new RuntimeException('Staff member is not payroll eligible: ' . implode('; ', $result['reasons']), 422);
         }

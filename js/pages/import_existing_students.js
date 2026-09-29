@@ -15,6 +15,15 @@ const ImportExistingStudentsController = {
     if (form) {
       form.addEventListener("submit", (e) => this.handleImport(e));
     }
+    document.querySelectorAll('[data-import-template]').forEach(button => {
+      button.addEventListener('click', async () => {
+        try {
+          await window.API.imports.downloadTemplate('students', button.dataset.importTemplate || 'csv');
+        } catch (error) {
+          showNotification(error?.message || 'Could not download the student import template.', 'error');
+        }
+      });
+    });
   },
 
   handleImport: async function (event) {

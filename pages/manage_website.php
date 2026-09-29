@@ -506,7 +506,7 @@ if ($appBase === '.') $appBase = '';
     </div>
     <div class="modal-body">
       <input type="hidden" id="leadEditId">
-      <input type="hidden" id="leadLevelId">
+      <input type="hidden" id="leadCategoryId">
       <div class="row g-3">
         <div class="col-12 ws-form-group">
           <label>Position *</label>

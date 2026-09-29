@@ -122,7 +122,7 @@ class DisbursementManager
             }
 
             $paymentSql =
-                "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
+                "SELECT ps.*, p.first_name, p.last_name, COALESCE(NULLIF(spp.mpesa_phone,''),p.phone) AS phone_number,
                         spp.bank_account AS bank_account_number, spp.bank_name,
                         ps.payment_method
                  FROM payslips ps
@@ -156,7 +156,11 @@ class DisbursementManager
             // call begins; mixed-account payrolls must fail atomically at the
             // validation boundary rather than halfway through the batch.
             foreach ($staffPayments as $staffPayment) {
-                $channel = in_array(strtolower((string)($staffPayment['payment_method'] ?? '')), ['mpesa','mobile_money','mpesa_b2c'], true) ? 'mpesa_b2c' : 'buni_transfer';
+                $method = strtolower((string)($staffPayment['payment_method'] ?? ''));
+                $isMpesa = in_array($method, ['mpesa','m-pesa','mobile_money','mpesa_b2c'], true);
+                if ($isMpesa && empty($staffPayment['phone_number'])) throw new Exception("M-Pesa phone number is missing for staff {$staffPayment['staff_id']}");
+                if (!$isMpesa && !in_array($method, ['cash','check'], true) && (empty($staffPayment['bank_account_number']) || empty($staffPayment['bank_name']))) throw new Exception("Bank details are missing for staff {$staffPayment['staff_id']}");
+                $channel = $isMpesa ? 'mpesa_b2c' : 'buni_transfer';
                 $this->financialAccounts->requireFor((int)$staffPayment['_source_financial_account_id'], 'payroll', $channel, true, (int)$approvedBy);
             }
 
@@ -429,7 +433,7 @@ class DisbursementManager
             return (new KcbTransferReconciliationService($this->db, $this->kcbTransfer))->retry($kcbDisbursementId, $actorUserId);
         }
         $stmt = $this->db->prepare(
-            "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
+            "SELECT ps.*, p.first_name, p.last_name, COALESCE(NULLIF(spp.mpesa_phone,''),p.phone) AS phone_number,
                     spp.bank_account AS bank_account_number, spp.bank_name, ps.payment_method
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id

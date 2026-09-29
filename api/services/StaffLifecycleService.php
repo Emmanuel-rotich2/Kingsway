@@ -254,14 +254,14 @@ final class StaffLifecycleService
             $this->assignDepartment($staffId, (int)$toDept, (string)($a['effective_date'] ?? date('Y-m-d')));
         }
 
-        // Salary moves are reflected on staff.salary and the payroll profile.
+        // An approved salary move records a dated individual exception to the
+        // primary-role default.
         if (isset($a['to_salary']) && $a['to_salary'] !== '' && (string)$a['to_salary'] !== (string)$a['from_salary']) {
-            $this->db->query(
-                "INSERT INTO staff_payroll_profiles (staff_id, basic_salary, status)
-                 VALUES (?, ?, 'active')
-                 ON DUPLICATE KEY UPDATE basic_salary = ?",
-                [$staffId, $a['to_salary'], $a['to_salary']]
-            );
+            (new StaffCompensationService($this->db))->saveIndividualSalary([
+                'staff_id' => $staffId,
+                'gross_salary' => $a['to_salary'],
+                'effective_from' => $a['effective_date'] ?? date('Y-m-01'),
+            ], isset($a['approved_by']) ? (int)$a['approved_by'] : null);
         }
 
         $revokingActions = [

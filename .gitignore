@@ -179,3 +179,10 @@ kingsway-ngrok.yml
 # KCB Buni integration scratch (credentials / collections)
 kcb_buni/
 !database/migrations/188_expand_admissions_leadership_visibility.sql
+
+# Manually deployed public discovery and app configuration files.
+/robots.txt
+/sitemap*.xml
+/llm.txt
+/llms.txt
+/manifest.webmanifest

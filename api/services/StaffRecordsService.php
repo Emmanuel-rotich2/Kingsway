@@ -18,41 +18,31 @@ final class StaffRecordsService
     public function assignRole(int $staffId, int $roleId): array
     {
         $staff = $this->staffUser($staffId);
-        $exists = $this->db->query(
-            'SELECT id FROM user_roles WHERE user_id = ? AND role_id = ? LIMIT 1',
-            [(int)$staff['user_id'], $roleId]
-        )->fetch(PDO::FETCH_ASSOC);
-
-        if (!$exists) {
-            $this->db->query(
-                'INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, NOW())',
-                [(int)$staff['user_id'], $roleId]
-            );
-        }
-
+        $result = (new \App\API\Modules\users\UserRoleManager($this->db->getConnection()))
+            ->assignRole((int)$staff['user_id'], $roleId, true);
+        if (empty($result['success'])) throw new RuntimeException($result['error'] ?? 'Role assignment failed.');
         return ['staff_id' => $staffId, 'role_id' => $roleId];
     }
 
     public function revokeRole(int $staffId, int $roleId): void
     {
         $staff = $this->staffUser($staffId);
-        $this->db->query(
-            'DELETE FROM user_roles WHERE user_id = ? AND role_id = ?',
-            [(int)$staff['user_id'], $roleId]
-        );
+        $result = (new \App\API\Modules\users\UserRoleManager($this->db->getConnection()))
+            ->revokeRole((int)$staff['user_id'], $roleId);
+        if (empty($result['success'])) throw new RuntimeException($result['message'] ?? $result['error'] ?? 'Role revocation failed.');
     }
 
     public function roleAssignments(int $staffId): array
     {
         $this->staffUser($staffId);
         return $this->db->query(
-            "SELECT r.id role_id, r.name, r.description, ur.created_at
+            "SELECT r.id role_id, r.name, r.description, ur.created_at, (ur.is_primary = 1) AS is_primary
              FROM staff s
              JOIN users u ON u.person_id = s.person_id
              JOIN user_roles ur ON ur.user_id = u.id
              JOIN roles r ON r.id = ur.role_id
              WHERE s.id = ?
-             ORDER BY r.name",
+             ORDER BY ur.is_primary DESC, ur.id",
             [$staffId]
         )->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -63,6 +53,9 @@ final class StaffRecordsService
             "SELECT id, name, description, scope, is_system
              FROM roles
              WHERE is_active = 1
+               AND scope = 'school'
+               AND is_system = 0
+               AND LOWER(name) NOT IN ('system administrator', 'parent')
              ORDER BY name"
         )->fetchAll(PDO::FETCH_ASSOC);
     }

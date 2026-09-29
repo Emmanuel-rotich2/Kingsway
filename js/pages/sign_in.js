@@ -13,6 +13,9 @@
 
   function dashboard(response) {
     if (response?.password_setup_required && response?.password_setup_url) return response.password_setup_url;
+    if (response?.profile_completion_required || response?.dashboard?.key === 'complete_staff_profile') {
+      return `${window.APP_BASE || ''}/home.php?route=complete_staff_profile`;
+    }
     const next = new URLSearchParams(window.location.search).get('next') || undefined;
     return window.AuthContext?.getAfterLoginUrl?.(next) || `${window.APP_BASE||''}/home.php`;
   }

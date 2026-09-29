@@ -625,6 +625,9 @@
                     <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
+                    <button class="payroll-action-btn ghost" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showCompensationModal()">
+                        <i class="bi bi-sliders me-1"></i> Salary &amp; Awards
+                    </button>
                     <button class="payroll-action-btn primary" onclick="PayrollManagerController.showProcessPayrollModal()">
                         <i class="bi bi-plus-lg-circle me-1"></i> Single Payroll
                     </button>
@@ -1153,6 +1156,43 @@
             </div>
         </div>
     </div>
+</div>
+
+<div class="modal fade" id="compensationModal" tabindex="-1" aria-labelledby="compensationModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><div><h5 class="modal-title" id="compensationModalTitle">Salary &amp; payroll awards</h5><div class="small text-muted">Role rates are defaults. Individual amounts are exceptions. Awards apply to each selected staff member in each selected month.</div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body">
+      <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#roleSalaryTab" type="button">Role salary rates</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#individualSalaryTab" type="button">Individual salary</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#payrollAwardsTab" type="button">Department awards &amp; deductions</button></li>
+      </ul>
+      <div class="tab-content">
+        <section class="tab-pane fade show active" id="roleSalaryTab">
+          <form id="roleSalaryRateForm" class="row g-3"><div class="col-md-5"><label class="form-label" for="salaryRateRole">Primary role</label><select class="form-select" id="salaryRateRole" required></select></div><div class="col-md-3"><label class="form-label" for="salaryRateAmount">Monthly gross salary (KES)</label><input class="form-control" id="salaryRateAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="salaryRateFrom">Effective from</label><input class="form-control" id="salaryRateFrom" type="date" required></div><div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Save rate</button></div></form>
+          <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Role</th><th>Current configured rate</th><th>Effective from</th><th>To</th></tr></thead><tbody id="roleSalaryRatesBody"></tbody></table></div>
+        </section>
+        <section class="tab-pane fade" id="individualSalaryTab">
+          <form id="individualSalaryForm" class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label" for="individualSalaryStaff">Staff member</label><select class="form-select" id="individualSalaryStaff" required></select></div><div class="col-md-3"><label class="form-label" for="individualSalaryAmount">Individual gross salary (KES)</label><input class="form-control" id="individualSalaryAmount" type="number" min="0.01" step="0.01" required></div><div class="col-md-2"><label class="form-label" for="individualSalaryFrom">Effective from</label><input class="form-control" id="individualSalaryFrom" type="date" required></div><div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Save amount</button></div><div class="col-12"><button class="btn btn-outline-secondary btn-sm" type="button" id="clearIndividualSalaryOverride">End override from selected date</button><span class="small text-muted ms-2" id="individualSalaryRoleHint"></span></div></form>
+          <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Staff</th><th>Individual monthly salary</th><th>Effective from</th><th>To</th></tr></thead><tbody id="individualSalaryHistoryBody"></tbody></table></div>
+        </section>
+        <section class="tab-pane fade" id="payrollAwardsTab">
+          <form id="compensationAwardForm" class="row g-3">
+            <div class="col-md-3"><label class="form-label" for="awardKind">Award action</label><select class="form-select" id="awardKind"><option value="allowance">Add allowance / bonus</option><option value="deduction">Deduct amount</option></select></div>
+            <div class="col-md-3"><label class="form-label" for="awardName">Description</label><input class="form-control" id="awardName" maxlength="160" required></div>
+            <div class="col-md-3"><label class="form-label" for="awardType">Category</label><select class="form-select" id="awardType"><option value="other">Other</option><option value="bonus">Bonus</option><option value="responsibility">Responsibility</option><option value="hardship">Hardship</option><option value="transport">Transport</option><option value="housing">Housing</option><option value="other_deduction">Other deduction</option></select></div>
+            <div class="col-md-3"><label class="form-label" for="awardAmount">Amount per person, per month (KES)</label><input class="form-control" id="awardAmount" type="number" min="0.01" step="0.01" required></div>
+            <div class="col-md-4"><label class="form-label" for="awardSelectionMode">Recipients</label><select class="form-select" id="awardSelectionMode"><option value="department_all">All active members of a department</option><option value="selected_staff">Selected staff members</option></select></div>
+            <div class="col-md-4" id="awardDepartmentWrap"><label class="form-label" for="awardDepartment">Department</label><select class="form-select" id="awardDepartment"></select></div>
+            <div class="col-md-4 d-none" id="awardStaffWrap"><label class="form-label" for="awardStaff">Select staff</label><select class="form-select" id="awardStaff" multiple size="4"></select></div>
+            <div class="col-12"><label class="form-label d-block">Affected months</label><div id="awardMonths" class="d-flex flex-wrap gap-2"></div><label class="form-label mt-2" for="awardYear">Payroll year</label><select class="form-select" id="awardYear" style="max-width:180px"></select></div>
+            <div class="col-12"><button class="btn btn-primary" type="submit">Schedule award for selected months</button><span class="small text-muted ms-2">Recipients are snapshotted when scheduled. Changes affect only the selected months.</span></div>
+          </form>
+          <div class="table-responsive mt-4"><table class="table table-sm"><thead><tr><th>Type</th><th>Description</th><th>Recipients</th><th>Department</th><th>Amount / month</th><th>Months</th><th>Status</th><th></th></tr></thead><tbody id="compensationAwardHistoryBody"></tbody></table></div>
+        </section>
+      </div>
+    </div>
+  </div></div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/staff_access.js'); ?>

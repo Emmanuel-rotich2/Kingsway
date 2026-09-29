@@ -1,24 +1,48 @@
-<?php /* School-domain partial */ ?>
-<div class="container-fluid py-4" id="staffMigrationPage">
-  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-    <div><h3 class="mb-1"><i class="bi bi-people-fill me-2 text-primary"></i>Existing Staff Migration</h3><p class="text-muted mb-0">Validate the complete CSV or Excel file before creating staff, user accounts, roles and invitation emails.</p></div>
-    <div class="d-flex gap-2">
-      <button id="smTemplateCsv" class="btn btn-outline-primary" type="button"><i class="bi bi-download me-1"></i>CSV Template</button>
-      <button id="smTemplateXlsx" class="btn btn-outline-primary" type="button"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel Template</button>
-      <button id="smRefresh" class="btn btn-outline-secondary" type="button"><i class="bi bi-arrow-clockwise"></i></button>
+<?php /* Staff import workspace panel */ ?>
+<section class="container-fluid py-3" id="staffMigrationPage" aria-labelledby="smTitle">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <div>
+      <button type="button" class="btn btn-link ps-0" data-staff-workspace="directory"><i class="bi bi-arrow-left me-1"></i>Staff directory</button>
+      <h3 class="mb-1" id="smTitle">Import existing staff</h3>
+      <p class="text-muted mb-0">Choose a completed staff sheet and review its contents before validation.</p>
+    </div>
+    <div class="dropdown">
+      <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download me-1"></i>Download template</button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><button class="dropdown-item" id="smTemplateXlsx" type="button">Excel (.xlsx)</button></li>
+        <li><button class="dropdown-item" id="smTemplateCsv" type="button">CSV (.csv)</button></li>
+        <li><button class="dropdown-item" id="smTemplateOds" type="button">OpenDocument (.ods)</button></li>
+      </ul>
     </div>
   </div>
-  <div id="smState" class="alert alert-info">Loading staff migration workspace…</div>
-  <div class="row g-4">
-    <div class="col-lg-5"><div class="card shadow-sm border-0"><div class="card-body">
-      <label class="form-label fw-semibold" for="smFile">Completed staff CSV or Excel file</label><input id="smFile" class="form-control" type="file" accept=".csv,.xlsx,.xls">
-      <div class="form-text">The import is atomic: no staff record is created while any row is invalid.</div>
-      <button id="smPreview" class="btn btn-primary mt-3" disabled><i class="bi bi-shield-check me-1"></i>Validate File</button>
-    </div></div></div>
-    <div class="col-lg-7"><div class="card shadow-sm border-0"><div class="card-header bg-transparent fw-semibold">Reference values</div><div class="card-body" id="smReference"></div></div></div>
+
+  <div id="smState" class="small mb-3" role="status" aria-live="polite"></div>
+  <div class="card border shadow-sm">
+    <div class="card-body p-3 p-md-4">
+      <label class="form-label fw-semibold" for="smFile">Select completed staff file</label>
+      <input id="smFile" class="form-control" type="file" accept=".csv,.xlsx,.xls,.ods">
+      <div class="form-text">CSV, Excel and OpenDocument sheets are supported. The server checks every row before creating accounts.</div>
+
+      <section id="smClientPreview" class="mt-4" aria-live="polite" hidden>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+          <h5 class="mb-0">Import preview</h5><span class="small text-muted" id="smFilename"></span>
+        </div>
+        <div id="smClientSummary" class="mb-2"></div>
+        <div id="smClientTable" class="table-responsive border rounded" style="max-height:min(55vh,620px)"></div>
+        <div id="smClientNote" class="form-text mt-2"></div>
+        <button id="smPreview" class="btn btn-primary mt-3" type="button" disabled><i class="bi bi-shield-check me-1"></i>Validate all rows</button>
+      </section>
+    </div>
   </div>
-  <div class="card shadow-sm border-0 mt-4 d-none" id="smPreviewCard"><div class="card-header bg-transparent d-flex justify-content-between"><span class="fw-semibold">Validation result</span><div class="d-flex gap-2"><button id="smRollback" class="btn btn-outline-danger btn-sm" disabled>Safe Rollback</button><button id="smCommit" class="btn btn-success btn-sm" disabled>Commit Import</button></div></div><div class="card-body"><div id="smSummary" class="row g-2 mb-3"></div><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Row</th><th scope="col">Staff</th><th scope="col">Email</th><th scope="col">Department</th><th scope="col">Status</th></tr></thead><tbody id="smRows"></tbody></table></div></div></div>
-  <div class="card shadow-sm border-0 mt-4"><div class="card-header bg-transparent fw-semibold">Import history</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th scope="col">Batch</th><th scope="col">File</th><th scope="col">Rows</th><th scope="col">Status</th><th scope="col">Imported by</th><th scope="col">Date</th><th scope="col">Actions</th></tr></thead><tbody id="smBatches"><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody></table></div></div>
-</div>
-<?php $importExistingStaffJs = __DIR__ . '/../js/pages/import_existing_staff.js'; ?>
+
+  <section class="card border shadow-sm mt-3 d-none" id="smPreviewCard" aria-live="polite">
+    <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span class="fw-semibold">Server validation</span>
+      <div class="d-flex gap-2"><button id="smRollback" class="btn btn-outline-danger btn-sm" type="button" disabled>Rollback</button><button id="smCommit" class="btn btn-success btn-sm" type="button" disabled>Create staff and queue invitations</button></div>
+    </div>
+    <div class="card-body"><div id="smSummary" class="row g-2 mb-3"></div><div class="table-responsive"><table class="table table-sm table-striped align-middle mb-0"><thead id="smRowsHead"></thead><tbody id="smRows"></tbody></table></div></div>
+  </section>
+
+</section>
+<?php asset_script($appBase, 'public/vendor/sheetjs/xlsx.full.min.js'); ?>
 <?php asset_script($appBase, 'js/pages/import_existing_staff.js'); ?>
