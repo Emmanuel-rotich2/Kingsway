@@ -1277,19 +1277,43 @@ class AttendanceManager extends BaseAPI
                 );
             }
 
+            $registerAudit = $this->contract('App\\API\\Services\\AttendanceRegisterService', $this->db)->listRange([
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'stream_ids' => $streamId ? [(int) $streamId] : [],
+                'session_id' => $sessionId ? (int) $sessionId : null,
+            ]);
+            $unmarkedByStudent = [];
+            foreach (($registerAudit['registers'] ?? []) as $register) {
+                foreach (($register['unmarked_learners'] ?? []) as $learner) {
+                    $studentKey = (int) ($learner['id'] ?? 0);
+                    if ($studentKey > 0) {
+                        $unmarkedByStudent[$studentKey]['dates'][$register['register_date']] = true;
+                        $unmarkedByStudent[$studentKey]['meta'] = [
+                            'student_id' => $studentKey,
+                            'student_name' => $learner['learner_name'] ?? '',
+                            'admission_no' => $learner['admission_no'] ?? '',
+                            'student_type' => $learner['student_type'] ?? '',
+                            'class_name' => $register['stream_name'] ?? '',
+                        ];
+                    }
+                }
+            }
+
             $sql = "SELECT
                         student_id,
                         student_name,
                         admission_no,
                         class_name,
                         student_type,
-                        COUNT(*) AS total_days,
-                        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present,
-                        SUM(CASE WHEN status = 'absent' AND COALESCE(absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
-                        SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late,
-                        SUM(CASE WHEN absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
+                        GROUP_CONCAT(DISTINCT date) AS marked_dates,
+                        COUNT(DISTINCT date) AS marked_days,
+                        GROUP_CONCAT(DISTINCT CASE WHEN status = 'present' THEN date END) AS present_dates,
+                        GROUP_CONCAT(DISTINCT CASE WHEN status = 'absent' AND COALESCE(absence_reason, 'unexcused') <> 'permission' THEN date END) AS absent_dates,
+                        GROUP_CONCAT(DISTINCT CASE WHEN status = 'late' THEN date END) AS late_dates,
+                        GROUP_CONCAT(DISTINCT CASE WHEN absence_reason = 'permission' THEN date END) AS permission_dates,
                         MAX(CASE WHEN status = 'absent' OR absence_reason = 'permission' THEN date END) AS last_absent_date
-                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . "
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . " en
                     WHERE date BETWEEN ? AND ?";
             $params = [$dateFrom, $dateTo];
 
@@ -1297,14 +1321,7 @@ class AttendanceManager extends BaseAPI
             $params = array_merge($params, $streamScope['params']);
 
             if ($sessionId) {
-                $sql .= " AND student_id IN (
-                    SELECT DISTINCT en.student_id
-                    FROM student_attendance sa2
-                    JOIN student_academic_enrollments en ON en.id = sa2.student_academic_enrollment_id
-                    WHERE sa2.date BETWEEN ? AND ? AND sa2.session_id = ?
-                )";
-                $params[] = $dateFrom;
-                $params[] = $dateTo;
+                $sql .= ' AND session_name = (SELECT name FROM attendance_sessions WHERE id = ?)';
                 $params[] = (int) $sessionId;
             }
 
@@ -1313,18 +1330,43 @@ class AttendanceManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
-            $students = array_map(static function (array $row): array {
+            $markedRows = array_map(static function (array $row) use ($unmarkedByStudent): array {
                 $row['student_id'] = (int) $row['student_id'];
-                $row['total_days'] = (int) ($row['total_days'] ?? 0);
-                $row['present'] = (int) ($row['present'] ?? 0);
-                $row['absent'] = (int) ($row['absent'] ?? 0);
-                $row['late'] = (int) ($row['late'] ?? 0);
-                $row['permission'] = (int) ($row['permission'] ?? 0);
+                $unmarkedDates = $unmarkedByStudent[$row['student_id']]['dates'] ?? [];
+                $dates = array_fill_keys(array_filter(explode(',', (string) ($row['marked_dates'] ?? ''))), 'unmarked');
+                foreach (['present', 'late', 'permission', 'absent'] as $state) {
+                    foreach (array_filter(explode(',', (string) ($row[$state . '_dates'] ?? ''))) as $markedDate) {
+                        if (isset($unmarkedDates[$markedDate])) continue;
+                        $current = $dates[$markedDate] ?? '';
+                        $priority = ['' => 0, 'absent' => 1, 'permission' => 2, 'late' => 3, 'present' => 4];
+                        if (($priority[$state] ?? 0) > ($priority[$current] ?? 0)) $dates[$markedDate] = $state;
+                    }
+                }
+                foreach ($unmarkedDates as $unmarkedDate => $_) $dates[$unmarkedDate] = 'unmarked';
+                $unmarkedDays = count($unmarkedDates);
+                $row['unmarked'] = $unmarkedDays;
+                $row['total_days'] = count($dates);
+                foreach (['present', 'absent', 'late', 'permission'] as $state) {
+                    $row[$state] = count(array_filter($dates, static fn(string $dayState): bool => $dayState === $state));
+                }
                 $row['attendance_percentage'] = $row['total_days'] > 0
                     ? round(($row['present'] / $row['total_days']) * 100, 1)
                     : 0;
                 return $row;
             }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+            $studentsById = [];
+            foreach ($markedRows as $row) $studentsById[(int) $row['student_id']] = $row;
+            foreach ($unmarkedByStudent as $studentId => $unmarked) {
+                if (isset($studentsById[$studentId])) continue;
+                $meta = $unmarked['meta'];
+                $studentsById[$studentId] = array_merge($meta, [
+                    'student_type_code' => '', 'total_days' => count($unmarked['dates']),
+                    'present' => 0, 'absent' => 0, 'late' => 0, 'permission' => 0,
+                    'unmarked' => count($unmarked['dates']), 'attendance_percentage' => 0,
+                    'last_absent_date' => null,
+                ]);
+            }
+            $students = array_values($studentsById);
 
             $students = $this->applyAcademicStatusFilter($students, $statusFilter);
             $summary = $this->summarizeAcademicRows($students);
@@ -1411,11 +1453,6 @@ class AttendanceManager extends BaseAPI
 
             // Marked attendance alone is not a complete report. Include the
             // expected-register audit so unmarked dates remain visible.
-            $registerAudit = $this->contract('App\\API\\Services\\AttendanceRegisterService', $this->db)->listRange([
-                'date_from' => $dateFrom,
-                'date_to' => $dateTo,
-                'stream_ids' => $streamId ? [(int) $streamId] : [],
-            ]);
 
             return $this->successResponse([
                 'date_from' => $dateFrom,
@@ -3429,6 +3466,9 @@ class AttendanceManager extends BaseAPI
                     return ($student['late'] ?? 0) > 0;
                 case 'permission':
                     return ($student['permission'] ?? 0) > 0;
+                case 'not_marked':
+                case 'unmarked':
+                    return ($student['unmarked'] ?? 0) > 0;
                 default:
                     return true;
             }
@@ -3442,6 +3482,7 @@ class AttendanceManager extends BaseAPI
             'absent' => 0,
             'late' => 0,
             'permission' => 0,
+            'unmarked' => 0,
             'total_days' => 0,
             'average_attendance' => 0,
             'student_count' => count($students),
@@ -3452,11 +3493,12 @@ class AttendanceManager extends BaseAPI
             $summary['absent'] += (int) ($student['absent'] ?? 0);
             $summary['late'] += (int) ($student['late'] ?? 0);
             $summary['permission'] += (int) ($student['permission'] ?? 0);
+            $summary['unmarked'] += (int) ($student['unmarked'] ?? 0);
             $summary['total_days'] += (int) ($student['total_days'] ?? 0);
         }
 
         if ($summary['total_days'] > 0) {
-            $summary['average_attendance'] = round(($summary['present'] / $summary['total_days']) * 100, 1);
+            $summary['average_attendance'] = round((($summary['present'] + $summary['late']) / $summary['total_days']) * 100, 1);
         }
 
         return $summary;

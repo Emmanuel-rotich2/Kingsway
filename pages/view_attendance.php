@@ -45,8 +45,8 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Class / Stream</th><th>Session</th><th>Expected</th><th>Marked</th><th>Status</th><th>Responsible</th></tr></thead>
-                        <tbody id="expectedRegistersBody"><tr><td colspan="6" class="text-muted">Loading registers…</td></tr></tbody>
+                        <thead><tr><th>Class / Stream</th><th>Coverage</th><th>Expected</th><th>Marked</th><th>Unmarked</th><th>Status</th><th>Responsible</th></tr></thead>
+                        <tbody id="expectedRegistersBody"><tr><td colspan="7" class="text-muted">Loading registers…</td></tr></tbody>
                     </table>
                 </div>
             </div>
@@ -100,6 +100,7 @@
                     <option value="absent">Absent</option>
                     <option value="late">Late</option>
                     <option value="permission">On Permission</option>
+                    <option value="not_marked">Unmarked</option>
                     <option value="sick_bay">Sick Bay</option>
                 </select>
             </div>
@@ -113,6 +114,7 @@
         </div>
 
         <!-- Summary Cards -->
+        <p class="small text-muted mb-2" id="attendanceCoverageSummary" aria-live="polite"></p>
         <div class="row mb-4">
             <div class="col">
                 <div class="card border-success">
@@ -151,6 +153,14 @@
                     <div class="card-body text-center py-2">
                         <h6 class="text-muted mb-1 small">Permission</h6>
                         <h4 class="text-info mb-0" id="permissionCount">0</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="card border-secondary">
+                    <div class="card-body text-center py-2">
+                        <h6 class="text-muted mb-1 small">Unmarked</h6>
+                        <h4 class="text-secondary mb-0" id="unmarkedCount">0</h4>
                     </div>
                 </div>
             </div>
@@ -195,7 +205,8 @@
                                 <th scope="col">Admission No</th>
                                 <th scope="col">Student Name</th>
                                 <th scope="col">Type</th>
-                                <th scope="col">Total Days</th>
+                                <th scope="col">School Days</th>
+                                <th scope="col">Unmarked</th>
                                 <th scope="col">Present</th>
                                 <th scope="col">Absent</th>
                                 <th scope="col">Late</th>
