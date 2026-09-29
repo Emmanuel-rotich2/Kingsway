@@ -52,7 +52,11 @@ jobs:
           BASE_URL: http://127.0.0.1:8081
           JWT_SECRET: ci-only-public-ui-smoke-secret-value-not-used-outside-this-job-2026
         run: |
-          printf 'APP_ENV=%s\nJWT_SECRET=%s\n' "$APP_ENV" "$JWT_SECRET" > config/.env
+          printf 'APP_ENV=%s\nJWT_SECRET=%s\nTFA_ENCRYPTION_KEY=%s\nREALTIME_BUFFER_SECRET=%s\n' \
+            "$APP_ENV" "$JWT_SECRET" \
+            '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' \
+            'ci-only-realtime-buffer-secret-value-that-is-not-used-outside-this-job-2026' \
+            > config/.env
           php -S 127.0.0.1:8081 -t . > /tmp/kingsway-php-server.log 2>&1 &
           echo $! > /tmp/kingsway-php-server.pid
 
