@@ -2853,7 +2853,18 @@ class AcademicManager extends BaseAPI
                         p.first_name, p.last_name,
                         p.email AS email,
                         p.phone, p.gender, p.dob AS date_of_birth, s.employment_date, s.status AS employment_status,
-                        s.salary AS basic_salary, p.photo_url,
+                        COALESCE(
+                            (SELECT so.gross_salary FROM staff_salary_overrides so
+                             WHERE so.staff_id=s.id AND so.effective_from<=CURDATE()
+                               AND (so.effective_to IS NULL OR so.effective_to>=CURDATE())
+                             ORDER BY so.effective_from DESC,so.id DESC LIMIT 1),
+                            (SELECT rr.gross_salary FROM users u
+                             JOIN user_roles ur ON ur.user_id=u.id AND ur.is_primary=1
+                             JOIN staff_role_salary_rates rr ON rr.role_id=ur.role_id
+                             WHERE u.person_id=s.person_id AND rr.effective_from<=CURDATE()
+                               AND (rr.effective_to IS NULL OR rr.effective_to>=CURDATE())
+                             ORDER BY rr.effective_from DESC,rr.id DESC LIMIT 1), 0
+                        ) AS basic_salary, p.photo_url,
                         d.name AS department_name, sc.category_name AS staff_category,
                         s.position AS position_title
                  FROM staff s

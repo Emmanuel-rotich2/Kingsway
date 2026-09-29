@@ -147,15 +147,15 @@
       var colorIdx = 0;
       el.innerHTML = levels.map(function (level) {
         var members = Array.isArray(level.members) ? level.members : [];
-        var isTeaching = String(level.level_name || '').toLowerCase() === 'teaching staff';
-        var levelName = S(level.level_name || 'Level');
+        var isTeaching = String(level.category_name || '').toLowerCase() === 'teaching staff';
+        var levelName = S(level.category_name || 'Leadership');
         var baseColor = colorIdx;
 
         var body;
         if (!members.length) {
           body = '<p class="text-muted fst-italic">No members assigned yet.</p>';
         } else if (isTeaching) {
-          body = renderCarousel(members, 'leadership-carousel-' + level.level_id, baseColor);
+          body = renderCarousel(members, 'leadership-carousel-' + level.category_id, baseColor);
         } else {
           body = '<div class="row g-4 justify-content-center">' +
             members.map(function (m) {

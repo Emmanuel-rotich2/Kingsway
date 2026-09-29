@@ -62,6 +62,18 @@ class AuthController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // POST /api/auth/verify-invitation-setup-otp
+    public function postVerifyInvitationSetupOtp($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->verifyInvitationSetupOtp($data));
+    }
+
+    // POST /api/auth/resend-invitation-setup-otp
+    public function postResendInvitationSetupOtp($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->resendInvitationSetupOtp($data));
+    }
+
     // POST /api/auth/refresh-token
     public function postRefreshToken($id = null, $data = [], $segments = [])
     {

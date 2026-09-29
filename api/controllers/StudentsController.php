@@ -316,7 +316,7 @@ class StudentsController extends BaseController
             return $auth;
         }
         if (!empty($_FILES['file'])) {
-            $data['file'] = $_FILES['file'];
+            $data['file'] = $this->persistImportFile($_FILES['file'], 'students_existing');
         }
         return $this->handleResponse($this->api->importExistingStudents($data));
     }
@@ -370,7 +370,7 @@ class StudentsController extends BaseController
         }
 
         if (!empty($_FILES['file'])) {
-            $data['file'] = $_FILES['file'];
+            $data['file'] = $this->persistImportFile($_FILES['file'], 'students_bulk_create');
         }
         $result = $this->api->bulkCreate($data);
         return $this->handleResponse($result);
@@ -387,7 +387,7 @@ class StudentsController extends BaseController
         }
 
         if (!empty($_FILES['file'])) {
-            $data['file'] = $_FILES['file'];
+            $data['file'] = $this->persistImportFile($_FILES['file'], 'students_bulk_update');
         }
         $result = $this->api->bulkUpdate($data);
         return $this->handleResponse($result);
@@ -404,6 +404,18 @@ class StudentsController extends BaseController
 
         $result = $this->api->bulkDelete($data);
         return $this->handleResponse($result);
+    }
+
+    /** Keep submitted import originals in the shared private imports/files directory. */
+    private function persistImportFile(array $file, string $prefix): array
+    {
+        $stored = $this->uploadManaged($file, 'import_file', [
+            'subdirectory' => 'files',
+            'prefix' => $prefix,
+        ]);
+        $file['tmp_name'] = $stored['absolute_path'];
+        $file['size'] = (int)$stored['file_size_bytes'];
+        return $file;
     }
 
     /**
@@ -1528,7 +1540,7 @@ class StudentsController extends BaseController
     /* =====================================================================
      * STUDENT LEADERSHIP, HOUSES & AWARDS
      *
-     * Single governed source (school_leadership / houses / student_awards)
+     * Single governed source (school_leader / houses / student_awards)
      * feeding the student portfolio and longitudinal participation record.
      * Guarded by the students view permission set; learner records are
      * restricted to live (non-test) people server-side.

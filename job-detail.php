@@ -4,6 +4,10 @@ if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Job Vacancy';
 $activePage = 'careers';
 $pageScript = 'job-detail';
+$jobId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+if ($jobId && defined('BASE_URL')) {
+  $canonicalUrl = rtrim((string) BASE_URL, '/') . '/' . public_route_url('job-detail', ['id' => $jobId]);
+}
 // The job detail body, meta, responsibilities/requirements and apply CTA are
 // rendered by js/pages/public/job-detail.js via GET /api/website/jobs/<id> and
 // /api/website/departments. A missing/invalid id is redirected to careers.php

@@ -293,6 +293,11 @@ class RoleManager
         if (!empty($existing['is_system'])) {
             return formatResponse(false, null, 'System roles cannot be deleted', 403);
         }
+        $assigned = $this->db->prepare('SELECT COUNT(*) FROM user_roles WHERE role_id=?');
+        $assigned->execute([(int)$id]);
+        if ((int)$assigned->fetchColumn() > 0) {
+            return formatResponse(false, null, 'This role is assigned to users. Reassign those users before deleting it.', 409);
+        }
         $this->db->prepare("DELETE FROM role_permissions WHERE role_id = ?")->execute([$id]);
         $this->db->prepare("DELETE FROM user_roles WHERE role_id = ?")->execute([$id]);
         $this->db->prepare("DELETE FROM roles WHERE id = ?")->execute([$id]);

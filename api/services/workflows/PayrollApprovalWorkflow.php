@@ -298,13 +298,24 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     {
         // Get all active staff (3NF: staff JOIN persons for name + payroll_profiles for salary)
         [$scopeSql, $scopeParams] = DataScopeService::predicateFor('staff', 'st');
+        $periodDate = sprintf('%04d-%02d-01', (int)$data['year'], (int)$data['month']);
         $staff = $this->db->fetchAll(
-            "SELECT st.*, p.first_name, p.last_name, spp.basic_salary
+            "SELECT st.*, p.first_name, p.last_name,
+                    COALESCE(
+                      (SELECT so.gross_salary FROM staff_salary_overrides so
+                       WHERE so.staff_id=st.id AND so.effective_from<=?
+                         AND (so.effective_to IS NULL OR so.effective_to>=?)
+                       ORDER BY so.effective_from DESC,so.id DESC LIMIT 1),
+                      (SELECT rr.gross_salary FROM users u
+                       JOIN user_roles ur ON ur.user_id=u.id AND ur.is_primary=1
+                       JOIN staff_role_salary_rates rr ON rr.role_id=ur.role_id
+                       WHERE u.person_id=st.person_id AND rr.effective_from<=?
+                         AND (rr.effective_to IS NULL OR rr.effective_to>=?)
+                       ORDER BY rr.effective_from DESC,rr.id DESC LIMIT 1),0) AS basic_salary
              FROM staff st
              JOIN persons p ON p.id = st.person_id
-             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
              WHERE st.status = 'active' AND $scopeSql",
-            $scopeParams
+            array_merge([$periodDate, $periodDate, $periodDate, $periodDate], $scopeParams)
         );
 
         foreach ($staff as $member) {
@@ -314,7 +325,6 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             $grossSalary = $basicSalary + $allowances;
 
             // Calculate deductions
-            $periodDate = sprintf('%04d-%02d-01', (int)$data['year'], (int)$data['month']);
             $deductions = $this->calculateDeductions($member, $grossSalary, $periodDate);
             $netSalary = $grossSalary - $deductions;
 

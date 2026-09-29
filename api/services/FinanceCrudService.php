@@ -1063,8 +1063,17 @@ final class FinanceCrudService
 
     public function getStaffBasicSalary(int $staffId): float
     {
-        $stmt = $this->db->prepare("SELECT COALESCE(spp.basic_salary,0) FROM staff s LEFT JOIN staff_payroll_profiles spp ON spp.staff_id=s.id WHERE s.id = ?");
-        $stmt->execute([$staffId]);
+        $periodStart=date('Y-m-01');
+        $stmt = $this->db->prepare("SELECT COALESCE((
+                SELECT so.gross_salary FROM staff_salary_overrides so WHERE so.staff_id=s.id
+                  AND so.effective_from<=? AND (so.effective_to IS NULL OR so.effective_to>=?)
+                ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
+                SELECT rs.gross_salary FROM users u JOIN user_roles ur ON ur.user_id=u.id AND ur.is_primary=1
+                JOIN staff_role_salary_rates rs ON rs.role_id=ur.role_id
+                WHERE u.person_id=s.person_id AND rs.effective_from<=? AND (rs.effective_to IS NULL OR rs.effective_to>=?)
+                ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1),0)
+            FROM staff s WHERE s.id = ?");
+        $stmt->execute([$periodStart,$periodStart,$periodStart,$periodStart,$staffId]);
         $value = $stmt->fetchColumn();
         return $value !== false ? (float) $value : 0.0;
     }

@@ -603,9 +603,9 @@
                         <div class="dropdown d-inline-block ms-1">
                             <button class="btn btn-sm btn-link p-0 align-baseline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Download template</button>
                             <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.xlsx" download>Excel (.xlsx)</a></li>
-                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.csv" download>CSV (.csv)</a></li>
-                                <li><a class="dropdown-item" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.ods" download>OpenDocument (.ods)</a></li>
+                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('xlsx')">Excel (.xlsx)</button></li>
+                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('csv')">CSV (.csv)</button></li>
+                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('ods')">OpenDocument (.ods)</button></li>
                             </ul>
                         </div>
                     </div>

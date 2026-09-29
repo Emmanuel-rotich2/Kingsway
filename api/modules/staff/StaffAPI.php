@@ -8,6 +8,8 @@ use App\API\Services\StaffMigrationService;
 use App\API\Services\DataScopeService;
 use PDO;
 use Exception;
+use InvalidArgumentException;
+use DateTimeImmutable;
 use function App\API\Includes\formatResponse;
 use \App\API\Modules\users\UsersAPI;
 class StaffAPI extends BaseAPI {
@@ -174,9 +176,18 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT
                     s.*,
-                    COALESCE(spp.basic_salary, s.salary) AS salary,
-                    COALESCE(spp.bank_name, s.bank_name) AS bank_name,
-                    COALESCE(spp.bank_account, s.bank_account) AS bank_account,
+                    COALESCE((SELECT so.gross_salary FROM staff_salary_overrides so
+                        WHERE so.staff_id=s.id AND so.effective_from<=CURDATE()
+                          AND (so.effective_to IS NULL OR so.effective_to>=CURDATE())
+                        ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
+                        SELECT rs.gross_salary FROM user_roles pur JOIN roles pr ON pr.id=pur.role_id
+                        JOIN users pu ON pu.id=pur.user_id JOIN staff_role_salary_rates rs ON rs.role_id=pur.role_id
+                        WHERE pu.person_id=s.person_id AND pur.is_primary=1 AND rs.effective_from<=CURDATE()
+                          AND (rs.effective_to IS NULL OR rs.effective_to>=CURDATE())
+                        ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
+                    ),0) AS salary,
+                    spp.bank_name AS bank_name,
+                    spp.bank_account AS bank_account,
                     s.position AS raw_position,
                     p.first_name AS first_name,
                     p.last_name AS last_name,
@@ -186,7 +197,29 @@ class StaffAPI extends BaseAPI {
                     p.email AS email,
                     p.phone AS phone,
                     p.gender AS gender,
+                    u.id AS user_id,
                     u.status as user_status,
+                    u.force_password_change AS setup_required,
+                    u.profile_completed_at,
+                    CASE WHEN NULLIF(TRIM(p.phone),'') IS NOT NULL
+                              AND NULLIF(TRIM(p.gender),'') IS NOT NULL
+                              AND p.dob IS NOT NULL
+                              AND EXISTS (SELECT 1 FROM person_addresses pa
+                                          WHERE pa.person_id=p.id AND pa.address_type='residential'
+                                            AND pa.valid_to IS NULL AND NULLIF(TRIM(pa.address_line),'') IS NOT NULL)
+                         THEN 1 ELSE 0 END AS profile_completed,
+                    CASE WHEN ui.id IS NULL THEN 'not_sent'
+                         WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired'
+                         ELSE ui.status END AS invitation_status,
+                    COALESCE(om.status,'not_queued') AS invitation_delivery_status,
+                    om.sent_at AS invitation_sent_at,
+                    CASE
+                        WHEN EXISTS(SELECT 1 FROM staff_import_rows sir WHERE sir.staff_id=s.id AND sir.status='created') THEN 'existing_import'
+                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[job_application_id=%') THEN 'new_online_hire'
+                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[candidate_source=walk_in]%') THEN 'new_walk_in_hire'
+                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded') THEN 'new_school_entered_hire'
+                        ELSE 'existing_manual'
+                    END AS employment_source,
                     r.id as role_id,
                     r.name as role_name,
                     d.name as department_name,
@@ -203,27 +236,8 @@ class StaffAPI extends BaseAPI {
                         ), ''),
                         r.name
                     ) AS role_names,
-                    CASE
-                        WHEN NULLIF(TRIM(s.position), '') IS NOT NULL
-                             AND LOWER(TRIM(s.position)) <> 'staff'
-                            THEN s.position
-                        WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
-                            THEN r.name
-                        WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
-                            THEN sc.category_name
-                        WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
-                            THEN st.name
-                        ELSE 'Staff'
-                    END AS position,
-                    CASE
-                        WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
-                            THEN r.name
-                        WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
-                            THEN sc.category_name
-                        WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
-                            THEN st.name
-                        ELSE 'Staff'
-                    END AS display_position,
+                    NULLIF(TRIM(s.position), '') AS position,
+                    NULLIF(TRIM(s.position), '') AS display_position,
                     CASE s.staff_type_id
                         WHEN 1 THEN 'teaching'
                         WHEN 2 THEN 'non-teaching'
@@ -243,6 +257,12 @@ class StaffAPI extends BaseAPI {
                     WHERE ur2.user_id = u.id
                     ORDER BY ur2.id ASC LIMIT 1
                 )
+                LEFT JOIN user_invitations ui ON ui.id=(
+                    SELECT ui2.id FROM user_invitations ui2 WHERE ui2.user_id=u.id ORDER BY ui2.id DESC LIMIT 1
+                )
+                LEFT JOIN outbound_messages om ON om.id=(
+                    SELECT om2.id FROM outbound_messages om2 WHERE om2.user_id=u.id AND om2.template_key='staff_account_invitation' ORDER BY om2.id DESC LIMIT 1
+                )
                 LEFT JOIN staff_department_assignments sda ON sda.id = (
                     SELECT latest_sda.id FROM staff_department_assignments latest_sda
                     WHERE latest_sda.staff_id = s.id
@@ -261,6 +281,7 @@ class StaffAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $profileGate = new \App\API\Services\StaffProfileCompletionService($this->db);
 
             // Compute payroll eligibility for each staff member
             $eligibilityChecks = [
@@ -277,6 +298,8 @@ class StaffAPI extends BaseAPI {
             ];
 
             foreach ($staff as &$member) {
+                $member['profile_completed'] = !empty($member['user_id'])
+                    && !$profileGate->isRequired((int)$member['user_id']) ? 1 : 0;
                 $missing = [];
                 foreach ($eligibilityChecks as $field => $label) {
                     $val = $member[$field] ?? null;
@@ -377,13 +400,12 @@ class StaffAPI extends BaseAPI {
              [$scopeSqlKc, $scopeParamsKc] = DataScopeService::predicateFor('staff', 's');
              $stmt = $this->db->prepare(
                  "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
-                         COALESCE(ur.name, s.position, st.name, 'Administration') AS role,
+                         COALESCE(ur.name, 'Administration') AS role,
                          p.phone AS phone,
                          p.email AS email,
                          s.id AS staff_id
                     FROM staff s
                     INNER JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN staff_types st ON st.id = s.staff_type_id
                     LEFT JOIN users u ON u.person_id = s.person_id
                     LEFT JOIN user_roles ul ON ul.user_id = u.id
                     LEFT JOIN roles ur ON ur.id = ul.role_id
@@ -395,16 +417,9 @@ class StaffAPI extends BaseAPI {
                              'deputy head academic', 'deputy head - discipline',
                              'deputy head discipline'
                            )
-                           OR (
-                             s.staff_type_id = 3
-                             AND LOWER(COALESCE(s.position, '')) IN (
-                               'director', 'headteacher', 'school administrator',
-                               'deputy head - academic', 'deputy head - discipline'
-                             )
-                           )
                           )
                    ORDER BY FIELD(
-                              LOWER(COALESCE(ur.name, s.position, '')),
+                              LOWER(COALESCE(ur.name, '')),
                               'director', 'headteacher', 'school administrator',
                               'deputy head - academic', 'deputy head - discipline'
                             ),
@@ -637,6 +652,22 @@ class StaffAPI extends BaseAPI {
         return $labels[$role] ?? ucwords(str_replace('_', ' ', (string) $role));
     }
 
+    private function validateAssignableStaffRoles(array $roleIds): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $roleIds), static fn($id) => $id > 0)));
+        if (!$ids) throw new InvalidArgumentException('At least one active staff role is required.');
+        $holders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare("SELECT id,name FROM roles WHERE is_active=1 AND scope='school' AND is_system=0 AND id IN ($holders)");
+        $stmt->execute($ids);
+        $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($roles) !== count($ids)) throw new InvalidArgumentException('A selected staff role is inactive or invalid.');
+        foreach ($roles as $role) {
+            if (in_array(strtolower(trim((string)$role['name'])), ['system administrator', 'parent'], true)) {
+                throw new InvalidArgumentException('System Administrator and Parent roles cannot be assigned through staff creation.');
+            }
+        }
+    }
+
     private function ensureSubjectTeacherRoleForTeachingStaff(array $roleIds, array $staffInfo): array
     {
         $roleIds = array_values(array_unique(array_map('intval', array_filter($roleIds, 'is_numeric'))));
@@ -646,38 +677,26 @@ class StaffAPI extends BaseAPI {
             return $roleIds;
         }
 
-        if ((int) ($staffInfo['staff_type_id'] ?? 0) === 1 || $this->roleIdsRepresentTeachingDuty($roleIds)) {
+        $teachingType = $this->db->prepare("SELECT 1 FROM staff_types WHERE id=? AND is_active=1 AND LOWER(name)='teaching staff'");
+        $teachingType->execute([(int)($staffInfo['staff_type_id'] ?? 0)]);
+        if ($teachingType->fetchColumn() || $this->roleIdsRepresentTeachingDuty($roleIds, $subjectTeacherRoleId)) {
             $roleIds[] = $subjectTeacherRoleId;
         }
 
         return array_values(array_unique($roleIds));
     }
 
-    private function roleIdsRepresentTeachingDuty(array $roleIds): bool
+    private function roleIdsRepresentTeachingDuty(array $roleIds, int $subjectTeacherRoleId): bool
     {
         if (!$roleIds) {
             return false;
         }
 
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*)
-            FROM roles
-            WHERE id IN ($placeholders)
-              AND scope = 'school'
-              AND is_active = 1
-              AND name IN (
-                  'Subject Teacher',
-                  'Class Teacher',
-                  'Intern/Student Teacher',
-                  'Headteacher',
-                  'Deputy Head - Academic',
-                  'Deputy Head - Discipline'
-              )
-        ");
-        $stmt->execute($roleIds);
+        $stmt = $this->db->prepare("SELECT 1 FROM role_implied_roles WHERE role_id IN ($placeholders) AND implies_role_id=? LIMIT 1");
+        $stmt->execute(array_merge($roleIds, [$subjectTeacherRoleId]));
 
-        return (int) $stmt->fetchColumn() > 0;
+        return (bool) $stmt->fetchColumn() || in_array($subjectTeacherRoleId, $roleIds, true);
     }
 
     private function getSchoolRoleIdByName(string $name): ?int
@@ -1052,21 +1071,20 @@ class StaffAPI extends BaseAPI {
 
     // Create new staff member
     public function create($data) {
+        $ownsTransaction = false;
+        $invitationMessageId = null;
+        $emailSent = false;
+        $invitationQueued = false;
         try {
             $required = [
                 'first_name',
                 'last_name',
                 'email',
                 'department_id',
+                'staff_type_id',
+                'staff_category_id',
                 'position',
-                'employment_date',
-                'phone',
-                'kra_pin',
-                'nssf_no',
-                'nhif_no',
-                'bank_name',
-                'bank_account',
-                'salary'
+                'contract_type'
             ];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
@@ -1094,6 +1112,8 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
+            $positionName = \App\API\Services\StaffPositionCatalog::normalize((string)($data['position'] ?? 'Staff'));
+
             // Map staff_type string to staff_type_id if provided
             $staffTypeId = null;
             if (!empty($data['staff_type']) && empty($data['staff_type_id'])) {
@@ -1110,10 +1130,23 @@ class StaffAPI extends BaseAPI {
                 $staffTypeId = (int) $data['staff_type_id'];
             }
 
+            // Reporting always defaults to the selected department's head.
+            // The add-staff form does not ask administrators to choose this.
+            $supervisorId = $data['supervisor_id'] ?? null;
+            if (empty($supervisorId) && !empty($data['department_id'])) {
+                $head = $this->db->prepare("SELECT d.head_id FROM departments d
+                    JOIN staff h ON h.id=d.head_id AND h.status='active' AND h.data_scope='live'
+                    WHERE d.id=? AND d.status='active' LIMIT 1");
+                $head->execute([(int)$data['department_id']]);
+                $supervisorId = $head->fetchColumn() ?: null;
+            }
+
             $staffInfo = array_filter([
-                'position' => $data['position'] ?? 'Staff',
+                'position' => $positionName,
                 'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
+                'contract_type' => $data['contract_type'] ?? 'permanent',
                 'department_id' => $data['department_id'] ?? null,
+                'supervisor_id' => $supervisorId,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
                 'phone' => $data['phone'] ?? $data['phone_number'] ?? null,
                 'nssf_no' => $data['nssf_no'] ?? null,
@@ -1121,10 +1154,10 @@ class StaffAPI extends BaseAPI {
                 'nhif_no' => $data['nhif_no'] ?? null,
                 'bank_name' => $data['bank_name'] ?? null,
                 'bank_account' => $data['bank_account'] ?? null,
-                'salary' => $data['salary'] ?? null,
                 'gender' => $data['gender'] ?? null,
                 'marital_status' => $data['marital_status'] ?? null,
                 'address' => $data['address'] ?? null,
+                'staff_category_id' => $data['staff_category_id'] ?? null,
                 // tsc_no / profile_pic_url / documents_folder are dropped in the 4NF schema.
                 // Identity photo lives on persons.photo_url (set via setProfilePicUrl / the
                 // post-create placeholder block); TSC number and the documents folder have no
@@ -1141,6 +1174,30 @@ class StaffAPI extends BaseAPI {
                 }));
             }
             $roleIds = $this->ensureSubjectTeacherRoleForTeachingStaff($roleIds, $staffInfo);
+            $this->validateAssignableStaffRoles($roleIds);
+            $classification = $this->db->prepare(
+                'SELECT 1 FROM staff_types st JOIN staff_categories sc ON sc.staff_type_id=st.id
+                 WHERE st.id=? AND sc.id=? AND st.is_active=1 AND sc.is_active=1 LIMIT 1'
+            );
+            $classification->execute([(int)($staffInfo['staff_type_id'] ?? 0), (int)($staffInfo['staff_category_id'] ?? 0)]);
+            if (!$classification->fetchColumn()) {
+                throw new InvalidArgumentException('Choose an active staff category that belongs to the selected staff type.');
+            }
+            $departmentCheck = $this->db->prepare("SELECT 1 FROM departments WHERE id=? AND status='active' LIMIT 1");
+            $departmentCheck->execute([(int)($staffInfo['department_id'] ?? 0)]);
+            if (!$departmentCheck->fetchColumn()) throw new InvalidArgumentException('Choose an active department for the staff assignment.');
+            if (!in_array((string)($staffInfo['contract_type'] ?? ''), ['permanent','contract','temporary'], true)) {
+                throw new InvalidArgumentException('Choose a valid staff contract type.');
+            }
+            $employmentDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string)($staffInfo['employment_date'] ?? ''));
+            if (!$employmentDate || $employmentDate->format('Y-m-d') !== (string)$staffInfo['employment_date']) {
+                throw new InvalidArgumentException('Enter a valid employment date.');
+            }
+            if (!empty($staffInfo['supervisor_id'])) {
+                $supervisorCheck = $this->db->prepare("SELECT 1 FROM staff WHERE id=? AND status='active' AND data_scope='live' LIMIT 1");
+                $supervisorCheck->execute([(int)$staffInfo['supervisor_id']]);
+                if (!$supervisorCheck->fetchColumn()) throw new InvalidArgumentException('Choose an active school staff supervisor.');
+            }
 
             $temporaryPassword = $data['password'] ?? $this->generateTemporaryPassword();
 
@@ -1160,46 +1217,70 @@ class StaffAPI extends BaseAPI {
             // to another account and is resolved by the central username service.
             // Email now lives on persons (4NF), so match through the persons join.
             $existingUserStmt = $this->db->prepare('
-                SELECT u.id, u.username
+                SELECT u.id, u.username, u.status, u.password_changed_at,
+                       u.profile_completed_at, u.force_password_change
                 FROM users u
                 JOIN persons p ON p.id = u.person_id
-                WHERE p.email = ?
+                WHERE LOWER(p.email) = LOWER(?)
                 LIMIT 1
             ');
             $existingUserStmt->execute([$data['email']]);
             $existingUser = $existingUserStmt->fetch(PDO::FETCH_ASSOC);
             if ($existingUser) {
+                if (($existingUser['status'] ?? '') !== 'active') {
+                    throw new InvalidArgumentException('This account is inactive. Reactivate it through user management before adding a staff assignment.');
+                }
                 $userId = $existingUser['id'];
                 $username = $existingUser['username'];
+                $existingStaffStmt = $this->db->prepare('SELECT id FROM staff WHERE person_id=(SELECT person_id FROM users WHERE id=?) LIMIT 1');
+                $existingStaffStmt->execute([(int)$userId]);
+                if ($existingStaffStmt->fetchColumn()) {
+                    return $this->response([
+                        'status' => 'error',
+                        'message' => 'This person already has a staff record. Use the staff directory invitation action to resend their setup link.',
+                        'data' => ['user_id' => (int)$userId]
+                    ], 409);
+                }
+            }
+
+            // Keep identity, account, staff assignment, onboarding records and
+            // invitation together. The email is delivered only after commit.
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $ownsTransaction = true;
+            }
+
+            if ($existingUser) {
                 $addResult = $usersApi->addStaffForUser($userId, $staffInfo, $roleIds);
                 if (!isset($addResult['success']) || !$addResult['success']) {
                     throw new Exception('Failed to create staff for existing user: ' . ($addResult['error'] ?? json_encode($addResult)));
                 }
-                $stmt = $this->db->prepare("
-                    UPDATE users
-                    SET password_hash = ?,
-                        status = 'active',
-                        force_password_change = 1,
-                        password_changed_at = NULL,
-                        updated_at = NOW()
-                    WHERE id = ?
-                ");
-                $stmt->execute([password_hash($temporaryPassword, PASSWORD_DEFAULT), $userId]);
+                // Never reset the credentials of an account merely because a
+                // staff assignment is being added to it.
             } else {
-                $userResult = $usersApi->create($userPayload);
+                $existingStaffPersonStmt = $this->db->prepare(
+                    'SELECT p.id AS person_id FROM persons p JOIN staff s ON s.person_id=p.id
+                     LEFT JOIN users u ON u.person_id=p.id
+                     WHERE LOWER(p.email)=LOWER(?) AND u.id IS NULL LIMIT 1'
+                );
+                $existingStaffPersonStmt->execute([$data['email']]);
+                $existingStaffPersonId = (int)$existingStaffPersonStmt->fetchColumn();
+                $userResult = $existingStaffPersonId > 0
+                    ? $usersApi->createStaffAccountForExistingPerson($existingStaffPersonId, $userPayload, $roleIds)
+                    : $usersApi->create($userPayload, false, true);
                 if (!isset($userResult['success']) || !$userResult['success']) {
                     throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
                 }
-                $username = $userResult['data']['username'] ?? '';
+                $username = $userResult['data']['username'] ?? $userResult['username'] ?? '';
 
                 // Determine created user ID (returned in data or fetch by email as fallback)
-                $userId = $userResult['data']['id'] ?? null;
+                $userId = $userResult['data']['id'] ?? $userResult['user_id'] ?? null;
                 if (!$userId) {
                     $stmt = $this->db->prepare("
                         SELECT u.id
                         FROM users u
                         JOIN persons p ON p.id = u.person_id
-                        WHERE p.email = ?
+                        WHERE LOWER(p.email) = LOWER(?)
                     ");
                     $stmt->execute([$data['email']]);
                     $row = $stmt->fetch();
@@ -1231,34 +1312,34 @@ class StaffAPI extends BaseAPI {
                 throw new Exception('Staff record was not created by UsersAPI');
             }
 
-            $this->ensureStaffOnboardingArtifacts(
+            $this->ensureExistingStaffRecords(
                 (int) $staffId,
-                (int) $userId,
                 $staffInfo,
                 $data
             );
 
-            $invitationToken = $this->createStaffInvitation(
-                (int) $userId,
-                (int) $staffId,
-                $data['email']
-            );
-            $this->queueStaffInvitationEmail(
-                (int) $userId,
-                $data['email'],
-                trim($data['first_name'] . ' ' . $data['last_name']),
-                $username,
-                $temporaryPassword,
-                $invitationToken
-            );
-            if (empty($data['defer_invitation_delivery'])) {
-                try {
-                    (new StaffMigrationService($this->db))->processEmailQueue(1);
-                } catch (Exception $mailError) {
-                    \App\API\Services\Logger::legacyError('Manual staff invitation delivery failed: ' . $mailError->getMessage());
-                }
+            // Existing users with an established password keep their login.
+            // A setup link can replace credentials, so issue it only for a new
+            // or still-uninitialized account.
+            $needsInitialSetup = !$existingUser
+                || (!empty($existingUser['force_password_change'])
+                    && empty($existingUser['password_changed_at'])
+                    && empty($existingUser['profile_completed_at']));
+            if ($needsInitialSetup) {
+                $invitationToken = $this->createStaffInvitation(
+                    (int) $userId,
+                    (int) $staffId,
+                    $data['email']
+                );
+                $invitationMessageId = $this->queueStaffInvitationEmail(
+                    (int) $userId,
+                    $data['email'],
+                    trim($data['first_name'] . ' ' . $data['last_name']),
+                    $username,
+                    $invitationToken
+                );
+                $invitationQueued = true;
             }
-
             // Ensure a placeholder profile picture. In the normalized schema the photo is a
             // person attribute (persons.photo_url); staff no longer carries profile_pic_url or a
             // documents_folder column (document storage is handled by the upload service).
@@ -1360,12 +1441,33 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->commit();
+                $ownsTransaction = false;
+            }
+
+            if (empty($data['defer_invitation_delivery']) && $invitationMessageId !== null && !$this->db->inTransaction()) {
+                try {
+                    $delivery = (new StaffMigrationService($this->db))->processEmailQueue(1, $invitationMessageId);
+                    $emailSent = (int)($delivery['sent'] ?? 0) === 1;
+                } catch (Exception $mailError) {
+                    \App\API\Services\Logger::legacyError('Manual staff invitation remains queued for retry: ' . $mailError->getMessage());
+                }
+            }
+
             return $this->response([
                 'status' => 'success',
-                'message' => 'Staff member created successfully',
-                'data' => ['id' => $staffId, 'staff_no' => $staffNo]
+                'message' => !$invitationQueued
+                    ? 'Staff assignment created. Existing account credentials were preserved.'
+                    : ($emailSent
+                    ? 'Staff member created and invitation email sent.'
+                    : 'Staff member created. Invitation is queued for email delivery.'),
+                'data' => ['id' => $staffId, 'staff_no' => $staffNo, 'invitation_queued' => $invitationQueued, 'email_sent' => $emailSent]
             ], 201);
         } catch (Exception $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -1373,6 +1475,9 @@ class StaffAPI extends BaseAPI {
     // Update staff member
     public function update($id, $data) {
         try {
+            if (array_key_exists('position', $data)) {
+                $data['position'] = \App\API\Services\StaffPositionCatalog::normalize((string)$data['position']);
+            }
             $stmt = $this->db->prepare("SELECT id FROM staff WHERE id = ?");
             $stmt->execute([$id]);
             if (!$stmt->fetch()) {
@@ -1454,7 +1559,6 @@ class StaffAPI extends BaseAPI {
                 'position',
                 'employment_date',
                 'contract_type',
-                'salary',
                 'bank_name',
                 'bank_account',
                 'status',
@@ -1478,8 +1582,8 @@ class StaffAPI extends BaseAPI {
             // Statutory/bank details normalise to staff_payroll_profiles (upsert the active row).
             $payrollCols = [];
             $payrollVals = [];
-            $payrollMap = ['kra_pin' => 'kra_pin', 'nssf_no' => 'nssf_no', 'nhif_no' => 'nhif_no',
-                           'bank_name' => 'bank_name', 'bank_account' => 'bank_account', 'salary' => 'basic_salary'];
+            $payrollMap = ['kra_pin' => 'kra_pin', 'nssf_no' => 'nssf_no', 'nhif_no' => 'nhif_no', 'mpesa_phone' => 'mpesa_phone',
+                           'bank_name' => 'bank_name', 'bank_account' => 'bank_account'];
             foreach ($payrollMap as $in => $col) {
                 if (array_key_exists($in, $data)) {
                     $payrollCols[$col] = $data[$in];
@@ -1502,6 +1606,13 @@ class StaffAPI extends BaseAPI {
                          VALUES (?, $ph, 'active', NOW(), NOW())"
                     )->execute(array_merge([$id], array_values($payrollCols)));
                 }
+            }
+            if (array_key_exists('salary', $data)) {
+                (new \App\API\Services\StaffCompensationService($this->db))->saveIndividualSalary([
+                    'staff_id' => (int)$id,
+                    'gross_salary' => $data['salary'],
+                    'effective_from' => $data['salary_effective_from'] ?? date('Y-m-01'),
+                ], $this->getCurrentUserId());
             }
 
             // Personal facts are normalized temporal/contact records, not staff columns.
@@ -2348,27 +2459,8 @@ class StaffAPI extends BaseAPI {
                     ), ''),
                     r.name
                 ) AS role_names,
-                CASE
-                    WHEN NULLIF(TRIM(s.position), '') IS NOT NULL
-                         AND LOWER(TRIM(s.position)) <> 'staff'
-                        THEN s.position
-                    WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
-                        THEN r.name
-                    WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
-                        THEN sc.category_name
-                    WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
-                        THEN st.name
-                    ELSE 'Staff'
-                END AS position,
-                CASE
-                    WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
-                        THEN r.name
-                    WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
-                        THEN sc.category_name
-                    WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
-                        THEN st.name
-                    ELSE 'Staff'
-                END AS display_position,
+                NULLIF(TRIM(s.position), '') AS position,
+                NULLIF(TRIM(s.position), '') AS display_position,
                 CASE s.staff_type_id
                     WHEN 1 THEN 'teaching'
                     WHEN 2 THEN 'non-teaching'
@@ -2402,78 +2494,100 @@ class StaffAPI extends BaseAPI {
     }
 
     /**
-     * Materialise the operational artefacts a newly-created staff member needs, under the
-     * normalized 3NF/4NF schema. Idempotent: safe to call repeatedly (each block guards on
-     * existence). Three artefacts:
-     *   1. staff_employment_profiles — the employment context row (department/position/contract).
-     *   2. Onboarding = a workflow_instances header (reference_type='staff_onboarding',
-     *      reference_id = staff.id) + onboarding_tasks seeded from onboarding_task_templates.
-     *      The flat staff_onboarding_progress table is gone; progress is DERIVED from task
-     *      statuses by vw_staff_onboarding_progress, never stored.
-     *   3. emergency_contacts (person-keyed) — only when a distinct emergency contact was
-     *      supplied. The staff's own email/phone already live on `persons`, so they are NOT
-     *      mirrored here (that was the old staff_communication_profiles concern, now dropped).
+     * Complete normalized records for a person entered through the existing-staff
+     * workflow. Existing employees are not new hires: do not create a new-hire
+     * onboarding workflow here. New-hire onboarding is owned by the appointment
+     * lifecycle and the explicit StaffOnboardingManager workflow.
      */
-    private function ensureStaffOnboardingArtifacts(
+    private function ensureExistingStaffRecords(
         int $staffId,
-        int $userId,
         array $staffInfo,
         array $data
-    ): void {
-        // Resolve identity/employment facts we need for both the profile and the task due dates.
-        $ctx = $this->db->prepare('SELECT person_id, staff_type_id FROM staff WHERE id = ? LIMIT 1');
+    ): int {
+        // Resolve identity and employment facts for normalized profile rows.
+        $ctx = $this->db->prepare('SELECT person_id FROM staff WHERE id = ? LIMIT 1');
         $ctx->execute([$staffId]);
         $ctxRow = $ctx->fetch(PDO::FETCH_ASSOC) ?: [];
         $personId = (int)($ctxRow['person_id'] ?? 0) ?: null;
-        $staffTypeId = (int)($ctxRow['staff_type_id'] ?? 0) ?: null;
         $employmentDate = $staffInfo['employment_date'] ?? date('Y-m-d');
+        $positionName = trim((string)($staffInfo['position'] ?? ''));
+        $positionId = $positionName !== ''
+            ? \App\API\Services\StaffPositionCatalog::resolveId($this->db, $positionName)
+            : null;
+
+        // Normalize school-owned assignment fields even when this staff row
+        // predates its user account. This also repairs legacy records whose
+        // staff row was incomplete while the employment profile held the data.
+        $this->db->prepare("UPDATE staff SET staff_type_id=?, staff_category_id=?, supervisor_id=?,
+                position=?, employment_date=?, contract_type=?, updated_at=NOW() WHERE id=?")
+            ->execute([
+                (int)($staffInfo['staff_type_id'] ?? 0),
+                (int)($staffInfo['staff_category_id'] ?? 0),
+                !empty($staffInfo['supervisor_id']) ? (int)$staffInfo['supervisor_id'] : null,
+                $staffInfo['position'] ?? 'Staff',
+                $employmentDate,
+                $staffInfo['contract_type'] ?? 'permanent',
+                $staffId,
+            ]);
 
         // 1. Employment context row (staff.department_id is dropped; membership lives here).
-        $stmt = $this->db->prepare('SELECT 1 FROM staff_employment_profiles WHERE staff_id = ? LIMIT 1');
+        $stmt = $this->db->prepare('SELECT id FROM staff_employment_profiles WHERE staff_id=? LIMIT 1');
         $stmt->execute([$staffId]);
-        if (!$stmt->fetchColumn()) {
+        $employmentProfileId = (int)$stmt->fetchColumn();
+        if ($employmentProfileId) {
+            $this->db->prepare("UPDATE staff_employment_profiles
+                SET department_id=?,position_id=?,position=?,employment_date=?,contract_type=?,status='active',updated_at=NOW()
+                WHERE id=?")
+                ->execute([
+                    $staffInfo['department_id'] ?? null,
+                    $positionId,
+                    $positionName,
+                    $employmentDate,
+                    $staffInfo['contract_type'] ?? 'permanent',
+                    $employmentProfileId,
+                ]);
+        } else {
             $this->db->prepare("
                 INSERT INTO staff_employment_profiles
-                    (staff_id, department_id, position, employment_date, contract_type, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'active', NOW(), NOW())
+                    (staff_id, department_id, position_id, position, employment_date, contract_type, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
             ")->execute([
                 $staffId,
                 $staffInfo['department_id'] ?? null,
-                $staffInfo['position'] ?? 'Staff',
+                $positionId,
+                $positionName,
                 $employmentDate,
                 $staffInfo['contract_type'] ?? 'permanent',
             ]);
         }
 
-        // 2. Onboarding workflow instance + seeded tasks (skip if one already exists for this staff).
-        $stmt = $this->db->prepare(
-            "SELECT id FROM workflow_instances
-             WHERE reference_type = 'staff_onboarding' AND reference_id = ? LIMIT 1"
-        );
-        $stmt->execute([$staffId]);
-        $onboardingId = (int)$stmt->fetchColumn();
-
-        if (!$onboardingId) {
-            $workflowDefId = $this->resolveStaffOnboardingWorkflowId();
-            $this->db->prepare("
-                INSERT INTO workflow_instances
-                    (workflow_id, reference_type, reference_id, current_stage, status, started_by, started_at, data_json)
-                VALUES (?, 'staff_onboarding', ?, 'onboarding', 'in_progress', ?, NOW(), ?)
-            ")->execute([
-                $workflowDefId,
-                $staffId,
-                $userId,
-                json_encode([
-                    'staff_no'   => $staffInfo['staff_no'] ?? null,
-                    'position'   => $staffInfo['position'] ?? null,
-                    'invited_at' => date('Y-m-d H:i:s'),
-                ]),
-            ]);
-            $onboardingId = (int)$this->db->lastInsertId();
-            $this->seedOnboardingTasks($onboardingId, $staffTypeId, $employmentDate, $staffInfo['department_id'] ?? null);
+        // Keep the current department projection in sync with the employment
+        // profile. For a first account link, an open row is the current
+        // assignment and can be corrected in place; if none exists, create it.
+        $currentDepartment = $this->db->prepare("SELECT id FROM staff_department_assignments
+            WHERE staff_id=? AND (effective_to IS NULL OR effective_to>=CURDATE())
+            ORDER BY effective_from DESC,id DESC LIMIT 1");
+        $currentDepartment->execute([$staffId]);
+        $currentDepartmentId = (int)$currentDepartment->fetchColumn();
+        if ($currentDepartmentId) {
+            $this->db->prepare('UPDATE staff_department_assignments SET department_id=?,role=? WHERE id=?')
+                ->execute([
+                    $staffInfo['department_id'] ?? null,
+                    $staffInfo['position'] ?? null,
+                    $currentDepartmentId,
+                ]);
+        } else {
+            $this->db->prepare('INSERT INTO staff_department_assignments (staff_id,department_id,role,effective_from) VALUES (?,?,?,?)
+                ON DUPLICATE KEY UPDATE role=VALUES(role),effective_to=NULL')
+                ->execute([
+                    $staffId,
+                    $staffInfo['department_id'] ?? null,
+                    $staffInfo['position'] ?? null,
+                    $employmentDate,
+                ]);
         }
 
-        // 3. Normalized personal profile facts supplied during onboarding.
+        // Normalized personal profile facts supplied by school staff during entry.
         // These values do not belong on staff or persons directly; persist their
         // current temporal rows so a fully supplied staff form is genuinely complete.
         $address = trim((string)($data['address'] ?? $staffInfo['address'] ?? ''));
@@ -2510,9 +2624,13 @@ class StaffAPI extends BaseAPI {
             }
         }
 
-        // 4. Emergency contact — only when a real third-party contact is supplied.
+        // Emergency contact — only when a real third-party contact is supplied.
         $ecName  = $data['emergency_contact_name'] ?? null;
         $ecPhone = $data['emergency_contact_phone'] ?? null;
+        if ($ecPhone !== null && trim((string)$ecPhone) !== '') {
+            $ecPhone = \App\API\Services\PhoneNumberNormalizer::normalize((string)$ecPhone)
+                ?? throw new InvalidArgumentException('Enter a valid Kenyan emergency contact phone number.');
+        }
         if ($personId && ($ecName || $ecPhone)) {
             $exists = $this->db->prepare(
                 'SELECT 1 FROM emergency_contacts WHERE person_id = ? AND name = ? LIMIT 1'
@@ -2531,7 +2649,7 @@ class StaffAPI extends BaseAPI {
             }
         }
 
-        // 5. Individual attendance/work schedule supplied during onboarding.
+        // Individual attendance schedule, when the school explicitly supplied one.
         if (!empty($data['work_start_time']) && !empty($data['work_end_time'])) {
             $lateThreshold = max(0, (int)($data['late_threshold_minutes'] ?? 15));
             $this->db->prepare(
@@ -2545,76 +2663,95 @@ class StaffAPI extends BaseAPI {
                     is_active = 1'
             )->execute([$staffId, $data['work_start_time'], $data['work_end_time'], $lateThreshold]);
         }
-    }
-
-    /**
-     * Resolve the workflow_definitions.id for the 'staff_onboarding' workflow, creating a
-     * minimal definition if none is seeded. workflow_instances.workflow_id is NOT NULL, so a
-     * definition must exist before an onboarding instance can be written.
-     */
-    private function resolveStaffOnboardingWorkflowId(): int
-    {
-        $stmt = $this->db->prepare("SELECT id FROM workflow_definitions WHERE code = 'staff_onboarding' LIMIT 1");
-        $stmt->execute();
-        $id = (int)$stmt->fetchColumn();
-        if ($id) {
-            return $id;
+        if ((empty($data['work_start_time'])) !== (empty($data['work_end_time']))) {
+            throw new InvalidArgumentException('Work start and end times must be supplied together.');
         }
-        $this->db->prepare("
-            INSERT INTO workflow_definitions (code, name, description, category, handler_class, is_active, created_at, updated_at)
-            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 'App\\\\API\\\\Modules\\\\staff\\\\OnboardingWorkflow', 1, NOW(), NOW())
-        ")->execute();
-        return (int)$this->db->lastInsertId();
-    }
-
-    /**
-     * Seed onboarding_tasks for a new onboarding instance from the active task templates.
-     * Templates whose applies_to_type_ids is set are filtered to the staff's type; NULL/empty
-     * applies-to means the template applies to everyone. Due dates are derived from the
-     * employment date + the template's days_from_start.
-     */
-    private function seedOnboardingTasks(int $onboardingId, ?int $staffTypeId, string $employmentDate, ?int $departmentId): void
-    {
-        $tpl = $this->db->prepare("
-            SELECT task_name, description, category, days_from_start, priority
-            FROM onboarding_task_templates
-            WHERE status = 'active'
-              AND (
-                    applies_to_type_ids IS NULL
-                 OR applies_to_type_ids = ''
-                 OR JSON_CONTAINS(applies_to_type_ids, JSON_ARRAY(?))
-              )
-            ORDER BY display_order, id
-        ");
-        $tpl->execute([$staffTypeId ?? 0]);
-        $templates = $tpl->fetchAll(PDO::FETCH_ASSOC);
-        if (!$templates) {
-            return;
+        if (($data['late_threshold_minutes'] ?? '') !== '' && ($data['late_threshold_minutes'] ?? null) !== null && empty($data['work_start_time'])) {
+            throw new InvalidArgumentException('A work schedule is required when setting a late threshold.');
+        }
+        if (($data['late_threshold_minutes'] ?? '') !== '' && (int)$data['late_threshold_minutes'] < 0) {
+            throw new InvalidArgumentException('Late threshold cannot be negative.');
         }
 
-        $insert = $this->db->prepare("
-            INSERT INTO onboarding_tasks
-                (onboarding_id, task_name, description, category, department_id, due_date, priority, sequence, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL ? DAY), ?, ?, 'pending', NOW(), NOW())
-        ");
-        $seq = 0;
-        foreach ($templates as $t) {
-            $insert->execute([
-                $onboardingId,
-                $t['task_name'],
-                $t['description'] ?? null,
-                $t['category'] ?? null,
-                $departmentId,
-                $employmentDate,
-                (int)($t['days_from_start'] ?? 0),
-                $t['priority'] ?? 'medium',
-                ++$seq,
-            ]);
+        if ($personId && !empty($data['tsc_no'])) {
+            $identifier = $this->db->prepare("SELECT id FROM person_professional_identifiers WHERE person_id=? AND identifier_type='tsc' LIMIT 1");
+            $identifier->execute([$personId]);
+            if ($identifier->fetchColumn()) {
+                $this->db->prepare("UPDATE person_professional_identifiers SET identifier_value=?,issuing_body='Teachers Service Commission',updated_at=NOW() WHERE person_id=? AND identifier_type='tsc'")
+                    ->execute([strtoupper(trim((string)$data['tsc_no'])), $personId]);
+            } else {
+                $this->db->prepare("INSERT INTO person_professional_identifiers(person_id,identifier_type,identifier_value,issuing_body,is_primary,created_at,updated_at) VALUES(?,'tsc',?,'Teachers Service Commission',1,NOW(),NOW())")
+                    ->execute([$personId, strtoupper(trim((string)$data['tsc_no']))]);
+            }
         }
+
+        if ($personId) {
+            foreach ([['email', 'communication_email'], ['phone', 'communication_phone']] as [$channel, $field]) {
+                $value = trim((string)($data[$field] ?? ''));
+                if ($value === '') continue;
+                if ($channel === 'email') {
+                    $value = strtolower($value);
+                    if (filter_var($value, FILTER_VALIDATE_EMAIL) === false) {
+                        throw new InvalidArgumentException('Enter a valid communication email address.');
+                    }
+                } else {
+                    $value = \App\API\Services\PhoneNumberNormalizer::normalize($value) ?? throw new InvalidArgumentException('Enter a valid Kenyan communication phone number.');
+                }
+                $this->db->prepare("INSERT INTO person_contact_points(person_id,channel,purpose,contact_value,is_primary) VALUES(?,?,'communication',?,1) ON DUPLICATE KEY UPDATE contact_value=VALUES(contact_value),is_primary=1")
+                    ->execute([$personId, $channel, $value]);
+            }
+        }
+
+        $learningAreaNames = array_values(array_unique(array_filter(array_map('trim', explode(',', (string)($data['learning_areas'] ?? ''))))));
+        foreach ($learningAreaNames as $areaName) {
+            $area = $this->db->prepare("SELECT id FROM learning_areas WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND status='active' LIMIT 1");
+            $area->execute([$areaName]);
+            $areaId = (int)$area->fetchColumn();
+            if (!$areaId) throw new InvalidArgumentException("Unknown or inactive learning area: {$areaName}");
+            $exists = $this->db->prepare('SELECT id FROM staff_learning_area_specializations WHERE staff_id=? AND learning_area_id=? LIMIT 1');
+            $exists->execute([$staffId, $areaId]);
+            if (!$exists->fetchColumn()) {
+                $this->db->prepare("INSERT INTO staff_learning_area_specializations
+                    (staff_id,learning_area_id,specialization_level,is_primary,status,notes,created_by,effective_from)
+                    VALUES (?,?,'secondary',0,'pending','Staff learning-area claim; verify qualification evidence before approval.',?,?)")
+                    ->execute([$staffId, $areaId, (int)($this->user_id ?? 0), $employmentDate]);
+            }
+        }
+
+        if ($personId && !empty($data['leadership_position_name'])) {
+            $position = $this->db->prepare("SELECT lp.id FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
+            $position->execute([trim((string)$data['leadership_position_name'])]);
+            $positionId = (int)$position->fetchColumn();
+            $yearId = (int)$this->db->query('SELECT id FROM academic_years ORDER BY is_current DESC,id DESC LIMIT 1')->fetchColumn();
+            if (!$positionId || !$yearId) throw new InvalidArgumentException('The selected leadership position or current academic year is unavailable.');
+            $exists = $this->db->prepare('SELECT id FROM school_leader WHERE academic_year_id=? AND leadership_position_id=? AND person_id=? AND is_active=1 LIMIT 1');
+            $exists->execute([$yearId, $positionId, $personId]);
+            if (!$exists->fetchColumn()) {
+                $this->db->prepare("INSERT INTO school_leader (academic_year_id,leadership_position_id,scope_type,person_id,staff_id,start_date,is_active) VALUES (?,?,'school',?,?,?,1)")
+                    ->execute([$yearId, $positionId, $personId, $staffId, $employmentDate ?: date('Y-m-d')]);
+            }
+        }
+
+        $payrollValues = array_map(static fn($field) => ($data[$field] ?? '') !== '' ? trim((string)$data[$field]) : null,
+            ['bank_name', 'bank_account', 'mpesa_phone', 'kra_pin', 'nssf_no', 'nhif_no']);
+        if ($payrollValues[2] !== null) {
+            $payrollValues[2] = \App\API\Services\PhoneNumberNormalizer::normalize($payrollValues[2])
+                ?? throw new InvalidArgumentException('Enter a valid Kenyan M-Pesa phone number.');
+        }
+        if (array_filter($payrollValues, static fn($value) => $value !== null)) {
+            $this->db->prepare("INSERT INTO staff_payroll_profiles(staff_id,bank_name,bank_account,mpesa_phone,kra_pin,nssf_no,nhif_no,status,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,'active',NOW(),NOW())
+                ON DUPLICATE KEY UPDATE bank_name=COALESCE(VALUES(bank_name),bank_name),bank_account=COALESCE(VALUES(bank_account),bank_account),mpesa_phone=COALESCE(VALUES(mpesa_phone),mpesa_phone),kra_pin=COALESCE(VALUES(kra_pin),kra_pin),nssf_no=COALESCE(VALUES(nssf_no),nssf_no),nhif_no=COALESCE(VALUES(nhif_no),nhif_no),updated_at=NOW()")
+                ->execute(array_merge([$staffId], $payrollValues));
+        }
+
+        return $staffId;
     }
 
     private function createStaffInvitation(int $userId, int $staffId, string $email): string
     {
+        $this->db->prepare("UPDATE outbound_messages SET status='cancelled',last_error='Replaced by a newer staff invitation',updated_at=NOW() WHERE user_id=? AND template_key='staff_account_invitation' AND status IN ('queued','retry')")
+            ->execute([$userId]);
         $this->db->prepare("
             UPDATE user_invitations
             SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
@@ -2643,16 +2780,13 @@ class StaffAPI extends BaseAPI {
         string $email,
         string $name,
         string $username,
-        string $temporaryPassword,
         string $token
-    ): void {
+    ): int {
         $setupUrl = $this->staffSetupUrl($token);
-        $loginUrl = $this->appBaseUrl() . '/index.php';
+        $loginUrl = \App\API\Services\StaffMigrationService::applicationBaseUrl() . '/index.php';
         $payload = [
             'name' => $name,
             'username' => $username,
-            'default_password' => $temporaryPassword,
-            'temporary_password' => $temporaryPassword,
             'activation_url' => $setupUrl,
             'setup_url' => $setupUrl,
             'login_url' => $loginUrl,
@@ -2668,26 +2802,12 @@ class StaffAPI extends BaseAPI {
             strtolower($email),
             json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
         ]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function staffSetupUrl(string $token): string
     {
-        return $this->appBaseUrl() . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token);
-    }
-
-    private function appBaseUrl(): string
-    {
-        if (defined('BASE_URL')) {
-            return rtrim(BASE_URL, '/');
-        }
-
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
-        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
-        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
-
-        return $scheme . '://' . $host . $appBase;
+        return \App\API\Services\StaffMigrationService::invitationSetupUrl($token);
     }
 
     // ===============================================================

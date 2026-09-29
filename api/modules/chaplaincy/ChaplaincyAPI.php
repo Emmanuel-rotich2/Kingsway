@@ -300,7 +300,7 @@ class ChaplaincyAPI extends BaseAPI
      * Writes:
      *   staff   → staff_department_assignments (borrowed team member, role name)
      *   parents → chaplaincy_volunteers        (role_id FK, linked to the person)
-     *   students→ school_leadership            (Spiritual / Ministry Group Leader)
+     *   students→ school_leader               (Spiritual / Ministry Group Leader)
      *
      * The Department Head role is never assignable here; it belongs to the
      * School Administrator (departments.head_id).
