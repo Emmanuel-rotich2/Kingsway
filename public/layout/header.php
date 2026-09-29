@@ -1,9 +1,54 @@
 <?php
 /* Shared public header — included by every public page.
  * Expects: $pageTitle (string), $activePage (string), $appBase (string) */
+if (class_exists(\App\Config\Config::class)) {
+  \App\Config\Config::init();
+}
 $pageTitle  = $pageTitle  ?? 'Kingsway Preparatory School';
 $activePage = $activePage ?? 'home';
 $bodyClass  = trim((string)($bodyClass ?? ''));
+$pageDescriptions = [
+  'home' => 'Kingsway Preparatory School in Londiani, Kenya offers faith-based CBC education from Playgroup through Grade 9.',
+  'about' => 'Learn about Kingsway Preparatory School, its Christian foundation, community, learning programmes and history in Londiani, Kenya.',
+  'admissions' => 'Find admissions information for Kingsway Preparatory School, a CBC primary and junior secondary school in Londiani, Kenya.',
+  'news' => 'Read public news and updates from Kingsway Preparatory School in Londiani, Kericho County, Kenya.',
+  'events' => 'See upcoming public events at Kingsway Preparatory School in Londiani, Kenya.',
+  'careers' => 'View current staff vacancies and career opportunities at Kingsway Preparatory School in Kenya.',
+  'contact' => 'Contact Kingsway Preparatory School in Simotwet, Londiani, Kericho County, Kenya.',
+  'downloads' => 'Access public school documents and downloads from Kingsway Preparatory School.',
+  'uniform-catalog' => 'Browse the Kingsway Preparatory School uniform catalogue.',
+];
+$pageDescription = $pageDescription ?? ($pageDescriptions[$activePage] ?? 'Kingsway Preparatory School — Nurturing Excellence, Character & Leadership in Londiani, Kenya.');
+$siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : $appBase), '/');
+$publicRouteKeys = array_keys((require __DIR__ . '/facade_routes.php')['public'] ?? []);
+$canonicalUrl = $canonicalUrl ?? ($activePage === 'home'
+  ? $siteBase . '/'
+  : (in_array($activePage, $publicRouteKeys, true)
+      ? $siteBase . '/' . public_route_url($activePage)
+      : $siteBase . '/'));
+$socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png';
+$organizationData = [
+  '@context' => 'https://schema.org',
+  '@type' => 'Organization',
+  'name' => 'Kingsway Preparatory School',
+  'url' => $siteBase . '/',
+  'logo' => $socialImage,
+  'description' => 'A Seventh-day Adventist CBC primary and junior secondary school in Simotwet, Londiani, Kericho County, Kenya.',
+  'email' => 'info@kingswaypreparatoryschool.sc.ke',
+  'telephone' => '+254720113030',
+  'sameAs' => [
+    'https://www.facebook.com/profile.php/?id=100066942647437',
+    'https://www.instagram.com/p/DE7jLBkIEjS/',
+  ],
+  'address' => [
+    '@type' => 'PostalAddress',
+    'streetAddress' => 'Simotwet',
+    'addressLocality' => 'Londiani',
+    'addressRegion' => 'Kericho County',
+    'postalCode' => '20203',
+    'addressCountry' => 'KE',
+  ],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -14,7 +59,21 @@ $bodyClass  = trim((string)($bodyClass ?? ''));
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
-  <meta name="description" content="Kingsway Preparatory School — Nurturing Excellence, Character &amp; Leadership. Located in Londiani, Kenya.">
+  <meta name="description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
+  <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Kingsway Preparatory School">
+  <meta property="og:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
+  <meta property="og:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
+  <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
+  <meta property="og:image" content="<?= htmlspecialchars($socialImage, ENT_QUOTES, 'UTF-8') ?>">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
+  <meta name="twitter:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
+  <script type="application/ld+json"><?= json_encode($organizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <?php if (!empty($pageStructuredData) && is_array($pageStructuredData)): ?>
+  <script type="application/ld+json"><?= json_encode($pageStructuredData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <?php endif; ?>
 
   <!-- Favicons -->
   <link rel="icon" type="image/png" href="<?= $appBase ?>/images/favicon/favicon-96x96.png" sizes="96x96">

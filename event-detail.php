@@ -4,6 +4,10 @@ if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Event Details';
 $activePage = 'events';
 $pageScript = 'event-detail';
+$eventId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+if ($eventId && defined('BASE_URL')) {
+  $canonicalUrl = rtrim((string) BASE_URL, '/') . '/' . public_route_url('event-detail', ['id' => $eventId]);
+}
 // Event detail, related events, share links and the academic-terms sidebar are
 // rendered by js/pages/public/event-detail.js via GET /api/website/events/<id>
 // (plus the events list + terms). A missing/invalid id is redirected to

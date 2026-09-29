@@ -8,8 +8,20 @@ $article = $id ? kw_news_by_id($id) : null;
 if (!$article) { header("Location: {$appBase}/index.php?route=rcbd4a4c91922"); exit; }
 kw_increment_news_views($id);
 
-$pageTitle  = htmlspecialchars($article['title']);
+$pageTitle  = (string) $article['title'];
 $activePage = 'news';
+$siteBase = rtrim((string) BASE_URL, '/');
+$canonicalUrl = $siteBase . '/' . public_route_url('news-article', ['id' => $id]);
+$pageDescription = trim(strip_tags((string) ($article['excerpt'] ?: $article['content'])));
+$pageDescription = mb_strimwidth($pageDescription, 0, 155, '…');
+$pageStructuredData = [
+  '@context' => 'https://schema.org',
+  '@type' => 'Article',
+  'headline' => (string) $article['title'],
+  'datePublished' => date(DATE_ATOM, strtotime((string) $article['created_at'])),
+  'mainEntityOfPage' => $canonicalUrl,
+  'publisher' => ['@type' => 'Organization', 'name' => 'Kingsway Preparatory School'],
+];
 $related    = array_filter(kw_latest_news(7, 1, (string)$article['category']), fn($n) => $n['id'] != $id);
 if (count($related) < 3) {
   $existingIds = array_map(fn($n) => (int)$n['id'], $related);
