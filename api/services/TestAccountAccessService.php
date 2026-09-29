@@ -221,7 +221,7 @@ final class TestAccountAccessService
                      revocation_reason='Superseded by a bulk access grant'
                  WHERE user_id IN ($placeholdersValid) AND environment=?
                    AND status IN ('scheduled','active') AND revoked_at IS NULL"
-            )->execute(array_merge(array_map('intval', $validIds), [self::environment()]));
+            )->execute(array_merge([$approvedBy], array_map('intval', $validIds), [self::environment()]));
 
             $stmt = $this->db->prepare(
                 "INSERT INTO test_account_access_grants
