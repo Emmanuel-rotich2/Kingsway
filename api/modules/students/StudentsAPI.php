@@ -2333,14 +2333,10 @@ class StudentsAPI extends BaseAPI
             $stmt->execute($parentParams);
         }
 
-        $this->db->prepare(
-            "INSERT INTO user_roles (user_id, role_id)
-             SELECT u.id, 73
-             FROM users u
-             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
-             WHERE u.person_id = ?
-             ON DUPLICATE KEY UPDATE user_id = user_id"
-        )->execute([$personId]);
+        $parentUser = $this->db->prepare('SELECT id FROM users WHERE person_id=? LIMIT 1');
+        $parentUser->execute([$personId]);
+        $parentUserId = $parentUser->fetchColumn();
+        if ($parentUserId !== false) (new \App\API\Modules\users\UserRoleManager($this->db))->assignRole((int)$parentUserId, 73, false);
     }
 
     private function getStudentParents($studentId)

@@ -608,6 +608,9 @@ class UsersController extends BaseController
                 if ($result['success']) {
                     return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
                 } else {
+                    if ((int) ($result['code'] ?? 400) >= 500) {
+                        return $this->serverError($result['error'] ?? 'Bulk user operation failed.');
+                    }
                     // Include validation errors in response data if available
                     $errorData = $result['errors'] ?? null;
                     return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed', $errorData);
@@ -683,9 +686,30 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
     public function postUsersBulkAssignToRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if (empty($data['role_id'])) return $this->badRequest('role_id required');
+        if (!is_array($data['user_ids'] ?? null) || empty($data['user_ids'])) {
+            return $this->badRequest('user_ids array is required and must not be empty');
+        }
         $result = $this->api->bulkAssignUsersToRole($data['role_id'], $data['user_ids'] ?? []);
         return $this->handleResponse($result);
+    }
+
+    public function postUsersBulkDataScope($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
+        if (!is_array($data['user_ids'] ?? null) || empty($data['user_ids'])) {
+            return $this->badRequest('user_ids array is required and must not be empty');
+        }
+        $scope = strtolower((string) ($data['data_scope'] ?? ''));
+        if (!in_array($scope, ['live', 'test', 'both'], true)) {
+            return $this->badRequest('data_scope must be live, test, or both');
+        }
+        return $this->handleResponse($this->api->bulkUpdateDataScope($data['user_ids'], $scope));
     }
     public function deleteUsersBulkRevokeFromRole($id = null, $data = [], $segments = []) {
         if (empty($data['role_id'])) return $this->badRequest('role_id required');

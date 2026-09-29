@@ -7,6 +7,8 @@ const ImportExistingStaffController = {
   initializationPromise: null,
   eventsBound: false,
   currentBatch: null,
+  previewToken: 0,
+  previewState: null,
 
   async init() {
     if (this.initializationPromise) return this.initializationPromise;
@@ -51,24 +53,60 @@ const ImportExistingStaffController = {
 
     this.byId("smTemplateCsv")?.addEventListener("click", () => this.downloadTemplate("csv"));
     this.byId("smTemplateXlsx")?.addEventListener("click", () => this.downloadTemplate("xlsx"));
-    this.byId("smRefresh")?.addEventListener("click", () => this.loadWorkspace());
+    this.byId("smTemplateOds")?.addEventListener("click", () => this.downloadTemplate("ods"));
 
-    this.byId("smFile")?.addEventListener("change", () => {
-      const hasFile = Boolean(this.byId("smFile")?.files?.length);
-      const preview = this.byId("smPreview");
-      if (preview) preview.disabled = !hasFile;
-    });
+    this.byId("smFile")?.addEventListener("change", (event) => void this.previewFile(event.target.files?.[0] || null));
 
     this.byId("smPreview")?.addEventListener("click", () => this.validateFile());
     this.byId("smCommit")?.addEventListener("click", () => this.commitImport());
     this.byId("smRollback")?.addEventListener("click", () => this.rollbackImport());
 
-    this.byId("smBatches")?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-view]");
-      if (button) void this.viewBatch(button.dataset.view);
-    });
-
     this.byId("smRows")?.addEventListener("click", async (event) => {
+      const cancel = event.target.closest("[data-cancel-invitation]");
+      if (cancel) {
+        const confirmed = await window.confirmAction(
+          "Cancel staff invitation",
+          "The setup link will stop working and queued invitation emails will be cancelled.",
+          { confirmText: "Cancel invitation", danger: true },
+        );
+        if (!confirmed) return;
+        cancel.disabled = true;
+        try {
+          await window.API.staffMigration.cancelInvitation(Number(cancel.dataset.cancelInvitation));
+          this.setState("Staff invitation cancelled.", "success");
+          await this.viewBatch(this.currentBatch);
+        } catch (error) {
+          this.setState(error.message || "Could not cancel invitation.", "danger");
+          cancel.disabled = false;
+        }
+        return;
+      }
+      const resend = event.target.closest("[data-resend-invitation]");
+      if (resend) {
+        resend.disabled = true;
+        try {
+          await window.API.staffMigration.resendInvitation(Number(resend.dataset.resendInvitation));
+          this.setState("A replacement staff invitation was queued.", "success");
+          await this.viewBatch(this.currentBatch);
+        } catch (error) {
+          this.setState(error.message || "Could not queue a replacement invitation.", "danger");
+          resend.disabled = false;
+        }
+        return;
+      }
+      const resendOtp = event.target.closest("[data-resend-setup-otp]");
+      if (resendOtp) {
+        resendOtp.disabled = true;
+        try {
+          await window.API.staffMigration.resendSetupOtp(Number(resendOtp.dataset.resendSetupOtp));
+          this.setState("A new setup verification code was sent.", "success");
+          await this.viewBatch(this.currentBatch);
+        } catch (error) {
+          this.setState(error.message || "Could not resend the verification code.", "danger");
+          resendOtp.disabled = false;
+        }
+        return;
+      }
       const button = event.target.closest("[data-errors]");
       if (!button) return;
       const errors = JSON.parse(button.dataset.errors || "[]");
@@ -79,76 +117,63 @@ const ImportExistingStaffController = {
   async loadWorkspace() {
     this.setState("Loading staff migration workspace...", "info");
     try {
-      await Promise.all([this.loadReferenceData(), this.loadBatches()]);
-      this.setState("Ready. Download the template before preparing the migration file.", "success");
+      this.setState("Choose a completed staff file to preview it.", "info");
     } catch (error) {
       console.error("[ImportExistingStaffController] Workspace load failed:", error);
       this.setState(error.message || "Workspace failed to load.", "danger");
     }
   },
 
-  async loadReferenceData() {
-    const data = this.unwrap(await window.API.staffMigration.referenceData()) || {};
-    const departments = Array.isArray(data.departments) ? data.departments : [];
-    const roles = Array.isArray(data.roles) ? data.roles : [];
-    const staffTypes = Array.isArray(data.staff_types) ? data.staff_types : [];
-    const categories = Array.isArray(data.staff_categories) ? data.staff_categories : [];
-    const supervisors = Array.isArray(data.supervisors) ? data.supervisors : [];
-
-    const reference = this.byId("smReference");
-    if (!reference) return;
-
-    reference.innerHTML = `
-      <div class="mb-3">
-        <div class="fw-semibold mb-1">Departments</div>
-        <div class="small text-muted">${departments.length ? departments.map((item) => this.badge(`${item.code || ""} - ${item.name || ""}`)).join(" ") : "No active departments found."}</div>
-      </div>
-      <div class="mb-3">
-        <div class="fw-semibold mb-1">School roles</div>
-        <div class="small text-muted">${roles.length ? roles.map((item) => this.badge(item.name || item.role_name || "Role")).join(" ") : "No active school roles found."}</div>
-      </div>
-      <div class="mb-3">
-        <div class="fw-semibold mb-1">Staff types</div>
-        <div class="small text-muted">${staffTypes.length ? staffTypes.map((item) => this.badge(item.name || "Type")).join(" ") : "No staff types found."}</div>
-      </div>
-      <div class="mb-3">
-        <div class="fw-semibold mb-1">Staff categories</div>
-        <div class="small text-muted">${categories.length ? categories.map((item) => this.badge(`${item.staff_type || ""} - ${item.name || ""}`)).join(" ") : "No staff categories found."}</div>
-      </div>
-      <div>
-        <div class="fw-semibold mb-1">Active supervisors (use staff number)</div>
-        <div class="small text-muted">${supervisors.length ? supervisors.map((item) => this.badge(`${item.staff_no || ""} - ${item.name || ""}`)).join(" ") : "No active supervisors found."}</div>
-      </div>
-    `;
-  },
-
-  async loadBatches() {
-    const rows = this.unwrap(await window.API.staffMigration.batches()) || [];
-    const tbody = this.byId("smBatches");
-    if (!tbody) return;
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No imports yet.</td></tr>';
-      return;
+  async previewFile(file) {
+    const token = ++this.previewToken;
+    const section = this.byId("smClientPreview");
+    const summary = this.byId("smClientSummary");
+    const table = this.byId("smClientTable");
+    const button = this.byId("smPreview");
+    this.previewState = null;
+    if (!file) { section.hidden = true; button.disabled = true; return; }
+    section.hidden = false;
+    this.byId("smFilename").textContent = file.name;
+    summary.innerHTML = '<div class="alert alert-info py-2 mb-0">Reading spreadsheet…</div>';
+    table.innerHTML = "";
+    button.disabled = true;
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (!['csv', 'xlsx', 'xls', 'ods'].includes(ext)) throw new Error("Choose a CSV, XLSX, XLS, or ODS spreadsheet.");
+      if (!window.XLSX?.read) throw new Error("Spreadsheet preview could not load. Refresh and try again.");
+      const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false, dense: true });
+      if (token !== this.previewToken) return;
+      const sheetName = workbook.SheetNames?.find((name) => name.trim().toLowerCase() === "staff import") || workbook.SheetNames?.[0];
+      if (!sheetName) throw new Error("This file does not contain a worksheet.");
+      const grid = window.XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", raw: false, blankrows: false });
+      const headers = (grid.shift() || []).map((value) => String(value ?? "").trim());
+      if (!headers.length || !headers.some(Boolean)) throw new Error("The staff worksheet has no column headers.");
+      const records = grid.map((values, i) => ({ number: i + 2, values })).filter((row) => row.values.some((v) => String(v ?? "").trim()));
+      this.previewState = { file, headers, records };
+      const visible = records.slice(0, 100);
+      const esc = (v) => this.escapeHtml(v);
+      table.innerHTML = `<table class="table table-sm table-striped table-bordered mb-0"><thead class="table-light sticky-top"><tr><th>Row</th>${headers.map((h) => `<th class="text-nowrap">${esc(h)}</th>`).join("")}</tr></thead><tbody>${visible.map((r) => `<tr><th>${r.number}</th>${headers.map((_, i) => `<td class="text-nowrap">${esc(r.values[i] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      summary.innerHTML = `<div class="border rounded px-3 py-2"><strong>${records.length}</strong> staff rows found <span class="text-muted ms-2">Worksheet: ${esc(sheetName)}</span></div>`;
+      const notes = [];
+      if (!records.length) notes.push("No staff rows were found under the header row.");
+      if (records.length > visible.length) notes.push(`Showing ${visible.length} of ${records.length} rows.`);
+      if (grid.some((row) => row.length > headers.length)) notes.push("Some data extends beyond the header columns; check the source sheet.");
+      this.byId("smClientNote").textContent = notes.join(" ") || "Review the sheet, then validate all rows with the server before creating staff.";
+      button.disabled = records.length === 0;
+      this.setState("Preview ready. Nothing has been uploaded or saved yet.", "info");
+    } catch (error) {
+      if (token !== this.previewToken) return;
+      summary.innerHTML = `<div class="alert alert-danger py-2 mb-0">${this.escapeHtml(error.message || "Could not read this file.")}</div>`;
+      this.byId("smClientNote").textContent = "Select a valid CSV, Excel, or OpenDocument spreadsheet.";
     }
-
-    tbody.innerHTML = rows.map((batch) => `
-      <tr>
-        <td>#${this.escapeHtml(batch.id)}</td>
-        <td>${this.escapeHtml(batch.source_filename)}</td>
-        <td>${this.escapeHtml(batch.valid_rows)}/${this.escapeHtml(batch.total_rows)}</td>
-        <td>${this.statusBadge(batch.status)}</td>
-        <td>${this.escapeHtml(batch.imported_by_name || "-")}</td>
-        <td>${this.escapeHtml(batch.created_at || "-")}</td>
-        <td><button class="btn btn-sm btn-outline-primary" type="button" data-view="${this.escapeAttribute(batch.id)}">View</button></td>
-      </tr>
-    `).join("");
   },
 
   async downloadTemplate(type) {
     try {
       if (type === "xlsx") {
         await window.API.staffMigration.downloadTemplateXlsx();
+      } else if (type === "ods") {
+        await window.API.staffMigration.downloadTemplateOds();
       } else {
         await window.API.staffMigration.downloadTemplate();
       }
@@ -161,6 +186,7 @@ const ImportExistingStaffController = {
   async validateFile() {
     const file = this.byId("smFile")?.files?.[0];
     if (!file) return;
+    if (this.previewState?.file !== file) return this.setState("Wait for the file preview to finish.", "warning");
 
     this.setState("Uploading and validating...", "info");
     const formData = new FormData();
@@ -170,7 +196,6 @@ const ImportExistingStaffController = {
       const detail = this.unwrap(await window.API.staffMigration.stage(formData));
       this.renderBatchDetail(detail);
       this.setState("Validation completed.", "success");
-      await this.loadBatches();
     } catch (error) {
       console.error("[ImportExistingStaffController] Validation failed:", error);
       this.setState(error.message || "Validation failed.", "danger");
@@ -186,7 +211,6 @@ const ImportExistingStaffController = {
       const result = this.unwrap(await window.API.staffMigration.commit(this.currentBatch));
       this.renderBatchDetail(result.batch || result);
       this.setState("Import completed and invitations queued.", "success");
-      await this.loadBatches();
     } catch (error) {
       console.error("[ImportExistingStaffController] Commit failed:", error);
       this.setState(error.message || "Import failed. No partial records were kept.", "danger");
@@ -201,7 +225,6 @@ const ImportExistingStaffController = {
       const detail = this.unwrap(await window.API.staffMigration.rollback(this.currentBatch));
       this.renderBatchDetail(detail);
       this.setState("Import rolled back.", "success");
-      await this.loadBatches();
     } catch (error) {
       console.error("[ImportExistingStaffController] Rollback failed:", error);
       this.setState(error.message || "Rollback blocked.", "danger");
@@ -247,8 +270,12 @@ const ImportExistingStaffController = {
 
     const rows = Array.isArray(detail.rows) ? detail.rows : [];
     const body = this.byId("smRows");
+    const fields = [...new Set(rows.flatMap((row) => Object.keys(row.data || {})))];
+    this.validationFields = fields;
+    const head = this.byId("smRowsHead");
+    if (head) head.innerHTML = `<tr><th>Row</th>${fields.map((field) => `<th class="text-nowrap">${this.escapeHtml(field.replaceAll("_", " "))}</th>`).join("")}<th>Validation</th></tr>`;
     if (body) {
-      body.innerHTML = rows.length ? rows.map((row) => this.renderValidationRow(row)).join("") : '<tr><td colspan="5" class="text-center text-muted py-4">No rows found.</td></tr>';
+      body.innerHTML = rows.length ? rows.map((row) => this.renderValidationRow(row)).join("") : '<tr><td colspan="20" class="text-center text-muted py-4">No rows found.</td></tr>';
     }
 
     const commit = this.byId("smCommit");
@@ -260,16 +287,12 @@ const ImportExistingStaffController = {
   renderValidationRow(row) {
     const data = row.data || {};
     const errors = Array.isArray(row.errors) ? row.errors : [];
-    const name = `${data.first_name || ""} ${data.last_name || ""}`.trim() || "-";
-    return `
-      <tr>
-        <td>${this.escapeHtml(row.row_number)}</td>
-        <td>${this.escapeHtml(name)}</td>
-        <td>${this.escapeHtml(data.email || "-")}</td>
-        <td>${this.escapeHtml(data.department_code || "-")}</td>
-        <td>${errors.length ? `<button class="btn btn-sm btn-outline-danger" type="button" data-errors="${this.escapeAttribute(JSON.stringify(errors))}">${errors.length} errors</button>` : '<span class="badge bg-success">Valid</span>'}</td>
-      </tr>
-    `;
+    const statusCell = errors.length
+      ? `<button class="btn btn-sm btn-outline-danger" type="button" data-errors="${this.escapeAttribute(JSON.stringify(errors))}">${errors.length} errors</button>`
+      : row.user_id
+        ? `<div class="small">Invitation: ${this.escapeHtml(row.invitation_status || "not_sent")}<br>Email: ${this.escapeHtml(row.invitation_delivery_status || "not_queued")}</div>${Number(row.setup_required) === 1 ? `<button class="btn btn-sm btn-outline-primary mt-1" type="button" data-resend-invitation="${this.escapeAttribute(row.user_id)}">Resend setup link</button>${row.invitation_status === "pending" ? `<button class="btn btn-sm btn-outline-danger mt-1 ms-1" type="button" data-cancel-invitation="${this.escapeAttribute(row.user_id)}">Cancel</button>` : ""}` : row.invitation_status === "accepted" && Number(row.profile_completed) !== 1 ? `<button class="btn btn-sm btn-outline-primary mt-1" type="button" data-resend-setup-otp="${this.escapeAttribute(row.user_id)}">Resend verification code</button>` : ""}`
+        : '<span class="badge bg-success">Valid</span>';
+    return `<tr><th>${this.escapeHtml(row.row_number)}</th>${(this.validationFields || []).map((field) => `<td class="text-nowrap">${this.escapeHtml(data[field] ?? "")}</td>`).join("")}<td>${statusCell}</td></tr>`;
   },
 
   unwrap(response) {

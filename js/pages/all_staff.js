@@ -242,7 +242,7 @@ const StaffController = (() => {
             <td><img src="${esc(photo)}" alt="${esc(name)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;"></td>
             <td>${esc(s.staff_no || "—")}</td>
             <td>${esc(name)}</td>
-            <td>${esc(s.position || s.role || "—")}</td>
+            <td>${esc(s.position || "—")}</td>
             <td>${esc(s.department_name || s.department || "—")}</td>
             <td>${esc(s.phone || "—")}</td>
             <td>${esc(s.email || "—")}</td>
@@ -261,7 +261,7 @@ const StaffController = (() => {
             <td><img src="${esc(photo)}" alt="${esc(name)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;"></td>
             <td>${esc(s.staff_no || "—")}</td>
             <td>${esc(name)}</td>
-            <td>${esc(s.position || s.role || "—")}</td>
+            <td>${esc(s.position || "—")}</td>
             <td>${esc(s.phone || "—")}</td>
             <td>${statusBadge}</td>
             <td>
@@ -274,7 +274,7 @@ const StaffController = (() => {
         return `<tr>
           <td>${start + i + 1}</td>
           <td>${esc(name)}</td>
-          <td>${esc(s.position || s.role || "—")}</td>
+          <td>${esc(s.position || "—")}</td>
           <td>${esc(s.department_name || s.department || "—")}</td>
           <td>${statusBadge}</td>
         </tr>`;
@@ -414,7 +414,7 @@ const StaffController = (() => {
             <div class="col-md-8">
               <table class="table table-sm">
                 <tr><th>Staff No</th><td>${esc(s.staff_no || "—")}</td></tr>
-                <tr><th>Position</th><td>${esc(s.position || s.role || "—")}</td></tr>
+                <tr><th>Position</th><td>${esc(s.position || "—")}</td></tr>
                 <tr><th>Department</th><td>${esc(s.department_name || s.department || "—")}</td></tr>
                 <tr><th>Email</th><td>${esc(s.email || "—")}</td></tr>
                 <tr><th>Phone</th><td>${esc(s.phone || "—")}</td></tr>
@@ -476,7 +476,7 @@ const StaffController = (() => {
     const rows = data.map((s) => [
       s.staff_no || "",
       s.name || `${s.first_name || ""} ${s.last_name || ""}`.trim(),
-      s.position || s.role || "",
+      s.position || "",
       s.department_name || s.department || "",
       s.email || "",
       s.phone || "",

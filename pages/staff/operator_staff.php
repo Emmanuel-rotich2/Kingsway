@@ -141,7 +141,7 @@
     }
 
     function staffRole(s) {
-        return s.role_names || s.role_name || s.position || s.role || '-';
+        return s.role_names || s.role_name || s.role || '-';
     }
 
     function renderStaffList(staff) {

@@ -28,6 +28,8 @@ class AuthMiddleware
             'auth/forgot-password',
             'auth/reset-password',
             'auth/reset-default-password',
+            'auth/verify-invitation-setup-otp',
+            'auth/resend-invitation-setup-otp',
             'auth/complete-reset',
             'auth/verify-reset-token',
             'auth/refresh-token',
@@ -70,8 +72,6 @@ class AuthMiddleware
             'twofactor/verify',
             'twofactor/passwordless-options',
             'twofactor/passwordless-verify',
-            // Public careers intake for candidates who passed recruitment screening
-            'staff-appointments/careers-candidate',
             // Resource file downloads (teaching materials / past papers). The list
             // (GET /api/academic/resources) and upload (POST) stay authenticated; only
             // the file-serving GET is public because the frontend opens it via
@@ -133,6 +133,7 @@ class AuthMiddleware
             'communications/sms-opt-out-callback',
             'communications/sms-subscription-callback',
             'communications/process-outbox',
+            'staff-migration/process-invitation-email',
             'attendance/gate-event',
             // Protected by ATTENDANCE_WORKER_SECRET rather than staff JWT.
             'attendance/process-register-reminders',
@@ -293,6 +294,29 @@ class AuthMiddleware
             $_SERVER['auth_user'] = $authUser;
             $_SERVER['auth_session_id'] = (int) $session['id'];
 
+            // A normal, post-OTP session is still restricted until the staff
+            // member has completed personal details and the school-owned
+            // employment assignment. Client-side redirects alone are not an
+            // access-control boundary.
+            try {
+                if ((new \App\API\Services\StaffProfileCompletionService(
+                    \App\Database\Database::getInstance()->getConnection()
+                ))->isRequired($userId)) {
+                    $requestPath = self::normalizeApiPath(
+                        strtolower((string)parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH))
+                    );
+                    $requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+                    if (!self::staffProfileScopeAllowed($requestPath, $requestMethod)) {
+                        self::deny(403, 'Complete your staff profile and wait for the school to finish your employment assignment before accessing the system.');
+                    }
+                }
+            } catch (\Throwable $error) {
+                \App\API\Services\Logger::legacyError(
+                    'AuthMiddleware: Staff profile access check failed: ' . $error->getMessage()
+                );
+                self::deny(503, 'Staff onboarding status is temporarily unavailable');
+            }
+
             // Sliding-session renewal contract for parent sessions: tell the
             // client exactly when the session slides to so the portal can
             // persist pp_expires. Only JWTs carrying a parent_id claim (minted
@@ -321,7 +345,7 @@ class AuthMiddleware
      */
     private static function authorizeOnboardingScope(string $pathOnly): void
     {
-        if (self::onboardingScopeAllowed($pathOnly)) {
+        if (self::onboardingScopeAllowed(self::normalizeApiPath($pathOnly))) {
             return;
         }
 
@@ -348,6 +372,20 @@ class AuthMiddleware
         }
 
         return false;
+    }
+
+    private static function normalizeApiPath(string $path): string
+    {
+        $apiOffset = strpos($path, '/api/');
+        return $apiOffset === false ? $path : substr($path, $apiOffset);
+    }
+
+    private static function staffProfileScopeAllowed(string $path, string $method): bool
+    {
+        return ($path === '/api/staff-migration/onboarding' && $method === 'GET')
+            || ($path === '/api/staff-migration/profile' && $method === 'PUT')
+            || ($path === '/api/system/client-log' && $method === 'POST')
+            || ($path === '/api/auth/logout' && $method === 'POST');
     }
 
     /**

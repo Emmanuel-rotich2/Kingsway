@@ -117,6 +117,7 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
                 <div class="card-header bg-white">
                     <h2 class="h5 mb-0">New Staff Appointment Queue</h2>
                     <div class="text-muted small">Candidates from recruitment/careers move here after interview success for Director approval and School Admin onboarding.</div>
+                    <button class="btn btn-success mt-2" id="openWalkInStaffProposal" type="button"><i class="bi bi-person-plus me-2"></i>Add walk-in candidate for approval</button>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">

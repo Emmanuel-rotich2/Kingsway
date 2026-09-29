@@ -192,7 +192,7 @@ const staffManagementController = {
       .map((staff, index) => {
         const statusBadge = this.getStatusBadge(staff.status);
         const typeBadge = this.getTypeBadge(staff.staff_type);
-        const roleLabel = staff.role_name || staff.position || "-";
+        const roleLabel = staff.role_names || staff.role_name || "-";
         const email = staff.email || "-";
 
         return `

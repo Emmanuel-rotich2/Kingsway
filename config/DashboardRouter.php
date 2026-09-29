@@ -73,6 +73,9 @@ class DashboardRouter
         'create_assessment' => 'my_cats',
         'create_subject_cat' => 'my_cats',
         'my_subject_cats' => 'my_cats',
+        'staff_onboarding' => 'manage_staff',
+        'staff_lifecycle' => 'manage_staff',
+        'import_existing_staff' => 'manage_staff',
     ];
 
 // Auto-generated from the final SidebarConfigReader menu — do not edit manually

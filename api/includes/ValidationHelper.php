@@ -69,8 +69,8 @@ class ValidationHelper
         }
 
         // Minimum length
-        if (strlen($password) < 6) {
-            return ['valid' => false, 'error' => 'Password must be at least 6 characters long'];
+        if (strlen($password) < 10) {
+            return ['valid' => false, 'error' => 'Password must be at least 10 characters long'];
         }
 
         // Maximum length (prevent DoS)

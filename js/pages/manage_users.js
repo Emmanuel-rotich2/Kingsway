@@ -19,6 +19,7 @@ const ManageUsersController = {
     testInventory: null,
     currentPage: 1,
     pageSize: 10,
+    openActionsMenu: null,
   },
 
   elements: {},
@@ -227,8 +228,27 @@ const ManageUsersController = {
     this.elements.bulkRevokeApplyBtn.addEventListener("click", () => void this.applyBulkRevoke());
     this.elements.applyPhaseBtn.addEventListener("click", () => void this.applyEnvironmentPhase());
     this.elements.tableBody.addEventListener("click", (event) => {
-      void this.handleTableAction(event);
+      const trigger = event.target.closest("[data-user-actions-trigger]");
+      if (trigger) {
+        this.toggleUserActionsMenu(trigger);
+      }
     });
+    document.addEventListener("click", (event) => {
+      const openMenu = this.state.openActionsMenu;
+      if (!openMenu) return;
+      if (openMenu.menu.contains(event.target)) return;
+      if (event.target.closest?.("[data-user-actions-trigger]") === openMenu.trigger) return;
+      this.closeUserActionsMenu();
+    });
+    document.addEventListener("focusin", (event) => {
+      const openMenu = this.state.openActionsMenu;
+      if (openMenu && !openMenu.menu.contains(event.target) && event.target !== openMenu.trigger) {
+        this.closeUserActionsMenu();
+      }
+    });
+    document.addEventListener("keydown", (event) => this.handleUserActionsKeydown(event));
+    document.addEventListener("scroll", () => this.closeUserActionsMenu(), true);
+    window.addEventListener("resize", () => this.closeUserActionsMenu());
     this.elements.tableBody.addEventListener("change", (event) => {
       this.handleRowSelection(event);
     });
@@ -560,10 +580,20 @@ const ManageUsersController = {
 
   openBulkRevoke() {
     const users = this.selectedUsers();
-    const count = users.length;
-    if (!count) return;
+    const eligible = users.filter((user) =>
+      (Number(user.is_test_user || 0) === 1 || user.account_type === "test") &&
+      ["scheduled", "active"].includes(String(user.test_access_status || "").toLowerCase()),
+    );
+    const count = eligible.length;
+    if (!count) {
+      this.notify("Select test accounts with active or scheduled access to revoke.", "warning");
+      return;
+    }
+    const skipped = users.length - count;
     this.elements.bulkRevokeCount.textContent =
-      `Revoke temporary access from ${count} selected account${count === 1 ? "" : "s"}. Active sessions will be terminated.`;
+      `Revoke temporary access from ${count} of ${users.length} selected account${users.length === 1 ? "" : "s"}.` +
+      (skipped ? ` ${skipped} account${skipped === 1 ? " is" : "s are"} excluded because they have no active test-access grant.` : "") +
+      " Sessions for the selected test accounts will be terminated.";
     this.elements.bulkRevokeReason.value = "Feature test completed";
     this.elements.bulkRevokeModal.show();
   },
@@ -574,12 +604,17 @@ const ManageUsersController = {
       this.notify("A revocation reason is required.", "error");
       return;
     }
-    const users = this.selectedUsers();
-    if (!users.length) {
-      this.notify("No accounts selected.", "error");
+    const ids = [...new Set(this.selectedUsers()
+      .filter((user) =>
+        (Number(user.is_test_user || 0) === 1 || user.account_type === "test") &&
+        ["scheduled", "active"].includes(String(user.test_access_status || "").toLowerCase()),
+      )
+      .map((user) => Number(user.id ?? user.user_id ?? 0))
+      .filter((id) => id > 0))];
+    if (!ids.length) {
+      this.notify("No selected test accounts have an active or scheduled access grant.", "warning");
       return;
     }
-    const ids = users.map((u) => Number(u.id ?? u.user_id ?? 0));
     this.elements.bulkRevokeApplyBtn.disabled = true;
     try {
       const result = await window.API.users.bulkTestAccess(ids, "revoke", {
@@ -640,30 +675,23 @@ const ManageUsersController = {
       this.notify("Choose a workspace first.", "error");
       return;
     }
-    const users = this.selectedUsers();
-    if (!users.length) {
+    const ids = [...new Set(this.selectedUsers()
+      .map((user) => Number(user.id ?? user.user_id ?? 0))
+      .filter((id) => id > 0))];
+    if (!ids.length) {
       this.notify("No accounts selected.", "error");
       return;
     }
     this.elements.bulkScopeApplyBtn.disabled = true;
-    let errors = 0;
-    let updated = 0;
     try {
-      for (const user of users) {
-        const id = Number(user.id ?? user.user_id ?? 0);
-        try {
-          await window.API.users.update(id, { data_scope: scope });
-          updated += 1;
-        } catch (error) {
-          errors += 1;
-        }
-      }
+      const result = await window.API.users.bulkUpdateDataScope(ids, scope);
       this.elements.bulkScopeModal.hide();
+      const data = result?.data || {};
+      const updated = Array.isArray(data.updated) ? data.updated.length : 0;
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
       this.notify(
-        errors
-          ? `Workspace switched for ${updated} account${updated === 1 ? "" : "s"}; ${errors} failed.`
-          : `Workspace switched for ${updated} account${updated === 1 ? "" : "s"}.`,
-        errors ? "warning" : "success",
+        `Workspace switched for ${updated} account${updated === 1 ? "" : "s"}${skipped ? `; ${skipped} no longer exist` : ""}.`,
+        skipped ? "warning" : "success",
       );
       this.clearSelection();
       await this.loadData();
@@ -680,30 +708,23 @@ const ManageUsersController = {
       this.notify("Select a role to assign.", "error");
       return;
     }
-    const users = this.selectedUsers();
-    if (!users.length) {
+    const ids = [...new Set(this.selectedUsers()
+      .map((user) => Number(user.id ?? user.user_id ?? 0))
+      .filter((id) => id > 0))];
+    if (!ids.length) {
       this.notify("No accounts selected.", "error");
       return;
     }
     this.elements.bulkRoleApplyBtn.disabled = true;
-    let errors = 0;
-    let updated = 0;
     try {
-      for (const user of users) {
-        const id = Number(user.id ?? user.user_id ?? 0);
-        try {
-          await window.API.users.update(id, { role_id: roleId });
-          updated += 1;
-        } catch (error) {
-          errors += 1;
-        }
-      }
+      const result = await window.API.users.bulkAssignUsersToRole(roleId, ids);
       this.elements.bulkRoleModal.hide();
+      const data = result?.data || {};
+      const updated = Number(data.assigned_users || 0);
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
       this.notify(
-        errors
-          ? `Role updated for ${updated} account${updated === 1 ? "" : "s"}; ${errors} failed.`
-          : `Role assigned to ${updated} account${updated === 1 ? "" : "s"}.`,
-        errors ? "warning" : "success",
+        `Role assigned to ${updated} account${updated === 1 ? "" : "s"}${skipped ? `; ${skipped} no longer exist` : ""}.`,
+        skipped ? "warning" : "success",
       );
       this.clearSelection();
       await this.loadData();
@@ -896,6 +917,7 @@ const ManageUsersController = {
   },
 
   renderTable() {
+    this.closeUserActionsMenu();
     const filteredUsers = this.visibleUsers();
     const totalFiltered = filteredUsers.length;
     const pageSize = Number(this.state.pageSize);
@@ -998,54 +1020,158 @@ const ManageUsersController = {
   },
 
   buildRowActions(user, { userId, isCurrentUser, isTestUser }) {
+    return `
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary user-actions-trigger"
+        data-user-actions-trigger
+        data-user-id="${userId}"
+        aria-label="Actions for ${this.escapeHtml(user.name || user.username || `user ${userId}`)}"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        title="Account actions"
+      >
+        <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+      </button>`;
+  },
+
+  buildUserActionsMenu(user, { userId, isCurrentUser, isTestUser }) {
     const hasActiveGrant = ["scheduled", "active"].includes(
       String(user.test_access_status || "").toLowerCase(),
     );
     return `
       <button
         type="button"
-        class="btn btn-sm btn-outline-warning ms-1"
+        class="dropdown-item"
         data-user-action="revoke-test-access"
         data-user-id="${userId}"
-        ${!isTestUser || !hasActiveGrant ? "disabled" : ""}
+        role="menuitem"
+        ${!isTestUser || !hasActiveGrant ? 'disabled title="No active test access to revoke"' : ""}
       >
-        <i class="fas fa-ban me-1"></i>Revoke test access
+        <i class="fas fa-ban text-warning" aria-hidden="true"></i><span>Revoke test access</span>
       </button>
       <button
         type="button"
-        class="btn btn-sm btn-outline-secondary"
+        class="dropdown-item"
         data-user-action="manage-roles"
         data-user-id="${userId}"
+        role="menuitem"
         title="View or change all roles assigned to this user"
       >
-        <i class="fas fa-user-tag me-1"></i>Manage roles
+        <i class="fas fa-user-tag text-secondary" aria-hidden="true"></i><span>Manage roles</span>
       </button>
       <button
         type="button"
-        class="btn btn-sm btn-outline-primary"
+        class="dropdown-item"
         data-user-action="edit"
         data-user-id="${userId}"
+        role="menuitem"
       >
-        <i class="fas fa-edit me-1"></i>Edit
+        <i class="fas fa-edit text-primary" aria-hidden="true"></i><span>Edit account</span>
       </button>
+      <div class="dropdown-divider my-1"></div>
       <button
         type="button"
-        class="btn btn-sm btn-outline-danger ms-1"
+        class="dropdown-item"
         data-user-action="reset-mfa"
         data-user-id="${userId}"
+        role="menuitem"
         ${isCurrentUser ? 'disabled title="Use Account Settings for your own MFA"' : ""}
       >
-        <i class="fas fa-shield-halved me-1"></i>Reset MFA
+        <i class="fas fa-shield-halved text-warning" aria-hidden="true"></i><span>Reset MFA</span>
       </button>
       <button
         type="button"
-        class="btn btn-sm btn-outline-danger ms-1"
+        class="dropdown-item text-danger"
         data-user-action="delete"
         data-user-id="${userId}"
+        role="menuitem"
         ${isCurrentUser ? 'disabled title="You cannot delete your own account"' : ""}
       >
-        <i class="fas fa-trash me-1"></i>Delete
+        <i class="fas fa-trash" aria-hidden="true"></i><span>Delete account</span>
       </button>`;
+  },
+
+  toggleUserActionsMenu(trigger) {
+    if (this.state.openActionsMenu?.trigger === trigger) {
+      this.closeUserActionsMenu();
+      return;
+    }
+    this.closeUserActionsMenu();
+
+    const userId = Number(trigger.dataset.userId);
+    const user = this.state.users.find(
+      (record) => Number(record.id ?? record.user_id) === userId,
+    );
+    if (!user) return;
+
+    const menu = document.createElement("div");
+    menu.className = "manage-user-actions-menu dropdown-menu show";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", `Account actions for user ${userId}`);
+    menu.innerHTML = this.buildUserActionsMenu(user, {
+      userId,
+      isCurrentUser: userId === this.currentUserId(),
+      isTestUser: Number(user.is_test_user || 0) === 1 || user.account_type === "test",
+    });
+    menu.addEventListener("click", (event) => {
+      if (event.target.closest("[data-user-action][data-user-id]")) {
+        void this.handleTableAction(event);
+      }
+    });
+    document.body.append(menu);
+
+    trigger.setAttribute("aria-expanded", "true");
+    this.state.openActionsMenu = { menu, trigger };
+    this.positionUserActionsMenu(trigger, menu);
+    menu.querySelector("[role=menuitem]:not(:disabled)")?.focus();
+  },
+
+  positionUserActionsMenu(trigger, menu) {
+    const rect = trigger.getBoundingClientRect();
+    const margin = 8;
+    const menuWidth = menu.offsetWidth;
+    const menuHeight = menu.offsetHeight;
+    const left = Math.max(margin, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - margin));
+    const below = rect.bottom + margin;
+    const top = below + menuHeight <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, rect.top - menuHeight - margin);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  },
+
+  closeUserActionsMenu({ restoreFocus = false } = {}) {
+    const open = this.state.openActionsMenu;
+    if (!open) return;
+    open.trigger.setAttribute("aria-expanded", "false");
+    open.menu.remove();
+    this.state.openActionsMenu = null;
+    if (restoreFocus && open.trigger.isConnected) open.trigger.focus();
+  },
+
+  handleUserActionsKeydown(event) {
+    const open = this.state.openActionsMenu;
+    if (!open) {
+      if (event.key === "ArrowDown" && event.target.closest?.("[data-user-actions-trigger]")) {
+        event.preventDefault();
+        this.toggleUserActionsMenu(event.target.closest("[data-user-actions-trigger]"));
+      }
+      return;
+    }
+
+    const items = [...open.menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+    const currentIndex = items.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.closeUserActionsMenu({ restoreFocus: true });
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const nextIndex = event.key === "Home" ? 0
+        : event.key === "End" ? items.length - 1
+          : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[nextIndex]?.focus();
+    }
   },
 
   syncSelectAll() {
@@ -1062,6 +1188,8 @@ const ManageUsersController = {
   async handleTableAction(event) {
     const button = event.target.closest("[data-user-action][data-user-id]");
     if (!button || button.disabled) return;
+
+    this.closeUserActionsMenu();
 
     const userId = Number(button.dataset.userId);
     const user = this.state.users.find(

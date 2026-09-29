@@ -6,6 +6,7 @@ use App\API\Modules\finance\PaymentReconciliationAPI;
 use App\API\Modules\finance\ExpenseManager;
 use App\API\Modules\finance\AllowanceTemplateAPI;
 use App\API\Services\StaffDomainAccessService;
+use App\API\Services\StaffCompensationService;
 use App\API\Services\FinanceCrudService;
 use RuntimeException;
 use Exception;
@@ -49,6 +50,78 @@ class FinanceController extends BaseController
     public function index()
     {
         return $this->success(['message' => 'Finance API is running']);
+    }
+
+    private function compensationAdminDenied(): ?array
+    {
+        $allowedRoles = ['school administrator', 'director', 'system administrator'];
+        if (!array_intersect($allowedRoles, $this->staffAccess->roles())
+            || !$this->staffAccess->allows('staff.payroll.manage')) {
+            return $this->forbidden('Only an authorised school administrator, director, or system administrator can manage salary rates and payroll awards.');
+        }
+        return null;
+    }
+
+    /** GET /api/finance/compensation-setup */
+    public function getCompensationSetup($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->compensationAdminDenied()) return $denied;
+        try {
+            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            return $this->success($service->setup());
+        } catch (\Throwable $e) { return $this->serverError('Unable to load salary setup.'); }
+    }
+
+    /** POST /api/finance/role-salary-rates */
+    public function postRoleSalaryRates($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->compensationAdminDenied()) return $denied;
+        try {
+            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $saved = $service->saveRoleRate($data, $this->staffAccess->userId());
+            \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'role_salary_rate_created','entity'=>'role_salary_rate','entity_id'=>(string)$saved['id'],'user_id'=>$this->staffAccess->userId(),'details'=>['role_id'=>(int)$data['role_id'],'gross_salary'=>(float)$data['gross_salary'],'effective_from'=>$data['effective_from']??null],'status'=>'success']);
+            return $this->created($saved, 'Role salary rate saved.');
+        } catch (\InvalidArgumentException|\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { return $this->serverError('Unable to save the role salary rate.'); }
+    }
+
+    /** POST /api/finance/staff-salary-overrides */
+    public function postStaffSalaryOverrides($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->compensationAdminDenied()) return $denied;
+        try {
+            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $service->saveIndividualSalary($data, $this->staffAccess->userId());
+            \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>empty($data['clear_override'])?'staff_salary_override_set':'staff_salary_override_cleared','entity'=>'staff','entity_id'=>(string)(int)($data['staff_id']??0),'user_id'=>$this->staffAccess->userId(),'details'=>['gross_salary'=>empty($data['clear_override'])?(float)($data['gross_salary']??0):null],'status'=>'success']);
+            return $this->success(null, empty($data['clear_override'])?'Individual salary override saved.':'Individual override cleared; payroll will use the primary role rate.');
+        } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { return $this->serverError('Unable to save the individual salary.'); }
+    }
+
+    /** POST /api/finance/compensation-awards */
+    public function postCompensationAwards($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->compensationAdminDenied()) return $denied;
+        try {
+            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $result = $service->createAward($data, $this->staffAccess->userId());
+            \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'staff_payroll_award_created','entity'=>'staff_payroll_award_batch','entity_id'=>(string)$result['batch_id'],'user_id'=>$this->staffAccess->userId(),'details'=>['kind'=>$data['award_kind']??null,'recipient_count'=>$result['recipient_count'],'period_count'=>$result['period_count']],'status'=>'success']);
+            return $this->created($result, 'Payroll award scheduled for the selected staff and months.');
+        } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { return $this->serverError('Unable to schedule this payroll award.'); }
+    }
+
+    /** POST /api/finance/compensation-awards/{id}/cancel */
+    public function postCompensationAwardsCancel($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->compensationAdminDenied()) return $denied;
+        try {
+            $batchId = (int)($id ?? $data['batch_id'] ?? 0);
+            (new StaffCompensationService(Database::getInstance()->getConnection()))->cancelAward($batchId);
+            \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'staff_payroll_award_cancelled','entity'=>'staff_payroll_award_batch','entity_id'=>(string)$batchId,'user_id'=>$this->staffAccess->userId(),'status'=>'success']);
+            return $this->success(null, 'Award batch cancelled.');
+        } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { return $this->serverError('Unable to cancel this payroll award.'); }
     }
 
     /** GET /api/finance/accounting/trial-balance */
@@ -245,7 +318,7 @@ class FinanceController extends BaseController
         }
     }
 
-    /** POST /api/finance/kcb-reconciliation-worker — cron/systemd worker. */
+    /** POST /api/finance/kcb-reconciliation-worker — curl crontab worker. */
     public function postKcbReconciliationWorker($id = null, $data = [], $segments = [])
     {
         $expected = defined('KCB_RECONCILIATION_WORKER_SECRET') ? (string) KCB_RECONCILIATION_WORKER_SECRET : '';
@@ -733,6 +806,9 @@ class FinanceController extends BaseController
 
     private function validatePayrollPayloadEligibility(array $payload): ?array
     {
+        $month = (int)($payload['payroll_month'] ?? $payload['month'] ?? date('n'));
+        $year = (int)($payload['payroll_year'] ?? $payload['year'] ?? date('Y'));
+        $periodStart = sprintf('%04d-%02d-01', $year, $month);
         $staffIds = [];
         if (!empty($payload['staff_id'])) $staffIds[] = (int)$payload['staff_id'];
         foreach ((array)($payload['staff_ids'] ?? []) as $sid) $staffIds[] = (int)$sid;
@@ -740,7 +816,7 @@ class FinanceController extends BaseController
             if (is_array($row) && !empty($row['staff_id'])) $staffIds[] = (int)$row['staff_id'];
         }
         foreach (array_unique(array_filter($staffIds)) as $staffId) {
-            try { $this->staffAccess->assertPayrollEligible($staffId); }
+            try { $this->staffAccess->assertPayrollEligible($staffId, $periodStart); }
             catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         }
         return null;

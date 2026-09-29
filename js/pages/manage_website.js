@@ -8,10 +8,10 @@ const manageWebsiteController = {
     newsItems: [],
     newsCats: [],
     allSettings: [],
-    leadershipLevels: [],
+    leadershipCategories: [],
     leadershipData: [],
     leadershipPositions: [],
-    leadershipCurrentLevelId: null,
+    leadershipCurrentCategoryId: null,
     leadershipEditingId: null,
   },
 
@@ -927,16 +927,16 @@ const manageWebsiteController = {
   renderLeadership() {
     const panel = document.getElementById('leadershipPanel');
     if (!panel) return;
-    const levels = this.state.leadershipData;
-    if (!levels.length) {
-      panel.innerHTML = '<div class="text-muted small text-center py-3">No leadership levels configured.</div>';
+    const categories = this.state.leadershipData;
+    if (!categories.length) {
+      panel.innerHTML = '<div class="text-muted small text-center py-3">No leadership categories configured.</div>';
       return;
     }
     const accId = 'leadershipAccordion';
     panel.innerHTML = `
       <div class="accordion" id="${accId}">
-        ${levels.map((lvl, i) => {
-          const collapseId = `leadershipLevel${lvl.level_id}`;
+        ${categories.map((lvl, i) => {
+          const collapseId = `leadershipCategory${lvl.category_id}`;
           const members = lvl.members || [];
           return `
           <div class="accordion-item border-0 mb-2 bg-white rounded-3 shadow-sm">
@@ -944,20 +944,20 @@ const manageWebsiteController = {
               <button class="accordion-button ${i > 0 ? 'collapsed' : ''} fw-semibold" type="button"
                       data-bs-toggle="collapse" data-bs-target="#${collapseId}">
                 <i class="bi bi-people-fill text-success me-2"></i>
-                ${this.esc(lvl.level_name)}
+                ${this.esc(lvl.category_name)}
                 <span class="badge bg-success ms-2">${members.length}</span>
               </button>
             </h2>
             <div id="${collapseId}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#${accId}">
               <div class="accordion-body pt-0">
                 <div class="d-flex justify-content-end mb-3">
-                  <button class="btn btn-sm btn-success rounded-pill px-3" onclick="wsOpenLeadershipModal(${lvl.level_id})">
+                  <button class="btn btn-sm btn-success rounded-pill px-3" onclick="wsOpenLeadershipModal(${lvl.category_id})">
                     <i class="bi bi-plus-lg me-1"></i>Add Member
                   </button>
                 </div>
                 ${members.length
                   ? this.renderLeadershipCards(members)
-                  : '<div class="text-muted small text-center py-2">No members in this level yet.</div>'}
+                  : '<div class="text-muted small text-center py-2">No members in this category yet.</div>'}
               </div>
             </div>
           </div>`;
@@ -982,7 +982,7 @@ const manageWebsiteController = {
           </div>
           <div class="card-footer bg-transparent border-0 pt-0 pb-2 d-flex justify-content-end gap-1">
             <button class="btn btn-sm btn-outline-primary rounded-pill px-2" title="Edit"
-                    onclick="wsOpenLeadershipModal(${m.level_id},${m.id})"><i class="bi bi-pencil"></i></button>
+                    onclick="wsOpenLeadershipModal(${m.category_id},${m.id})"><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Remove"
                     onclick="wsDeleteLeadership(${m.id},'${this.esc(m.name || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
           </div>
@@ -990,14 +990,14 @@ const manageWebsiteController = {
       </div>`).join('')}</div>`;
   },
 
-  async wsOpenLeadershipModal(levelId, entryId = null) {
-    this.state.leadershipCurrentLevelId = levelId;
+  async wsOpenLeadershipModal(categoryId, entryId = null) {
+    this.state.leadershipCurrentCategoryId = categoryId;
     this.state.leadershipEditingId = entryId;
 
     const modal   = document.getElementById('wsLeadershipModal');
     const title   = document.getElementById('wsLeadershipModalTitle');
     const editId  = document.getElementById('leadEditId');
-    const levelIdField = document.getElementById('leadLevelId');
+    const categoryIdField = document.getElementById('leadCategoryId');
     const posSel  = document.getElementById('leadPosition');
     const bioEl   = document.getElementById('leadBio');
     const photoEl = document.getElementById('leadPhotoUrl');
@@ -1016,7 +1016,7 @@ const manageWebsiteController = {
 
     title.textContent = entryId ? 'Edit Leadership Entry' : 'Add Member';
     editId.value = entryId || '';
-    levelIdField.value = levelId;
+    categoryIdField.value = categoryId;
     posSel.innerHTML = '<option value="">Loading...</option>';
     bioEl.value = '';
     photoEl.value = '';
@@ -1034,7 +1034,7 @@ const manageWebsiteController = {
     searchResults.innerHTML = '';
 
     try {
-      const pr = await this.API('GET', 'website/leadership/positions', { level_id: levelId });
+      const pr = await this.API('GET', 'website/leadership/positions', { leadership_category_id: categoryId });
       this.state.leadershipPositions = Array.isArray(pr) ? pr : [];
       posSel.innerHTML = '<option value="">Select position\u2026</option>' +
         this.state.leadershipPositions.map(p =>
@@ -1072,7 +1072,7 @@ const manageWebsiteController = {
 
   async wsSaveLeadership() {
     const editId   = document.getElementById('leadEditId').value;
-    const levelId  = document.getElementById('leadLevelId').value;
+    const categoryId = document.getElementById('leadCategoryId').value;
     const posId    = document.getElementById('leadPosition').value;
     const bio      = document.getElementById('leadBio').value.trim();
     const photoUrl = document.getElementById('leadPhotoUrl').value.trim();
@@ -1259,7 +1259,7 @@ window.stEdit             = function(resource, id) { return manageWebsiteControl
 window.stSave             = function(resource, id) { return manageWebsiteController.stSave(resource, id); };
 window.stDelete           = function(resource, id) { return manageWebsiteController.stDelete(resource, id); };
 window.loadStaticTables   = function() { return manageWebsiteController.loadStaticTables(); };
-window.wsOpenLeadershipModal    = function(levelId, entryId) { return manageWebsiteController.wsOpenLeadershipModal(levelId, entryId); };
+window.wsOpenLeadershipModal    = function(categoryId, entryId) { return manageWebsiteController.wsOpenLeadershipModal(categoryId, entryId); };
 window.wsSaveLeadership         = function() { return manageWebsiteController.wsSaveLeadership(); };
 window.wsDeleteLeadership       = function(id, name) { return manageWebsiteController.wsDeleteLeadership(id, name); };
 window.wsLeadershipPersonMode   = function(mode) { return manageWebsiteController.wsLeadershipPersonMode(mode); };

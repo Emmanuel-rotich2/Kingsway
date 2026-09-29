@@ -4,6 +4,7 @@
  */
 const jobAppsController = {
   state: { items: [] },
+  assignmentOptions: { departments: [], staff_types: [], staff_categories: [] },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -27,8 +28,55 @@ const jobAppsController = {
   },
 
   async updateStatus(id, status) {
+    if (status === 'hired') return this.notify('Create and approve the school employment proposal first. The application becomes hired when the staff account is created.', 'warning');
     try { await this.API('PUT', `website/job-applications/${id}`, { status }); this.notify('Application status updated'); await this.loadData(); }
     catch (e) { this.notify(e.message || 'Could not update application', 'danger'); }
+  },
+
+  async openEmploymentProposal(application) {
+    try {
+      if (!this.assignmentOptions.departments.length) {
+        const response = await this.API('GET', 'staff-appointments/job-application-options');
+        this.assignmentOptions = response?.data?.data || response?.data || this.assignmentOptions;
+      }
+      const fill = (id, rows, label) => {
+        const select = document.getElementById(id);
+        select.innerHTML = `<option value="">Select ${label}</option>` + rows.map(x => `<option value="${Number(x.id)}">${this.esc(x.name)}</option>`).join('');
+      };
+      fill('jobEmploymentDepartment', this.assignmentOptions.departments, 'department');
+      fill('jobEmploymentStaffType', this.assignmentOptions.staff_types, 'staff type');
+      this.renderEmploymentCategories();
+      document.getElementById('jobEmploymentApplicationId').value = application.id;
+      document.getElementById('jobEmploymentPosition').value = application.job_title || '';
+      document.getElementById('jobEmploymentDate').value = '';
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('jobEmploymentProposalModal')).show();
+    } catch (e) { this.notify(e.message || 'Could not load staff assignment options', 'danger'); }
+  },
+
+  renderEmploymentCategories() {
+    const typeId = Number(document.getElementById('jobEmploymentStaffType').value || 0);
+    const rows = this.assignmentOptions.staff_categories.filter(x => Number(x.staff_type_id) === typeId);
+    const select = document.getElementById('jobEmploymentStaffCategory');
+    select.innerHTML = '<option value="">Select staff category</option>' + rows.map(x => `<option value="${Number(x.id)}">${this.esc(x.name)}</option>`).join('');
+  },
+
+  async submitEmploymentProposal(event) {
+    event.preventDefault();
+    const id = Number(document.getElementById('jobEmploymentApplicationId').value);
+    const payload = {
+      department_id: document.getElementById('jobEmploymentDepartment').value,
+      position: document.getElementById('jobEmploymentPosition').value.trim(),
+      employment_date: document.getElementById('jobEmploymentDate').value,
+      contract_type: document.getElementById('jobEmploymentContract').value,
+      staff_type_id: document.getElementById('jobEmploymentStaffType').value,
+      staff_category_id: document.getElementById('jobEmploymentStaffCategory').value,
+    };
+    try {
+      await this.API('POST', `staff-appointments/job-application/${id}`, payload);
+      bootstrap.Modal.getInstance(document.getElementById('jobEmploymentProposalModal'))?.hide();
+      this.notify('Employment proposal submitted for Director approval.');
+      await this.loadData();
+    } catch (e) { this.notify(e.message || 'Could not submit employment proposal', 'danger'); }
   },
 
   openInterview(application, complete = false) {
@@ -104,7 +152,9 @@ const jobAppsController = {
           ${a.status === 'received' ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-2 ms-1" onclick="jobAppsAction('shortlist', ${a.id})" title="Shortlist"><i class="bi bi-check2"></i></button>` : ''}
           ${['shortlisted','received'].includes(a.status) ? `<button class="btn btn-sm btn-outline-warning rounded-pill px-2 ms-1" onclick="jobAppsAction('schedule', ${a.id})" title="Schedule interview"><i class="bi bi-calendar-plus"></i></button>` : ''}
           ${a.status === 'interview_scheduled' && a.interview_id ? `<button class="btn btn-sm btn-outline-success rounded-pill px-2 ms-1" onclick="jobAppsAction('complete', ${a.id})" title="Record interview"><i class="bi bi-clipboard-check"></i></button>` : ''}
-          ${a.status === 'interviewed' ? `<button class="btn btn-sm btn-success rounded-pill px-2 ms-1" onclick="jobAppsAction('hire', ${a.id})" title="Mark hired"><i class="bi bi-person-check"></i></button>` : ''}
+          ${a.status === 'interviewed' && !a.staff_id && !a.staff_appointment_id ? `<button class="btn btn-sm btn-success rounded-pill px-2 ms-1" onclick="jobAppsAction('employment', ${a.id})" title="Prepare school employment proposal"><i class="bi bi-person-check"></i><span class="ms-1">Prepare hire</span></button>` : ''}
+          ${a.staff_appointment_id && !a.staff_id ? `<span class="badge text-bg-warning ms-1">Proposal: ${this.esc(a.staff_appointment_status || 'submitted')}</span>` : ''}
+          ${a.staff_id ? `<span class="badge text-bg-success ms-1">Staff account created</span>` : ''}
         </td>
       </tr>`).join('');
   },
@@ -118,6 +168,8 @@ const jobAppsController = {
     const searchEl = document.getElementById('appSearch');
     if (searchEl) searchEl.addEventListener('keyup', () => this.render());
     document.getElementById('jobInterviewForm')?.addEventListener('submit', e => this.saveInterview(e));
+    document.getElementById('jobEmploymentProposalForm')?.addEventListener('submit', e => this.submitEmploymentProposal(e));
+    document.getElementById('jobEmploymentStaffType')?.addEventListener('change', () => this.renderEmploymentCategories());
   },
 
   async init() {
@@ -135,7 +187,7 @@ window.jobAppsAction = (action, id) => {
   if (action === 'schedule') return jobAppsController.openInterview(app, false);
   if (action === 'complete') return jobAppsController.openInterview(app, true);
   if (action === 'shortlist') return jobAppsController.updateStatus(id, 'shortlisted');
-  if (action === 'hire') return jobAppsController.updateStatus(id, 'hired');
+  if (action === 'employment') return jobAppsController.openEmploymentProposal(app);
 };
 
 if (document.readyState === 'loading') {

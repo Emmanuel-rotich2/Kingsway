@@ -374,9 +374,9 @@ function kw_leadership(): array {
                     lp.name AS title, sl.public_bio AS bio, sl.public_photo_url AS avatar_url,
                     sl.display_order, sl.is_active,
                     ll.name AS level_name, ll.display_order AS level_order
-             FROM school_leadership sl
-             JOIN leadership_positions lp ON lp.id = sl.position_id
-             JOIN leadership_levels ll ON ll.id = lp.level_id
+             FROM school_leader sl
+             JOIN leadership_positions lp ON lp.id = sl.leadership_position_id
+             JOIN leadership_categories ll ON ll.id = sl.leadership_category_id
              JOIN persons p ON p.id = sl.person_id
              WHERE sl.is_active = 1 AND sl.academic_year_id = ?
                AND p.data_scope = 'live'

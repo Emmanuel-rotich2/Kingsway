@@ -27,9 +27,9 @@
 
     <div class="mb-3">
       <div class="btn-group" role="group" aria-label="Download student import template">
-        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.xlsx" download>Excel (.xlsx)</a>
-        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.csv" download>CSV (.csv)</a>
-        <a class="btn btn-outline-primary" href="<?= htmlspecialchars($appBase) ?>/templates/student_import_template.ods" download>OpenDocument (.ods)</a>
+        <button class="btn btn-outline-primary" type="button" data-import-template="xlsx">Excel (.xlsx)</button>
+        <button class="btn btn-outline-primary" type="button" data-import-template="csv">CSV (.csv)</button>
+        <button class="btn btn-outline-primary" type="button" data-import-template="ods">OpenDocument (.ods)</button>
       </div>
     </div>
 
