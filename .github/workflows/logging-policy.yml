@@ -11,5 +11,37 @@ jobs:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
-      - run: php scripts/check_logging_policy.php
+          php-version: '8.4'
+      - name: Enforce logging and sensitive-console policy
+        run: |
+          php <<'PHP'
+          <?php
+          $root = getcwd();
+          $violations = [];
+          $allowedNative = [
+              'api/includes/FileLogger.php',
+              'config/Config.php',
+              'api/index.php',
+          ];
+          $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+          foreach ($iterator as $file) {
+              if (!$file->isFile()) continue;
+              $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+              if (preg_match('#^(vendor|node_modules|logs|uploads|\.git)/#', $relative)) continue;
+              $extension = strtolower($file->getExtension());
+              if (!in_array($extension, ['php', 'js'], true)) continue;
+              $source = (string) file_get_contents($file->getPathname());
+              if ($extension === 'php') {
+                  if (preg_match('/(?<!legacy)error_log\s*\(/', $source) && !in_array($relative, $allowedNative, true)) $violations[] = "$relative uses unmanaged error_log().";
+                  if (preg_match('/(?:file_put_contents|fopen)\s*\([^\n]*(?:\/logs\/|logs\s*\.)/i', $source) && !str_starts_with($relative, 'api/includes/FileLogger.php')) $violations[] = "$relative writes directly into log storage.";
+                  if ($relative === 'api/includes/BaseAPI.php' && preg_match('/__construct[\s\S]{0,1200}->logRequest\s*\(/', $source)) $violations[] = 'BaseAPI constructor reintroduced duplicate inbound request logging.';
+              } else {
+                  if ($relative !== 'js/core/console_logger.js' && preg_match('/console\.(?:log|info|warn|error|debug)\s*\([^\n]*,\s*(?:access_?token|refresh_?token|token|password|otp|secret|authorization|cookie)\b/i', $source)) $violations[] = "$relative may expose a sensitive value through the browser console.";
+              }
+          }
+          if ($violations) {
+              fwrite(STDERR, "Logging policy violations:\n - " . implode("\n - ", $violations) . "\n");
+              exit(1);
+          }
+          echo "Logging policy check passed.\n";
+          PHP
