@@ -9,15 +9,16 @@ use PDO;
  * ReadReplicaService - explicit read-model routing (roadmap §4.5).
  *
  * The transactional master (KingsWayAcademy) is the single WRITE authority.
- * Reads are projected into the KingsWayReads schema as allowlisted `mv_<name>`
- * objects. During migration these may be pass-through views; later a
- * projection may become a materialized table or a physical replica object.
+ * Reads are projected into the configured reads schema as allowlisted objects.
+ * MySQL has no native materialized views, so eligible reporting projections
+ * are refreshed into ordinary tables; other projections remain live views on
+ * the master.
  * Storage mode is therefore reported explicitly and a pass-through view is
  * never described as a physical offload.
  *
  * A pass-through view is not an offload: MySQL still evaluates its source
- * query on the master schema. Only a materialized table or a separately
- * connected physical replica counts as an offloaded read target.
+ * query on the master schema. Only a fresh, materialized table counts as an
+ * offloaded read target in this single-connection deployment.
  */
 final class ReadReplicaService
 {
@@ -26,7 +27,7 @@ final class ReadReplicaService
      * The physical master schema is resolved at runtime via
      * ConnectionManager::schemaFor(NS_MASTER) so production deployments can
      * rename databases via config without touching this catalogue. The reads
-     * namespace mirrors each source as a `mv_<name>` view.
+     * namespace mirrors each source as an allowlisted read object.
      *
      * @var array<string,string>
      */
@@ -34,9 +35,6 @@ final class ReadReplicaService
         'student_fee_ledger' => 'vw_student_fee_ledger',
         'collection_rate_by_class' => 'vw_collection_rate_by_class',
         'student_attendance_analytics' => 'vw_student_attendance_analytics',
-        // These are candidates for materialized read models. Until their
-        // materialized target exists, routing deliberately falls back to the
-        // master source and reports the projection as not offloaded.
         'student_fee_balances' => 'vw_student_fee_balances',
         'student_term_performance' => 'vw_student_term_performance',
         'class_learning_area_performance' => 'vw_class_learning_area_performance',
@@ -58,17 +56,17 @@ final class ReadReplicaService
      */
     public const POLICIES = [
         'student_fee_ledger' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'financial', 'max_age_seconds' => 60],
-        'collection_rate_by_class' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'financial', 'max_age_seconds' => 300],
+        'collection_rate_by_class' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 300],
         'student_attendance_analytics' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'student_fee_balances' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'financial', 'max_age_seconds' => 60],
         'student_term_performance' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 900],
-        'class_learning_area_performance' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 900],
+        'class_learning_area_performance' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 900],
         'student_learning_progress' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 900],
-        'budget_utilization' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'financial', 'max_age_seconds' => 300],
+        'budget_utilization' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 300],
         'staff_daily_register' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'staff', 'max_age_seconds' => 300],
         'student_attendance_summary' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'staff_workload' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'staff', 'max_age_seconds' => 900],
-        'dormitory_occupancy' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
+        'dormitory_occupancy' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'student_transport_summary' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'student_health_summary' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'health', 'max_age_seconds' => 300],
         'fee_collection_monthly_trend' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 900],
@@ -76,6 +74,10 @@ final class ReadReplicaService
 
     /** Materialized targets use separate names from the legacy pass-through views. */
     public const MATERIALIZED_TARGETS = [
+        'collection_rate_by_class' => 'mmv_collection_rate_by_class',
+        'class_learning_area_performance' => 'mmv_class_learning_area_performance',
+        'budget_utilization' => 'mmv_budget_utilization',
+        'dormitory_occupancy' => 'mmv_dormitory_occupancy',
         'fee_collection_monthly_trend' => 'mmv_fee_collection_monthly_trend',
     ];
 
@@ -89,7 +91,7 @@ final class ReadReplicaService
     private const MAX_OFFSET = 100000;
 
     /**
-     * Memoized reachability probe for the replica view. Mirrors the probe in
+     * Memoized availability/freshness check for the materialized target. Mirrors the check in
      * qualifiedRef() so both read paths share one probe result per projection
      * per request. When the reads schema is absent (a host that did not create
      * KingsWayReads), the probe fails closed and every query() call degrades
@@ -104,7 +106,7 @@ final class ReadReplicaService
             self::qualifiedRef($projection); // populates $refCache via probe
         }
         $resolved = self::$refCache[$projection];
-        // qualifiedRef() returns the bare master view name as the fallback.
+        // qualifiedRef() returns the bare master view name on fallback.
         return strpos($resolved, '.') !== false;
     }
 
@@ -167,14 +169,11 @@ final class ReadReplicaService
      * JOINs that cannot be split into separate replica calls.
      *
      * Resolution is per-request and config-driven (DB_READS_NAME/DB_NAME), so
-     * production database renames never break the reference. When the replica
-     * projection is not reachable the unqualified master view name is
-     * returned, and because both are one-level pass-through views over the
-     * same master objects the query stays correct either way — the replica is
-     * a routing optimization, not a source of truth.
+     * production database renames never break the reference. Missing, failed,
+     * or stale materializations return the live master view instead.
      *
-     * Memoized per projection; the probe cost is one information_schema lookup
-     * on first use per request.
+     * Memoized per projection; first use checks target presence and refresh
+     * metadata once per request.
      *
      * @throws \DomainException unknown projection
      */
@@ -184,46 +183,70 @@ final class ReadReplicaService
             throw new \DomainException("Unknown read-replica projection '{$projection}'.", 404);
         }
         // A mutation may pin the current request to the master until a future
-        // physical replica has had time to catch up. Returning the source view
+        // materialized refresh has caught up. Returning the source view
         // keeps callers correct even when this projection was previously
         // memoized as reachable during the same request.
         if (StickyMasterService::isPinned()) {
+            self::$refState[$projection] = 'master_pinned';
             return self::PROJECTIONS[$projection];
         }
         if (!isset(self::$refCache[$projection])) {
             $replicaSchema = ConnectionManager::schemaFor(ConnectionManager::NS_READS);
             $view = self::table($projection);
             $policy = self::policy($projection);
-            // Probe information_schema WITHOUT switching schema: the probe runs
-            // on whatever schema is currently active (master, usually) and
-            // information_schema is server-global. This keeps the call safe
-            // inside an open transaction, where ConnectionManager::run() would
-            // refuse to switch.
+            // Route only to a successfully refreshed materialized table. The
+            // metadata and target checks run on the same server connection;
+            // stale or incomplete snapshots fall back to the live source view.
+            $exists = false;
+            $fresh = false;
             try {
-                $reachable = (bool) ConnectionManager::run(static function (PDO $pdo) use ($replicaSchema, $view): bool {
-                    $stmt = $pdo->prepare(
-                        'SELECT COUNT(*) FROM information_schema.TABLES '
-                        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
-                        . 'AND TABLE_TYPE = ?'
-                    );
-                    $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
-                    return (int) $stmt->fetchColumn() > 0;
-                }, ConnectionManager::NS_MASTER);
+                if ($policy['storage_mode'] === 'materialized_table') {
+                    [$exists, $fresh] = ConnectionManager::run(static function (PDO $pdo) use ($replicaSchema, $view, $projection, $policy): array {
+                        $stmt = $pdo->prepare(
+                            'SELECT COUNT(*) FROM information_schema.TABLES '
+                            . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
+                            . 'AND TABLE_TYPE = ?'
+                        );
+                        $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
+                        $exists = (int) $stmt->fetchColumn() > 0;
+                        if (!$exists) {
+                            return [false, false];
+                        }
+
+                        $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
+                        $meta = $pdo->prepare(
+                            "SELECT status, refreshed_at, TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds "
+                            . "FROM {$metaTable} WHERE projection = ? LIMIT 1"
+                        );
+                        $meta->execute([$projection]);
+                        $row = $meta->fetch(PDO::FETCH_ASSOC) ?: [];
+                        $age = isset($row['age_seconds']) ? (int) $row['age_seconds'] : -1;
+                        $fresh = ($row['status'] ?? null) === 'live'
+                            && !empty($row['refreshed_at'])
+                            && $age >= 0
+                            && $age <= (int) $policy['max_age_seconds'];
+                        return [$exists, $fresh];
+                    }, ConnectionManager::NS_MASTER);
+                }
             } catch (\Throwable $e) {
-                $reachable = false;
+                $exists = false;
+                $fresh = false;
             }
-            if ($policy['storage_mode'] !== 'materialized_table') {
-                $reachable = false;
-            }
-            self::$refCache[$projection] = $reachable
+            self::$refCache[$projection] = $fresh
                 ? '`' . str_replace('`', '', $replicaSchema) . '`.`' . $view . '`'
                 : self::PROJECTIONS[$projection];
+            self::$refState[$projection] = $fresh
+                ? 'materialized_fresh'
+                : ($exists ? 'stale_master_fallback' : 'unavailable_master_fallback');
         }
         return self::$refCache[$projection];
     }
 
     /** @var array<string,string> Per-request memo of resolved replica references. */
     private static $refCache = [];
+
+    /** @var array<string,string> Per-request resolution state for freshness reporting. */
+    private static $refState = [];
 
     /**
      * Verify a reachable materialized projection using row-count parity.
@@ -268,7 +291,7 @@ final class ReadReplicaService
                     'as_of' => null,
                     'status' => $policy['storage_mode'] === 'pass_through_view'
                         ? 'not_offloaded_pass_through'
-                        : 'unavailable_master_fallback',
+                        : (self::$refState[$projection] ?? 'unavailable_master_fallback'),
                     'storage_mode' => $policy['storage_mode'],
                     'sensitivity' => $policy['sensitivity'],
                     'max_age_seconds' => $policy['max_age_seconds'],
@@ -282,7 +305,8 @@ final class ReadReplicaService
                 $stored = [];
                 try {
                     $meta = $pdo->prepare(
-                        'SELECT rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error '
+                        'SELECT rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error, '
+                        . 'TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds '
                         . 'FROM `reads_meta` WHERE projection = ? LIMIT 1'
                     );
                     $meta->execute([$projection]);
@@ -292,8 +316,11 @@ final class ReadReplicaService
                 }
                 $storageMode = (string) ($stored['storage_mode'] ?? $policy['storage_mode']);
                 $refreshedAt = $stored['refreshed_at'] ?? null;
-                $ageSeconds = $refreshedAt !== null ? max(0, time() - (int) strtotime((string) $refreshedAt)) : null;
-                $withinFreshness = $ageSeconds !== null && $ageSeconds <= $policy['max_age_seconds'];
+                $ageSeconds = isset($stored['age_seconds']) ? (int) $stored['age_seconds'] : null;
+                $withinFreshness = ($stored['status'] ?? null) === 'live'
+                    && $ageSeconds !== null
+                    && $ageSeconds >= 0
+                    && $ageSeconds <= $policy['max_age_seconds'];
                 return [
                     'projection' => $projection,
                     'source_view' => $source,
