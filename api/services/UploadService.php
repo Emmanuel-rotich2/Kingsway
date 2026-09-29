@@ -168,8 +168,11 @@ final class UploadService
             'import_file' => [
                 'root' => (string) UPLOAD_PATH . '/imports',
                 'public_segment' => null,
-                'extensions' => ['csv','xls','xlsx'],
-                'mime_types' => ['text/csv','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+                'extensions' => ['csv','xls','xlsx','ods'],
+                // finfo sniffs a plain CSV as text/plain, so text/plain is required
+                // here or CSV import can never pass. ODS is the school's own
+                // spreadsheet format and StaffMigrationController accepts it.
+                'mime_types' => ['text/csv','text/plain','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','application/octet-stream'],
                 'max_bytes' => 26214400,
             ],
             'system_storage' => [
@@ -186,6 +189,7 @@ final class UploadService
      * @param array<string,mixed> $file
      * @param array{
      *   owner_id?:int|string|null,
+     *   subdirectory?:string,
      *   prefix?:string,
      *   preferred_name?:string,
      *   replace_path?:string|null
@@ -204,8 +208,14 @@ final class UploadService
         $ownerId = $this->safePathSegment(
             (string) ($options['owner_id'] ?? '')
         );
+        $subdirectory = $this->safePathSegment(
+            (string) ($options['subdirectory'] ?? '')
+        );
 
         $destinationDirectory = rtrim($policy['root'], '/\\');
+        if ($subdirectory !== '') {
+            $destinationDirectory .= DIRECTORY_SEPARATOR . $subdirectory;
+        }
         if ($ownerId !== '') {
             $destinationDirectory .= DIRECTORY_SEPARATOR . $ownerId;
         }
@@ -497,6 +507,7 @@ final class UploadService
             $extension !== ''
             && isset(self::EXTENSION_MIME_MAP[$extension])
             && self::EXTENSION_MIME_MAP[$extension] !== $mime
+            && !($extension === 'csv' && $mime === 'text/plain')
         ) {
             throw new RuntimeException(
                 sprintf(
@@ -617,7 +628,7 @@ final class UploadService
         }
 
         if (!preg_match('/^[A-Za-z0-9_-]+$/', $value)) {
-            throw new RuntimeException('Invalid upload owner identifier.');
+            throw new RuntimeException('Invalid upload path segment.');
         }
 
         return $value;

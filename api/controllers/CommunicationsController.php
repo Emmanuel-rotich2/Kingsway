@@ -354,7 +354,7 @@ class CommunicationsController extends BaseController
         }
     }
 
-    /** Internal worker endpoint for systemd/cron when CLI PHP lacks pdo_mysql. */
+    /** Internal worker endpoint called by the curl crontab. */
     public function postProcessOutbox($id = null, $data = [], $segments = [])
     {
         $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';

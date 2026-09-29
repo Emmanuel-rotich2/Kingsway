@@ -74,6 +74,22 @@ class StaffAppointmentsController extends BaseController
         });
     }
 
+    /** POST /api/staff-appointments/job-application/{id} */
+    public function postJobApplication($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
+        return $this->runSafely(function () use ($id, $data) {
+            $appointmentId = $this->service->submitFromJobApplication((int)$id, $data, $this->actorId());
+            return $this->created(['id' => $appointmentId], 'School employment proposal submitted for Director approval');
+        });
+    }
+
+    public function getJobApplicationOptions($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requireLeadershipAccess()) return $denied;
+        return $this->runSafely(fn() => $this->success($this->service->jobApplicationAssignmentOptions()));
+    }
+
     public function putNewApprove($id = null, $data = [], $segments = [])
     {
         return $this->reviewNew($id, $data, 'approve');
@@ -100,10 +116,11 @@ class StaffAppointmentsController extends BaseController
 
     public function postCareersCandidate($id = null, $data = [], $segments = [])
     {
-        return $this->runSafely(function () use ($data) {
-            $appointmentId = $this->service->createCareerCandidate($data);
-            return $this->created(['id' => $appointmentId], 'Candidate appointment received for recruitment review');
-        });
+        // This legacy public route used to let an unauthenticated applicant
+        // choose their department, position, contract, and employment date.
+        // Candidate intake belongs in job_applications; HR creates the
+        // employment assignment only after selection and approval.
+        return $this->badRequest('This candidate endpoint is retired. Submit an application through the public careers form.');
     }
 
     public function getHistory($id = null, $data = [], $segments = [])

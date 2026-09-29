@@ -65,27 +65,41 @@ final class StaffMigrationController extends BaseController
         );
     }
 
+    public function getTemplateOds($id = null, $data = [], $segments = []): never
+    {
+        $this->guard('staff_import');
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.ods');
+        $this->ensureManagedDirectory(dirname($path));
+        $this->service->writeTemplateOds($path);
+        $this->downloads()->streamAbsolutePath(
+            $path,
+            'existing_staff_migration_template.ods',
+            'application/vnd.oasis.opendocument.spreadsheet'
+        );
+    }
+
     public function postStage($id = null, $data = [], $segments = [])
     {
         return $this->respondWithGuard('staff_import', function () {
             if (empty($_FILES['file'])) {
-                throw new RuntimeException('CSV or Excel file is required.');
+                throw new RuntimeException('CSV, Excel, or ODS file is required.');
             }
 
             $stored = $this->uploadManaged($_FILES['file'], 'import_file', [
-                'subdirectory' => 'staff_migration',
-                'allowed_extensions' => ['csv', 'xlsx', 'xls'],
+                'subdirectory' => 'files',
+                'allowed_extensions' => ['csv', 'xlsx', 'xls', 'ods'],
                 'allowed_mime_types' => [
                     'text/csv',
                     'text/plain',
                     'application/vnd.ms-excel',
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'application/vnd.oasis.opendocument.spreadsheet',
                     'application/octet-stream',
                 ],
             ]);
 
             $extension = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
-            $csv = in_array($extension, ['xlsx', 'xls'], true)
+            $csv = in_array($extension, ['xlsx', 'xls', 'ods'], true)
                 ? $this->service->spreadsheetToCsv($stored['absolute_path'])
                 : $this->readManagedFile($stored['absolute_path']);
             if ($csv === false) {
@@ -134,10 +148,48 @@ final class StaffMigrationController extends BaseController
             if (!$userId) {
                 throw new RuntimeException('user_id is required.');
             }
-            $baseUrl = $data['base_url'] ?? (defined('APP_URL') ? APP_URL : '');
+            $invitation = $this->service->resendInvitation($userId, $this->actorId());
+            $delivery = $this->service->processEmailQueue(1, (int)($invitation['message_id'] ?? 0));
+            $invitation['email_sent'] = (int)($delivery['sent'] ?? 0) === 1;
             return $this->success(
-                $this->service->resendInvitation($userId, $this->actorId(), $baseUrl),
-                'Invitation queued again.'
+                $invitation,
+                $invitation['email_sent'] ? 'Invitation email sent.' : 'Invitation is queued for email delivery.'
+            );
+        });
+    }
+
+    public function postResendSetupOtp($id = null, $data = [], $segments = [])
+    {
+        return $this->respondWithGuard('staff_invitation_resend', function () use ($id, $data) {
+            $userId = (int)($data['user_id'] ?? $id ?? 0);
+            if (!$userId) throw new RuntimeException('user_id is required.');
+            return $this->success(
+                $this->service->resendSetupOtp($userId, $this->actorId()),
+                'A new staff setup verification code was sent.'
+            );
+        });
+    }
+
+    /** Internal retry worker for the staff invitation outbox. */
+    public function postProcessInvitationEmail($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string)COMMUNICATION_WORKER_SECRET : '';
+        $provided = (string)($_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '');
+        if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+            return $this->unauthorized('Invalid worker credentials.');
+        }
+        $limit = max(1, min(100, (int)($data['limit'] ?? 20)));
+        return $this->runSafely(fn() => $this->success($this->service->processEmailQueue($limit)));
+    }
+
+    public function postCancelInvitation($id = null, $data = [], $segments = [])
+    {
+        return $this->respondWithGuard('staff_invitation_resend', function () use ($id, $data) {
+            $userId = (int)($data['user_id'] ?? $id ?? 0);
+            if (!$userId) throw new RuntimeException('user_id is required.');
+            return $this->success(
+                $this->service->cancelInvitation($userId, $this->actorId()),
+                'Staff invitation cancelled.'
             );
         });
     }

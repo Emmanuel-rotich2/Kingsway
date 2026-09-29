@@ -689,7 +689,7 @@ return $this->serverError('An internal error occurred.');
         return $this->userHasAny(['attendance_manage', 'attendance_approve', 'attendance_update'], [3, 4, 5, 10], ['headteacher', 'deputy headteacher', 'school administrator', 'director']);
     }
 
-    /** Internal worker endpoint for cron/systemd register reminders. */
+    /** Internal worker endpoint called by the curl crontab for register reminders. */
     public function postProcessRegisterReminders($id = null, $data = [], $segments = [])
     {
         $expected = defined('ATTENDANCE_WORKER_SECRET') ? (string) ATTENDANCE_WORKER_SECRET : '';

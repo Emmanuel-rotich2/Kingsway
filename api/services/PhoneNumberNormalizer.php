@@ -5,17 +5,25 @@ namespace App\API\Services;
  * PhoneNumberNormalizer — single canonical phone format for the whole system.
  *
  * Every phone the system stores or sends to a payment provider follows the
- * E.164-without-plus form: 2547XXXXXXXX (12 digits, no "+", no spaces).
- * Users may type "+254...", "254...", "0...", "07...", "7...", with spaces or
- * dashes; normalize() collapses all of them to the canonical value and
- * returns null for anything clearly not a Kenyan mobile number (or an email).
+ * E.164-without-plus form: 254XXXXXXXXX (12 digits, no "+", no spaces).
+ *
+ * Kenyan mobile numbers using these prefixes are normalized without inferring
+ * an operator from the prefix:
+ *   07XXXXXXXX -> 2547XXXXXXXX
+ *   01XXXXXXXX -> 2541XXXXXXXX
+ * Users may type "+254...", "254...", "0...", "07...", "01...", "7...", "1...",
+ * with spaces or dashes; normalize() collapses all of them to the canonical
+ * value and returns null for anything clearly not a Kenyan mobile number (or an
+ * email). Restricting the canonical form to 2547 only would silently discard
+ * every 01 number, so both prefixes are accepted.
  *
  * This is the one source of truth; individual services must not re-implement
  * their own digit-shuffling.
  */
 final class PhoneNumberNormalizer
 {
-    private const CANONICAL_PATTERN = '/^2547\d{8}$/';
+    /** 2547XXXXXXXX (Safaricom) or 2541XXXXXXXX (Airtel). */
+    private const CANONICAL_PATTERN = '/^254[71]\d{8}$/';
 
     public static function normalize(?string $input): ?string
     {
@@ -31,17 +39,17 @@ final class PhoneNumberNormalizer
 
         $length = strlen($digits);
 
-        // "+2547XXXXXXXX" -- the leading "+" is a non-digit and is already gone.
+        // International form -- the leading "+" is already stripped.
         if ($length === 12 && str_starts_with($digits, '254')) {
             // canonical already
         } elseif ($length === 13 && str_starts_with($digits, '254')) {
             // Extra digit after "254" (e.g. a stray leading 0) -- drop it.
             $digits = substr($digits, 0, 12);
         } elseif ($length === 10 && str_starts_with($digits, '0')) {
-            // "07XXXXXXXX"
+            // Local 10-digit form.
             $digits = '254' . substr($digits, 1);
-        } elseif ($length === 9 && str_starts_with($digits, '7')) {
-            // "7XXXXXXXX"
+        } elseif ($length === 9 && (str_starts_with($digits, '7') || str_starts_with($digits, '1'))) {
+            // Local 9-digit form without the leading zero.
             $digits = '254' . $digits;
         } else {
             return null;
@@ -68,7 +76,7 @@ final class PhoneNumberNormalizer
 
     /**
      * Single canonical identity key for a phone number. Both the local
-     * "07XXXXXXXXX" (10 digits) and international "254XXXXXXXXX" (12 digits)
+     * "0XXXXXXXXX" (10 digits) and international "254XXXXXXXXX" (12 digits)
      * representations of the same Kenyan number collapse onto "254XXXXXXXXX",
      * so stored and submitted values compare equal regardless of which form
      * each side used. Returns '' for an empty/non-phone value.

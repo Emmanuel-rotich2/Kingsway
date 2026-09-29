@@ -23,6 +23,22 @@ final class StaffTeachingAssignmentService
     private $db;
     public function __construct() { $this->db = Database::getInstance(); }
 
+    /**
+     * Resolve a staff member and assert they are a teacher.
+     *
+     * A class teacher cannot be created as a class teacher: they are created as
+     * a Subject Teacher, and this service only attaches them to a stream. So the
+     * school-admin picker may only offer people who already qualify as teachers.
+     *
+     * The test is the school's rule, not a string match on a job title: ANY role
+     * whose title contains "teacher" makes a person a teacher (Headteacher, Class
+     * Teacher, Subject Teacher, Intern/Student Teacher, and any future "Senior
+     * Teacher"), plus the two Deputy Head offices, which are timetabled and do
+     * not carry the word.
+     *
+     * A secondary duty such as Librarian never demotes someone out of being a
+     * teacher, and any user may hold more than one role.
+     */
     private function teacher(int $staffId): array
     {
         $row = $this->db->query(
@@ -34,9 +50,28 @@ final class StaffTeachingAssignmentService
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$row || $row['status'] !== 'active') throw new RuntimeException('Active teacher not found', 422);
-        if (stripos((string)$row['staff_type'], 'teach') === false) {
-            throw new RuntimeException('Selected staff member is not teaching staff', 422);
+
+        $teachingRoles = $this->db->query(
+            "SELECT r.name
+               FROM user_roles ur
+               JOIN users u ON u.id = ur.user_id
+               JOIN staff s ON s.person_id = u.person_id
+               JOIN roles r ON r.id = ur.role_id
+              WHERE s.id = ?
+                AND (LOWER(r.name) LIKE '%teacher%'
+                     OR r.name IN ('Deputy Head - Academic', 'Deputy Head - Discipline'))
+              ORDER BY r.name",
+            [$staffId]
+        )->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!$teachingRoles) {
+            throw new RuntimeException(
+                'Only a teacher can be appointed. Create this person as a Subject Teacher first, '
+                . 'then assign the class here.', 422
+            );
         }
+
+        $row['teaching_roles'] = $teachingRoles;
         return $row;
     }
 

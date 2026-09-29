@@ -30,7 +30,7 @@ return [
             'icon' => 'fas fa-shield-alt',
             'subitems' => [
                 ['label' => 'User Accounts', 'url' => 'manage_users'],
-                ['label' => 'First School Admin', 'url' => 'bootstrap_school_administrator'],
+                ['label' => 'Invite School Admin', 'url' => 'bootstrap_school_administrator'],
                 ['label' => 'Account Status', 'url' => 'account_status'],
                 ['label' => 'Role Definitions', 'url' => 'manage_roles'],
                 ['label' => 'Role-Permission Matrix', 'url' => 'role_permission_matrix'],
@@ -200,12 +200,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'All Staff', 'url' => 'manage_staff'],
-                ['label' => 'Staff Onboarding', 'url' => 'staff_onboarding'],
-                ['label' => 'Staff Lifecycle', 'url' => 'staff_lifecycle'],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
                 ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
                 ['label' => 'Recruitment Applications', 'url' => 'manage_job_applications'],
-                ['label' => 'Import Existing Staff', 'url' => 'import_existing_staff'],
                 ['label' => 'Teachers', 'url' => 'all_teachers'],
                 ['label' => 'Staff Performance', 'url' => 'staff_performance'],
                 ['label' => 'Teacher Workload', 'url' => 'teacher_workload'],
@@ -467,12 +464,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'All Staff', 'url' => 'manage_staff'],
-                ['label' => 'Staff Onboarding', 'url' => 'staff_onboarding'],
-                ['label' => 'Staff Lifecycle', 'url' => 'staff_lifecycle'],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
                 ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
                 ['label' => 'Recruitment Applications', 'url' => 'manage_job_applications'],
-                ['label' => 'Import Existing Staff', 'url' => 'import_existing_staff'],
                 ['label' => 'Teachers', 'url' => 'all_teachers'],
                 ['label' => 'Staff Security Passes', 'url' => 'staff_id_cards'],              // generate and issue lanyard passes
                 ['label' => 'Staff Role Assignments', 'url' => 'staff_role_assignments'],
@@ -754,9 +748,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'All Staff', 'url' => 'manage_staff'],
-                ['label' => 'Staff Onboarding', 'url' => 'staff_onboarding'],
-                ['label' => 'Staff Lifecycle', 'url' => 'staff_lifecycle'],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
                 ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
                 ['label' => 'Recruitment Applications', 'url' => 'manage_job_applications'],
                 ['label' => 'Teachers', 'url' => 'all_teachers'],
@@ -2268,9 +2260,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chalkboard-teacher',
             'subitems' => [
-                ['label' => 'All Staff', 'url' => 'manage_staff'],
-                ['label' => 'Staff Onboarding', 'url' => 'staff_onboarding'],
-                ['label' => 'Staff Lifecycle', 'url' => 'staff_lifecycle'],
+                ['label' => 'Staff Management', 'url' => 'manage_staff'],
                 ['label' => 'Staff Appointments', 'url' => 'staff_appointments'],
                 ['label' => 'Recruitment Applications', 'url' => 'manage_job_applications'],
                 ['label' => 'Teachers', 'url' => 'all_teachers'],

@@ -212,7 +212,8 @@ final class TestAccountAccessService
 
         $status = $start <= time() ? 'active' : 'scheduled';
         $placeholdersValid = implode(',', array_fill(0, count($validIds), '?'));
-        $this->db->beginTransaction();
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
         try {
             $this->db->prepare(
                 "UPDATE test_account_access_grants
@@ -235,9 +236,9 @@ final class TestAccountAccessService
                 ]);
                 $granted[] = (int) $this->db->lastInsertId();
             }
-            $this->db->commit();
+            if ($ownsTransaction) $this->db->commit();
         } catch (\Throwable $error) {
-            if ($this->db->inTransaction()) $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             throw $error;
         }
 
@@ -264,15 +265,23 @@ final class TestAccountAccessService
         if ($reason === '') throw new InvalidArgumentException('A revocation reason is required');
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->db->prepare(
-            "UPDATE test_account_access_grants
-             SET status='revoked', revoked_at=NOW(), revoked_by=?, revocation_reason=?
-             WHERE user_id IN ($placeholders) AND environment=?
-               AND status IN ('scheduled','active') AND revoked_at IS NULL"
-        );
-        $stmt->execute(array_merge([$revokedBy, $reason], array_map('intval', $ids), [self::environment()]));
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare(
+                "UPDATE test_account_access_grants
+                 SET status='revoked', revoked_at=NOW(), revoked_by=?, revocation_reason=?
+                 WHERE user_id IN ($placeholders) AND environment=?
+                   AND status IN ('scheduled','active') AND revoked_at IS NULL"
+            );
+            $stmt->execute(array_merge([$revokedBy, $reason], array_map('intval', $ids), [self::environment()]));
 
-        foreach ($ids as $userId) $this->revokeSessions((int) $userId);
+            foreach ($ids as $userId) $this->revokeSessions((int) $userId);
+            if ($ownsTransaction) $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
 
         Logger::audit('test_access_bulk_revoked', 'user', ($ids[0] ?? null), 'Bulk temporary test-account access revoked.', [
             'environment' => self::environment(), 'user_ids' => array_map('intval', $ids),

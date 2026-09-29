@@ -67,7 +67,7 @@ class ChaplaincyController extends BaseController
     /**
      * POST /api/chaplaincy/team/bulk-assign — one submit that assigns staff,
      * parents and/or students across all three registries (staff_department_
-     * assignments, chaplaincy_volunteers, school_leadership).
+     * assignments, chaplaincy_volunteers, school_leader).
      */
     public function postTeamBulkAssign($id = null, $data = [], $segments = [])
     {

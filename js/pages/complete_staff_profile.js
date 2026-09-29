@@ -146,6 +146,32 @@ const staffProfileController = {
             );
 
             this.state.profile = profile;
+            const source = String(profile?.employment_source || 'existing_staff_manual');
+            const sourceLabel = source.startsWith('new_staff_')
+                ? 'new staff member'
+                : 'existing staff member';
+
+            const schoolAssignmentComplete = Boolean(
+                profile?.department_id &&
+                String(profile?.position || '').trim() &&
+                String(profile?.employment_date || '').trim() &&
+                String(profile?.contract_type || '').trim() &&
+                Number(profile?.staff_type_id) > 0 &&
+                Number(profile?.staff_category_id) > 0
+            );
+            if (!schoolAssignmentComplete) {
+                state.className = 'alert alert-warning';
+                state.textContent = `This ${sourceLabel} account is waiting for the school to finish its employment assignment. Department, position, employment date, contract and staff classification are assigned by the school. You do not need to enter them; contact the School Administrator to complete the staff record.`;
+                content.classList.add('d-none');
+                return;
+            }
+
+            if (profile?.email_valid === false) {
+                state.className = 'alert alert-warning';
+                state.textContent = `The school account email for this ${sourceLabel} is missing or invalid. It must be corrected by the School Administrator before profile completion and dashboard access.`;
+                content.classList.add('d-none');
+                return;
+            }
 
             if (
                 profile?.profile_completed &&
@@ -154,20 +180,18 @@ const staffProfileController = {
                 state.className = 'alert alert-success';
                 state.textContent =
                     'Profile already complete. Redirecting to dashboard\u2026';
-                setTimeout(() => {
-                    location.href = 'home.php';
-                }, 800);
+                window.setTimeout(() => void this.redirectAfterCompletion(), 300);
                 return;
             }
 
             this.renderHeader(profile);
-            this.renderReadOnlySections(profile);
             this.populateForm(profile);
             this.renderQualificationClaims(profile.qualification_claims || []);
 
             state.className = 'alert alert-warning';
-            state.textContent =
-                'Review your details below. Fields marked with * are required to complete your profile.';
+            state.textContent = source.startsWith('new_staff_')
+                ? 'Your new staff account is ready for personal profile completion. The school owns your role, employment assignment and payroll information; this form collects only your missing personal and contact details.'
+                : 'Your existing staff record is ready for profile completion. The school owns your role, employment assignment and payroll information; this form collects only your missing personal and contact details.';
             content.classList.remove('d-none');
         } catch (error) {
             state.className = 'alert alert-danger';
@@ -201,55 +225,9 @@ const staffProfileController = {
             </div>
             <div class="col">
                 <h4 class="mb-1">${this._escH(p.first_name)} ${this._escH(p.last_name)}</h4>
-                <p class="mb-1 text-muted">${this._escH(p.staff_no)} &middot; ${this._escH(p.position)}${p.department_name ? ' &middot; ' + this._escH(p.department_name) : ''}</p>
+                <p class="mb-1 text-muted">${this._escH(p.staff_no)} &middot; ${this._escH(p.position || 'Position not set')}${p.department_name ? ' &middot; ' + this._escH(p.department_name) : ''}</p>
                 <div><span class="badge ${badgeClass}">${this._escH(p.status)}</span></div>
             </div>`;
-    },
-
-    renderReadOnlySections(p) {
-        const empInfo = document.getElementById('spEmploymentInfo');
-        const payInfo = document.getElementById('spPayrollInfo');
-        const schedInfo = document.getElementById('spScheduleInfo');
-
-        const card = (label, value) => {
-            const v =
-                value != null && value !== ''
-                    ? this._escH(String(value))
-                    : '\u2014';
-            return `<div class="col-md-4 mb-2"><div class="p-2 bg-light rounded"><small class="text-muted d-block">${label}</small><strong>${v}</strong></div></div>`;
-        };
-
-        if (empInfo) {
-            empInfo.innerHTML =
-                card('Staff Type', p.staff_type_name) +
-                card('Staff Category', p.staff_category_name) +
-                card('Department', p.department_name) +
-                card('Position', p.position) +
-                card('Supervisor', p.supervisor_name) +
-                card('Employment Date', p.employment_date) +
-                card('Contract Type', p.contract_type) +
-                card('TSC No', p.tsc_no);
-        }
-
-        if (payInfo) {
-            payInfo.innerHTML =
-                card('Salary (KES)',
-                    p.salary != null
-                        ? Number(p.salary).toLocaleString()
-                        : null) +
-                card('Bank Name', p.bank_name) +
-                card('Bank Account', p.bank_account) +
-                card('KRA PIN', p.kra_pin) +
-                card('NSSF No', p.nssf_no) +
-                card('NHIF No', p.nhif_no);
-        }
-
-        if (schedInfo) {
-            schedInfo.innerHTML =
-                card('Work Start', p.work_start_time) +
-                card('Work End', p.work_end_time) +
-                card('Late Threshold (min)', p.late_threshold_minutes);
-        }
     },
 
     populateForm(p) {
@@ -258,21 +236,76 @@ const staffProfileController = {
 
         const fields = [
             'phone',
-            'communication_email',
-            'communication_phone',
+            'middle_name',
+            'national_id_no',
+            'bank_name',
+            'bank_account',
+            'mpesa_phone',
+            'tsc_no',
             'date_of_birth',
             'gender',
-            'marital_status',
             'address',
             'emergency_contact_name',
             'emergency_contact_phone',
+            'emergency_contact_relationship',
         ];
+        const requiredWhenMissing = new Set([
+            'phone', 'date_of_birth', 'gender', 'address',
+        ]);
         fields.forEach((k) => {
             const el = form.elements.namedItem(k);
             if (el && p[k] != null) {
-                el.value = p[k];
+                const value = k === 'gender' ? String(p[k]).toLowerCase() : p[k];
+                el.value = value;
+            }
+            if (el && requiredWhenMissing.has(k)) {
+                const invalid = (k === 'phone' && p.phone_valid === false)
+                    || (k === 'gender' && p.gender_valid === false)
+                    || (k === 'date_of_birth' && p.date_of_birth_valid === false);
+                const missing = p[k] == null || String(p[k]).trim() === '' || invalid;
+                el.required = missing;
+                const marker = el.closest('.col-md-6, .col-md-4, .col-12')?.querySelector('[data-required-mark]');
+                if (marker) marker.hidden = !missing;
             }
         });
+        const accountEmail = document.getElementById('spAccountEmail');
+        if (accountEmail) accountEmail.value = p.communication_email || '';
+        const teachingSection = document.getElementById('spTeachingSection');
+        const learningAreas = document.getElementById('spLearningAreas');
+        const primaryArea = document.getElementById('spPrimaryLearningArea');
+        const isTeacher = String(p.staff_type_name || '').toLowerCase().includes('teach');
+        if (teachingSection) teachingSection.hidden = !isTeacher;
+        if (learningAreas && isTeacher) {
+            learningAreas.replaceChildren(...(p.learning_areas || []).map((area) => {
+                const option = document.createElement('option');
+                option.value = String(area.id);
+                option.textContent = area.name;
+                return option;
+            }));
+            const selected = new Set((p.requested_learning_area_ids || []).map(String));
+            Array.from(learningAreas.options).forEach((option) => { option.selected = selected.has(option.value); });
+            if (primaryArea) {
+                const options = Array.from(learningAreas.options).filter((option) => option.selected).map((option) => {
+                    const primaryOption = document.createElement('option');
+                    primaryOption.value = option.value;
+                    primaryOption.textContent = option.textContent;
+                    return primaryOption;
+                });
+                primaryArea.replaceChildren(new Option('No primary area selected', ''), ...options);
+                primaryArea.value = String(p.primary_learning_area_id || '');
+                learningAreas.addEventListener('change', () => {
+                    const current = primaryArea.value;
+                    const selectedOptions = Array.from(learningAreas.selectedOptions).map((option) => {
+                        const primaryOption = document.createElement('option');
+                        primaryOption.value = option.value;
+                        primaryOption.textContent = option.textContent;
+                        return primaryOption;
+                    });
+                    primaryArea.replaceChildren(new Option('No primary area selected', ''), ...selectedOptions);
+                    primaryArea.value = selectedOptions.some((option) => option.value === current) ? current : '';
+                });
+            }
+        }
     },
 
     // ==================== SAVE ====================
@@ -286,17 +319,40 @@ const staffProfileController = {
 
         try {
             const data = Object.fromEntries(new FormData(form).entries());
+            data.learning_area_ids = Array.from(document.getElementById('spLearningAreas')?.selectedOptions || []).map((option) => Number(option.value));
+            const primaryAreaId = document.getElementById('spPrimaryLearningArea')?.value;
+            data.primary_learning_area_id = primaryAreaId ? Number(primaryAreaId) : null;
             data.qualifications = Array.from(document.querySelectorAll('#spQualifications > .row[data-read-only="0"]')).map((row) => Object.fromEntries(Array.from(row.querySelectorAll('[data-q]')).map((el) => [el.dataset.q, el.value.trim()]))).filter((q) => q.title || q.institution);
             await window.API.staffMigration.completeProfile(data);
             state.className = 'alert alert-success';
             state.textContent = 'Profile completed. Redirecting\u2026';
-            setTimeout(() => {
-                location.href = 'home.php';
-            }, 800);
+            await this.redirectAfterCompletion();
         } catch (error) {
             state.className = 'alert alert-danger';
             state.textContent = error.message || 'Unable to save profile.';
         }
+    },
+
+    async redirectAfterCompletion() {
+        // Login deliberately points incomplete staff at this page. Refresh the
+        // full auth envelope after saving so the cached dashboard route is
+        // recalculated from the account's real role before leaving onboarding.
+        const refreshed = await window.AuthContext?.refreshToken?.();
+        if (!refreshed) {
+            const state = document.getElementById('spState');
+            if (state) {
+                state.className = 'alert alert-warning';
+                state.textContent = 'Your profile is saved. Sign in again to open your staff dashboard.';
+            }
+            return;
+        }
+
+        const dashboard = window.AuthContext?.getDashboardInfo?.();
+        const route = String(dashboard?.key || '').trim();
+        const destination = route
+            ? `${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(route)}`
+            : `${window.APP_BASE || ''}/home.php`;
+        window.location.replace(destination);
     },
 
     // ==================== HELPERS ====================

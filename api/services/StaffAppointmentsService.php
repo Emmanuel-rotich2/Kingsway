@@ -44,6 +44,15 @@ final class StaffAppointmentsService
         return ['internal' => $internal, 'new_staff' => $newStaff];
     }
 
+    public function jobApplicationAssignmentOptions(): array
+    {
+        return [
+            'departments' => $this->db->query("SELECT id,name FROM departments WHERE status='active' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
+            'staff_types' => $this->db->query("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
+            'staff_categories' => $this->db->query("SELECT id,staff_type_id,category_name AS name FROM staff_categories WHERE is_active=1 ORDER BY category_name")->fetchAll(PDO::FETCH_ASSOC),
+        ];
+    }
+
     public function listInternal(array $filters = []): array
     {
         $where = ['1=1'];
@@ -58,7 +67,7 @@ final class StaffAppointmentsService
             $params[':staff_id'] = (int)$filters['staff_id'];
         }
 
-        return $this->db->query(
+        $rows = $this->db->query(
             "SELECT p.id,
                     p.staff_id,
                     p.promotion_type,
@@ -108,6 +117,7 @@ final class StaffAppointmentsService
              LIMIT 200",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
+        return $rows;
     }
 
     public function submitInternal(array $data, int $actorId): int
@@ -245,30 +255,62 @@ final class StaffAppointmentsService
             $params[':status'] = $filters['status'];
         }
 
-        return $this->db->query(
+        $rows = $this->db->query(
             "SELECT sa.*,
+                    CASE WHEN sa.candidate_notes LIKE '%[job_application_id=%' THEN 'online_application'
+                         WHEN sa.candidate_notes LIKE '%[candidate_source=walk_in]%' THEN 'walk_in'
+                         ELSE 'staff_entered' END AS candidate_source,
                     d.name AS department_name,
                     CONCAT(sbp.first_name, ' ', sbp.last_name) AS submitted_by_name,
                     CONCAT(abp.first_name, ' ', abp.last_name) AS approved_by_name,
-                    CONCAT(obp.first_name, ' ', obp.last_name) AS onboarded_by_name
+                    CONCAT(obp.first_name, ' ', obp.last_name) AS onboarded_by_name,
+                    CASE WHEN ui.id IS NULL THEN 'not_sent'
+                         WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired'
+                         ELSE ui.status END AS invitation_status,
+                    COALESCE(om.status,'not_queued') AS invitation_delivery_status,
+                    om.sent_at AS invitation_sent_at,
+                    u.force_password_change AS setup_required,
+                    u.profile_completed_at
              FROM staff_appointments sa
-             JOIN departments d ON d.id = sa.department_id
+             LEFT JOIN departments d ON d.id = sa.department_id
              LEFT JOIN users sb ON sb.id = sa.submitted_by
              LEFT JOIN persons sbp ON sbp.id = sb.person_id
              LEFT JOIN users ab ON ab.id = sa.approved_by
              LEFT JOIN persons abp ON abp.id = ab.person_id
              LEFT JOIN users ob ON ob.id = sa.onboarded_by
              LEFT JOIN persons obp ON obp.id = ob.person_id
+             LEFT JOIN users u ON u.id=sa.created_user_id
+             LEFT JOIN user_invitations ui ON ui.id=(
+                SELECT ui2.id FROM user_invitations ui2 WHERE ui2.user_id=u.id ORDER BY ui2.id DESC LIMIT 1
+             )
+             LEFT JOIN outbound_messages om ON om.id=(
+                SELECT om2.id FROM outbound_messages om2 WHERE om2.user_id=u.id AND om2.template_key='staff_account_invitation' ORDER BY om2.id DESC LIMIT 1
+             )
              WHERE " . implode(' AND ', $where) . "
              ORDER BY sa.created_at DESC
              LIMIT 200",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
+        $profileGate = new StaffProfileCompletionService($this->db->getConnection());
+        foreach ($rows as &$row) {
+            $row['profile_completed'] = !empty($row['created_user_id'])
+                && !$profileGate->isRequired((int)$row['created_user_id']) ? 1 : 0;
+        }
+        unset($row);
+        return $rows;
     }
 
     public function submitNew(array $data, int $actorId): int
     {
+        // This endpoint is the school-entered, in-person candidate path. Keep
+        // source markers server-owned: notes supplied by a client must never
+        // make a walk-in look like a reviewed online application at onboarding.
+        $notes = trim((string)($data['candidate_notes'] ?? ''));
+        $notes = trim((string)preg_replace('/\[(?:job_application_id=\d+|candidate_source=walk_in)\]/i', '', $notes));
+        $data['candidate_notes'] = '[candidate_source=walk_in]' . ($notes !== '' ? ' ' . $notes : '');
         $this->validateNewAppointment($data);
+        $this->validateEmploymentAssignment($data);
+        $this->assertCandidateCanBecomeNewStaff((string)$data['candidate_email']);
 
         $this->db->beginTransaction();
         try {
@@ -278,6 +320,55 @@ final class StaffAppointmentsService
             return $appointmentId;
         } catch (\Throwable $e) {
             $this->db->rollback();
+            throw $e;
+        }
+    }
+
+    /** Create the school-owned employment proposal from a reviewed public application. */
+    public function submitFromJobApplication(int $applicationId, array $assignment, int $actorId): int
+    {
+        if ($applicationId < 1) throw new InvalidArgumentException('Application ID is required');
+        foreach (['department_id', 'position', 'employment_date', 'contract_type', 'staff_type_id', 'staff_category_id'] as $field) {
+            if (trim((string)($assignment[$field] ?? '')) === '') throw new InvalidArgumentException("{$field} is required");
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $application = $this->db->query('SELECT * FROM job_applications WHERE id=? FOR UPDATE', [$applicationId])->fetch(PDO::FETCH_ASSOC);
+            if (!$application) throw new InvalidArgumentException('Job application not found');
+            if (($application['status'] ?? '') !== 'interviewed' || ($application['applicant_type'] ?? 'external') !== 'external') {
+                throw new InvalidArgumentException('Only an interviewed external applicant can be proposed for hire');
+            }
+            $this->assertCandidateCanBecomeNewStaff((string)$application['email']);
+            $duplicate = $this->db->query(
+                "SELECT id FROM staff_appointments WHERE candidate_notes LIKE ? AND status NOT IN ('rejected','cancelled') LIMIT 1 FOR UPDATE",
+                ['%[job_application_id=' . $applicationId . ']%']
+            )->fetchColumn();
+            if ($duplicate) throw new InvalidArgumentException('A staff appointment already exists for this application');
+            $payload = [
+                'candidate_first_name' => $application['first_name'],
+                'candidate_last_name' => $application['last_name'],
+                'candidate_email' => $application['email'],
+                'candidate_phone' => $application['phone'] ?? null,
+                'candidate_qualifications' => $application['tsc_number'] ?? null,
+                'candidate_notes' => '[job_application_id=' . $applicationId . '] School employment proposal from online application.',
+                'department_id' => (int)$assignment['department_id'],
+                'position' => trim((string)$assignment['position']),
+                'employment_date' => (string)$assignment['employment_date'],
+                'contract_type' => (string)$assignment['contract_type'],
+                'salary' => null,
+                'supervisor_id' => !empty($assignment['supervisor_id']) ? (int)$assignment['supervisor_id'] : null,
+                'staff_type_id' => (int)$assignment['staff_type_id'],
+                'staff_category_id' => (int)$assignment['staff_category_id'],
+            ];
+            $this->validateNewAppointment($payload);
+            $this->validateEmploymentAssignment($payload);
+            $appointmentId = $this->insertNewAppointment($payload, 'submitted', $actorId);
+            $this->recordHistory('new', $appointmentId, 'submitted', $actorId, $payload['candidate_notes'], null, 'submitted', $payload);
+            $this->db->commit();
+            return $appointmentId;
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
     }
@@ -326,14 +417,12 @@ final class StaffAppointmentsService
 
     public function reviewNew(int $appointmentId, string $action, int $actorId, array $data = []): void
     {
-        $appointment = $this->newAppointment($appointmentId);
-        if ($appointment['status'] !== 'submitted') {
-            throw new InvalidArgumentException('Only submitted new staff appointments can be reviewed');
-        }
-
         $newStatus = $action === 'approve' ? 'approved' : 'rejected';
         $this->db->beginTransaction();
         try {
+            $appointment = $this->db->query('SELECT * FROM staff_appointments WHERE id=? FOR UPDATE', [$appointmentId])->fetch(PDO::FETCH_ASSOC);
+            if (!$appointment) throw new InvalidArgumentException('New staff appointment not found');
+            if ($appointment['status'] !== 'submitted') throw new InvalidArgumentException('Only submitted new staff appointments can be reviewed');
             $this->db->query(
                 "UPDATE staff_appointments
                  SET status = :status, approved_by = :actor_id, approved_at = NOW(),
@@ -359,25 +448,32 @@ final class StaffAppointmentsService
         if (!$roleId) {
             throw new InvalidArgumentException('role_id is required for account creation');
         }
-        $appointment = $this->newAppointment($appointmentId);
-        if ($appointment['status'] !== 'approved') {
-            throw new InvalidArgumentException('Only approved new staff appointments can be onboarded');
+        $roleCheck = $this->db->prepare("SELECT name FROM roles WHERE id=? AND is_active=1 AND scope='school' AND is_system=0 LIMIT 1");
+        $roleCheck->execute([$roleId]);
+        $roleName = strtolower(trim((string)$roleCheck->fetchColumn()));
+        if ($roleName === '' || in_array($roleName, ['system administrator', 'parent'], true)) {
+            throw new InvalidArgumentException('Choose an active staff role. System Administrator and Parent roles cannot be assigned through staff onboarding.');
         }
-
-        $tempPassword = $this->generateTemporaryPassword();
-        $username = UsernameService::generate(
-            $this->db->getConnection(),
-            (string) $appointment['candidate_email'],
-            (string) $appointment['candidate_first_name'],
-            (string) $appointment['candidate_last_name']
-        );
-        $staffNo = $this->nextStaffNumber();
-
         // 4NF identity model: persons holds first/last name + email; users links via
         // person_id (password_hash, not password); staff links to the same person.
         // ids come from AUTO_INCREMENT — a MAX(id)+1 read here would race concurrent inserts.
+        $invitationMessageId = 0;
         $this->db->beginTransaction();
         try {
+            $appointment = $this->db->query('SELECT * FROM staff_appointments WHERE id=? FOR UPDATE', [$appointmentId])->fetch(PDO::FETCH_ASSOC);
+            if (!$appointment) throw new InvalidArgumentException('New staff appointment not found');
+            if ($appointment['status'] !== 'approved') throw new InvalidArgumentException('Only approved new staff appointments can be onboarded');
+            $this->validateEmploymentAssignment($appointment);
+            $identity = $this->db->query('SELECT id FROM persons WHERE LOWER(email)=LOWER(?) LIMIT 1 FOR UPDATE', [$appointment['candidate_email']])->fetchColumn();
+            if ($identity) throw new RuntimeException('This email was linked to another account after the appointment was approved. Resolve the existing identity through staff management before onboarding.');
+            $tempPassword = $this->generateTemporaryPassword();
+            $username = UsernameService::generate(
+                $this->db->getConnection(),
+                (string) $appointment['candidate_email'],
+                (string) $appointment['candidate_first_name'],
+                (string) $appointment['candidate_last_name']
+            );
+            $staffNo = $this->nextStaffNumber();
             $this->db->query(
                 "INSERT INTO persons (first_name, middle_name, last_name, email, phone)
                  VALUES (?, NULL, ?, ?, ?)",
@@ -386,15 +482,17 @@ final class StaffAppointmentsService
             $personId = (int)$this->db->lastInsertId();
 
             $this->db->query(
-                "INSERT INTO users (username, password_hash, person_id, status, force_password_change, created_at, updated_at)
-                 VALUES (?, ?, ?, 'active', 1, NOW(), NOW())",
+                "INSERT INTO users (username, password_hash, person_id, status, force_password_change,
+                    is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method,
+                    created_at, updated_at)
+                 VALUES (?, ?, ?, 'active', 1, 0, 'real', 'live', 1, 'email', NOW(), NOW())",
                 [$username, password_hash($tempPassword, PASSWORD_DEFAULT), $personId]
             );
             $userId = (int)$this->db->lastInsertId();
-            $this->db->query(
-                "INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, NOW())",
-                [$userId, $roleId]
-            );
+            $roleManager = new \App\API\Modules\users\UserRoleManager($this->db->getConnection());
+            $roleAssignment = $roleManager->assignRole($userId, $roleId);
+            if (empty($roleAssignment['success'])) throw new RuntimeException('The approved staff role could not be assigned.');
+            $this->db->query("INSERT INTO user_two_factor_methods(user_id,method,label,is_primary,is_enabled,verified_at) VALUES(?,'email','Account email',1,1,NULL) ON DUPLICATE KEY UPDATE is_enabled=1,is_primary=1", [$userId]);
 
             $this->db->query(
                 "INSERT INTO staff
@@ -415,15 +513,30 @@ final class StaffAppointmentsService
                 ]
             );
             $staffId = (int)$this->db->lastInsertId();
+            $positionName = (string)$appointment['position'];
+            $positionId = StaffPositionCatalog::resolveId($this->db->getConnection(), $positionName);
+            $this->db->query(
+                "INSERT INTO staff_employment_profiles
+                    (staff_id,department_id,position_id,position,employment_date,contract_type,status,created_at,updated_at)
+                 VALUES (?,?,?,?,?,?,'active',NOW(),NOW())",
+                [
+                    $staffId,
+                    (int)$appointment['department_id'],
+                    $positionId,
+                    $positionName,
+                    (string)$appointment['employment_date'],
+                    (string)$appointment['contract_type'],
+                ]
+            );
             if (!empty($appointment['department_id'])) {
                 $this->openDepartmentAssignment($staffId, (int)$appointment['department_id'], $appointment['employment_date'] ?? date('Y-m-d'));
             }
             if ($appointment['salary'] !== null && $appointment['salary'] !== '') {
-                $this->db->query(
-                    "INSERT INTO staff_payroll_profiles (staff_id, basic_salary, status) VALUES (?, ?, 'active')
-                     ON DUPLICATE KEY UPDATE basic_salary = ?",
-                    [$staffId, $appointment['salary'], $appointment['salary']]
-                );
+                (new StaffCompensationService($this->db))->saveIndividualSalary([
+                    'staff_id' => $staffId,
+                    'gross_salary' => $appointment['salary'],
+                    'effective_from' => $appointment['employment_date'] ?: date('Y-m-01'),
+                ], isset($appointment['approved_by']) ? (int)$appointment['approved_by'] : null);
             }
 
             $this->db->query(
@@ -443,20 +556,38 @@ final class StaffAppointmentsService
                 'created_staff_id' => $staffId,
                 'staff_no' => $staffNo,
             ]);
+            if (preg_match('/\[job_application_id=(\d+)\]/', (string)($appointment['candidate_notes'] ?? ''), $sourceMatch)) {
+                $applicationId = (int)$sourceMatch[1];
+                $application = $this->db->query('SELECT status, staff_id, tsc_number FROM job_applications WHERE id=? FOR UPDATE', [$applicationId])->fetch(PDO::FETCH_ASSOC);
+                if (!$application || $application['status'] !== 'interviewed' || !empty($application['staff_id'])) {
+                    throw new RuntimeException('The source job application is no longer eligible for onboarding');
+                }
+                if (strcasecmp((string)$appointment['candidate_email'], (string)($application['email'] ?? '')) !== 0) {
+                    throw new RuntimeException('The appointment identity does not match its source application');
+                }
+                $this->db->query("UPDATE job_applications SET status='hired', staff_id=?, updated_at=NOW() WHERE id=?", [$staffId, $applicationId]);
+                $this->db->query("INSERT INTO job_application_status_history(application_id,from_status,to_status,changed_by,notes) VALUES(?,'interviewed','hired',?,'Staff account created from approved appointment')", [$applicationId, $actorId]);
+                if (trim((string)($application['tsc_number'] ?? '')) !== '') {
+                    $this->db->query(
+                        "INSERT INTO person_professional_identifiers(person_id,identifier_type,identifier_value,issuing_body,is_primary,created_at,updated_at) VALUES(?,'tsc',?,'Teachers Service Commission',1,NOW(),NOW())",
+                        [$personId, strtoupper(trim((string)$application['tsc_number']))]
+                    );
+                }
+            }
+            $invitationMessageId = $this->queueWelcomeInvitation($userId, $staffId, $appointment, $username, $actorId);
             $this->db->commit();
         } catch (\Throwable $e) {
-            $this->db->rollback();
+            if ($this->db->inTransaction()) $this->db->rollback();
             throw $e;
         }
 
-        $emailSent = $this->queueWelcomeInvitation(
-            $userId,
-            $staffId,
-            $appointment,
-            $username,
-            $tempPassword,
-            $actorId
-        );
+        try {
+            $delivery = (new StaffMigrationService($this->db->getConnection()))->processEmailQueue(1, $invitationMessageId);
+            $emailSent = (int)($delivery['sent'] ?? 0) === 1;
+        } catch (\Throwable $mailError) {
+            \App\API\Services\Logger::legacyError('New staff invitation remains queued for retry: ' . $mailError->getMessage());
+            $emailSent = false;
+        }
 
         return [
             'user_id' => $userId,
@@ -523,6 +654,43 @@ final class StaffAppointmentsService
         if (!filter_var($data['candidate_email'], FILTER_VALIDATE_EMAIL)) {
             throw new InvalidArgumentException('candidate_email must be a valid email address');
         }
+    }
+
+    private function validateEmploymentAssignment(array $data): void
+    {
+        foreach (['department_id', 'position', 'employment_date', 'contract_type', 'staff_type_id', 'staff_category_id'] as $field) {
+            if (trim((string)($data[$field] ?? '')) === '') throw new InvalidArgumentException("{$field} is required");
+        }
+        if (!is_numeric($data['department_id']) || !is_numeric($data['staff_type_id']) || !is_numeric($data['staff_category_id'])) throw new InvalidArgumentException('Invalid school assignment');
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', (string)$data['employment_date']);
+        if (!$date || $date->format('Y-m-d') !== $data['employment_date']) throw new InvalidArgumentException('employment_date must be a valid date');
+        if (!in_array($data['contract_type'], ['permanent', 'contract', 'temporary'], true)) throw new InvalidArgumentException('Invalid contract_type');
+        $department = $this->db->query("SELECT id FROM departments WHERE id=? AND status='active'", [(int)$data['department_id']])->fetchColumn();
+        $classification = $this->db->query(
+            'SELECT EXISTS(SELECT 1 FROM staff_types WHERE id=? AND is_active=1) AS type_ok, EXISTS(SELECT 1 FROM staff_categories WHERE id=? AND staff_type_id=? AND is_active=1) AS category_ok',
+            [(int)$data['staff_type_id'], (int)$data['staff_category_id'], (int)$data['staff_type_id']]
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!$department || !(int)($classification['type_ok'] ?? 0) || !(int)($classification['category_ok'] ?? 0)) throw new InvalidArgumentException('Choose an active department and matching staff classification');
+        if (!empty($data['supervisor_id'])) {
+            $supervisor = $this->db->query("SELECT id FROM staff WHERE id=? AND status='active' AND data_scope='live' LIMIT 1", [(int)$data['supervisor_id']])->fetchColumn();
+            if (!$supervisor) throw new InvalidArgumentException('Choose an active supervisor or leave it blank');
+        }
+    }
+
+    private function assertCandidateCanBecomeNewStaff(string $email): void
+    {
+        $existing = $this->db->query(
+            'SELECT p.id FROM persons p WHERE LOWER(p.email)=LOWER(?) LIMIT 1',
+            [trim($email)]
+        )->fetchColumn();
+        if ($existing) {
+            throw new InvalidArgumentException('This email is already linked to a person or staff account. Resolve the existing account through staff management before creating a new-staff appointment.');
+        }
+        $openAppointment = $this->db->query(
+            "SELECT id FROM staff_appointments WHERE LOWER(candidate_email)=LOWER(?) AND status NOT IN ('rejected','cancelled') LIMIT 1",
+            [trim($email)]
+        )->fetchColumn();
+        if ($openAppointment) throw new InvalidArgumentException('An active staff appointment already exists for this email address');
     }
 
     private function insertNewAppointment(array $data, string $status, ?int $actorId = null): int
@@ -626,12 +794,11 @@ final class StaffAppointmentsService
 
         if ((string)($appointment['from_salary'] ?? '') !== (string)($appointment['to_salary'] ?? '')
             && $appointment['to_salary'] !== null && $appointment['to_salary'] !== '') {
-            $this->db->query(
-                "INSERT INTO staff_payroll_profiles (staff_id, basic_salary, status)
-                 VALUES (?, ?, 'active')
-                 ON DUPLICATE KEY UPDATE basic_salary = ?",
-                [$appointment['staff_id'], $appointment['to_salary'], $appointment['to_salary']]
-            );
+            (new StaffCompensationService($this->db))->saveIndividualSalary([
+                'staff_id' => (int)$appointment['staff_id'],
+                'gross_salary' => $appointment['to_salary'],
+                'effective_from' => $appointment['effective_date'] ?? date('Y-m-01'),
+            ], isset($appointment['approved_by']) ? (int)$appointment['approved_by'] : null);
             $appointment['payroll_adjustment_id'] = (int)$appointment['id'];
         }
 
@@ -695,44 +862,37 @@ final class StaffAppointmentsService
         int $staffId,
         array $appointment,
         string $username,
-        string $password,
         int $actorId
-    ): bool
+    ): int
     {
-        try {
-            $this->db->query(
-                "UPDATE user_invitations SET status='revoked', revoked_at=NOW(), updated_at=NOW()
-                 WHERE user_id=? AND status='pending'",
-                [$userId]
-            );
-            $token = bin2hex(random_bytes(32));
-            $this->db->query(
-                "INSERT INTO user_invitations
-                    (user_id, staff_id, email, token_hash, status, expires_at, created_by, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())",
-                [$userId, $staffId, strtolower($appointment['candidate_email']), hash('sha256', $token), $actorId]
-            );
-            $base = defined('BASE_URL') ? rtrim((string) BASE_URL, '/') : '';
-            $payload = [
-                'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
-                'username' => $username,
-                'temporary_password' => $password,
-                'setup_url' => $base . '/index.php?route=rf4a47967b780&token=' . rawurlencode($token),
-                'login_url' => $base . '/index.php?route=r6d394ab20b0b',
-                'profile_url' => $base . '/home.php?route=complete_staff_profile',
-                'expires_hours' => 72,
-            ];
-            $this->db->query(
-                "INSERT INTO outbound_messages
-                    (user_id, channel, recipient, template_key, subject, payload_json, status, attempts, next_attempt_at, created_at, updated_at)
-                 VALUES (?, 'email', ?, 'staff_account_invitation', 'Welcome to Kingsway — set up your staff account', ?, 'queued', 0, NOW(), NOW(), NOW())",
-                [$userId, strtolower($appointment['candidate_email']), json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
-            );
-            $delivery = (new StaffMigrationService($this->db->getConnection()))->processEmailQueue(1);
-            return (int)($delivery['sent'] ?? 0) === 1;
-        } catch (\Throwable $e) {
-            \App\API\Services\Logger::legacyError('Staff appointment invitation failed: ' . $e->getMessage());
-            return false;
-        }
+        $this->db->query("UPDATE outbound_messages SET status='cancelled',last_error='Replaced by a newer staff invitation',updated_at=NOW() WHERE user_id=? AND template_key='staff_account_invitation' AND status IN ('queued','retry')", [$userId]);
+        $this->db->query(
+            "UPDATE user_invitations SET status='revoked', revoked_at=NOW(), updated_at=NOW()
+             WHERE user_id=? AND status='pending'",
+            [$userId]
+        );
+        $token = bin2hex(random_bytes(32));
+        $this->db->query(
+            "INSERT INTO user_invitations
+                (user_id, staff_id, email, token_hash, status, expires_at, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())",
+            [$userId, $staffId, strtolower($appointment['candidate_email']), hash('sha256', $token), $actorId]
+        );
+        $base = StaffMigrationService::applicationBaseUrl();
+        $payload = [
+            'name' => trim($appointment['candidate_first_name'] . ' ' . $appointment['candidate_last_name']),
+            'username' => $username,
+            'setup_url' => StaffMigrationService::invitationSetupUrl($token),
+            'login_url' => $base . '/index.php?route=r6d394ab20b0b',
+            'profile_url' => $base . '/home.php?route=complete_staff_profile',
+            'expires_hours' => 72,
+        ];
+        $this->db->query(
+            "INSERT INTO outbound_messages
+                (user_id, channel, recipient, template_key, subject, payload_json, status, attempts, next_attempt_at, created_at, updated_at)
+             VALUES (?, 'email', ?, 'staff_account_invitation', 'Welcome to Kingsway — set up your staff account', ?, 'queued', 0, NOW(), NOW(), NOW())",
+            [$userId, strtolower($appointment['candidate_email']), json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
+        );
+        return (int)$this->db->lastInsertId();
     }
 }

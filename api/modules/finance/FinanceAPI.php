@@ -1286,12 +1286,13 @@ class FinanceAPI extends BaseAPI
                     p.first_name,
                     p.last_name,
                     s.staff_no,
-                    s.bank_account,
+                    spp.bank_account,
                     ps.payroll_month as month,
                     ps.payroll_year as year
                 FROM payslips ps
                 JOIN staff s ON ps.staff_id = s.id
                 JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 WHERE ps.id = ? AND $psScope AND $sScope";
 
         $stmt = $this->db->prepare($sql);
@@ -2004,8 +2005,6 @@ class FinanceAPI extends BaseAPI
             'nssf_no' => 'NSSF number',
             'nhif_no' => 'NHIF/SHIF number',
             'phone' => 'Phone number',
-            'bank_name' => 'Bank name',
-            'bank_account' => 'Bank account number',
         ];
 
         $missing = [];
@@ -2028,25 +2027,41 @@ class FinanceAPI extends BaseAPI
             }
         }
 
+        $bankReady = trim((string)($staff['bank_name'] ?? '')) !== '' && trim((string)($staff['bank_account'] ?? '')) !== '';
+        $mobileReady = trim((string)($staff['mpesa_phone'] ?? $staff['phone'] ?? '')) !== '';
+        if (!$bankReady && !$mobileReady) $missing[] = 'Bank details or M-Pesa phone number';
         return $missing;
     }
 
     /**
      * Fetch the profile fields needed to verify payroll eligibility.
      */
-    private function getPayrollEligibilityProfile($staffId): ?array
+    private function getPayrollEligibilityProfile($staffId, ?string $payrollDate = null): ?array
     {
+        $payrollDate = $payrollDate ?: date('Y-m-01');
         $sql = "SELECT
                     s.id,
                     s.staff_no,
                     sep.department_id,
-                    spp.basic_salary AS basic_salary,
+                    COALESCE((SELECT so.gross_salary FROM staff_salary_overrides so
+                        WHERE so.staff_id=s.id AND so.effective_from<=? AND (so.effective_to IS NULL OR so.effective_to>=?)
+                        ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
+                        SELECT rs.gross_salary
+                        FROM users pu JOIN user_roles pur ON pur.user_id=pu.id AND pur.is_primary=1
+                        JOIN staff_role_salary_rates rs ON rs.role_id=pur.role_id
+                        WHERE pu.person_id=s.person_id AND rs.effective_from<=?
+                          AND (rs.effective_to IS NULL OR rs.effective_to>=?)
+                        ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
+                    ),0) AS basic_salary,
+                    EXISTS(SELECT 1 FROM staff_salary_overrides so
+                        WHERE so.staff_id=s.id AND so.effective_from<=? AND (so.effective_to IS NULL OR so.effective_to>=?)) AS salary_override,
                     spp.kra_pin,
                     spp.nssf_no,
                     spp.nhif_no,
                     p.phone,
                     spp.bank_name,
                     spp.bank_account,
+                    spp.mpesa_phone,
                     COUNT(DISTINCT ur.role_id) AS role_count
                 FROM staff s
                 LEFT JOIN persons p ON p.id = s.person_id
@@ -2057,7 +2072,7 @@ class FinanceAPI extends BaseAPI
                 WHERE s.id = ? AND s.status = 'active'
                 GROUP BY s.id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$staffId]);
+        $stmt->execute([$payrollDate, $payrollDate, $payrollDate, $payrollDate, $payrollDate, $payrollDate, $staffId]);
         $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $staff ?: null;
@@ -2066,9 +2081,9 @@ class FinanceAPI extends BaseAPI
     /**
      * Hard payroll gate used before creating payroll records.
      */
-    private function assertPayrollEligible($staffId)
+    private function assertPayrollEligible($staffId, ?string $payrollDate = null)
     {
-        $profile = $this->getPayrollEligibilityProfile($staffId);
+        $profile = $this->getPayrollEligibilityProfile($staffId, $payrollDate);
         if (!$profile) {
             throw new Exception('Staff member is not active or does not exist');
         }
@@ -2092,7 +2107,8 @@ class FinanceAPI extends BaseAPI
                   AND (end_date IS NULL OR end_date >= ?)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffId, $periodEnd, $periodStart]);
-        return (float) $stmt->fetchColumn();
+        $legacy=(float)$stmt->fetchColumn();
+        return $legacy + $this->getPayrollAwardTotal((int)$staffId,(string)$periodStart,'allowance');
     }
 
     /**
@@ -2108,13 +2124,32 @@ class FinanceAPI extends BaseAPI
                   AND (end_date IS NULL OR end_date >= ?)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffId, $periodEnd, $periodStart]);
-        return (float) $stmt->fetchColumn();
+        $legacy=(float)$stmt->fetchColumn();
+        return $legacy + $this->getPayrollAwardTotal((int)$staffId,(string)$periodStart,'deduction');
+    }
+
+    private function getPayrollAwardLines(int $staffId, string $periodStart): array
+    {
+        [$year,$month]=array_map('intval',explode('-',substr($periodStart,0,7)));
+        $stmt=$this->db->prepare("SELECT b.id AS batch_id,b.award_kind,b.award_name,b.award_type,b.amount_per_month AS amount
+            FROM staff_payroll_award_recipients r
+            JOIN staff_payroll_award_batches b ON b.id=r.batch_id AND b.status='active'
+            JOIN staff_payroll_award_periods p ON p.batch_id=b.id AND p.payroll_year=? AND p.payroll_month=?
+            WHERE r.staff_id=? ORDER BY b.id");
+        $stmt->execute([$year,$month,$staffId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function getPayrollAwardTotal(int $staffId, string $periodStart, string $kind): float
+    {
+        $total=0.0; foreach($this->getPayrollAwardLines($staffId,$periodStart) as $line) if($line['award_kind']===$kind)$total+=(float)$line['amount'];
+        return $total;
     }
 
     /**
      * Get staff list with children info for payroll processing
      */
-    public function getStaffForPayroll()
+    public function getStaffForPayroll($month = null, $year = null)
     {
         try {
             [$scopeSql, $scopeParams] = DataScopeService::predicateFor('staff', 's');
@@ -2127,7 +2162,7 @@ class FinanceAPI extends BaseAPI
                         s.position,
                         sep.department_id,
                         d.name AS department,
-                        spp.basic_salary AS basic_salary,
+                        0 AS basic_salary,
                         s.status,
                         spp.kra_pin,
                         spp.nssf_no,
@@ -2151,7 +2186,12 @@ class FinanceAPI extends BaseAPI
             $stmt->execute($scopeParams);
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            $payrollDate = sprintf('%04d-%02d-01', (int)($year ?: date('Y')), (int)($month ?: date('n')));
             foreach ($staff as &$member) {
+                $profile = $this->getPayrollEligibilityProfile((int)$member['id'], $payrollDate);
+                $member['basic_salary'] = (float)($profile['basic_salary'] ?? 0);
+                $member['salary_source'] = (float)($profile['basic_salary'] ?? 0) > 0 ? 'configured' : 'missing';
+                $member['salary_override'] = (int)($profile['salary_override'] ?? 0);
                 $missing = $this->getPayrollEligibilityIssues($member);
                 $member['payroll_eligible'] = empty($missing);
                 $member['payroll_missing_fields'] = $missing;
@@ -2172,7 +2212,7 @@ class FinanceAPI extends BaseAPI
         try {
             $periodStart = sprintf('%04d-%02d-01', (int) $year, (int) $month);
             $periodEnd = date('Y-m-t', strtotime($periodStart));
-            $staffResponse = $this->getStaffForPayroll();
+            $staffResponse = $this->getStaffForPayroll($month,$year);
             $staffList = $staffResponse['data'] ?? [];
             $rows = [];
 
@@ -2187,8 +2227,9 @@ class FinanceAPI extends BaseAPI
                 $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year, (int) $staff['id']]);
                 $existing = $existingStmt->fetch(PDO::FETCH_ASSOC) ?: null;
                 $basicSalary = (float) ($staff['basic_salary'] ?? 0);
-                $allowances = $eligible && !$preparationOnly ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
-                $otherDeductions = $eligible && !$preparationOnly ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $allowances = $eligible ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $otherDeductions = $eligible ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $awardLines = $eligible ? $this->getPayrollAwardLines((int)$staff['id'],$periodStart) : [];
                 $grossSalary = $basicSalary + $allowances;
                 $nssf = $eligible ? $this->calculateNSSF($grossSalary, $year) : 0;
                 $shif = $eligible ? $this->calculateSHIF($grossSalary, $year) : 0;
@@ -2207,6 +2248,8 @@ class FinanceAPI extends BaseAPI
                     'position' => $staff['position'] ?? 'Staff',
                     'basic_salary' => $basicSalary,
                     'allowances' => $allowances,
+                    'salary_source' => $staff['salary_override'] ? 'individual_override' : 'primary_role',
+                    'award_lines' => $awardLines,
                     'statutory_deductions' => $nssf + $shif + $paye,
                     'shif_deduction' => $shif,
                     'housing_levy' => $housingLevy,
@@ -2243,7 +2286,7 @@ class FinanceAPI extends BaseAPI
                         s.position,
                         sep.department_id,
                         d.name AS department,
-                        spp.basic_salary AS basic_salary,
+                        0 AS basic_salary,
                         s.status,
                         spp.kra_pin,
                         spp.nssf_no,
@@ -2264,6 +2307,9 @@ class FinanceAPI extends BaseAPI
             if (!$staff) {
                 return formatResponse(false, null, 'Staff not found', 404);
             }
+
+            $compensation = $this->getPayrollEligibilityProfile((int)$staffId);
+            $staff['basic_salary'] = (float)($compensation['basic_salary'] ?? 0);
 
             $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
             $termId = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1")->fetchColumn();
@@ -2385,6 +2431,8 @@ class FinanceAPI extends BaseAPI
             $staffId = $data['staff_id'] ?? null;
             $payrollMonth = $data['payroll_month'] ?? date('n');
             $payrollYear = $data['payroll_year'] ?? date('Y');
+            $payrollPeriodStart = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
+            $payrollPeriodEnd = date('Y-m-t', strtotime($payrollPeriodStart));
             $preparationOnly = !empty($data['preparation_only']);
             $childrenDeductionsExplicit = !empty($data['children_deductions_explicit']);
             $manualAllowances = $preparationOnly ? [] : ($data['allowances'] ?? []);
@@ -2405,7 +2453,7 @@ class FinanceAPI extends BaseAPI
                 $childrenDeductionsExplicit = true;
             }
 
-            $this->assertPayrollEligible($staffId);
+            $this->assertPayrollEligible($staffId, $payrollPeriodStart);
 
             // Authorised child-fee deductions are policy data, not a value the
             // browser is allowed to invent.  If the accountant does not send
@@ -2414,13 +2462,13 @@ class FinanceAPI extends BaseAPI
             if (!$preparationOnly && !$childrenDeductionsExplicit && empty($childrenDeductions)) {
                 $childrenDeductions = $this->getAuthorisedChildFeeDeductions($staffId);
             }
-            $profile = $this->getPayrollEligibilityProfile($staffId);
+            $profile = $this->getPayrollEligibilityProfile($staffId, $payrollPeriodStart);
             $basicSalary = (float) ($profile['basic_salary'] ?? 0);
-            $payrollPeriodStart = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
-            $payrollPeriodEnd = date('Y-m-t', strtotime($payrollPeriodStart));
 
-            $configuredAllowances = $preparationOnly ? 0 : $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
-            $configuredDeductions = $preparationOnly ? 0 : $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $configuredAllowances = $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $configuredDeductions = $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $awardBreakdown = $this->getPayrollAwardLines((int)$staffId,$payrollPeriodStart);
+            $awardBreakdownJson = json_encode($awardBreakdown, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             // Calculate totals
             $manualAllowanceTotal = is_array($manualAllowances)
@@ -2613,6 +2661,7 @@ class FinanceAPI extends BaseAPI
                             other_deductions_total = ?,
                             net_salary = ?,
                             child_fees_breakdown = ?,
+                            payroll_awards_breakdown = ?,
                             payslip_status = 'draft',
                             updated_at = NOW()
                         WHERE id = ?";
@@ -2632,6 +2681,7 @@ class FinanceAPI extends BaseAPI
                     $configuredDeductions + $manualOtherDeductions,
                     $netSalary,
                     $breakdownJson,
+                    $awardBreakdownJson,
                     $existing['id']
                 ]);
                 $payrollId = $existing['id'];
@@ -2641,8 +2691,8 @@ class FinanceAPI extends BaseAPI
                         (staff_id, payroll_month, payroll_year, basic_salary, allowances_total, gross_salary,
                          nssf_contribution, nhif_contribution, shif_contribution, employer_nssf_contribution, employer_housing_levy,
                          paye_tax, housing_levy, child_fees_deduction,
-                         other_deductions_total, net_salary, child_fees_breakdown, payslip_status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
+                         other_deductions_total, net_salary, child_fees_breakdown, payroll_awards_breakdown, payslip_status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     $staffId,
@@ -2661,7 +2711,8 @@ class FinanceAPI extends BaseAPI
                     $totalChildrenFees,
                     $configuredDeductions + $manualOtherDeductions,
                     $netSalary,
-                    $breakdownJson
+                    $breakdownJson,
+                    $awardBreakdownJson
                 ]);
                 $payrollId = $this->db->lastInsertId();
             }

@@ -1609,37 +1609,10 @@ class AuthAPI extends BaseAPI
     private function staffProfileCompletionRequired(int $userId): bool
     {
         try {
-            $stmt = $this->db->prepare('
-                SELECT u.profile_completed_at, s.id AS staff_id, p.phone, p.gender, p.dob, p.email
-                FROM users u
-                JOIN staff s ON s.person_id = u.person_id
-                JOIN persons p ON p.id = s.person_id
-                WHERE u.id = ?
-                LIMIT 1
-            ');
-            $stmt->execute([$userId]);
-            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$row) {
-                return false;
-            }
-            if (!empty($row['profile_completed_at'])) {
-                return false;
-            }
-
-            $details = $this->db->prepare("SELECT EXISTS (SELECT 1 FROM person_addresses WHERE person_id=(SELECT person_id FROM staff WHERE id=? ) AND address_type='residential' AND valid_to IS NULL) AS has_address, EXISTS (SELECT 1 FROM person_marital_statuses WHERE person_id=(SELECT person_id FROM staff WHERE id=? ) AND valid_to IS NULL) AS has_marital");
-            $details->execute([(int) $row['staff_id'], (int) $row['staff_id']]);
-            $detailRow = $details->fetch(\PDO::FETCH_ASSOC) ?: [];
-            $hasStaffData = !empty($row['phone'])
-                && !empty($row['gender'])
-                && !empty($row['dob'])
-                && !empty($row['email'])
-                && !empty($detailRow['has_address'])
-                && !empty($detailRow['has_marital']);
-
-            return !$hasStaffData;
+            return (new \App\API\Services\StaffProfileCompletionService($this->db))->isRequired($userId);
         } catch (\Throwable $error) {
             \App\API\Services\Logger::legacyError('Staff profile completion check failed: ' . $error->getMessage());
-            return false;
+            return true;
         }
     }
 
@@ -1685,20 +1658,28 @@ class AuthAPI extends BaseAPI
             ];
         }
 
+        $setupCode = null;
+        $isParentInvitation = false;
         try {
             $this->db->beginTransaction();
 
             $stmt = $this->db->prepare('
-                SELECT ui.id, ui.user_id, ui.staff_id,
+                SELECT ui.id, ui.user_id, ui.staff_id, p.email,
                        EXISTS(
                            SELECT 1 FROM users account
                            JOIN parents parent_record ON parent_record.person_id = account.person_id
                            WHERE account.id = ui.user_id AND parent_record.status = "active"
                        ) AS is_parent
                 FROM user_invitations ui
+                JOIN users u ON u.id=ui.user_id
+                JOIN persons p ON p.id=u.person_id
                 WHERE ui.token_hash = ?
-                  AND status = "pending"
-                  AND expires_at > NOW()
+                  AND ui.status = "pending"
+                  AND ui.expires_at > NOW()
+                  AND u.status = "active"
+                  AND u.force_password_change = 1
+                  AND u.password_changed_at IS NULL
+                  AND u.profile_completed_at IS NULL
                 LIMIT 1
                 FOR UPDATE
             ');
@@ -1716,7 +1697,6 @@ class AuthAPI extends BaseAPI
             $stmt = $this->db->prepare('
                 UPDATE users
                 SET password_hash = ?,
-                    status = "active",
                     password_changed_at = NOW(),
                     force_password_change = 0,
                     updated_at = NOW()
@@ -1734,15 +1714,42 @@ class AuthAPI extends BaseAPI
             ');
             $stmt->execute([(int) $invitation['id']]);
 
+            $isParentInvitation = !empty($invitation['is_parent']) && empty($invitation['staff_id']);
+            if (!$isParentInvitation && !empty($invitation['staff_id'])) {
+                $tfa = new \App\API\Services\TwoFactorService($this->db);
+                $setupCode = $tfa->generateOTP((int)$invitation['user_id'], 'email', 'setup');
+                if (!$setupCode) {
+                    $this->db->rollBack();
+                    return ['success' => false, 'message' => 'A verification code could not be created. Your password was not changed; please try again.'];
+                }
+            }
             $this->db->commit();
+
+            // The accepted invitation and OTP must be committed before delivery:
+            // a fast recipient can submit the code as soon as the email arrives.
+            $otpSent = $isParentInvitation || empty($invitation['staff_id']);
+            if (!$otpSent) {
+                try {
+                    $otpSent = (new \App\API\Services\OTPDeliveryService())->sendEmailOTP(
+                        (string)$invitation['email'],
+                        (string)$setupCode,
+                        'invitation_setup'
+                    );
+                } catch (\Throwable $deliveryError) {
+                    \App\API\Services\Logger::legacyError('[AuthAPI] Invitation setup OTP delivery failed: ' . $deliveryError->getMessage());
+                    $otpSent = false;
+                }
+            }
 
             return [
                 'success' => true,
-                'message' => 'Password has been updated. You may now sign in.',
+                'message' => $isParentInvitation ? 'Password has been updated.' : ($otpSent
+                    ? 'Password saved. Check your email for the verification code.'
+                    : 'Password saved, but the verification email could not be sent. Use Resend code to try again.'),
                 'data' => [
-                    'account_type' => !empty($invitation['is_parent']) && empty($invitation['staff_id'])
-                        ? 'parent'
-                        : 'staff'
+                    'account_type' => $isParentInvitation ? 'parent' : 'staff',
+                    'requires_otp' => !$isParentInvitation && !empty($invitation['staff_id']),
+                    'otp_sent' => $otpSent,
                 ]
             ];
         } catch (\Throwable $e) {
@@ -1754,6 +1761,65 @@ class AuthAPI extends BaseAPI
                 'success' => false,
                 'message' => 'Password setup failed. Please request a new setup link.'
             ];
+        }
+    }
+
+    /** Verify the email code for a staff invitation, then issue a normal authenticated session. */
+    public function verifyInvitationSetupOtp(array $data): array
+    {
+        $token = trim((string)($data['token'] ?? ''));
+        $code = trim((string)($data['code'] ?? ''));
+        if ($token === '' || !preg_match('/^\d{6}$/', $code)) {
+            return ['success' => false, 'message' => 'Enter the six-digit verification code.'];
+        }
+        // Link expiry governs password setup. Once the link was accepted and
+        // the password saved, OTP verification is governed by its own short
+        // expiry so an invitation expiring during the email round-trip cannot
+        // strand the staff member.
+        $stmt = $this->db->prepare("SELECT ui.user_id FROM user_invitations ui JOIN staff s ON s.id=ui.staff_id JOIN users u ON u.id=ui.user_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
+        $stmt->execute([hash('sha256', $token)]);
+        $userId = (int)$stmt->fetchColumn();
+        if ($userId < 1) return ['success' => false, 'message' => 'This setup verification has expired. Request a new invitation from the school.'];
+
+        $tfa = new \App\API\Services\TwoFactorService($this->db);
+        if (!$tfa->verifyOTP($userId, $code, 'setup')) {
+            return ['success' => false, 'message' => 'The verification code is invalid or expired. Check the latest email and try again.'];
+        }
+        $challenge = $tfa->createLoginChallenge($userId, 'email');
+        if (!$tfa->markChallengeVerified($challenge, $userId)) {
+            return ['success' => false, 'message' => 'The verified session could not be created. Please sign in.'];
+        }
+        $login = $this->complete2FALogin($userId, ['challenge_token' => $challenge, 'remember_me' => true]);
+        // Existing staff imports may already contain every required personal
+        // and school-owned field. In that case the shared gate correctly skips
+        // the profile form; persist the same completed state for invitation
+        // listings and future setup-token checks. Do this only after login has
+        // succeeded so a failed session creation can still resend the OTP.
+        if (!empty($login['success']) && !(new \App\API\Services\StaffProfileCompletionService($this->db))->isRequired($userId)) {
+            $this->db->prepare('UPDATE users SET profile_completed_at=COALESCE(profile_completed_at,NOW()) WHERE id=?')
+                ->execute([$userId]);
+        }
+        return $login;
+    }
+
+    /** Resend the short-lived setup code using the original invitation link. */
+    public function resendInvitationSetupOtp(array $data): array
+    {
+        $token = trim((string)($data['token'] ?? ''));
+        if ($token === '') return ['success' => false, 'message' => 'The setup link is missing.'];
+        $stmt = $this->db->prepare("SELECT ui.user_id,p.email FROM user_invitations ui JOIN users u ON u.id=ui.user_id JOIN persons p ON p.id=u.person_id JOIN staff s ON s.id=ui.staff_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
+        $stmt->execute([hash('sha256', $token)]);
+        $invite = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$invite) return ['success' => false, 'message' => 'This setup verification has expired. Request a new invitation from the school.'];
+        try {
+            $tfa = new \App\API\Services\TwoFactorService($this->db);
+            $code = $tfa->generateOTP((int)$invite['user_id'], 'email', 'setup');
+            if (!$code || !(new \App\API\Services\OTPDeliveryService())->sendEmailOTP((string)$invite['email'], $code, 'invitation_setup')) {
+                return ['success' => false, 'message' => 'A new verification email could not be sent. Please try later.'];
+            }
+            return ['success' => true, 'message' => 'A new verification code was sent.'];
+        } catch (\Throwable $error) {
+            return ['success' => false, 'message' => $error->getMessage()];
         }
     }
 

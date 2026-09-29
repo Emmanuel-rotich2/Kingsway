@@ -145,6 +145,51 @@ class UsersAPI extends BaseAPI
     {
         return $this->userRoleManager->bulkAssignUsersToRole($roleId, $userIds);
     }
+    public function bulkUpdateDataScope(array $userIds, string $scope): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $userIds)));
+        $ids = array_values(array_filter($ids, static fn ($id) => $id > 0));
+        if (!$ids) {
+            return ['success' => false, 'error' => 'Select at least one valid account.'];
+        }
+        if (count($ids) > 500) {
+            return ['success' => false, 'error' => 'A bulk workspace change is limited to 500 accounts.'];
+        }
+        if (!in_array($scope, ['live', 'test', 'both'], true)) {
+            return ['success' => false, 'error' => 'Invalid workspace scope.'];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $ownsTransaction = !$this->db->inTransaction();
+        try {
+            if ($ownsTransaction) $this->db->beginTransaction();
+            $find = $this->db->prepare("SELECT id FROM users WHERE id IN ($placeholders)");
+            $find->execute($ids);
+            $foundIds = array_map('intval', $find->fetchAll(PDO::FETCH_COLUMN));
+            if (!$foundIds) {
+                if ($ownsTransaction) $this->db->commit();
+                return ['success' => false, 'error' => 'None of the selected accounts still exist.'];
+            }
+            $foundPlaceholders = implode(',', array_fill(0, count($foundIds), '?'));
+            $update = $this->db->prepare("UPDATE users SET data_scope = ?, updated_at = NOW() WHERE id IN ($foundPlaceholders)");
+            $update->execute(array_merge([$scope], $foundIds));
+            if ($ownsTransaction) $this->db->commit();
+
+            Logger::audit('user_data_scope_bulk_updated', 'user', $foundIds[0], 'User workspace scope updated in bulk.', [
+                'user_ids' => $foundIds,
+                'data_scope' => $scope,
+                'updated_by' => (int) $this->getCurrentUserId(),
+            ]);
+            return [
+                'success' => true,
+                'data' => ['updated' => $foundIds, 'skipped' => array_values(array_diff($ids, $foundIds)), 'data_scope' => $scope],
+            ];
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            Logger::legacyError('Bulk user workspace update failed: ' . $error->getMessage());
+            return ['success' => false, 'code' => 500, 'error' => 'Workspace changes could not be saved.'];
+        }
+    }
     public function bulkRevokeUsersFromRole($roleId, $userIds)
     {
         return $this->userRoleManager->bulkRevokeUsersFromRole($roleId, $userIds);
@@ -243,7 +288,7 @@ class UsersAPI extends BaseAPI
                  ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
              )
              LEFT JOIN roles r ON r.id = (
-                 SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
+                 SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.is_primary DESC, ur.id LIMIT 1
              )
              WHERE u.id = ?"
         );
@@ -283,7 +328,7 @@ class UsersAPI extends BaseAPI
                     FROM user_roles ur
                     INNER JOIN roles rl ON rl.id = ur.role_id
                     WHERE ur.user_id = u.id AND rl.is_active = 1
-                    ORDER BY ur.id LIMIT 1
+                    ORDER BY ur.is_primary DESC, ur.id LIMIT 1
                 )";
         $params = [TestAccountAccessService::environment()];
         if (isset($data['status'])) {
@@ -313,11 +358,11 @@ class UsersAPI extends BaseAPI
         }
         $in = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->db->prepare(
-            "SELECT ur.user_id, r.id AS role_id, r.name AS role_name, r.is_active
+            "SELECT ur.user_id, r.id AS role_id, r.name AS role_name, r.is_active, ur.is_primary
              FROM user_roles ur
              INNER JOIN roles r ON r.id = ur.role_id
              WHERE ur.user_id IN ($in)
-             ORDER BY ur.user_id, ur.id"
+             ORDER BY ur.user_id, ur.is_primary DESC, ur.id"
         );
         $stmt->execute($ids);
         $rolesByUser = [];
@@ -327,6 +372,7 @@ class UsersAPI extends BaseAPI
                 'name' => $row['role_name'],
                 'role_name' => $row['role_name'],
                 'is_active' => (int) $row['is_active'],
+                'is_primary' => (int) ($row['is_primary'] ?? 0) === 1,
             ];
         }
         foreach ($users as &$user) {
@@ -339,7 +385,7 @@ class UsersAPI extends BaseAPI
         }
         unset($user);
     }
-    public function create($data)
+    public function create($data, bool $allowIncompleteStaffProfile = false, bool $allowStaffLifecycle = false)
     {
         // Username formation has one owner. Callers provide identity data only;
         // this service derives a valid, unique username for every creation route.
@@ -428,9 +474,36 @@ class UsersAPI extends BaseAPI
         if (empty($roleIds)) {
             throw new Exception('Role ID(s) must be provided on user creation');
         }
-        if (in_array(4, array_map('intval', $roleIds), true)
-            && (!isset($data['staff_info']) || !is_array($data['staff_info']))) {
-            throw new Exception('School Administrator accounts must be created through the first-administrator or staff-onboarding workflow.');
+        $rolePlaceholders = implode(',', array_fill(0, count($roleIds), '?'));
+        $roleScopeStmt = $this->db->prepare("SELECT id,name,scope,is_system FROM roles WHERE id IN ($rolePlaceholders)");
+        $roleScopeStmt->execute(array_map('intval', $roleIds));
+        $requestedRoles = $roleScopeStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($requestedRoles) !== count(array_unique(array_map('intval', $roleIds)))) {
+            return ['success' => false, 'error' => 'One or more selected roles do not exist.'];
+        }
+        $hasStaffRole = false;
+        foreach ($requestedRoles as $requestedRole) {
+            $roleName = strtolower(trim((string)$requestedRole['name']));
+            if (strtolower((string)$requestedRole['scope']) === 'school'
+                && $roleName !== 'parent'
+                && (int)$requestedRole['is_system'] !== 1) {
+                $hasStaffRole = true;
+            }
+        }
+        if ($hasStaffRole && !$allowStaffLifecycle) {
+            return ['success' => false, 'error' => 'Staff accounts must be created through the staff directory or staff onboarding workflow so employment assignment, invitation, and onboarding records are created together.'];
+        }
+        $hasSchoolAdministratorRole = false;
+        foreach ($requestedRoles as $requestedRole) {
+            if (strtolower(trim((string)$requestedRole['name'])) === 'school administrator') {
+                $hasSchoolAdministratorRole = true;
+                break;
+            }
+        }
+        if ($hasSchoolAdministratorRole
+            && (!isset($data['staff_info']) || !is_array($data['staff_info']))
+            && !$allowIncompleteStaffProfile) {
+            return ['success' => false, 'error' => 'School Administrator accounts must be created through the administrator invitation or staff-onboarding workflow.'];
         }
 
         // Join an outer workflow transaction when one exists. This lets staff
@@ -506,7 +579,7 @@ class UsersAPI extends BaseAPI
                     if ($additionalRoleId === $primaryRoleId) {
                         continue; // Skip duplicate primary role
                     }
-                    $roleResult = $this->userRoleManager->assignRole($userId, $additionalRoleId);
+                    $roleResult = $this->userRoleManager->assignRole($userId, $additionalRoleId, false);
                     if ($roleResult['success']) {
                         $rolesAssigned++;
                     } else {
@@ -517,16 +590,9 @@ class UsersAPI extends BaseAPI
 
             // Parent accounts must always carry the canonical Parent role,
             // even when provisioned through a generic user-creation workflow.
-            $parentRole = $this->db->prepare(
-                "INSERT INTO user_roles (user_id, role_id)
-                 SELECT ?, r.id
-                 FROM roles r
-                 JOIN persons p ON p.id = ?
-                 JOIN parents pr ON pr.person_id = p.id AND pr.status = 'active'
-                 WHERE r.id = 73 AND r.name = 'Parent'
-                 ON DUPLICATE KEY UPDATE user_id = user_id"
-            );
-            $parentRole->execute([$userId, $personId]);
+            $activeParent = $this->db->prepare("SELECT 1 FROM parents WHERE person_id=? AND status='active' LIMIT 1");
+            $activeParent->execute([$personId]);
+            if ($activeParent->fetchColumn()) $this->userRoleManager->assignRole($userId, 73, false);
 
             // STEP 4: Override permissions if explicitly provided
             if (isset($data['permissions']) && is_array($data['permissions'])) {
@@ -541,8 +607,12 @@ class UsersAPI extends BaseAPI
             if (!$isSystemAdmin && isset($data['staff_info']) && is_array($data['staff_info'])) {
                 $staffInfo = $data['staff_info'];
 
-                // Required staff fields for payroll/legal reasons
-                $requiredStaffFields = ['department_id', 'position', 'employment_date', 'date_of_birth', 'nssf_no', 'kra_pin', 'nhif_no', 'bank_account', 'salary'];
+                // These define the school-owned assignment. Personal and payroll
+                // details may be completed by the employee after account setup.
+                $requiredStaffFields = [
+                    'department_id', 'position', 'employment_date', 'contract_type',
+                    'staff_type_id', 'staff_category_id',
+                ];
                 $missingStaff = [];
                 foreach ($requiredStaffFields as $f) {
                     if (empty($staffInfo[$f])) {
@@ -553,18 +623,8 @@ class UsersAPI extends BaseAPI
                     throw new Exception('Missing required staff fields: ' . implode(', ', $missingStaff));
                 }
 
-                // TSC number required for teacher-like roles
-                $primaryRoleId = $roleIds[0] ?? null;
-                if ($primaryRoleId) {
-                    $cat = $this->getStaffCategoryIdForRole($primaryRoleId);
-                    // If mapping indicates teacher types (cat values for teachers are 4,6,8 etc.) require tsc_no
-                    $teacherCategories = [4, 6, 8];
-                    if (in_array($cat, $teacherCategories) && empty($staffInfo['tsc_no'])) {
-                        throw new Exception('tsc_no is required for Teacher role');
-                    }
-                }
-
-                // Pass roleIds to allow intelligent department/type/category mapping
+                // The explicit employment assignment is validated before the
+                // normalized staff record is written.
                 $staffId = $this->addToStaffTable($userId, $staffInfo, $roleIds);
                 if (!$staffId) {
                     throw new Exception('Failed to add staff record');
@@ -626,18 +686,114 @@ class UsersAPI extends BaseAPI
     // Add staff record for an existing user (useful when user exists but staff row is missing)
     public function addStaffForUser($userId, $staffInfo, $roleIds = [])
     {
+        $ownsTransaction = !$this->db->inTransaction();
         try {
-            $this->db->beginTransaction();
-            $staffId = $this->addToStaffTable($userId, $staffInfo, $roleIds);
-            $this->db->commit();
-            if ($staffId) {
-                return ['success' => true, 'staff_id' => $staffId];
+            if ($ownsTransaction) $this->db->beginTransaction();
+            $roleIds = array_values(array_unique(array_filter(array_map('intval', (array)$roleIds), static fn($id) => $id > 0)));
+            if (!$roleIds) throw new Exception('At least one staff role is required.');
+            $holders = implode(',', array_fill(0, count($roleIds), '?'));
+            $roleCheck = $this->db->prepare("SELECT id,name FROM roles WHERE is_active=1 AND scope='school' AND is_system=0 AND id IN ($holders)");
+            $roleCheck->execute($roleIds);
+            $roles = $roleCheck->fetchAll(PDO::FETCH_ASSOC);
+            if (count($roles) !== count($roleIds)) throw new Exception('A selected staff role is inactive or invalid.');
+            foreach ($roles as $role) {
+                if (in_array(strtolower(trim((string)$role['name'])), ['system administrator', 'parent'], true)) {
+                    throw new Exception('System Administrator and Parent roles cannot be assigned through staff creation.');
+                }
             }
-            return ['success' => false, 'error' => 'Failed to add staff record'];
+            $hasPrimary = $this->userRoleManager->primaryRoleId((int)$userId) !== null;
+            foreach ($roleIds as $index => $roleId) {
+                $assigned = $this->userRoleManager->assignRole((int)$userId, $roleId, !$hasPrimary && $index === 0);
+                if (empty($assigned['success'])) throw new Exception('Failed to assign the selected staff role.');
+            }
+            $staffId = $this->addToStaffTable($userId, $staffInfo, $roleIds);
+            if (!$staffId) throw new Exception('Failed to add staff record.');
+            if ($ownsTransaction) $this->db->commit();
+            return ['success' => true, 'staff_id' => $staffId];
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
             \App\API\Services\Logger::legacyError('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'error' => 'An internal error occurred.'];
+        }
+    }
+
+    /**
+     * Create the first login for a person who already has an established staff
+     * row. This keeps the existing persons/staff identity and does not create a
+     * duplicate staff record.
+     */
+    public function createStaffAccountForExistingPerson(int $personId, array $data, array $roleIds): array
+    {
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) $this->db->beginTransaction();
+        try {
+            $person = $this->db->prepare(
+                "SELECT p.id,p.email,p.first_name,p.last_name
+                 FROM persons p JOIN staff s ON s.person_id=p.id
+                 WHERE p.id=? LIMIT 1 FOR UPDATE"
+            );
+            $person->execute([$personId]);
+            $identity = $person->fetch(PDO::FETCH_ASSOC);
+            if (!$identity || !filter_var($identity['email'] ?? '', FILTER_VALIDATE_EMAIL)) {
+                throw new Exception('Existing staff identity has no valid email address.');
+            }
+            // This branch is only for an existing staff row that has never had
+            // a user account. Bring its identity fields up to the school's
+            // verified record before creating the initial login.
+            $this->db->prepare("UPDATE persons SET
+                    first_name=COALESCE(NULLIF(?,''),first_name),
+                    middle_name=COALESCE(NULLIF(?,''),middle_name),
+                    last_name=COALESCE(NULLIF(?,''),last_name),
+                    phone=COALESCE(NULLIF(?,''),phone),
+                    gender=COALESCE(NULLIF(?,''),gender),
+                    dob=COALESCE(NULLIF(?,''),dob)
+                WHERE id=?")
+                ->execute([
+                    trim((string)($data['first_name'] ?? '')),
+                    trim((string)($data['middle_name'] ?? '')),
+                    trim((string)($data['last_name'] ?? '')),
+                    trim((string)($data['staff_info']['phone'] ?? '')),
+                    trim((string)($data['staff_info']['gender'] ?? '')),
+                    trim((string)($data['staff_info']['date_of_birth'] ?? '')),
+                    $personId,
+                ]);
+            $existing = $this->db->prepare('SELECT id FROM users WHERE person_id=? LIMIT 1 FOR UPDATE');
+            $existing->execute([$personId]);
+            if ($existing->fetchColumn()) throw new Exception('This staff identity already has a user account.');
+            if (!$roleIds) throw new Exception('At least one school role is required.');
+
+            $roleCheck = $this->db->prepare('SELECT id FROM roles WHERE id=? AND is_active=1');
+            foreach ($roleIds as $roleId) {
+                $roleCheck->execute([(int)$roleId]);
+                if (!$roleCheck->fetchColumn()) throw new Exception('A selected staff role is inactive or invalid.');
+            }
+            $username = UsernameService::generate(
+                $this->db,
+                (string)$identity['email'],
+                (string)$identity['first_name'],
+                (string)$identity['last_name']
+            );
+            $password = (string)($data['password'] ?? '');
+            if ($password === '') throw new Exception('A one-time credential is required for the invitation.');
+            $stmt = $this->db->prepare(
+                "INSERT INTO users
+                    (username,password_hash,person_id,status,force_password_change,is_test_user,account_type,data_scope,two_factor_enabled,two_factor_method,created_at,updated_at)
+                 VALUES (?,?,?,'active',1,0,'real','live',1,'email',NOW(),NOW())"
+            );
+            $stmt->execute([$username,password_hash($password,PASSWORD_DEFAULT),$personId]);
+            $userId = (int)$this->db->lastInsertId();
+            foreach (array_values(array_unique(array_map('intval',$roleIds))) as $index => $roleId) {
+                $result = $this->userRoleManager->assignRole($userId, $roleId, $index === 0);
+                if (empty($result['success'])) throw new Exception('Failed to assign the selected staff role.');
+            }
+            $this->db->prepare("INSERT INTO user_two_factor_methods(user_id,method,label,is_primary,is_enabled,verified_at) VALUES(?,'email','Account email',1,1,NULL) ON DUPLICATE KEY UPDATE is_enabled=1,is_primary=1")
+                ->execute([$userId]);
+            if ($ownsTransaction) $this->db->commit();
+            return ['success'=>true,'data'=>['id'=>$userId,'username'=>$username,'person_id'=>$personId]];
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            \App\API\Services\Logger::legacyError('[UsersAPI] Existing staff account creation failed: '.$error->getMessage());
+            return ['success'=>false,'error'=>$error->getMessage()];
         }
     }
 
@@ -716,7 +872,49 @@ class UsersAPI extends BaseAPI
                     $roleIds = [$userData['role_id']];
                 }
                 if (empty($roleIds)) {
-                    $roleIds = [1];
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'A role is required.'
+                    ];
+                    continue;
+                }
+                $roleIds = array_values(array_unique(array_map('intval', $roleIds)));
+                $rolePlaceholders = implode(',', array_fill(0, count($roleIds), '?'));
+                $roleStmt = $this->db->prepare("SELECT id,name,scope,is_system FROM roles WHERE is_active=1 AND id IN ($rolePlaceholders)");
+                $roleStmt->execute($roleIds);
+                $bulkRoles = $roleStmt->fetchAll(PDO::FETCH_ASSOC);
+                if (count($bulkRoles) !== count($roleIds)) {
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'One or more selected roles are inactive or invalid.'
+                    ];
+                    continue;
+                }
+                $hasStaffRole = false;
+                foreach ($bulkRoles as $bulkRole) {
+                    if (strtolower((string)$bulkRole['scope']) === 'school'
+                        && strtolower(trim((string)$bulkRole['name'])) !== 'parent'
+                        && (int)$bulkRole['is_system'] !== 1) {
+                        $hasStaffRole = true;
+                    }
+                }
+                if ($hasStaffRole) {
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'Staff accounts must be created through the staff directory or spreadsheet import so employment assignment, invitation, and onboarding records are created together.'
+                    ];
+                    continue;
+                }
+                if (!empty($userData['staff_info']) && is_array($userData['staff_info'])) {
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'Employment assignments can only be added through the staff directory or staff onboarding workflow.'
+                    ];
+                    continue;
                 }
 
                 try {
@@ -775,7 +973,7 @@ class UsersAPI extends BaseAPI
 
                     // Assign roles (auto-copies permissions)
                     foreach ($roleIds as $roleId) {
-                        $roleResult = $this->userRoleManager->assignRole($userId, $roleId);
+                        $roleResult = $this->userRoleManager->assignRole($userId, $roleId, $rolesAssigned === 0);
                         if ($roleResult['success']) {
                             $rolesAssigned++;
                         }
@@ -789,21 +987,10 @@ class UsersAPI extends BaseAPI
                         }
                     }
 
-                    // Add to staff (unless system admin)
-                    $isSystemAdmin = $this->isSystemAdmin($roleIds);
+                    // Bulk user creation is for non-staff accounts only. Staff
+                    // identity, assignment, invitation, and onboarding must be
+                    // created atomically through the dedicated staff workflows.
                     $staffAdded = false;
-                    if (!$isSystemAdmin) {
-                        // Use provided staff_info or create default from user data
-                        $staffInfo = isset($userData['staff_info']) ? $userData['staff_info'] : [
-                            'first_name' => $userData['first_name'],
-                            'last_name' => $userData['last_name'],
-                            'position' => $userData['position'] ?? 'Staff',
-                            'employment_date' => date('Y-m-d'),
-                            'contract_type' => $userData['contract_type'] ?? 'permanent'
-                        ];
-                        // Pass roleIds to allow intelligent department/type/category mapping
-                        $staffAdded = $this->addToStaffTable($userId, $staffInfo, $roleIds);
-                    }
 
                     if ($isTestAccount && !empty($userData['test_access_expires_at'])) {
                         (new TestAccountAccessService($this->db))->grant(
@@ -994,10 +1181,10 @@ class UsersAPI extends BaseAPI
             }
 
             if (!empty($validatedData['role_ids'])) {
-                $this->db->prepare('DELETE FROM user_roles WHERE user_id = ?')->execute([$id]);
-                foreach ($validatedData['role_ids'] as $rid) {
-                    $this->userRoleManager->assignRole($id, (int) $rid);
-                }
+                $roleIds = array_values(array_unique(array_map('intval', $validatedData['role_ids'])));
+                $primaryRoleId = (int)($data['primary_role_id'] ?? ($roleIds[0] ?? 0));
+                $updatedRoles = $this->userRoleManager->replaceRoles((int)$id, $roleIds, $primaryRoleId, 'all');
+                if (empty($updatedRoles['success'])) throw new Exception($updatedRoles['error'] ?? 'Roles could not be updated.');
             }
 
             if ($testAccessAction === 'grant') {
@@ -1057,10 +1244,10 @@ class UsersAPI extends BaseAPI
             );
             return ['success' => true, 'data' => $result];
         } catch (\DomainException|\InvalidArgumentException $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
-        } catch (Exception $e) {
+            return ['success' => false, 'code' => 400, 'error' => $e->getMessage()];
+        } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('Bulk test grant failed: ' . $e->getMessage());
-            return ['success' => false, 'error' => 'Bulk test access could not be granted.'];
+            return ['success' => false, 'code' => 500, 'error' => 'Bulk test access could not be granted.'];
         }
     }
 
@@ -1085,10 +1272,10 @@ class UsersAPI extends BaseAPI
             );
             return ['success' => true, 'data' => ['revoked' => $revoked]];
         } catch (\DomainException|\InvalidArgumentException $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
-        } catch (Exception $e) {
+            return ['success' => false, 'code' => 400, 'error' => $e->getMessage()];
+        } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('Bulk test revoke failed: ' . $e->getMessage());
-            return ['success' => false, 'error' => 'Bulk test access could not be revoked.'];
+            return ['success' => false, 'code' => 500, 'error' => 'Bulk test access could not be revoked.'];
         }
     }
 
@@ -1461,7 +1648,7 @@ class UsersAPI extends BaseAPI
                 u.password_hash AS password,
                 p.first_name,
                 p.last_name,
-                (SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1) AS role_id,
+                (SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.is_primary DESC, ur.id LIMIT 1) AS role_id,
                 u.status,
                 u.force_password_change,
                 u.is_test_user,
@@ -1909,109 +2096,16 @@ class UsersAPI extends BaseAPI
      */
     private function isSystemAdmin($roleIds)
     {
-        if (empty($roleIds)) {
-            return false;
-        }
-
-        // System Administrator = role_id 2 (the system creator, not a school employee)
-        // Do NOT add to staff table
-        return in_array(2, $roleIds);
-    }
-
-    /**
-     * Add user to staff table for non-admin users
-     * System Administrator (role_id=2) excluded from staff table
-     */
-    /**
-     * Intelligent role-to-department mapping based on role name
-     */
-    private function mapRoleToDepartment($roleId)
-    {
-        $roleMapping = [
-            // Administration roles
-            3 => 4,  // Director → Administration (4)
-            4 => 4,  // School Administrator → Administration (4)
-            5 => 4,  // Headteacher → Administration (4)
-            6 => 4,  // Deputy Head - Academic → Administration (4)
-            63 => 4,  // Deputy Head - Discipline → Administration (4)
-            10 => 4,  // Accountant → Administration (4)
-            19 => 4,  // Registrar → Administration (4)
-            20 => 4,  // Secretary → Administration (4)
-
-            // Academic roles
-            7 => 1,  // Class Teacher → Academics (1)
-            8 => 1,  // Subject Teacher → Academics (1)
-            9 => 1,  // Intern/Student Teacher → Academics (1)
-            17 => 1,  // Head of Department → Academics (1)
-
-            // Support roles
-            23 => 2,  // Driver → Transport (2)
-            16 => 3,  // Cateress → Food and Nutrition (3)
-            32 => 3,  // Kitchen Staff → Food and Nutrition (3)
-            18 => 4,  // Boarding Master → Administration (4)
-            33 => 4,  // Security Staff → Administration (4)
-            34 => 4,  // Janitor → Administration (4)
-            14 => 4,  // Uniform Store Manager → Administration (4)
-            24 => 6,  // Chaplain → Student & Staff Welfare (6)
-            21 => 7,  // Talent Development → Talent Development (7)
-        ];
-
-        return $roleMapping[$roleId] ?? 1; // Default to Academics if not mapped
-    }
-
-    /**
-     * Intelligent role-to-staff-type mapping
-     */
-    private function mapRoleToStaffType($roleId)
-    {
-        // Teaching staff
-        $teachingRoles = [7, 8, 9]; // Class Teacher, Subject Teacher, Intern
-        if (in_array($roleId, $teachingRoles)) {
-            return 1; // Teaching Staff
-        }
-
-        // Administrative staff
-        $adminRoles = [3, 4, 5, 6, 63, 10, 19, 20, 18, 33, 34, 14];
-        if (in_array($roleId, $adminRoles)) {
-            return 3; // Administration
-        }
-
-        // Non-teaching staff (drivers, cooks, cleaners, etc.)
-        return 2; // Non-Teaching Staff (default)
-    }
-
-    /**
-     * Get staff category ID based on role
-     */
-    private function getStaffCategoryIdForRole($roleId)
-    {
-        // Category mapping from staff_categories table
-        $categoryMapping = [
-            3 => 14,  // Director → Director (14)
-            5 => 15,  // Headteacher → Headteacher (15)
-            6 => 16,  // Deputy Head - Academic → Deputy Headteacher (16)
-            63 => 16,  // Deputy Head - Discipline → Deputy Headteacher (16)
-            17 => 17,  // Head of Department → Head of Department (17)
-            4 => 20,  // School Administrator → Secretary (20)
-            10 => 18,  // Accountant → Accountant (18)
-            19 => 19,  // Registrar → Registrar (19)
-            20 => 20,  // Secretary → Secretary (20)
-            24 => 21,  // Chaplain → Chaplain (21)
-
-            7 => 4,   // Class Teacher → Upper Primary Teacher (4) - default for teachers
-            8 => 6,   // Subject Teacher → Subject Specialist (6)
-            9 => 8,   // Intern/Student Teacher → Intern Teacher (8)
-
-            23 => 9,   // Driver → Driver (9)
-            16 => 13,  // Cateress → Cook (13)
-            32 => 13,  // Kitchen Staff → Cook (13)
-            33 => 12,  // Security Staff → Security Guard (12)
-            34 => 10,  // Janitor → Cleaner (10)
-            14 => 20,  // Uniform Store Manager → Secretary (20)
-            21 => 7,   // Talent Development → Activities Coordinator (7)
-        ];
-
-        return $categoryMapping[$roleId] ?? null; // Return null if no specific mapping
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array)$roleIds), static fn($id) => $id > 0)));
+        if (!$ids) return false;
+        $holders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM roles
+             WHERE id IN ($holders) AND LOWER(TRIM(name))='system administrator'
+             LIMIT 1"
+        );
+        $stmt->execute($ids);
+        return (bool)$stmt->fetchColumn();
     }
 
     private function addToStaffTable($userId, $staffInfo, $roleIds = [])
@@ -2025,7 +2119,7 @@ class UsersAPI extends BaseAPI
             }
 
             // Get user data (identity lives on the person record)
-            $userStmt = $this->db->prepare('SELECT u.person_id, u.data_scope, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
+            $userStmt = $this->db->prepare('SELECT u.person_id, u.data_scope, u.is_test_user, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
             $userStmt->execute([$userId]);
             $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -2033,24 +2127,37 @@ class UsersAPI extends BaseAPI
                 return false;
             }
 
-            // Get primary role ID (first role assigned)
-            $primaryRoleId = $roleIds[0] ?? null;
-
             if (empty($roleIds)) {
                 throw new Exception('Missing required staff payroll field: assigned role');
             }
 
-            // Determine department intelligently or use provided value
-            $departmentId = $staffInfo['department_id'] ?? ($primaryRoleId ? $this->mapRoleToDepartment($primaryRoleId) : null);
-            if (empty($departmentId)) {
-                throw new Exception('Missing required staff payroll field: department_id');
+            // Employment assignment is school-owned. Never infer department or
+            // staff classification from role IDs, which vary between databases.
+            $departmentId = filter_var($staffInfo['department_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $staffTypeId = filter_var($staffInfo['staff_type_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $staffCategoryId = filter_var($staffInfo['staff_category_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            $position = trim((string)($staffInfo['position'] ?? ''));
+            $employmentDate = trim((string)($staffInfo['employment_date'] ?? ''));
+            $contractType = strtolower(trim((string)($staffInfo['contract_type'] ?? '')));
+            if (!$departmentId || !$staffTypeId || !$staffCategoryId || $position === '') {
+                throw new Exception('Department, position, staff type, and staff category must be assigned by the school.');
             }
-
-            // Determine staff type intelligently or use provided value
-            $staffTypeId = $staffInfo['staff_type_id'] ?? ($primaryRoleId ? $this->mapRoleToStaffType($primaryRoleId) : 2);
-
-            // Determine staff category intelligently or use provided value
-            $staffCategoryId = $staffInfo['staff_category_id'] ?? ($primaryRoleId ? $this->getStaffCategoryIdForRole($primaryRoleId) : null);
+            $parsedEmploymentDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $employmentDate);
+            if (!$parsedEmploymentDate || $parsedEmploymentDate->format('Y-m-d') !== $employmentDate) {
+                throw new Exception('A valid school-assigned employment date is required.');
+            }
+            if (!in_array($contractType, ['permanent', 'contract', 'temporary'], true)) {
+                throw new Exception('A valid school-assigned contract type is required.');
+            }
+            $departmentCheck = $this->db->prepare("SELECT 1 FROM departments WHERE id=? AND status='active' LIMIT 1");
+            $departmentCheck->execute([$departmentId]);
+            if (!$departmentCheck->fetchColumn()) throw new Exception('Choose an active department for the staff assignment.');
+            $classificationCheck = $this->db->prepare(
+                'SELECT 1 FROM staff_types st JOIN staff_categories sc ON sc.staff_type_id=st.id
+                 WHERE st.id=? AND sc.id=? AND st.is_active=1 AND sc.is_active=1 LIMIT 1'
+            );
+            $classificationCheck->execute([$staffTypeId, $staffCategoryId]);
+            if (!$classificationCheck->fetchColumn()) throw new Exception('Choose an active staff category belonging to the selected staff type.');
 
             // Normalize aliases used by UI/API clients before validation.
             if (empty($staffInfo['phone']) && !empty($staffInfo['phone_number'])) {
@@ -2058,23 +2165,6 @@ class UsersAPI extends BaseAPI
             }
             if (empty($staffInfo['bank_account']) && !empty($staffInfo['bank_account_number'])) {
                 $staffInfo['bank_account'] = $staffInfo['bank_account_number'];
-            }
-
-            // Enforce mandatory payroll fields for staff.
-            // A staff member cannot be payroll-eligible without statutory, contact, payment, department, role and salary details.
-            $requiredPayroll = [
-                'nssf_no',
-                'kra_pin',
-                'nhif_no',
-                'phone',
-                'bank_name',
-                'bank_account',
-                'salary'
-            ];
-            foreach ($requiredPayroll as $pf) {
-                if (empty($staffInfo[$pf])) {
-                    throw new Exception("Missing required staff payroll field: $pf");
-                }
             }
 
             // Generate staff number via the centralized StaffNumberService.
@@ -2118,8 +2208,8 @@ class UsersAPI extends BaseAPI
             }
 
             // Insert staff record (AUTO_INCREMENT id, identity via person_id)
-            $sql = 'INSERT INTO staff (person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, data_scope, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $sql = 'INSERT INTO staff (person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, data_scope, supervisor_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
@@ -2133,10 +2223,7 @@ class UsersAPI extends BaseAPI
                 $staffInfo['employment_date'] ?? date('Y-m-d'),
                 $staffInfo['status'] ?? 'active',
                 (int) ($user['is_test_user'] ?? 0) === 1 ? 'test' : 'live',
-                $staffInfo['supervisor_id'] ?? null,
-                $staffInfo['salary'] ?? null,
-                $staffInfo['bank_name'] ?? null,
-                $staffInfo['bank_account'] ?? null
+                $staffInfo['supervisor_id'] ?? null
             ]);
 
             if (!$ok) {
@@ -2144,21 +2231,33 @@ class UsersAPI extends BaseAPI
             }
             $staffId = (int) $this->db->lastInsertId();
 
+            $positionName = trim((string)($staffInfo['position'] ?? ''));
+            $positionId = \App\API\Services\StaffPositionCatalog::resolveId($this->db, $positionName);
+            $this->db->prepare('INSERT INTO staff_employment_profiles (staff_id, department_id, position_id, position, employment_date, contract_type, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)')
+                ->execute([$staffId, $departmentId ?: null, $positionId, $positionName, $staffInfo['employment_date'] ?? date('Y-m-d'), $staffInfo['contract_type'] ?? 'permanent', $staffInfo['status'] ?? 'active']);
+
             // Department assignment (join table)
             if (!empty($departmentId)) {
                 $deptCheck = $this->db->prepare('SELECT id FROM staff_department_assignments WHERE staff_id = ? AND department_id = ?');
                 $deptCheck->execute([$staffId, $departmentId]);
                 if (!$deptCheck->fetch()) {
-                    $this->db->prepare('INSERT INTO staff_department_assignments (staff_id, department_id, role, effective_from) VALUES (?, ?, ?, ?)')
-                        ->execute([$staffId, $departmentId, $staffInfo['position'] ?? null, $staffInfo['employment_date'] ?? date('Y-m-d')]);
+                    $this->db->prepare('INSERT INTO staff_department_assignments (staff_id, department_id, role, effective_from) VALUES (?, ?, NULL, ?)')
+                        ->execute([$staffId, $departmentId, $staffInfo['employment_date'] ?? date('Y-m-d')]);
                 }
             }
 
-            // Payroll profile (statutory + payment details)
-            $this->db->prepare('INSERT INTO staff_payroll_profiles (staff_id, basic_salary, bank_name, bank_account, kra_pin, nssf_no, nhif_no, status)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            // Payroll starts as a draft. Missing employee identifiers, bank
+            // details, or salary must never make an account creation fail or
+            // create an apparently payroll-ready record.
+            $payrollComplete = !empty($staffInfo['bank_name'])
+                && !empty($staffInfo['bank_account'])
+                && !empty($staffInfo['kra_pin'])
+                && !empty($staffInfo['nssf_no'])
+                && !empty($staffInfo['nhif_no']);
+            $this->db->prepare('INSERT INTO staff_payroll_profiles (staff_id, bank_name, bank_account, kra_pin, nssf_no, nhif_no, status)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
                                 ON DUPLICATE KEY UPDATE
-                                    basic_salary = VALUES(basic_salary),
                                     bank_name = VALUES(bank_name),
                                     bank_account = VALUES(bank_account),
                                     kra_pin = VALUES(kra_pin),
@@ -2167,13 +2266,12 @@ class UsersAPI extends BaseAPI
                                     status = VALUES(status)')
                 ->execute([
                     $staffId,
-                    $staffInfo['salary'] ?? 0,
                     $staffInfo['bank_name'] ?? null,
                     $staffInfo['bank_account'] ?? null,
                     $staffInfo['kra_pin'] ?? null,
                     $staffInfo['nssf_no'] ?? null,
                     $staffInfo['nhif_no'] ?? null,
-                    'active'
+                    $payrollComplete ? 'active' : 'draft'
                 ]);
 
             return $staffId;

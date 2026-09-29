@@ -451,14 +451,10 @@ class FamilyGroupsManager
 
     private function ensureParentRoleForPerson(int $personId): void
     {
-        $this->pdo->prepare(
-            "INSERT INTO user_roles (user_id, role_id)
-             SELECT u.id, 73
-             FROM users u
-             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
-             WHERE u.person_id = ?
-             ON DUPLICATE KEY UPDATE user_id = user_id"
-        )->execute([$personId]);
+        $stmt = $this->pdo->prepare("SELECT id FROM users WHERE person_id=? LIMIT 1");
+        $stmt->execute([$personId]);
+        $userId = $stmt->fetchColumn();
+        if ($userId !== false) (new \App\API\Modules\users\UserRoleManager($this->pdo))->assignRole((int)$userId, 73, false);
     }
 
     /**

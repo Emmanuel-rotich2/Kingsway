@@ -320,7 +320,7 @@ class StaffPayrollManager extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT ps.*, s.staff_no,
                     CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
-                    s.position, s.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
+                    s.position, spp.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
                     spp.bank_name, st.name AS staff_type, d.name AS department_name,
                     CONCAT(ap.first_name, ' ', ap.last_name) AS approved_by_name
                 FROM payslips ps
@@ -855,8 +855,20 @@ class StaffPayrollManager extends BaseAPI
             $maxDeductionPct = floatval($config['max_monthly_deduction_percentage']['value'] ?? 30);
 
             // Get staff salary
-            $stmt = $this->db->prepare("SELECT COALESCE(spp.basic_salary, 0) AS salary FROM staff s LEFT JOIN staff_payroll_profiles spp ON spp.staff_id=s.id WHERE s.id = ?");
-            $stmt->execute([$staffId]);
+            $periodStart = sprintf('%04d-%02d-01', (int)$payrollYear, (int)$payrollMonth);
+            $stmt = $this->db->prepare("SELECT COALESCE(
+                    (SELECT so.gross_salary FROM staff_salary_overrides so
+                     WHERE so.staff_id=s.id AND so.effective_from<=?
+                       AND (so.effective_to IS NULL OR so.effective_to>=?)
+                     ORDER BY so.effective_from DESC,so.id DESC LIMIT 1),
+                    (SELECT rr.gross_salary FROM users u
+                     JOIN user_roles ur ON ur.user_id=u.id AND ur.is_primary=1
+                     JOIN staff_role_salary_rates rr ON rr.role_id=ur.role_id
+                     WHERE u.person_id=s.person_id AND rr.effective_from<=?
+                       AND (rr.effective_to IS NULL OR rr.effective_to>=?)
+                     ORDER BY rr.effective_from DESC,rr.id DESC LIMIT 1), 0) AS salary
+                FROM staff s WHERE s.id = ?");
+            $stmt->execute([$periodStart, $periodStart, $periodStart, $periodStart, $staffId]);
             $staffRow = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$staffRow) {
                 return formatResponse(false, null, 'Staff not found');

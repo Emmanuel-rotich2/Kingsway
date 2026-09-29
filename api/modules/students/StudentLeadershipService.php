@@ -13,10 +13,13 @@ use PDO;
  * certificates, and the longitudinal "everything the student participates in"
  * view (AGENTS.md: Student Leadership & Participation subsystem).
  *
- * Leadership/office records live in the normalized `school_leadership`
- * hierarchy (extended per-term in migration 232), houses and house captains
- * in `houses` + `school_leadership`, and awards/certificates in
- * `student_awards`.
+ * Leadership/office records live in the normalized `leadership_categories` ->
+ * `leadership_positions` -> `school_leader` hierarchy (migration
+ * 20260928_leadership_normalisation.sql). `school_leader.person_id` is the one
+ * universal holder identity, so a learner, a staff member, a parent/guardian or
+ * a community member may all hold a position. `school_leader.scope_type`
+ * groups learner offices by class, house or club. House membership lives in
+ * `houses`, and awards/certificates in `student_awards`.
  *
  * Learner records are children (under 15) — all learner-scoped output is
  * confidential/restricted. Server-side scope is enforced (data_scope='live'),
@@ -25,6 +28,9 @@ use PDO;
  */
 class StudentLeadershipService
 {
+    /** leadership_categories.code = 'STUDENT_ORG' */
+    private const STUDENT_ORGANISATION_CATEGORY_ID = 5;
+
     private PDO $db;
 
     public function __construct(PDO $db)
@@ -61,16 +67,19 @@ class StudentLeadershipService
         return (bool) $stmt->fetchColumn();
     }
 
-    private function positionExists(int $id, bool $studentLevel = true): bool
+    /**
+     * The category a position belongs to, or null when the position is unknown.
+     * The category is the single source of truth for what kind of office this
+     * is, so callers read it here rather than accepting one from the client.
+     */
+    private function positionCategoryId(int $id): ?int
     {
-        $sql = "SELECT 1 FROM leadership_positions WHERE id = ?";
-        $params = [$id];
-        if ($studentLevel) {
-            $sql .= " AND level_id = 5";
-        }
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return (bool) $stmt->fetchColumn();
+        $stmt = $this->db->prepare(
+            "SELECT leadership_category_id FROM leadership_positions WHERE id = ?"
+        );
+        $stmt->execute([$id]);
+        $value = $stmt->fetchColumn();
+        return $value === false ? null : (int) $value;
     }
 
     private function termExists(int $id): bool
@@ -88,11 +97,16 @@ class StudentLeadershipService
     }
 
     /* =====================================================================
-     * LEADERSHIP (school_leadership)
+     * LEADERSHIP (school_leader)
      * =================================================================== */
 
     /**
      * List leadership records with optional filters.
+     *
+     * Filter keys `position_category` and `position_id` are retained as the
+     * public contract; they now resolve to `scope_type` and
+     * `leadership_position_id`. `leadership_category_id` may be supplied to
+     * select a whole category of office (e.g. every BOM or HOD seat).
      */
     public function list(array $filters = []): array
     {
@@ -108,11 +122,15 @@ class StudentLeadershipService
             $params[] = (int) $filters['academic_year_term_id'];
         }
         if (!empty($filters['position_id'])) {
-            $where[] = 'l.position_id = ?';
+            $where[] = 'l.leadership_position_id = ?';
             $params[] = (int) $filters['position_id'];
         }
+        if (!empty($filters['leadership_category_id'])) {
+            $where[] = 'lp.leadership_category_id = ?';
+            $params[] = (int) $filters['leadership_category_id'];
+        }
         if (!empty($filters['position_category'])) {
-            $where[] = 'l.position_category = ?';
+            $where[] = 'l.scope_type = ?';
             $params[] = $filters['position_category'];
         }
         if (!empty($filters['house_id'])) {
@@ -128,22 +146,27 @@ class StudentLeadershipService
             $params[] = (int) $filters['student_id'];
         }
 
-        // Only leadership positions that are student-level (level 5).
-        $where[] = 'lp.level_id = 5';
+        // Only positions in the student-organisation category (code STUDENT_ORG).
+        $where[] = 'lp.leadership_category_id = ' . self::STUDENT_ORGANISATION_CATEGORY_ID;
 
         $sql = "
             SELECT l.id, l.academic_year_id, l.academic_year_term_id, l.house_id,
-                   l.position_id, l.position_category, l.public_bio, l.display_order,
+                   l.leadership_position_id AS position_id,
+                   lp.leadership_category_id AS leadership_category_id,
+                   l.scope_type, l.scope_type AS position_category,
+                   l.scope_id, l.public_bio, l.display_order,
                    l.is_active, l.start_date, l.end_date,
                    lp.name AS position_name, lp.display_order AS position_display_order,
+                   lc.code AS leadership_category_code, lc.name AS leadership_category_name,
                    CONCAT_WS(' ', p.first_name, p.last_name) AS student_name, st.admission_no,
                    p.photo_url AS photo_url, l.public_photo_url,
                    h.name AS house_name, h.code AS house_code, h.color AS house_color,
                    ay.year_name AS academic_year_name,
                    ayt.term_id AS term_number,
                    TRIM(CONCAT(COALESCE(cls.name, ''), ' ', COALESCE(strm.name, ''))) AS class_stream
-            FROM school_leadership l
-            JOIN leadership_positions lp ON lp.id = l.position_id
+            FROM school_leader l
+            JOIN leadership_positions lp ON lp.id = l.leadership_position_id
+            JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
             JOIN students st ON st.id = l.student_id
             JOIN persons p ON p.id = st.person_id
             LEFT JOIN houses h ON h.id = l.house_id
@@ -175,15 +198,18 @@ class StudentLeadershipService
 
         $stmt = $this->db->prepare("
             SELECT l.id, l.academic_year_id, l.academic_year_term_id, l.house_id,
-                   l.position_id, l.position_category, l.public_bio, l.display_order,
+                   l.leadership_position_id AS position_id,
+                   lp.leadership_category_id AS leadership_category_id,
+                   l.scope_type, l.scope_type AS position_category, l.scope_id,
+                   l.public_bio, l.display_order,
                    l.is_active, l.start_date, l.end_date,
                    lp.name AS position_name,
                    h.name AS house_name, h.code AS house_code, h.color AS house_color,
                    ay.year_code AS academic_year, ay.year_name,
                    ayt.term_id AS term_number,
                    strm.name AS class_stream
-            FROM school_leadership l
-            JOIN leadership_positions lp ON lp.id = l.position_id
+            FROM school_leader l
+            JOIN leadership_positions lp ON lp.id = l.leadership_position_id
             LEFT JOIN houses h ON h.id = l.house_id
             LEFT JOIN academic_years ay ON ay.id = l.academic_year_id
             LEFT JOIN academic_year_terms ayt ON ayt.id = l.academic_year_term_id
@@ -222,17 +248,25 @@ class StudentLeadershipService
 
     /**
      * Assign a student to a leadership position for a term/year.
+     *
+     * `person_id` and `leadership_category_id` are NOT NULL on `school_leader`,
+     * so both are derived here rather than trusted from the client: the holder
+     * identity comes from the student record, and the category from the chosen
+     * position. This keeps a client from appointing a learner into a
+     * Board-of-Management or staff category seat.
      */
     public function create(array $data): array
     {
         $studentId  = (int) ($data['student_id'] ?? 0);
         $positionId = (int) ($data['position_id'] ?? 0);
-        $cat        = $this->normalizeCategory($data['position_category'] ?? null);
+        $scope      = $this->normalizeCategory($data['position_category'] ?? $data['scope_type'] ?? null);
         $yearId     = (int) ($data['academic_year_id'] ?? 0);
         $termId     = ($data['academic_year_term_id'] ?? null) !== '' && ($data['academic_year_term_id'] ?? null) !== null
                         ? (int) $data['academic_year_term_id'] : null;
         $houseId    = ($data['house_id'] ?? null) !== '' && ($data['house_id'] ?? null) !== null
                         ? (int) $data['house_id'] : null;
+        $scopeId    = ($data['scope_id'] ?? null) !== '' && ($data['scope_id'] ?? null) !== null
+                        ? (int) $data['scope_id'] : null;
         $startDate  = $data['start_date'] ?? date('Y-m-d');
         $endDate    = $data['end_date'] ?? null;
         $bio        = $data['public_bio'] ?? null;
@@ -243,7 +277,8 @@ class StudentLeadershipService
         if (!$this->studentExists($studentId)) {
             return $this->fail(422, 'Unknown or inactive student');
         }
-        if (!$this->positionExists($positionId, true)) {
+        $positionCategoryId = $this->positionCategoryId($positionId);
+        if ($positionCategoryId !== self::STUDENT_ORGANISATION_CATEGORY_ID) {
             return $this->fail(422, 'Unknown student-leadership position');
         }
         if ($termId && !$this->termExists($termId)) {
@@ -276,8 +311,8 @@ class StudentLeadershipService
 
         // Avoid duplicate active leadership for the same student+position+term.
         $dup = $this->db->prepare("
-            SELECT 1 FROM school_leadership
-            WHERE student_id = ? AND position_id = ?
+            SELECT 1 FROM school_leader
+            WHERE student_id = ? AND leadership_position_id = ?
               AND (? IS NULL AND academic_year_term_id IS NULL OR academic_year_term_id = ?)
               AND is_active = 1
         ");
@@ -286,13 +321,22 @@ class StudentLeadershipService
             return $this->fail(409, 'This student already holds this position for the given term/year');
         }
 
+        $personId = $this->db->prepare("SELECT person_id FROM students WHERE id = ?");
+        $personId->execute([$studentId]);
+        $holderPersonId = (int) $personId->fetchColumn();
+
         $ins = $this->db->prepare("
-            INSERT INTO school_leadership
-                (academic_year_id, academic_year_term_id, position_id, position_category,
-                 student_id, house_id, public_bio, display_order, is_active, start_date, end_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
+            INSERT INTO school_leader
+                (academic_year_id, academic_year_term_id, leadership_position_id,
+                 scope_type, scope_id, person_id,
+                 student_id, house_id, public_bio, display_order, is_active,
+                 start_date, end_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
         ");
-        $ins->execute([$yearId, $termId, $positionId, $cat, $studentId, $houseId, $bio, $startDate, $endDate]);
+        $ins->execute([
+            $yearId, $termId, $positionId, $scope, $scopeId,
+            $holderPersonId, $studentId, $houseId, $bio, $startDate, $endDate,
+        ]);
 
         return $this->created(['id' => (int) $this->db->lastInsertId()], 'Leadership position assigned');
     }
@@ -306,36 +350,60 @@ class StudentLeadershipService
 
         $fields = [];
         $params = [];
-        $map = [
-            'position_id' => 'position_id',
-            'position_category' => 'position_category',
+
+        // The category is obtained through the selected position.
+        if (array_key_exists('position_id', $data) || array_key_exists('leadership_position_id', $data)) {
+            $newPositionId = (int) ($data['leadership_position_id'] ?? $data['position_id']);
+            $newCategoryId = $this->positionCategoryId($newPositionId);
+            if ($newCategoryId !== self::STUDENT_ORGANISATION_CATEGORY_ID) {
+                return $this->fail(422, 'Unknown student-leadership position');
+            }
+            $fields[] = 'leadership_position_id = ?';
+            $params[] = $newPositionId;
+        }
+
+        // `position_category` and `scope_type` are accepted spellings of the
+        // one scope column, which is what the public contract always meant.
+        $scope = null;
+        if (array_key_exists('scope_type', $data)) {
+            $scope = $data['scope_type'];
+        } elseif (array_key_exists('position_category', $data)) {
+            $scope = $data['position_category'];
+        }
+        if ($scope !== null) {
+            $fields[] = 'scope_type = ?';
+            $params[] = $this->normalizeCategory($scope);
+        }
+
+        $columns = [
             'academic_year_id' => 'academic_year_id',
             'academic_year_term_id' => 'academic_year_term_id',
             'house_id' => 'house_id',
+            'scope_id' => 'scope_id',
             'public_bio' => 'public_bio',
             'display_order' => 'display_order',
             'start_date' => 'start_date',
             'end_date' => 'end_date',
             'is_active' => 'is_active',
         ];
-        foreach ($map as $in => $col) {
-            if (array_key_exists($in, $data)) {
-                if ($in === 'position_category') {
-                    $fields[] = "$col = ?";
-                    $params[] = $this->normalizeCategory($data[$in]);
-                } elseif (in_array($in, ['academic_year_term_id', 'house_id'], true) && ($data[$in] === '' || $data[$in] === null)) {
-                    $fields[] = "$col = NULL";
-                } else {
-                    $fields[] = "$col = ?";
-                    $params[] = $data[$in];
-                }
+        foreach ($columns as $in => $col) {
+            if (!array_key_exists($in, $data)) {
+                continue;
             }
+            if (in_array($in, ['academic_year_term_id', 'house_id', 'scope_id'], true)
+                && ($data[$in] === '' || $data[$in] === null)) {
+                $fields[] = "$col = NULL";
+                continue;
+            }
+            $fields[] = "$col = ?";
+            $params[] = $data[$in];
         }
+
         if (!$fields) {
             return $this->ok([], 'Nothing to update');
         }
         $params[] = $id;
-        $this->db->prepare("UPDATE school_leadership SET " . implode(', ', $fields) . " WHERE id = ?")
+        $this->db->prepare("UPDATE school_leader SET " . implode(', ', $fields) . " WHERE id = ?")
             ->execute($params);
 
         return $this->ok(['id' => $id], 'Leadership record updated');
@@ -347,13 +415,13 @@ class StudentLeadershipService
         if (!$record) {
             return $this->fail(404, 'Leadership record not found');
         }
-        $this->db->prepare("DELETE FROM school_leadership WHERE id = ?")->execute([$id]);
+        $this->db->prepare("DELETE FROM school_leader WHERE id = ?")->execute([$id]);
         return $this->ok(['id' => $id, 'deleted' => true], 'Leadership record removed');
     }
 
     private function fetchLeaderById(int $id): ?array
     {
-        $stmt = $this->db->prepare("SELECT * FROM school_leadership WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM school_leader WHERE id = ?");
         $stmt->execute([$id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
@@ -367,17 +435,20 @@ class StudentLeadershipService
     }
 
     /* =====================================================================
-     * POSITIONS & LEVELS (lookup)
+     * POSITIONS & CATEGORIES (lookup)
      * =================================================================== */
 
     public function positions(): array
     {
         $stmt = $this->db->query("
-            SELECT lp.id, lp.name, lp.display_order, lp.is_active, ll.id AS level_id, ll.name AS level_name
+            SELECT lp.id, lp.name, lp.description, lp.display_order, lp.is_active,
+                   lp.department_id, lp.max_holders,
+                   lc.id AS leadership_category_id, lc.code AS leadership_category_code,
+                   lc.name AS leadership_category_name, lc.holder_scope
             FROM leadership_positions lp
-            JOIN leadership_levels ll ON ll.id = lp.level_id
+            JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
             WHERE lp.is_active = 1
-            ORDER BY ll.display_order, lp.display_order
+            ORDER BY lc.display_order, lp.display_order
         ");
         return $this->ok($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
@@ -398,7 +469,7 @@ class StudentLeadershipService
                    h.is_active,
                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS patron_name,
                    (SELECT COUNT(*) FROM students st JOIN persons p ON p.id=st.person_id
-                      JOIN school_leadership sl ON sl.student_id = st.id AND sl.house_id = h.id AND sl.is_active=1
+                      JOIN school_leader sl ON sl.student_id = st.id AND sl.house_id = h.id AND sl.is_active=1
                      WHERE p.data_scope='live') AS active_members
             FROM houses h
             LEFT JOIN staff hs ON hs.id = h.patron_staff_id

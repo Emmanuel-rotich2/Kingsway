@@ -20,6 +20,7 @@ const PayrollManagerController = {
   selectedPaymentIds: new Set(),
   statutoryRules: {},
   accessReady: false,
+  compensationSetup: null,
 
   /**
    * Initialize controller
@@ -42,6 +43,7 @@ const PayrollManagerController = {
       this.applyRoleMode();
       this.applyPayrollFormMode();
       this.renderPayrollHeader();
+      this.setupCompensationEvents();
 
       // Set current month in filters
       const now = new Date();
@@ -81,6 +83,81 @@ const PayrollManagerController = {
 
   canManagePayroll: function () {
     return window.AuthContext?.hasPermission?.('staff.payroll.manage') || false;
+  },
+
+  canManageCompensation: function () {
+    const user=window.AuthContext?.getUser?.()||{};
+    const roles=[user.role_name,...(Array.isArray(user.roles)?user.roles.map(r=>r?.name||r):[])].filter(Boolean).map(r=>String(r).toLowerCase());
+    return window.AuthContext?.hasPermission?.('staff.payroll.manage') && roles.some(r=>['school administrator','director','system administrator'].includes(r));
+  },
+
+  setupCompensationEvents: function () {
+    const button=document.querySelector('[onclick="PayrollManagerController.showCompensationModal()"]');
+    if(button&&!this.canManageCompensation())button.remove();
+    document.getElementById('roleSalaryRateForm')?.addEventListener('submit',async e=>{
+      e.preventDefault();try{await API.finance.saveRoleSalaryRate({role_id:Number(document.getElementById('salaryRateRole').value),gross_salary:Number(document.getElementById('salaryRateAmount').value),effective_from:document.getElementById('salaryRateFrom').value});this.showSuccess('Role salary rate saved');await this.loadCompensationSetup();await this.prepareBulkPayrollRows();}catch(err){this.showError(err.message||'Could not save role salary rate');}
+    });
+    document.getElementById('individualSalaryForm')?.addEventListener('submit',async e=>{
+      e.preventDefault();try{await API.finance.saveStaffSalaryOverride({staff_id:Number(document.getElementById('individualSalaryStaff').value),gross_salary:Number(document.getElementById('individualSalaryAmount').value),effective_from:document.getElementById('individualSalaryFrom').value});this.showSuccess('Individual salary override saved');await this.loadCompensationSetup();await this.prepareBulkPayrollRows();}catch(err){this.showError(err.message||'Could not save individual salary');}
+    });
+    document.getElementById('clearIndividualSalaryOverride')?.addEventListener('click',async()=>{
+      const staffId=Number(document.getElementById('individualSalaryStaff').value);if(!staffId)return;
+      try{await API.finance.saveStaffSalaryOverride({staff_id:staffId,clear_override:true,effective_from:document.getElementById('individualSalaryFrom').value});this.showSuccess('Role salary will apply from the selected date');await this.loadCompensationSetup();await this.prepareBulkPayrollRows();}catch(err){this.showError(err.message||'Could not end individual override');}
+    });
+    document.getElementById('individualSalaryStaff')?.addEventListener('change',()=>this.syncIndividualSalarySelection());
+    document.getElementById('awardSelectionMode')?.addEventListener('change',e=>{
+      document.getElementById('awardDepartmentWrap')?.classList.toggle('d-none',e.target.value!=='department_all');
+      document.getElementById('awardStaffWrap')?.classList.toggle('d-none',e.target.value!=='selected_staff');
+    });
+    document.getElementById('compensationAwardHistoryBody')?.addEventListener('click',async e=>{
+      const button=e.target.closest('[data-cancel-award]');
+      if(!button)return;
+      try{await API.finance.cancelCompensationAward(Number(button.dataset.cancelAward));this.showSuccess('Award batch cancelled');await this.loadCompensationSetup();await this.prepareBulkPayrollRows();}
+      catch(err){this.showError(err.message||'This award could not be cancelled');}
+    });
+    document.getElementById('compensationAwardForm')?.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const periods=[...document.querySelectorAll('#awardMonths input:checked')].map(x=>({month:Number(x.value),year:Number(document.getElementById('awardYear').value)}));
+      const mode=document.getElementById('awardSelectionMode').value;
+      const payload={award_kind:document.getElementById('awardKind').value,award_name:document.getElementById('awardName').value.trim(),award_type:document.getElementById('awardType').value,amount_per_month:Number(document.getElementById('awardAmount').value),selection_mode:mode,department_id:mode==='department_all'?Number(document.getElementById('awardDepartment').value):null,staff_ids:mode==='selected_staff'?[...document.getElementById('awardStaff').selectedOptions].map(o=>Number(o.value)):[],periods};
+      try{const result=await API.finance.createCompensationAward(payload);this.showSuccess(`Award scheduled for ${result?.recipient_count||0} staff members across ${result?.period_count||0} months`);document.getElementById('compensationAwardForm').reset();this.setDefaultAwardMonths();await this.prepareBulkPayrollRows();}catch(err){this.showError(err.message||'Could not schedule award');}
+    });
+    this.setDefaultAwardMonths();
+  },
+
+  setDefaultAwardMonths: function () {
+    const now=new Date(),year=document.getElementById('awardYear');
+    if(year){const current=now.getFullYear();year.innerHTML=[current-1,current,current+1].map(y=>`<option value="${y}" ${y===current?'selected':''}>${y}</option>`).join('');}
+    const salaryFrom=document.getElementById('individualSalaryFrom');if(salaryFrom&&!salaryFrom.value)salaryFrom.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    const roleFrom=document.getElementById('salaryRateFrom');if(roleFrom&&!roleFrom.value)roleFrom.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    const holder=document.getElementById('awardMonths');if(holder&&!holder.children.length)holder.innerHTML=Array.from({length:12},(_,i)=>`<label class="btn btn-sm btn-outline-secondary"><input class="form-check-input me-1" type="checkbox" value="${i+1}" ${i===now.getMonth()?'checked':''}>${new Date(2000,i,1).toLocaleString('en',{month:'short'})}</label>`).join('');
+  },
+
+  showCompensationModal: async function () {
+    if(!this.canManageCompensation()){this.showError('Only an authorised school administrator or director can manage salary rates and awards');return;}
+    await this.loadCompensationSetup();bootstrap.Modal.getOrCreateInstance(document.getElementById('compensationModal')).show();
+  },
+
+  loadCompensationSetup: async function () {
+    const response=await API.finance.getCompensationSetup();this.compensationSetup=response?.data||response||{};
+    const roles=this.compensationSetup.roles||[],staff=this.compensationSetup.staff||[],departments=this.compensationSetup.departments||[];
+    const roleSelect=document.getElementById('salaryRateRole');if(roleSelect)roleSelect.innerHTML='<option value="">Select primary role</option>'+roles.map(r=>`<option value="${Number(r.id)}">${this.escapeHtml(r.name)}</option>`).join('');
+    const rateBody=document.getElementById('roleSalaryRatesBody');if(rateBody)rateBody.innerHTML=roles.map(r=>`<tr><td>${this.escapeHtml(r.name)}</td><td>${r.gross_salary==null?'Not configured':this.formatCurrency(r.gross_salary)}</td><td>${this.escapeHtml(r.effective_from||'')}</td><td>${this.escapeHtml(r.effective_to||'—')}</td></tr>`).join('');
+    const staffOptions=staff.map(s=>`<option value="${Number(s.id)}" data-override="${Number(s.salary_override)||0}" data-salary="${Number(s.individual_salary)||0}" data-role="${this.escapeHtml(s.primary_role||'No primary role')}" data-rate="${Number(s.role_gross_salary)||0}">${this.escapeHtml(s.full_name)} · ${this.escapeHtml(s.staff_no||'')} · ${this.escapeHtml(s.primary_role||'No primary role')}</option>`).join('');
+    for(const id of ['individualSalaryStaff','awardStaff']){const select=document.getElementById(id);if(select){select.innerHTML=(id==='individualSalaryStaff'?'<option value="">Select staff member</option>':'')+staffOptions;}}
+    const dept=document.getElementById('awardDepartment');if(dept)dept.innerHTML='<option value="">Select department</option>'+departments.map(d=>`<option value="${Number(d.id)}">${this.escapeHtml(d.name)}</option>`).join('');
+    const overrides=this.compensationSetup.salaryOverrides||[];
+    const overrideBody=document.getElementById('individualSalaryHistoryBody');
+    if(overrideBody)overrideBody.innerHTML=overrides.map(o=>`<tr><td>${this.escapeHtml(o.full_name)} · ${this.escapeHtml(o.staff_no||'')}</td><td>${this.formatCurrency(o.gross_salary)}</td><td>${this.escapeHtml(o.effective_from)}</td><td>${this.escapeHtml(o.effective_to||'Current')}</td></tr>`).join('')||'<tr><td colspan="4" class="text-muted">No individual salary exceptions are recorded.</td></tr>';
+    const awardBody=document.getElementById('compensationAwardHistoryBody');
+    if(awardBody)awardBody.innerHTML=(this.compensationSetup.awardBatches||[]).map(b=>`<tr><td>${this.escapeHtml(b.award_kind)}</td><td>${this.escapeHtml(b.award_name)}</td><td>${Number(b.recipient_count)||0}</td><td>${this.escapeHtml(b.department||'Selected staff')}</td><td>${this.formatCurrency(b.amount_per_month)}</td><td>${this.escapeHtml(b.periods||'')}</td><td>${this.escapeHtml(b.status)}</td><td>${b.status==='active'?`<button class="btn btn-sm btn-outline-danger" type="button" data-cancel-award="${Number(b.id)}">Cancel</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8" class="text-muted">No department awards or deductions have been scheduled.</td></tr>';
+    this.syncIndividualSalarySelection();this.setDefaultAwardMonths();
+  },
+
+  syncIndividualSalarySelection: function () {
+    const select=document.getElementById('individualSalaryStaff'),option=select?.selectedOptions?.[0];if(!option)return;
+    document.getElementById('individualSalaryAmount').value=option.dataset.override==='1'?option.dataset.salary:'';
+    document.getElementById('individualSalaryRoleHint').textContent=`Primary role: ${option.dataset.role||'Not assigned'}; individual override: ${option.dataset.override==='1'?'active':'none'}`;
   },
 
   canApprovePayroll: function () {

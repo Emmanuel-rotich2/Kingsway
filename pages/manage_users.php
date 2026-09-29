@@ -10,7 +10,12 @@ if (!isset($appBase)) {
 ?>
 <div class="container-fluid py-4" id="manageUsersPage">
     <style>
-        #manageUsersPage .table-responsive { min-width: 0; overflow-x: auto; }
+        #manageUsersPage .table-responsive {
+            min-width: 0;
+            max-height: min(72vh, 50rem);
+            overflow: auto;
+            overscroll-behavior: contain;
+        }
         #manageUsersPage table.table { border-collapse: separate; border-spacing: 0; }
         #manageUsersPage table.table thead th {
             position: sticky;
@@ -20,16 +25,43 @@ if (!isset($appBase)) {
             box-shadow: inset 0 -2px 0 #dee2e6;
         }
         #manageUsersPage table.table .col-actions {
-            position: sticky;
-            right: 0;
-            z-index: 4;
-            background: #fff;
-            box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.12);
-            min-width: 220px;
+            min-width: 4.5rem;
+            text-align: center;
         }
-        #manageUsersPage table.table thead th.col-actions {
-            z-index: 6;
-            box-shadow: -6px -2px 8px -6px rgba(0, 0, 0, 0.12);
+        #manageUsersPage .user-actions-trigger {
+            width: 2.25rem;
+            height: 2.25rem;
+            padding: 0;
+            border-radius: .45rem;
+        }
+        .manage-user-actions-menu {
+            position: fixed;
+            z-index: 1090;
+            display: block;
+            min-width: 13rem;
+            max-height: calc(100vh - 1rem);
+            overflow-y: auto;
+            padding: .35rem;
+            border: 1px solid #d7dfe7;
+            border-radius: .55rem;
+            background: #fff;
+            box-shadow: 0 10px 28px rgba(20, 36, 52, .18);
+        }
+        .manage-user-actions-menu .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: .55rem;
+            min-height: 2.35rem;
+            border-radius: .35rem;
+            text-align: left;
+        }
+        .manage-user-actions-menu .dropdown-item i {
+            width: 1rem;
+            text-align: center;
+        }
+        .manage-user-actions-menu .dropdown-item:focus-visible {
+            outline: 2px solid #245b8f;
+            outline-offset: 1px;
         }
         #manageUsersPage .users-pager .form-select { width: auto; min-width: 72px; }
         @media print {
@@ -38,10 +70,10 @@ if (!isset($appBase)) {
             #manageUsersPage .no-print,
             #pageTopbar, #pageFooter, .sidebar, .navbar, .toast-container { display: none !important; }
             #manageUsersPage .card { border: none !important; box-shadow: none !important; }
-            #manageUsersPage .table-responsive { overflow: visible !important; }
+            #manageUsersPage .table-responsive { max-height: none; overflow: visible !important; }
             #manageUsersPage table { width: 100%; }
             #manageUsersPage table.table thead th { position: static; }
-            #manageUsersPage table.table .col-actions { position: static; box-shadow: none; }
+            #manageUsersPage table.table .col-actions { display: none !important; }
             #manageUsersPage thead { display: table-header-group; }
             #manageUsersPage tr { break-inside: avoid; }
             #manageUsersPage td, #manageUsersPage th { font-size: 8pt; padding: 2px 4px; }

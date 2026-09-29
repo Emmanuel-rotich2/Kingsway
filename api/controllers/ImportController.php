@@ -57,6 +57,12 @@ class ImportController extends BaseController
         }
 
         try {
+            $stored = $this->uploadManaged($file, 'import_file', [
+                'subdirectory' => 'files',
+                'prefix' => $type . '_preview',
+            ]);
+            $file['tmp_name'] = $stored['absolute_path'];
+            $file['size'] = (int)$stored['file_size_bytes'];
             $result = $this->importer->preview($type, $file);
             return $this->success($result, 'Preview generated');
         } catch (Exception $e) {
@@ -81,6 +87,12 @@ class ImportController extends BaseController
         $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
 
         try {
+            $stored = $this->uploadManaged($file, 'import_file', [
+                'subdirectory' => 'files',
+                'prefix' => $type,
+            ]);
+            $file['tmp_name'] = $stored['absolute_path'];
+            $file['size'] = (int)$stored['file_size_bytes'];
             $result = $this->importer->execute($type, $file, $userId);
             $code   = $result['status'] === 'failed' ? 422 : 200;
             return $this->respond(
@@ -98,7 +110,14 @@ class ImportController extends BaseController
     public function getTemplate($id = null, $data = [], $segments = []): void
     {
         $type = $_GET['type'] ?? $segments[0] ?? '';
-        $path = $this->importer->getTemplateFile($type);
+        $format = strtolower((string)($_GET['format'] ?? 'csv'));
+        if (!in_array($format, ['csv', 'xlsx', 'ods'], true)) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['status' => 'error', 'message' => 'Template format must be csv, xlsx, or ods.']);
+            return;
+        }
+        $path = $this->importer->getTemplateFile($type, $format);
 
         if (!$path) {
             http_response_code(404);
@@ -108,12 +127,17 @@ class ImportController extends BaseController
         }
 
         $label = DataImporter::TYPES[$type]['label'] ?? $type;
-        $filename = str_replace([' ', '/'], '_', strtolower($label)) . '_template.csv';
+        $filename = str_replace([' ', '/'], '_', strtolower($label)) . '_template.' . $format;
+        $mime = match ($format) {
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
+            default => 'text/csv; charset=utf-8',
+        };
 
         $this->streamManagedFile(
             $path,
             $filename,
-            'text/csv; charset=utf-8',
+            $mime,
             'attachment'
         );
     }

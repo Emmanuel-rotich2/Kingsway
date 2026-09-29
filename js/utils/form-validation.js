@@ -456,10 +456,14 @@ var FormValidation = window.FormValidation || {
     },
 
     /**
-     * Canonicalize a Kenyan phone number to 2547XXXXXXXX.
+     * Canonicalize a Kenyan phone number to 254XXXXXXXXX.
      *
-     * Mirrors PhoneNumberNormalizer: accepts 07XX, +2547XX, 2547XX; strips
-     * spaces/dashes/plus; returns null when it is not a 2547 number.
+     * Mirrors PhoneNumberNormalizer. The prefix is used for normalization
+     * only and does not identify an operator:
+     *   07XXXXXXXX -> 2547XXXXXXXX
+     *   01XXXXXXXX -> 2541XXXXXXXX
+     * Accepts 07/01/7/1, 254..., +254..., with spaces/dashes/plus. Returns null
+     * when the value is not a Kenyan mobile number.
      *
      * @param {string} value
      * @returns {string|null}
@@ -467,13 +471,13 @@ var FormValidation = window.FormValidation || {
     canonicalizePhone(value) {
         if (!value) return null;
         let digits = String(value).replace(/[^0-9]/g, '');
-        if (digits.length === 9 && digits.startsWith('7')) {
+        if (digits.length === 9 && (digits.startsWith('7') || digits.startsWith('1'))) {
             digits = '254' + digits;
         }
         if (digits.startsWith('0')) {
             digits = '254' + digits.slice(1);
         }
-        return /^2547[0-9]{8}$/.test(digits) ? digits : null;
+        return /^254[71][0-9]{8}$/.test(digits) ? digits : null;
     },
 
     /**
@@ -538,7 +542,7 @@ var FormValidation = window.FormValidation || {
         }
         const canonical = this.canonicalizePhone(value);
         if (!canonical) {
-            return { valid: false, error: 'Enter a valid Kenyan phone number (e.g., 0712 345 678)' };
+            return { valid: false, error: 'Enter a valid Kenyan phone number (e.g., 0712 345 678 or 0112 345 678)' };
         }
         return { valid: true, value: canonical };
     },

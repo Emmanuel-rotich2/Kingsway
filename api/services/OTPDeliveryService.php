@@ -123,6 +123,7 @@ class OTPDeliveryService
     private function getSubject(string $context): string
     {
         return match($context) {
+            'invitation_setup' => 'Kingsway Preparatory School — Verify Your Staff Account',
             'setup' => 'Kingsway Preparatory School — Verify Your 2FA Setup',
             'disable' => 'Kingsway Preparatory School — Confirm 2FA Disable',
             default => 'Kingsway Preparatory School — Your Login Verification Code',
@@ -132,6 +133,7 @@ class OTPDeliveryService
     private function buildEmailBody(string $code, string $context): string
     {
         $instruction = match($context) {
+            'invitation_setup' => 'Enter this code to verify your email and continue setting up your staff account.',
             'setup' => 'Enter this code to complete your two-factor authentication setup.',
             'disable' => 'Enter this code to confirm disabling two-factor authentication.',
             default => 'Enter this code to complete your login.',
