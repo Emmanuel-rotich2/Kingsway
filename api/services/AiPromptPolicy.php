@@ -23,6 +23,7 @@ class AiPromptPolicy
         'academics.coverage_review' => ['report_date', 'grade_level', 'learning_area', 'planned_count', 'completed_count', 'overdue_count', 'coverage_rate', 'unmapped_count', 'follow_up_intent'],
         'academics.learning_gap_review' => ['report_date', 'grade_level', 'learning_area', 'learner_count', 'assessment_count', 'below_threshold_count', 'missing_evidence_count', 'gap_bands', 'follow_up_intent'],
         'academics.timetable_planning' => ['class_band', 'class_count', 'learning_areas', 'candidate_counts', 'assignment_candidates', 'period_count', 'availability_constraints', 'workload_constraints', 'room_constraints', 'double_periods', 'user_constraints'],
+        'academics.exam_timetable_planning' => ['exam_title', 'term_label', 'date_window', 'papers', 'allowed_slots', 'planning_rules'],
         'learners.support_planning' => ['report_date', 'scope', 'learner_count', 'attendance_below_threshold', 'average_score_band', 'discipline_case_count', 'fee_balance_band', 'support_follow_up_intent'],
         'reports.kpi_brief' => ['report_title', 'report_code', 'decision_purpose', 'as_of', 'row_count', 'summary', 'warnings'],
         'reports.school_brief' => ['cadence', 'report_date', 'as_of', 'domains_ran', 'alert_count', 'alerts_summary', 'metrics_summary', 'audience'],
@@ -46,6 +47,9 @@ class AiPromptPolicy
 
     public static function minimize(string $workflowId, array $input): array
     {
+        if ($workflowId === 'academics.exam_timetable_planning') {
+            return self::minimizeExamTimetable($input);
+        }
         $allowed = self::FIELDS[$workflowId] ?? null;
         if ($allowed === null) {
             throw new DomainException('This AI workflow has no approved prompt policy.', 422);
@@ -99,6 +103,64 @@ class AiPromptPolicy
         if (strlen((string) json_encode($clean)) > $contextLimit) {
             throw new DomainException('AI workflow context is too large.', 422);
         }
+        return $clean;
+    }
+
+    private static function minimizeExamTimetable(array $input): array
+    {
+        $allowed = self::FIELDS['academics.exam_timetable_planning'];
+        if (array_diff(array_keys($input), $allowed) !== []) throw new DomainException('Input contains fields that are not approved for exam timetable planning.', 422);
+        $text = static function ($value, int $limit): string {
+            if (!is_scalar($value)) throw new DomainException('Exam timetable context contains an unsupported value.', 422);
+            return mb_substr(trim((string) $value), 0, $limit);
+        };
+        $papers = $input['papers'] ?? null;
+        $slots = $input['allowed_slots'] ?? null;
+        if (!is_array($papers) || count($papers) < 1 || count($papers) > 500 || !is_array($slots) || count($slots) < 1 || count($slots) > 100) {
+            throw new DomainException('Exam timetable context has an invalid paper or session count.', 422);
+        }
+        $cleanPapers = [];
+        foreach ($papers as $paper) {
+            if (!is_array($paper) || array_diff(array_keys($paper), ['paper_id', 'class_key', 'class_name', 'grade_band', 'learning_area', 'teacher_groups']) !== []) {
+                throw new DomainException('Exam timetable paper context contains an unapproved field.', 422);
+            }
+            $band = (string) ($paper['grade_band'] ?? '');
+            if (!in_array($band, ['early', 'upper'], true)) throw new DomainException('Exam timetable contains an unsupported class band.', 422);
+            $groups = $paper['teacher_groups'] ?? [];
+            if (!is_array($groups) || count($groups) > 30) throw new DomainException('Exam timetable teacher-conflict groups are invalid.', 422);
+            $cleanPapers[] = [
+                'paper_id' => max(1, (int) ($paper['paper_id'] ?? 0)),
+                'class_key' => max(1, (int) ($paper['class_key'] ?? 0)),
+                'class_name' => $text($paper['class_name'] ?? '', 100),
+                'grade_band' => $band,
+                'learning_area' => $text($paper['learning_area'] ?? '', 120),
+                'teacher_groups' => array_values(array_unique(array_map(static fn($group): string => $text($group, 20), $groups))),
+            ];
+        }
+        $cleanSlots = [];
+        foreach ($slots as $slot) {
+            if (!is_array($slot) || array_diff(array_keys($slot), ['slot_id', 'date', 'start_time', 'end_time', 'grade_bands']) !== []) {
+                throw new DomainException('Exam timetable session contains an unapproved field.', 422);
+            }
+            $bands = $slot['grade_bands'] ?? [];
+            if (!is_array($bands) || array_diff($bands, ['early', 'upper']) !== []) throw new DomainException('Exam timetable session class bands are invalid.', 422);
+            $cleanSlots[] = [
+                'slot_id' => max(1, (int) ($slot['slot_id'] ?? 0)),
+                'date' => $text($slot['date'] ?? '', 10),
+                'start_time' => $text($slot['start_time'] ?? '', 5),
+                'end_time' => $text($slot['end_time'] ?? '', 5),
+                'grade_bands' => array_values(array_unique($bands)),
+            ];
+        }
+        $clean = [
+            'exam_title' => $text($input['exam_title'] ?? '', 160),
+            'term_label' => $text($input['term_label'] ?? '', 100),
+            'date_window' => $text($input['date_window'] ?? '', 30),
+            'papers' => $cleanPapers,
+            'allowed_slots' => $cleanSlots,
+            'planning_rules' => $text($input['planning_rules'] ?? '', 1200),
+        ];
+        if (strlen((string) json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) > 50000) throw new DomainException('Exam timetable context is too large.', 422);
         return $clean;
     }
 }

@@ -108,6 +108,7 @@ class AttendanceRegisterService
         }
 
         $streamIds = array_values(array_filter(array_map('intval', (array) ($filters['stream_ids'] ?? []))));
+        $sessionId = !empty($filters['session_id']) ? (int) $filters['session_id'] : null;
         $existingSql = "SELECT ar.*, ass.code AS session_code,
                                COALESCE(cfg.name, ass.name) AS session_name,
                                CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name
@@ -123,6 +124,10 @@ class AttendanceRegisterService
                            AND ar.status <> 'not_required'
                            AND ar.register_type='class'";
         $params = [$from, $to];
+        if ($sessionId) {
+            $existingSql .= ' AND ar.session_id = ?';
+            $params[] = $sessionId;
+        }
         if ($streamIds) {
             $existingSql .= ' AND ar.stream_id IN (' . implode(',', array_fill(0, count($streamIds), '?')) . ')';
             $params = array_merge($params, $streamIds);
@@ -147,6 +152,7 @@ class AttendanceRegisterService
             foreach ($streams as $stream) {
                 foreach ($sessions as $session) {
                     if ($session['type'] !== 'academic') continue;
+                    if ($sessionId && (int) $session['id'] !== $sessionId) continue;
                     if (!$this->sessionAppliesToClass((int) $session['id'], (int) $stream['class_id'], (int) $context['term_id'])) continue;
                     $expected = $this->expectedCount((int) $stream['id'], $session['applies_to'], $dateString);
                     if ($expected < 1) continue;
@@ -159,7 +165,10 @@ class AttendanceRegisterService
                     // fully enrolled on this date.
                     $effectiveStatus = ($row && $markedCount >= $expected && $expected > 0)
                         ? 'completed'
-                        : $storedStatus;
+                        : (($row && $markedCount < $expected && $dateString <= date('Y-m-d')
+                            && !in_array($storedStatus, ['overdue', 'open'], true))
+                            ? ($dateString < date('Y-m-d') ? 'overdue' : 'open')
+                            : $storedStatus);
                     $registers[] = [
                         'id' => $row ? (int) $row['id'] : null,
                         'register_date' => $dateString,
@@ -239,9 +248,8 @@ class AttendanceRegisterService
                         WHERE sa.student_academic_enrollment_id=en.id
                           AND sa.date=? AND sa.session_id=? AND sa.register_type='class'
                    )";
-        if ($appliesTo === 'boarders_only') {
-            $sql .= " AND st.code='BOARD'";
-        }
+        if ($appliesTo === 'day_only') $sql .= " AND COALESCE(st.code, 'DAY')='DAY'";
+        if ($appliesTo === 'boarders_only') $sql .= " AND COALESCE(st.code, '')='BOARD'";
         $sql .= ' ORDER BY p.first_name, p.last_name';
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$streamId, $date, $date, $sessionId]);

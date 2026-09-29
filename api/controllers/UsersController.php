@@ -293,6 +293,79 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** POST /api/users/users-bulk-action: managed actions shared by row and bulk controls. */
+    public function postUsersBulkAction($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
+        $ids = $data['user_ids'] ?? null;
+        if (!is_array($ids) || !$ids) return $this->badRequest('user_ids array is required and must not be empty');
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn ($value) => $value > 0)));
+        if (!$ids) return $this->badRequest('Select at least one valid account.');
+        if (count($ids) > 100) return $this->badRequest('A bulk account action is limited to 100 accounts.');
+
+        $action = strtolower(trim((string) ($data['action'] ?? '')));
+        if ($action === 'status') {
+            $status = strtolower(trim((string) ($data['status'] ?? '')));
+            if (!in_array($status, ['active', 'inactive'], true)) return $this->badRequest('status must be active or inactive');
+            return $this->handleResponse($this->api->bulkUpdateStatus($ids, $status));
+        }
+        if (!in_array($action, ['account_type', 'password_reset', 'mfa_reset', 'mfa_enable', 'mfa_disable', 'delete'], true)) {
+            return $this->badRequest('Unsupported bulk account action.');
+        }
+        if ($action === 'account_type' && !in_array(strtolower((string) ($data['account_type'] ?? '')), ['real', 'test', 'service'], true)) {
+            return $this->badRequest('account_type must be real, test, or service.');
+        }
+
+        $actorId = (int) $this->getCurrentUserId();
+        $tfa = in_array($action, ['mfa_reset', 'mfa_enable', 'mfa_disable'], true)
+            ? $this->contract('App\\API\\Services\\TwoFactorService')
+            : null;
+        $authApi = $action === 'password_reset'
+            ? $this->contract('App\\API\\Modules\\auth\\AuthAPI')
+            : null;
+        $updated = [];
+        $failed = [];
+        $skipped = [];
+
+        foreach ($ids as $userId) {
+            if ($userId === $actorId && in_array($action, ['account_type', 'mfa_reset', 'mfa_enable', 'mfa_disable', 'delete'], true)) {
+                $skipped[] = ['user_id' => $userId, 'reason' => 'Your own account is excluded from this action.'];
+                continue;
+            }
+            try {
+                if ($action === 'account_type') {
+                    $result = $this->api->update($userId, ['account_type' => strtolower((string) $data['account_type'])]);
+                    if (empty($result['success'])) throw new \RuntimeException($result['error'] ?? 'Account type could not be changed.');
+                } elseif ($action === 'password_reset') {
+                    $user = $this->api->get($userId);
+                    $email = (string) ($user['data']['email'] ?? '');
+                    if (!$email) throw new \RuntimeException('Account has no email address.');
+                    $result = $authApi->forgotPassword(['email' => $email]);
+                    if (empty($result['success'])) throw new \RuntimeException($result['message'] ?? 'Reset link could not be requested.');
+                } elseif ($action === 'mfa_reset' || $action === 'mfa_enable') {
+                    $tfa->administrativeReset($userId, $actorId);
+                } elseif ($action === 'mfa_disable') {
+                    $tfa->administrativeDisable($userId, $actorId);
+                } elseif ($action === 'delete') {
+                    $result = $this->api->delete($userId);
+                    if (empty($result['success'])) throw new \RuntimeException($result['error'] ?? 'Account could not be deleted.');
+                }
+                $updated[] = $userId;
+            } catch (\Throwable $error) {
+                \App\API\Services\Logger::legacyError('Bulk user action failed (' . $action . ') for user ' . $userId . ': ' . $error->getMessage());
+                $reason = $error instanceof \DomainException || $error instanceof \InvalidArgumentException || $error instanceof \RuntimeException
+                    ? $error->getMessage()
+                    : 'The action could not be completed for this account.';
+                $failed[] = ['user_id' => $userId, 'reason' => $reason];
+            }
+        }
+
+        return $this->success(
+            ['action' => $action, 'updated' => $updated, 'skipped' => $skipped, 'failed' => $failed],
+            'Bulk account action completed.'
+        );
+    }
+
     /**
      * POST /api/users/role-assign
      */
@@ -712,6 +785,7 @@ class UsersController extends BaseController
         return $this->handleResponse($this->api->bulkUpdateDataScope($data['user_ids'], $scope));
     }
     public function deleteUsersBulkRevokeFromRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['role_id'])) return $this->badRequest('role_id required');
         $result = $this->api->bulkRevokeUsersFromRole($data['role_id'], $data['user_ids'] ?? []);
         return $this->handleResponse($result);

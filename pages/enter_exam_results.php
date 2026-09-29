@@ -14,7 +14,7 @@
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-lg-4">
-                    <label class="form-label" for="examFilter">Published examination paper</label>
+                    <label class="form-label" for="examFilter">Exam paper open for result entry</label>
                     <select id="examFilter" class="form-select">
                         <option value="">Select an examination paper</option>
                     </select>
@@ -37,7 +37,7 @@
     </div>
 
     <div id="examEmptyState" class="alert alert-info">
-        Select a published examination paper. Only a teacher assigned to its class stream and learning area can enter scores.
+        Select an exam paper after the School Administrator or Headteacher opens results entry. Teachers can enter results only within their assigned teaching scope.
     </div>
 
     <div id="examEntryWorkspace" class="d-none">

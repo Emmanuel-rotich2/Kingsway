@@ -1,7 +1,7 @@
 <?php
 /**
  * Exam Schedule Page – Production UI
- * All logic handled in: js/pages/exam_schedule.js
+ * All logic handled in: js/pages/exam_periods.js
  * UI Theme: Green / White (Academic Professional)
  *
  * Role-based access:
@@ -42,20 +42,6 @@
     margin-bottom: 1.75rem;
 }
 
-.stat-card {
-    background: var(--acad-primary-soft);
-    border-radius: 10px;
-    padding: 1.2rem;
-    height: 100%;
-    text-align: center;
-}
-
-.stat-number {
-    font-size: 1.9rem;
-    font-weight: 700;
-    color: var(--acad-primary-dark);
-}
-
 .btn-academic {
     background: var(--acad-primary);
     color: #fff;
@@ -67,9 +53,15 @@
     color: #fff;
 }
 
-.table-academic thead {
-    background: var(--acad-primary);
-    color: #fff;
+@media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    body * { visibility: hidden !important; }
+    #examPeriodWorkflow, #examPeriodWorkflow * { visibility: visible !important; }
+    #examPeriodWorkflow { position: absolute; inset: 0; width: 100%; box-shadow: none !important; border: 0 !important; }
+    #examPeriodWorkflow button { display: none !important; }
+    #examPeriodWorkspace input { display: block !important; width: 100% !important; height: auto !important; padding: 0 !important; border: 0 !important; background: transparent !important; color: #000 !important; box-shadow: none !important; }
+    #examPeriodModal { display: none !important; }
+    #examPeriodWorkflow table { font-size: 9pt; }
 }
 </style>
 
@@ -85,227 +77,35 @@
             Plan, manage, and track examination schedules
         </small>
     </div>
-    <div class="btn-group">
-        <button class="btn btn-light btn-sm" id="addExamBtn"
-                data-role="dh_academic,headteacher,admin">
-            <i class="bi bi-plus-circle me-1"></i>Add Exam
-        </button>
-        <button class="btn btn-light btn-sm" id="exportScheduleBtn"
-                data-role="dh_academic,headteacher,admin">
-            <i class="bi bi-download me-1"></i>Export
-        </button>
-        <button class="btn btn-light btn-sm" id="printScheduleBtn">
-            <i class="bi bi-printer me-1"></i>Print
-        </button>
-    </div>
+    <button class="btn btn-light btn-sm" id="openExamPeriodCreate"
+            data-role="dh_academic,headteacher,admin">
+        <i class="bi bi-plus-circle me-1"></i>Create Exam Period
+    </button>
 </div>
 
-<!-- =======================================================
- KPI STATISTICS
-======================================================= -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-number" id="totalExams">0</div>
-            <small>Total Exams</small>
-        </div>
+<section class="academic-card p-3 mb-4" id="examPeriodWorkflow">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div><h3 class="h5 mb-1">Exam periods and results</h3><p class="text-muted mb-0">Select the academic term and classes. Every stream in a class takes each learning area paper at the same sitting time.</p></div>
+        <div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsCsv"><i class="bi bi-download me-1"></i>Export CSV</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
     </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-number" id="upcomingExams">0</div>
-            <small>Upcoming</small>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-number" id="inProgressExams">0</div>
-            <small>In Progress</small>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-number" id="completedExams">0</div>
-            <small>Completed</small>
-        </div>
-    </div>
+    <div class="table-responsive"><table class="table table-hover align-middle" id="examPeriodsTable">
+        <thead><tr><th>Exam period</th><th>Academic term</th><th>Dates</th><th>Classes</th><th>Learning areas</th><th>Scheduled</th><th>Results</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="examPeriodsBody"><tr><td colspan="9" class="text-center text-muted">Loading exam periods…</td></tr></tbody>
+    </table></div>
+    <div id="examPeriodWorkspace" class="border-top pt-3 mt-3 d-none"></div>
+</section>
+
+<div class="modal fade" id="examPeriodModal" tabindex="-1" aria-labelledby="examPeriodModalTitle" aria-hidden="true">
+ <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h2 class="modal-title fs-5" id="examPeriodModalTitle">Create exam period</h2><button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form id="examPeriodForm"><div class="modal-body">
+   <div class="row g-3"><div class="col-md-6"><label class="form-label" for="examPeriodTerm">Academic year term *</label><select class="form-select" id="examPeriodTerm" required></select></div>
+   <div class="col-md-6"><label class="form-label" for="examPeriodTitle">Exam period name *</label><input class="form-control" id="examPeriodTitle" maxlength="150" required placeholder="e.g. Term 2 Assessment"></div>
+   <div class="col-md-6"><label class="form-label" for="examPeriodStart">Starts *</label><input type="date" class="form-control" id="examPeriodStart" required></div>
+   <div class="col-md-6"><label class="form-label" for="examPeriodEnd">Ends *</label><input type="date" class="form-control" id="examPeriodEnd" required></div></div>
+   <div class="mt-3"><div class="d-flex justify-content-between"><label class="form-label">Applicable classes *</label><button class="btn btn-sm btn-link p-0" type="button" id="examPeriodToggleClasses">Select all</button></div><div class="row g-2" id="examPeriodClasses"><div class="text-muted">Choose an academic term first.</div></div></div>
+  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="createExamPeriodBtn">Create period</button></div></form>
+ </div></div>
 </div>
 
-<!-- =======================================================
- FILTER BAR
-======================================================= -->
-<div class="academic-card p-3 mb-4">
-    <div class="row g-3 align-items-end">
-        <div class="col-md-3">
-            <label class="form-label fw-semibold">Term</label>
-            <select class="form-select" id="termFilter">
-                <option value="">All Terms</option>
-                <option value="1">Term 1</option>
-                <option value="2">Term 2</option>
-                <option value="3">Term 3</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label fw-semibold">Class</label>
-            <select class="form-select" id="classFilter">
-                <option value="">All Classes</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label fw-semibold">Subject</label>
-            <select class="form-select" id="subjectFilter">
-                <option value="">All Subjects</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label class="form-label fw-semibold">Status</label>
-            <select class="form-select" id="statusFilter">
-                <option value="">All Status</option>
-                <option value="upcoming">Upcoming</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-                <option value="postponed">Postponed</option>
-            </select>
-        </div>
-    </div>
-</div>
-
-<!-- =======================================================
- DATA TABLE
-======================================================= -->
-<div class="academic-card p-3">
-    <div class="table-responsive">
-        <table class="table table-hover table-academic" id="examScheduleTable">
-            <thead>
-                <tr>
-                    <th scope="col">Exam Name</th>
-                    <th scope="col">Subject</th>
-                    <th scope="col">Class</th>
-                    <th scope="col">Date</th>
-                    <th scope="col">Time</th>
-                    <th scope="col">Duration</th>
-                    <th scope="col">Venue</th>
-                    <th scope="col">Supervisor</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td colspan="10" class="text-center text-muted py-4">
-                        <div class="spinner-border spinner-border-sm text-success me-2"></div>
-                        Loading exam schedule...
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    <nav>
-        <ul class="pagination justify-content-center" id="pagination"></ul>
-    </nav>
-</div>
-
-<!-- =======================================================
- ADD / EDIT EXAM MODAL
-======================================================= -->
-<div class="modal fade" id="examModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-scrollable modal-lg">
-        <div class="modal-content">
-            <div class="modal-header" style="background: var(--acad-primary); color: #fff;">
-                <h5 class="modal-title" id="examModalTitle">Add Exam Schedule</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="examForm">
-                    <input type="hidden" id="examId">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Exam Name *</label>
-                            <input type="text" class="form-control" id="examName" required
-                                   placeholder="e.g., End of Term 1 Exam">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Subject *</label>
-                            <select class="form-select" id="examSubject" required>
-                                <option value="">Select Subject</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Class *</label>
-                            <select class="form-select" id="examClass" required>
-                                <option value="">Select Class</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Term *</label>
-                            <select class="form-select" id="examTerm" required>
-                                <option value="">Select Term</option>
-                                <option value="1">Term 1</option>
-                                <option value="2">Term 2</option>
-                                <option value="3">Term 3</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-semibold">Date *</label>
-                            <input type="date" class="form-control" id="examDate" required>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-semibold">Start Time *</label>
-                            <input type="time" class="form-control" id="examTime" required>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-semibold">Duration (minutes) *</label>
-                            <input type="number" class="form-control" id="examDuration" required
-                                   placeholder="e.g., 120" min="15" max="300">
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Venue *</label>
-                            <input type="text" class="form-control" id="examVenue" required
-                                   placeholder="e.g., Main Hall, Room 201">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Supervisor</label>
-                            <select class="form-select" id="examSupervisor">
-                                <option value="">Select Supervisor</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Instructions / Notes</label>
-                        <textarea class="form-control" id="examNotes" rows="3"
-                                  placeholder="Special instructions for this exam..."></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-academic" id="saveExamBtn">
-                    <i class="bi bi-check-circle me-1"></i>Save Exam
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- =======================================================
- TOAST NOTIFICATIONS
-======================================================= -->
-<div class="position-fixed top-0 end-0 p-3" style="z-index: 11000;">
-    <div id="academicToast" class="toast">
-        <div class="toast-header">
-            <strong id="toastTitle" class="me-auto">Notice</strong>
-            <button class="btn-close" data-bs-dismiss="toast"></button>
-        </div>
-        <div class="toast-body" id="toastBody"></div>
-    </div>
-</div>
-
-<!-- =======================================================
- SCRIPTS
-======================================================= -->
-<?php asset_script($appBase, 'js/pages/exam_schedule.js'); ?>
+<?php asset_script($appBase, 'js/pages/exam_periods.js'); ?>

@@ -161,7 +161,7 @@ class WebsiteManager extends BaseAPI
                 'jobs'         => (int) $this->scalar("SELECT COUNT(*) FROM job_vacancies WHERE status='open'"),
                 'gallery'      => (int) $this->scalar("SELECT COUNT(*) FROM gallery_items WHERE is_active=1"),
                 'downloads'    => (int) $this->scalar("SELECT COUNT(*) FROM page_downloads WHERE is_active=1"),
-                'applications' => (int) $this->scalar("SELECT COUNT(*) FROM admission_applications WHERE status='received'"),
+                'applications' => (int) $this->scalar("SELECT COUNT(*) FROM admission_applications WHERE status IN ('submitted','documents_pending','documents_verified','placement_offered','fees_pending','waitlisted','placement_test_required')"),
                 'inquiries'    => (int) $this->scalar("SELECT COUNT(*) FROM contact_inquiries WHERE status='new'"),
                 'job_apps'     => (int) $this->scalar("SELECT COUNT(*) FROM job_applications WHERE status='received'"),
                 // Live enrolment / staff headcounts shown on the public homepage.
@@ -1293,17 +1293,43 @@ class WebsiteManager extends BaseAPI
     {
         try {
             $status = $data['status'] ?? '';
-            $where = $status ? 'WHERE status = ?' : '';
+            $where = $status ? 'WHERE a.status = ?' : '';
             $params = $status ? [$status] : [];
 
             $stmt = $this->db->prepare(
-                "SELECT id, application_no, applicant_name, grade_applying_for, parent_id, status, created_at
-                 FROM admission_applications $where ORDER BY created_at DESC LIMIT 200"
+                "SELECT a.id,
+                        a.application_no AS application_ref,
+                        a.applicant_name AS child_full_name,
+                        a.grade_applying_for AS grade_applying,
+                        CONCAT_WS(' ', NULLIF(pp.first_name, ''), NULLIF(pp.middle_name, ''), NULLIF(pp.last_name, '')) AS parent_name,
+                        pp.phone AS parent_phone,
+                        CASE UPPER(COALESCE(a.student_type_code, st.code, ''))
+                            WHEN 'DAY' THEN 'day'
+                            WHEN 'DAY_STUDENT' THEN 'day'
+                            WHEN 'BOARD' THEN 'full_boarding'
+                            WHEN 'BOARDER' THEN 'full_boarding'
+                            WHEN 'FULL_BOARDING' THEN 'full_boarding'
+                            WHEN 'WEEKLY' THEN 'weekly_boarding'
+                            WHEN 'WEEKLY_BOARDER' THEN 'weekly_boarding'
+                            WHEN 'WEEKLY_BOARDING' THEN 'weekly_boarding'
+                            ELSE NULLIF(LOWER(a.student_type_code), '')
+                        END AS boarding_preference,
+                        a.status, a.created_at
+                 FROM admission_applications a
+                 LEFT JOIN parents p ON p.id = a.parent_id
+                 LEFT JOIN persons pp ON pp.id = p.person_id
+                 LEFT JOIN students s ON s.id = COALESCE(
+                     a.enrolled_student_id,
+                     (SELECT MAX(s2.id) FROM students s2 WHERE s2.application_id = a.id)
+                 )
+                 LEFT JOIN student_types st ON st.id = s.student_type_id
+                 $where
+                 ORDER BY a.created_at DESC LIMIT 200"
             );
             $stmt->execute($params);
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-            $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM admission_applications $where");
+            $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM admission_applications a $where");
             $totalStmt->execute($params);
             $total = (int) $totalStmt->fetchColumn();
 

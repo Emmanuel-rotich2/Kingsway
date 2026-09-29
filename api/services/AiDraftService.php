@@ -108,6 +108,8 @@ class AiDraftService
                 'reconciliation_rule' => (string) ($metadata['reconciliation_rule'] ?? ''),
                 'report_code' => (string) ($metadata['report_code'] ?? ''),
                 'session_id' => (int) ($metadata['session_id'] ?? 0),
+                'scope_hash' => (string) ($metadata['scope_hash'] ?? ''),
+                'planning' => $this->safeExamPlanningMetadata((array) ($metadata['planning'] ?? [])),
             ],
         ], 0, 3, 30);
         FileLogger::write('ai_generation', [
@@ -287,6 +289,33 @@ class AiDraftService
                 }
             }
         }
+        if ($workflowId === 'academics.exam_timetable_planning') {
+            $unresolved = $draft['unresolved_constraints'] ?? [];
+            if (!is_array($unresolved)) throw new DomainException('AI exam timetable unresolved constraints are malformed.', 502);
+            $result['unresolved_constraints'] = array_values(array_map(
+                static fn($item): string => mb_substr(trim((string) $item), 0, 500),
+                array_slice($unresolved, 0, 20)
+            ));
+            $assignments = $draft['assignments'] ?? [];
+            if (!is_array($assignments)) throw new DomainException('AI exam timetable assignments are malformed.', 502);
+            if ($assignments === [] && $result['unresolved_constraints'] !== []) {
+                $result['assignments'] = [];
+            } else {
+                $result['assignments'] = ExamTimetableDraftValidator::normalize($assignments, $input);
+            }
+        }
         return $result;
+    }
+
+    private function safeExamPlanningMetadata(array $planning): array
+    {
+        $safe = [];
+        foreach (['day_start', 'morning_end', 'day_end', 'paper_minutes', 'break_minutes'] as $key) {
+            if (!array_key_exists($key, $planning)) continue;
+            $safe[$key] = in_array($key, ['paper_minutes', 'break_minutes'], true)
+                ? max(0, min(600, (int) $planning[$key]))
+                : mb_substr(trim((string) $planning[$key]), 0, 5);
+        }
+        return $safe;
     }
 }

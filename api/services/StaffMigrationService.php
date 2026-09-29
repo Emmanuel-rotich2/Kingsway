@@ -389,7 +389,7 @@ PHP;
                 $errors = $this->validateRow($row, $i + 2, $duplicateInFile);
                 if (!$errors && !$missing && !$unknown) $valid++;
                 $stmt = $this->db->prepare("INSERT INTO staff_import_rows
-                    (batch_id,row_number,row_data,validation_errors,status,created_at,updated_at)
+                    (batch_id,`row_number`,row_data,validation_errors,status,created_at,updated_at)
                     VALUES (?,?,?,?,?,NOW(),NOW())");
                 $stmt->execute([
                     $batchId,$i+2,json_encode($row,JSON_UNESCAPED_UNICODE),
@@ -643,14 +643,14 @@ PHP;
     {
         $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN persons p ON p.id=u.person_id WHERE b.id=?");
         $stmt->execute([$batchId]);$batch=$stmt->fetch(PDO::FETCH_ASSOC);if(!$batch)throw new RuntimeException('Import batch not found.');
-        $stmt=$this->db->prepare("SELECT r.id,r.row_number,r.row_data,r.validation_errors,r.status,r.staff_id,r.user_id,
+        $stmt=$this->db->prepare("SELECT r.id,r.`row_number`,r.row_data,r.validation_errors,r.status,r.staff_id,r.user_id,
             (SELECT u.force_password_change FROM users u WHERE u.id=r.user_id LIMIT 1) AS setup_required,
             CASE WHEN ui.id IS NULL THEN 'not_sent' WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired' ELSE ui.status END AS invitation_status,
             COALESCE(om.status,'not_queued') AS invitation_delivery_status,om.sent_at AS invitation_sent_at
             FROM staff_import_rows r
             LEFT JOIN user_invitations ui ON ui.id=(SELECT ui2.id FROM user_invitations ui2 WHERE ui2.user_id=r.user_id ORDER BY ui2.id DESC LIMIT 1)
             LEFT JOIN outbound_messages om ON om.id=(SELECT om2.id FROM outbound_messages om2 WHERE om2.user_id=r.user_id AND om2.template_key='staff_account_invitation' ORDER BY om2.id DESC LIMIT 1)
-            WHERE r.batch_id=? ORDER BY r.row_number");
+            WHERE r.batch_id=? ORDER BY r.`row_number`");
         $stmt->execute([$batchId]);$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
         $profileGate = new StaffProfileCompletionService($this->db);
         foreach($rows as &$r){
@@ -1183,7 +1183,7 @@ PHP;
         return strcasecmp(trim($value), 'Intern Teacher') === 0 ? 'Intern/Student Teacher' : trim($value);
     }
     private function duplicatesInFile(array $rows): array{ $out=['staff_no'=>[],'email'=>[],'tsc_no'=>[]];foreach(array_keys($out)as$f){$vals=array_map(fn($r)=>strtolower(trim($r[$f]??'')),$rows);$counts=array_count_values(array_filter($vals));$out[$f]=array_keys(array_filter($counts,fn($c)=>$c>1));}return$out;}
-    private function batchRows(int $id,string $status): array{$s=$this->db->prepare("SELECT * FROM staff_import_rows WHERE batch_id=? AND status=? ORDER BY row_number");$s->execute([$id,$status]);return$s->fetchAll(PDO::FETCH_ASSOC);}
+    private function batchRows(int $id,string $status): array{$s=$this->db->prepare("SELECT * FROM staff_import_rows WHERE batch_id=? AND status=? ORDER BY `row_number`");$s->execute([$id,$status]);return$s->fetchAll(PDO::FETCH_ASSOC);}
     private function lockBatch(int $id): array|false{$s=$this->db->prepare("SELECT * FROM staff_import_batches WHERE id=? FOR UPDATE");$s->execute([$id]);return$s->fetch(PDO::FETCH_ASSOC);}
     private function hasOperationalDependencies(int $sid): bool
     {

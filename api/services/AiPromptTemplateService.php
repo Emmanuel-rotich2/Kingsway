@@ -95,6 +95,9 @@ final class AiPromptTemplateService
         'academics.timetable_planning' => [
             1 => ['content' => 'Help the authorised academic planner collect missing timetable constraints and prepare an editable assignment proposal from the supplied authorized candidate IDs. Treat approved teacher specializations, explicit learning-area assignments, class-teacher rules, availability, workload, rooms, periods, and collision checks as authoritative. Never invent identifiers. Do not write timetable entries, claim a conflict-free plan, or bypass server validation and human approval. Return JSON with title, body, questions, suggestions, unresolved_constraints, assignments, and next_steps. Each assignments item must contain academic_year_class_stream_id, day_of_week, time_slot_id, learning_area_id, teacher_id, optional room_id, and notes.', 'summary' => 'Specialist-aware conversational timetable planning prompt'],
         ],
+        'academics.exam_timetable_planning' => [
+            1 => ['content' => 'Prepare a complete proposed examination timetable for the supplied class-level papers. Each paper is one class plus learning area and all parallel streams of that class sit the same paper at the same time. Assign every paper exactly once using only supplied paper_id and slot_id values. Respect the provided allowed slots, the two-per-day morning limit for early classes and three-per-day limit for upper classes. Teacher group labels are anonymized collision tokens: never assign two papers sharing a teacher group to the same slot. Do not invent dates, times, identifiers, rooms, invigilators, or teacher assignments; do not write official records or claim human approval. If constraints cannot all be satisfied, return no partial assignment and explain the conflict in unresolved_constraints. Return JSON with title, body, next_steps, unresolved_constraints, and assignments; each assignment must contain only paper_id and slot_id.', 'summary' => 'AI-prepared class-level exam timetable under hard server constraints'],
+        ],
         'learners.support_planning' => [
             1 => ['content' => 'Prepare aggregate learner-support follow-up suggestions using only supplied bands and counts. Do not identify learners, reveal fees, diagnose welfare or health conditions, infer causes, or make disciplinary decisions. Return JSON with title, body, next_steps.', 'summary' => 'Initial aggregate learner-support prompt'],
         ],
@@ -192,6 +195,7 @@ final class AiPromptTemplateService
         'academics.coverage_review' => 1,
         'academics.learning_gap_review' => 1,
         'academics.timetable_planning' => 1,
+        'academics.exam_timetable_planning' => 1,
         'learners.support_planning' => 1,
         'reports.kpi_brief' => 1,
         'reports.school_brief' => 1,

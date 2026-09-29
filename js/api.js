@@ -1423,6 +1423,8 @@ const ENDPOINT_PERMISSIONS = {
     GET: "users_view",
     POST: "users_update",
   },
+  "/users/users-bulk-action": "users_update",
+  "/users/users-bulk-revoke-from-role": "users_update",
 
   // Students
   "/students/index": "students_view",
@@ -3673,6 +3675,12 @@ window.API = {
       apiCall("/users/users-bulk-data-scope", "POST", {
         user_ids: userIds,
         data_scope: dataScope,
+      }),
+    bulkAction: async (userIds, action, data = {}) =>
+      apiCall("/users/users-bulk-action", "POST", {
+        user_ids: userIds,
+        action,
+        ...data,
       }),
 
     // Profile

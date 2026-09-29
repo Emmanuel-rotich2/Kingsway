@@ -90,6 +90,23 @@ class StudentTransportEntitlementManager
         $amount = (float) ($data['amount_due'] ?? 0);
         $allocatedDays = max(1, (int)($data['allocated_school_days'] ?? $this->countSchoolDays($start, $end)));
 
+        // New subscriptions define a length, not hand-entered dates or an
+        // arbitrary school-day count. Resolve the dates against the school's
+        // configured calendar on the server before writing the entitlement.
+        if (!empty($data['duration_unit'])) {
+            $window = $this->deriveSubscriptionWindow($data);
+            $type = $window['period_type'];
+            $start = $window['period_start'];
+            $end = $window['period_end'];
+            $allocatedDays = $window['allocated_school_days'];
+            $data['academic_year_term_id'] = $window['academic_year_term_id'];
+            $data['label'] = $window['label'];
+        } else {
+            // Even legacy callers cannot store a day count that disagrees
+            // with the configured academic calendar.
+            $allocatedDays = $this->countSchoolDays($start, $end);
+        }
+
         if (!$studentId || !$routeId || !$pickupStopId || !$dropoffStopId || !$start || !$end) {
             throw new RuntimeException('student_id, route_id, pickup/dropoff stops, period dates and amount_due are required');
         }
@@ -273,6 +290,109 @@ class StudentTransportEntitlementManager
         $stmt = $this->db->prepare("SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar_days d JOIN calendar_day_types t ON t.id=d.calendar_day_type_id WHERE d.date BETWEEN ? AND ? AND t.code='school_day'");
         $stmt->execute([$start, $end]);
         return (int)$stmt->fetchColumn();
+    }
+
+    /** @return array{period_type:string,period_start:string,period_end:string,allocated_school_days:int,academic_year_term_id:?int,label:string} */
+    private function deriveSubscriptionWindow(array $data): array
+    {
+        $unit = strtolower(trim((string) ($data['duration_unit'] ?? '')));
+        $quantity = (float) ($data['duration_value'] ?? 0);
+        if (!in_array($unit, ['school_days', 'weeks', 'months', 'terms', 'academic_year'], true)) {
+            throw new RuntimeException('Choose a supported transport subscription length.');
+        }
+        if ($unit === 'academic_year') $quantity = 1;
+        if ($quantity <= 0 || ($unit !== 'months' && floor($quantity) !== $quantity)) {
+            throw new RuntimeException('Enter a valid transport subscription length.');
+        }
+
+        $termId = null;
+        $start = '';
+        $end = '';
+        $type = match ($unit) {
+            'school_days' => 'day',
+            'weeks' => 'week',
+            'months' => 'month',
+            'terms' => 'term',
+            default => 'year',
+        };
+        $label = $unit === 'academic_year' ? 'Full academic year' : $quantity . ' ' . str_replace('_', ' ', $unit);
+
+        if ($unit === 'terms' || $unit === 'academic_year') {
+            $yearId = $this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn();
+            if (!$yearId) throw new RuntimeException('The school has no current academic year calendar.');
+            $termsStmt = $this->db->prepare(
+                "SELECT ayt.id, t.name, t.id AS term_number,
+                        COALESCE((SELECT MIN(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.opening_date) AS period_start,
+                        COALESCE((SELECT MAX(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.closing_date) AS period_end,
+                        (SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id WHERE ac.academic_year_term_id=ayt.id AND cdt.code='school_day') AS school_days
+                   FROM academic_year_terms ayt JOIN terms t ON t.id=ayt.term_id
+                  WHERE ayt.academic_year_id=? ORDER BY t.id"
+            );
+            $termsStmt->execute([(int) $yearId]);
+            $terms = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!$terms) throw new RuntimeException('The current academic year has no configured terms.');
+            if ($unit === 'academic_year') {
+                $start = (string) $terms[0]['period_start'];
+                $end = (string) $terms[count($terms) - 1]['period_end'];
+                $label = 'Full academic year';
+            } else {
+                $requestedTermId = (int) ($data['academic_year_term_id'] ?? 0);
+                $startIndex = null;
+                foreach ($terms as $index => $term) {
+                    if ((int) $term['id'] === $requestedTermId) { $startIndex = $index; break; }
+                }
+                if ($startIndex === null) throw new RuntimeException('Choose a starting term from the current academic year.');
+                $selected = array_slice($terms, $startIndex, (int) $quantity);
+                if (count($selected) !== (int) $quantity) throw new RuntimeException('The selected subscription extends beyond the current academic year.');
+                $start = (string) $selected[0]['period_start'];
+                $end = (string) $selected[count($selected) - 1]['period_end'];
+                $termId = (int) $selected[0]['id'];
+                $label = $quantity . ' ' . ($quantity === 1.0 ? 'term' : 'terms') . ' from ' . (string) $selected[0]['name'];
+            }
+        } else {
+            $needed = $unit === 'weeks' ? (int) $quantity * 5 : (int) $quantity;
+            $datesStmt = $this->db->prepare(
+                "SELECT DISTINCT d.date FROM academic_year_calendar ac
+                 JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id
+                 JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id
+                 JOIN academic_year_terms ayt ON ayt.id=ac.academic_year_term_id
+                 JOIN academic_years ay ON ay.id=ayt.academic_year_id
+                 WHERE ay.is_current=1 AND cdt.code='school_day' AND d.date>=CURDATE()
+                 ORDER BY d.date LIMIT " . ($unit === 'months' ? '1' : (int) $needed)
+            );
+            $schoolDates = array_map('strval', $datesStmt->fetchAll(PDO::FETCH_COLUMN));
+            if (!$schoolDates) throw new RuntimeException('No upcoming school days are configured in the academic calendar.');
+            $start = $schoolDates[0];
+            if ($unit === 'school_days' || $unit === 'weeks') {
+                if (count($schoolDates) < $needed) throw new RuntimeException('The academic calendar does not contain enough upcoming school days for this subscription.');
+                $end = $schoolDates[$needed - 1];
+            } else {
+                $date = new \DateTimeImmutable($start);
+                $wholeMonths = (int) floor($quantity);
+                $fraction = $quantity - $wholeMonths;
+                $targetMonth = $date->modify('first day of this month')->modify('+' . $wholeMonths . ' months');
+                $originalDay = (int) $date->format('j');
+                $daysInMonth = (int) $targetMonth->format('t');
+                $targetMonth = $targetMonth->setDate((int) $targetMonth->format('Y'), (int) $targetMonth->format('n'), min($originalDay, $daysInMonth));
+                $exclusiveEnd = $targetMonth;
+                if ($fraction > 0) {
+                    $fractionDays = (int) round((int) $targetMonth->format('t') * $fraction);
+                    $exclusiveEnd = $targetMonth->modify('+' . $fractionDays . ' days');
+                }
+                $end = $exclusiveEnd->modify('-1 day')->format('Y-m-d');
+            }
+        }
+
+        $schoolDayCount = $this->countSchoolDays($start, $end);
+        if ($schoolDayCount < 1) throw new RuntimeException('The selected subscription period contains no configured school days.');
+        return [
+            'period_type' => $type,
+            'period_start' => $start,
+            'period_end' => $end,
+            'allocated_school_days' => $schoolDayCount,
+            'academic_year_term_id' => $termId,
+            'label' => $label,
+        ];
     }
 
     public function getEntitlement(int $id): array
