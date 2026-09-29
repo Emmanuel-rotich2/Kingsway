@@ -32,6 +32,7 @@ final class AssessmentResultsService
     {
         $exam = $this->exam($examScheduleId);
         $this->assertCanAccessAssessment($exam);
+        $this->assertPeriodAllowsEntry((int) $exam['assessment_id']);
 
         $roster = $this->roster((int) $exam['academic_year_class_stream_id'], (int) $exam['assessment_id']);
         return [
@@ -52,6 +53,7 @@ final class AssessmentResultsService
         try {
             $assessment = $this->assessment($assessmentId, true);
             $this->assertCanAccessAssessment($assessment);
+            $this->assertPeriodAllowsEntry($assessmentId);
             if ($assessment['assessment_status'] !== 'pending_submission') {
                 throw new RuntimeException('Submitted or approved results are locked; moderation must reopen them', 409);
             }
@@ -181,6 +183,7 @@ final class AssessmentResultsService
                 $submit ? date('Y-m-d H:i:s') : null,
                 $assessmentId,
             ]);
+            if ($submit) (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
 
             $this->db->commit();
             return [
@@ -298,6 +301,10 @@ final class AssessmentResultsService
                 $assessmentId,
             ]);
 
+            $periodService = new ExamPeriodService($this->db, $this->userId);
+            if ($approve) $periodService->refreshCompletion($assessmentId);
+            else $this->db->prepare("UPDATE exam_periods ep JOIN exam_period_classes epc ON epc.exam_period_id=ep.id JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=ept.exam_schedule_id SET ep.status='results_open' WHERE esa.assessment_id=? AND ep.status='moderation'")->execute([$assessmentId]);
+
             if ($nextStatus === 'approved') {
                 (new TermResultsService($this->db))->compute(
                     (int) $assessment['academic_year_class_stream_id'],
@@ -320,27 +327,33 @@ final class AssessmentResultsService
         }
     }
 
-    private function exam(int $examScheduleId): array
+    private function exam(int $assessmentId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT es.id AS exam_schedule_id, es.assessment_id, es.exam_name, es.exam_type,
+            "SELECT es.id AS exam_schedule_id, esa.assessment_id, es.exam_name, es.exam_type,
                     es.exam_date, es.start_time, es.end_time, es.venue, es.status AS schedule_status,
-                    es.academic_year_class_stream_id, es.academic_year_term_id, es.learning_area_id,
+                    esa.academic_year_class_stream_id, es.academic_year_class_id, es.academic_year_term_id, es.learning_area_id,
+                    ep.id AS exam_period_id, ep.status AS exam_period_status,
                     a.title AS assessment_title, a.max_marks, a.assessment_type_id,
                     a.assigned_by, a.status AS assessment_status,
                     la.name AS learning_area_name, c.name AS class_name, sn.name AS stream_name,
                     at.name AS assessment_type_name
              FROM exam_schedules es
-             JOIN assessments a ON a.id = es.assessment_id
-             JOIN academic_year_class_streams aycs ON aycs.id = es.academic_year_class_stream_id
+             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id
+             JOIN assessments a ON a.id = esa.assessment_id
+             JOIN academic_year_class_streams aycs ON aycs.id = esa.academic_year_class_stream_id
              JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
              JOIN classes c ON c.id = ayc.class_id
              LEFT JOIN streams sn ON sn.id = aycs.stream_id
              JOIN learning_areas la ON la.id = es.learning_area_id
              JOIN assessment_types at ON at.id = a.assessment_type_id
-             WHERE es.id = ? AND es.status <> 'cancelled' LIMIT 1"
+             LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
+             LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id=ept.exam_period_class_learning_area_id
+             LEFT JOIN exam_period_classes epc ON epc.id=epcla.exam_period_class_id
+             LEFT JOIN exam_periods ep ON ep.id=epc.exam_period_id
+             WHERE esa.assessment_id = ? AND es.status <> 'cancelled' LIMIT 1"
         );
-        $stmt->execute([$examScheduleId]);
+        $stmt->execute([$assessmentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row) {
             throw new RuntimeException('Published exam assessment was not found', 404);
@@ -423,6 +436,14 @@ final class AssessmentResultsService
             return;
         }
         throw new RuntimeException('This exam is outside your assigned teaching scope', 403);
+    }
+
+    private function assertPeriodAllowsEntry(int $assessmentId): void
+    {
+        $status = (new ExamPeriodService($this->db, $this->userId))->periodAccess($assessmentId);
+        if ($status !== null && !in_array($status, ['results_open', 'moderation'], true)) {
+            throw new RuntimeException('The Headteacher or School Administrator has not opened result entry for this exam period', 409);
+        }
     }
 
     private function staffId(): ?int

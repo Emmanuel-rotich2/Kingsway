@@ -190,6 +190,51 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'code' => 500, 'error' => 'Workspace changes could not be saved.'];
         }
     }
+
+    public function bulkUpdateStatus(array $userIds, string $status): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $userIds), static fn ($id) => $id > 0)));
+        $status = strtolower(trim($status));
+        if (!$ids) return ['success' => false, 'error' => 'Select at least one valid account.'];
+        if (count($ids) > 500) return ['success' => false, 'error' => 'A bulk status change is limited to 500 accounts.'];
+        if (!in_array($status, ['active', 'inactive'], true)) return ['success' => false, 'error' => 'Status must be active or inactive.'];
+
+        $actorId = (int) $this->getCurrentUserId();
+        $skipped = [];
+        if (in_array($actorId, $ids, true)) {
+            $ids = array_values(array_diff($ids, [$actorId]));
+            $skipped[] = $actorId;
+        }
+        if (!$ids) return ['success' => false, 'error' => 'Your own account was excluded; no other accounts were selected.'];
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $find = $this->db->prepare("SELECT id FROM users WHERE id IN ($placeholders)");
+        $find->execute($ids);
+        $found = array_map('intval', $find->fetchAll(PDO::FETCH_COLUMN));
+        $skipped = array_values(array_unique(array_merge($skipped, array_diff($ids, $found))));
+        if (!$found) return ['success' => false, 'error' => 'None of the selected accounts still exist.'];
+
+        $foundMarks = implode(',', array_fill(0, count($found), '?'));
+        $ownsTransaction = !$this->db->inTransaction();
+        try {
+            if ($ownsTransaction) $this->db->beginTransaction();
+            $this->db->prepare("UPDATE users SET status=?, failed_login_attempts=IF(?='active',0,failed_login_attempts), failed_login_date=IF(?='active',NULL,failed_login_date), account_locked_until=IF(?='active',DATE_SUB(NOW(), INTERVAL 1 DAY),account_locked_until), updated_at=NOW() WHERE id IN ($foundMarks)")
+                ->execute(array_merge([$status, $status, $status, $status], $found));
+            if ($status === 'inactive') {
+                $this->db->prepare("UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,NOW()) WHERE user_id IN ($foundMarks)")->execute($found);
+                $this->db->prepare("UPDATE user_sessions SET session_status='logged_out',logout_time=COALESCE(logout_time,NOW()) WHERE user_id IN ($foundMarks) AND session_status='active'")->execute($found);
+            }
+            if ($ownsTransaction) $this->db->commit();
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            Logger::legacyError('Bulk user status update failed: ' . $error->getMessage());
+            return ['success' => false, 'code' => 500, 'error' => 'Account status changes could not be saved.'];
+        }
+        Logger::audit('user_status_bulk_updated', 'user', $found[0], 'User account status updated in bulk.', [
+            'user_ids' => $found, 'status' => $status, 'skipped_ids' => $skipped, 'updated_by' => $actorId,
+        ]);
+        return ['success' => true, 'data' => ['updated' => $found, 'skipped' => $skipped, 'status' => $status]];
+    }
     public function bulkRevokeUsersFromRole($roleId, $userIds)
     {
         return $this->userRoleManager->bulkRevokeUsersFromRole($roleId, $userIds);
@@ -275,7 +320,7 @@ class UsersAPI extends BaseAPI
                     u.password_changed_at, u.created_at, u.updated_at,
                     u.failed_login_attempts, u.account_locked_until,
                     u.password_expires_at, u.force_password_change, u.is_test_user,
-                    u.account_type, u.data_scope,
+                    u.account_type, u.data_scope, u.two_factor_enabled,
                     g.id AS test_access_grant_id, g.purpose AS test_access_purpose,
                     g.starts_at AS test_access_starts_at,
                     g.expires_at AS test_access_expires_at,
@@ -311,7 +356,7 @@ class UsersAPI extends BaseAPI
                        u.password_changed_at, u.created_at, u.updated_at,
                        u.failed_login_attempts, u.account_locked_until,
                        u.password_expires_at, u.force_password_change, u.is_test_user,
-                       u.account_type, u.data_scope,
+                       u.account_type, u.data_scope, u.two_factor_enabled,
                        g.id AS test_access_grant_id, g.purpose AS test_access_purpose,
                        g.starts_at AS test_access_starts_at,
                        g.expires_at AS test_access_expires_at,

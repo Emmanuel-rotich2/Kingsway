@@ -4772,7 +4772,8 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $params['academic_year_id'];
             }
             if (!empty($params['class_id'])) {
-                $where[] = "(es.academic_year_class_stream_id = ? OR ayc.class_id = ?)";
+                $where[] = "(COALESCE(esa.academic_year_class_stream_id, es.academic_year_class_stream_id) = ? OR ayc.class_id = ? OR ayc.id = ?)";
+                $bindings[] = $params['class_id'];
                 $bindings[] = $params['class_id'];
                 $bindings[] = $params['class_id'];
             }
@@ -4798,8 +4799,13 @@ return errorResponse($e->getMessage(), 400);
             $fromSql = "
                 FROM exam_schedules es
                 LEFT JOIN academic_year_terms ayt ON ayt.id = es.academic_year_term_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = es.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN exam_schedule_assessments esa ON esa.exam_schedule_id = es.id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = COALESCE(esa.academic_year_class_stream_id, es.academic_year_class_stream_id)
+                LEFT JOIN academic_year_classes ayc ON ayc.id = COALESCE(es.academic_year_class_id, aycs.academic_year_class_id)
+                LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
+                LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id = ept.exam_period_class_learning_area_id
+                LEFT JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
+                LEFT JOIN exam_periods ep ON ep.id = epc.exam_period_id
             ";
             $countSql = "SELECT COUNT(*) {$fromSql} WHERE {$whereClause}";
             $stmt = $this->db->prepare($countSql);
@@ -4809,10 +4815,10 @@ return errorResponse($e->getMessage(), 400);
             // Get summary counts
             $summarySql = "
                 SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN es.status = 'upcoming' OR es.status = 'scheduled' THEN 1 ELSE 0 END) as upcoming,
-                    SUM(CASE WHEN es.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                    SUM(CASE WHEN es.status = 'completed' THEN 1 ELSE 0 END) as completed
+                    COUNT(DISTINCT es.id) as total,
+                    COUNT(DISTINCT CASE WHEN es.status = 'upcoming' OR es.status = 'scheduled' THEN es.id END) as upcoming,
+                    COUNT(DISTINCT CASE WHEN es.status = 'in_progress' THEN es.id END) as in_progress,
+                    COUNT(DISTINCT CASE WHEN es.status = 'completed' THEN es.id END) as completed
                 {$fromSql}
                 WHERE {$whereClause}
             ";
@@ -4823,11 +4829,13 @@ return errorResponse($e->getMessage(), 400);
             // Get paginated data
             $sql = "
                 SELECT 
-                    es.id,
-                    es.assessment_id,
+                    COALESCE(esa.assessment_id, es.id) AS id,
+                    es.id AS exam_schedule_id,
+                    esa.assessment_id,
                     es.academic_year_term_id AS term_id,
                     ayt.academic_year_id,
-                    es.academic_year_class_stream_id AS class_id,
+                    COALESCE(esa.academic_year_class_stream_id, es.academic_year_class_stream_id) AS class_id,
+                    ayc.id AS academic_year_class_id,
                     c.name AS class_name,
                     st.name AS stream_name,
                     es.learning_area_id AS subject_id,
@@ -4847,6 +4855,9 @@ return errorResponse($e->getMessage(), 400);
                     CONCAT(sup_p.first_name, ' ', sup_p.last_name) AS supervisor_name,
                     es.notes,
                     es.status,
+                    ep.id AS exam_period_id,
+                    ep.title AS exam_period_title,
+                    ep.status AS exam_period_status,
                     a.title AS assessment_title,
                     a.max_marks,
                     a.assessment_type_id,
@@ -4857,13 +4868,18 @@ return errorResponse($e->getMessage(), 400);
                     es.updated_at
                 FROM exam_schedules es
                 LEFT JOIN academic_year_terms ayt ON ayt.id = es.academic_year_term_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = es.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN exam_schedule_assessments esa ON esa.exam_schedule_id = es.id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = COALESCE(esa.academic_year_class_stream_id, es.academic_year_class_stream_id)
+                LEFT JOIN academic_year_classes ayc ON ayc.id = COALESCE(es.academic_year_class_id, aycs.academic_year_class_id)
                 LEFT JOIN classes c ON ayc.class_id = c.id
                 LEFT JOIN streams st ON st.id = aycs.stream_id
                 LEFT JOIN learning_areas la ON es.learning_area_id = la.id
-                LEFT JOIN assessments a ON a.id = es.assessment_id
+                LEFT JOIN assessments a ON a.id = esa.assessment_id
                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
+                LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id = ept.exam_period_class_learning_area_id
+                LEFT JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
+                LEFT JOIN exam_periods ep ON ep.id = epc.exam_period_id
                 LEFT JOIN rooms r ON es.room_id = r.id
                 LEFT JOIN staff inv ON es.invigilator_id = inv.id
                 LEFT JOIN persons inv_p ON inv_p.id = inv.person_id
@@ -8301,7 +8317,11 @@ return errorResponse($e->getMessage(), 400);
             $search = trim((string) ($params['search'] ?? ''));
             $gender = trim((string) ($params['gender'] ?? ''));
 
-            $baseWhere = ["s.status = 'active'"];
+            // Preserve historical learners in a teacher's year-scoped results
+            // view. Entry authorization is handled by AssessmentResultsService.
+            $baseWhere = empty($params['class_teacher_only'])
+                ? ["s.status = 'active'"]
+                : [];
             $bindings = [];
 
             if (!empty($params['class_id'])) {
@@ -8310,8 +8330,9 @@ return errorResponse($e->getMessage(), 400);
                 array_push($bindings, $cid, $cid);
             }
 
-            // Class teachers may only view performance for their assigned
-            // class streams.  Ownership is resolved through the shared scope projection.
+            // Historical view scope is the class-teacher assignment recorded
+            // against this stream in the selected academic year. Current-only
+            // projections omit completed years and would hide valid history.
             if (!empty($params['class_teacher_only'])) {
                 $staffId = $this->getCurrentStaffId();
                 if (!$staffId) {
@@ -8323,13 +8344,7 @@ return errorResponse($e->getMessage(), 400);
                     SELECT 1 FROM academic_year_class_streams scoped_aycs
                     JOIN academic_year_classes scoped_ayc ON scoped_ayc.id = scoped_aycs.academic_year_class_id
                     WHERE scoped_aycs.id = aycs.id
-                      AND EXISTS (
-                          SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
-                          WHERE tscope.staff_id = ?
-                            AND tscope.academic_year_class_stream_id = scoped_aycs.id
-                            AND tscope.scope_type = \'class_teacher\'
-                      )
-                      AND scoped_aycs.status = \'active\'
+                      AND scoped_aycs.class_teacher_id = ?
                       AND scoped_ayc.academic_year_id = ?
                 )';
                 $bindings[] = $staffId;
@@ -8384,7 +8399,6 @@ return errorResponse($e->getMessage(), 400);
                         SELECT student_id, MAX(id) AS mid
                         FROM student_academic_enrollments
                         WHERE academic_year_id = {$yearId}
-                          AND enrollment_status IN ('pending', 'active')
                         GROUP BY student_id
                     ) latest ON latest.mid = sae2.id
                 ) sae ON sae.student_id = s.id

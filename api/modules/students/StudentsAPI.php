@@ -346,6 +346,7 @@ class StudentsAPI extends BaseAPI
                 'academic_year' => null,
                 'current_term' => null,
                 'academic_year_terms' => [],
+                'school_day_dates' => [],
                 'fee_schedules' => [],
                 'transport_routes' => $transportRoutes,
                 'transport_stops' => $transportStops,
@@ -372,13 +373,48 @@ class StudentsAPI extends BaseAPI
 
         $termsStmt = $this->db->prepare(
             "SELECT ayt.id, ayt.term_id, ayt.opening_date, ayt.closing_date,
-                    t.code, t.name
+                    t.code, t.name,
+                    COALESCE((SELECT MIN(d.date)
+                       FROM academic_year_calendar ac
+                       JOIN academic_year_calendar_days d ON d.academic_year_calendar_id = ac.id
+                      WHERE ac.academic_year_term_id = ayt.id), ayt.opening_date) AS calendar_start_date,
+                    COALESCE((SELECT MAX(d.date)
+                       FROM academic_year_calendar ac
+                       JOIN academic_year_calendar_days d ON d.academic_year_calendar_id = ac.id
+                      WHERE ac.academic_year_term_id = ayt.id), ayt.closing_date) AS calendar_end_date,
+                    (SELECT COUNT(DISTINCT d.date)
+                       FROM academic_year_calendar ac
+                       JOIN academic_year_calendar_days d ON d.academic_year_calendar_id = ac.id
+                       JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
+                      WHERE ac.academic_year_term_id = ayt.id
+                        AND cdt.code = 'school_day') AS school_days
              FROM academic_year_terms ayt
              JOIN terms t ON t.id = ayt.term_id
              WHERE ayt.academic_year_id = ?
              ORDER BY t.id"
         );
         $termsStmt->execute([(int) $year['id']]);
+        $academicTerms = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $schoolDayStmt = $this->db->prepare(
+            "SELECT DISTINCT d.date
+               FROM academic_year_calendar ac
+               JOIN academic_year_calendar_days d ON d.academic_year_calendar_id = ac.id
+               JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+               JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
+              WHERE ayt.academic_year_id = ? AND cdt.code = 'school_day'
+              ORDER BY d.date"
+        );
+        $schoolDayStmt->execute([(int) $year['id']]);
+        $schoolDayDates = array_map('strval', $schoolDayStmt->fetchAll(PDO::FETCH_COLUMN));
+        $year['school_days'] = array_sum(array_map(
+            static fn(array $term): int => (int) ($term['school_days'] ?? 0),
+            $academicTerms
+        ));
+        $calendarTerms = array_values(array_filter($academicTerms, static fn(array $term): bool => !empty($term['calendar_start_date']) && !empty($term['calendar_end_date'])));
+        if ($calendarTerms) {
+            $year['start_date'] = min(array_column($calendarTerms, 'calendar_start_date'));
+            $year['end_date'] = max(array_column($calendarTerms, 'calendar_end_date'));
+        }
 
         $scheduleStmt = $this->db->prepare(
             "SELECT
@@ -412,7 +448,8 @@ class StudentsAPI extends BaseAPI
         return [
             'academic_year' => $year,
             'current_term' => $term,
-            'academic_year_terms' => $termsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'academic_year_terms' => $academicTerms,
+            'school_day_dates' => $schoolDayDates,
             'fee_schedules' => $scheduleStmt->fetchAll(PDO::FETCH_ASSOC),
             'transport_routes' => $transportRoutes,
             'transport_stops' => $transportStops,
@@ -1164,8 +1201,35 @@ class StudentsAPI extends BaseAPI
                     sta.month, sta.year, sta.expected_amount,
                     ps.name AS pickup_stop, ds.name AS dropoff_stop,
                     sta.pickup_time, sta.dropoff_time, sta.notes,
-                    ep.period_type, ep.period_start, ep.period_end,
-                    te.amount_due AS entitlement_amount
+                    COALESCE(ep.period_type, CASE WHEN sta.month IS NOT NULL THEN 'month' END) AS period_type,
+                    ep.academic_year_term_id, ep.label AS period_label,
+                    COALESCE(ep.period_start,
+                        (SELECT MIN(cd.date)
+                           FROM academic_year_calendar ac
+                           JOIN academic_year_calendar_days cd ON cd.academic_year_calendar_id = ac.id
+                           JOIN calendar_day_types cdt ON cdt.id = cd.calendar_day_type_id
+                          WHERE cdt.code = 'school_day'
+                            AND cd.date BETWEEN STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d')
+                                            AND LAST_DAY(STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d'))),
+                        STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d')) AS period_start,
+                    COALESCE(ep.period_end,
+                        (SELECT MAX(cd.date)
+                           FROM academic_year_calendar ac
+                           JOIN academic_year_calendar_days cd ON cd.academic_year_calendar_id = ac.id
+                           JOIN calendar_day_types cdt ON cdt.id = cd.calendar_day_type_id
+                          WHERE cdt.code = 'school_day'
+                            AND cd.date BETWEEN STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d')
+                                            AND LAST_DAY(STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d'))),
+                        LAST_DAY(STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d'))) AS period_end,
+                    COALESCE(te.amount_due, sta.expected_amount) AS entitlement_amount,
+                    COALESCE(te.allocated_school_days,
+                        (SELECT COUNT(DISTINCT cd.date)
+                           FROM academic_year_calendar ac
+                           JOIN academic_year_calendar_days cd ON cd.academic_year_calendar_id = ac.id
+                           JOIN calendar_day_types cdt ON cdt.id = cd.calendar_day_type_id
+                          WHERE cdt.code = 'school_day'
+                            AND cd.date BETWEEN STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d')
+                                            AND LAST_DAY(STR_TO_DATE(CONCAT(sta.year, '-', LPAD(sta.month, 2, '0'), '-01'), '%Y-%m-%d')))) AS allocated_school_days
              FROM student_transport_assignments sta
              JOIN transport_routes tr ON tr.id = sta.route_id
              LEFT JOIN transport_stops ps ON ps.id = COALESCE(sta.pickup_stop_id, sta.stop_id)

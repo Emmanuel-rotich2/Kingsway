@@ -170,18 +170,41 @@ if (!isset($appBase)) {
         <div class="card-body border-bottom py-2 bg-light" id="bulkActionBar" hidden>
             <div class="d-flex flex-wrap align-items-center gap-2">
                 <span class="fw-semibold small" id="bulkSelectedCount">0 selected</span>
-                <button type="button" class="btn btn-sm btn-outline-success" id="bulkGrantBtn">
-                    <i class="bi bi-check2-circle me-1"></i> Grant test access
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-danger" id="bulkRevokeBtn">
-                    <i class="bi bi-x-circle me-1"></i> Revoke test access
-                </button>
                 <button type="button" class="btn btn-sm btn-outline-primary" id="bulkRoleBtn">
                     <i class="bi bi-people me-1"></i> Assign role
                 </button>
-                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkScopeBtn">
-                    <i class="bi bi-symmetry-vertical me-1"></i> Switch workspace
+                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkRevokeRoleBtn">
+                    <i class="bi bi-person-dash me-1"></i> Revoke role
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="bulkScopeBtn">
+                    <i class="bi bi-symmetry-vertical me-1"></i> Update data scope
+                </button>
+                <div class="dropdown">
+                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">More actions</button>
+                    <div class="dropdown-menu p-2">
+                        <button type="button" class="dropdown-item" id="bulkGrantBtn"><i class="bi bi-check2-circle me-2"></i>Grant test access</button>
+                        <button type="button" class="dropdown-item" id="bulkRevokeBtn"><i class="bi bi-x-circle me-2"></i>Revoke test access</button>
+                        <hr class="dropdown-divider">
+                        <button type="button" class="dropdown-item" id="bulkActivateBtn">Activate accounts</button>
+                        <button type="button" class="dropdown-item" id="bulkDeactivateBtn">Deactivate accounts</button>
+                        <button type="button" class="dropdown-item" id="bulkPasswordResetBtn">Send password reset</button>
+                        <button type="button" class="dropdown-item" id="bulkMfaResetBtn">Reset MFA</button>
+                        <button type="button" class="dropdown-item" id="bulkMfaEnableBtn">Enable 2FA by email</button>
+                        <button type="button" class="dropdown-item" id="bulkMfaDisableBtn">Disable 2FA</button>
+                        <hr class="dropdown-divider">
+                        <label class="form-label small mb-1" for="bulkAccountTypeSelect">Account type</label>
+                        <div class="d-flex gap-2 px-2 pb-2">
+                            <select class="form-select form-select-sm" id="bulkAccountTypeSelect">
+                                <option value="" selected disabled>Choose type</option>
+                                <option value="real">Real account</option>
+                                <option value="test">Test account</option>
+                                <option value="service">Service account</option>
+                            </select>
+                            <button type="button" class="btn btn-sm btn-primary text-nowrap" id="bulkAccountTypeBtn">Update</button>
+                        </div>
+                        <button type="button" class="dropdown-item text-danger" id="bulkDeleteBtn">Delete accounts</button>
+                    </div>
+                </div>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkClearBtn">
                     Clear selection
                 </button>
@@ -294,7 +317,7 @@ if (!isset($appBase)) {
     <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Assign role to selected accounts</h5>
+                <h5 class="modal-title" id="bulkRoleModalTitle">Assign role to selected accounts</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -323,7 +346,8 @@ if (!isset($appBase)) {
                 <p class="text-muted mb-3" id="bulkScopeCount"></p>
                 <label class="form-label" for="bulkScopeSelect">Workspace</label>
                 <select class="form-select" id="bulkScopeSelect">
-                    <option value="both" selected>Both (live + test)</option>
+                    <option value="" selected disabled>Select data scope</option>
+                    <option value="both">Both (live + test)</option>
                     <option value="live">Live only</option>
                     <option value="test">Test only</option>
                 </select>
