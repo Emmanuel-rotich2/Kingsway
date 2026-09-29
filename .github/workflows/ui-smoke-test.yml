@@ -31,8 +31,11 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
-          extensions: json, mbstring, openssl, curl
+          php-version: '8.4'
+          extensions: json, mbstring, openssl, curl, zip
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Install browser dependency
         run: npm install --no-package-lock --no-audit --no-fund
@@ -46,16 +49,16 @@ jobs:
       - name: Start isolated PHP server
         env:
           APP_ENV: development
-          BASE_URL: http://127.0.0.1:8000
+          BASE_URL: http://127.0.0.1:8081
         run: |
-          php -S 127.0.0.1:8000 -t . > /tmp/kingsway-php-server.log 2>&1 &
+          php -S 127.0.0.1:8081 -t . > /tmp/kingsway-php-server.log 2>&1 &
           echo $! > /tmp/kingsway-php-server.pid
 
       - name: Wait for application
         run: |
           ready=0
           for attempt in $(seq 1 30); do
-            if curl --silent --show-error --fail http://127.0.0.1:8000/index.php >/dev/null; then
+            if curl --silent --show-error --fail http://127.0.0.1:8081/index.php >/dev/null; then
               ready=1
               break
             fi
@@ -68,7 +71,7 @@ jobs:
 
       - name: Run deterministic public UI smoke test
         env:
-          BASE_URL: http://127.0.0.1:8000
+          BASE_URL: http://127.0.0.1:8081
         run: node .github/scripts/public-ui-smoke.js
 
       - name: Show server log after failure
