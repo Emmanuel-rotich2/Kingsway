@@ -109,7 +109,9 @@ const manageWebsiteController = {
                     upcoming:'success',past:'secondary',cancelled:'danger',ongoing:'warning',
                     received:'primary',reviewing:'warning',enrolled:'success',declined:'danger',
                     new:'primary',read:'secondary',replied:'success',waitlisted:'info',
-                    offer_sent:'info',assessment_scheduled:'warning'};
+                    offer_sent:'info',assessment_scheduled:'warning',submitted:'primary',
+                    documents_pending:'warning',documents_verified:'info',placement_offered:'success',
+                    fees_pending:'warning',placement_test_required:'warning'};
     const c = colors[s] || 'secondary';
     return `<span class="badge bg-${c}">${(map&&map[s])||s||'\u2014'}</span>`;
   },
@@ -567,16 +569,16 @@ const manageWebsiteController = {
       body.innerHTML = items.map(a => `
         <tr>
           <td><span class="badge bg-success">${this.esc(a.application_ref||'\u2014')}</span></td>
-          <td class="fw-semibold small">${this.esc(a.child_full_name)}</td>
-          <td><span class="badge bg-light text-dark border">${this.esc(a.grade_applying)}</span></td>
-          <td class="small">${this.esc(a.parent_name)}</td>
-          <td class="small text-muted">${this.esc(a.parent_phone)}</td>
-          <td class="small text-muted">${boardMap[a.boarding_preference]||a.boarding_preference}</td>
+          <td class="fw-semibold small">${this.esc(a.child_full_name||'—')}</td>
+          <td><span class="badge bg-light text-dark border">${this.esc(a.grade_applying||'—')}</span></td>
+          <td class="small">${this.esc(a.parent_name||'—')}</td>
+          <td class="small text-muted">${this.esc(a.parent_phone||'—')}</td>
+          <td class="small text-muted">${this.esc(boardMap[a.boarding_preference]||a.boarding_preference||'—')}</td>
           <td>${this.badgeStatus(a.status)}</td>
           <td class="small text-muted">${this.fmtDate(a.created_at)}</td>
           <td class="text-end">
             <select class="form-select form-select-sm" style="width:130px;display:inline-block" onchange="wsUpdateAppStatus(${a.id}, this.value)">
-              ${['received','reviewing','assessment_scheduled','offer_sent','enrolled','declined','waitlisted'].map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}
+              ${['submitted','documents_pending','documents_verified','placement_offered','fees_pending','placement_test_required','waitlisted','enrolled','cancelled'].map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}
             </select>
           </td>
         </tr>`).join('');
@@ -777,12 +779,6 @@ const manageWebsiteController = {
       {k:'description',l:'Description',type:'textarea'},
       {k:'email',l:'Email',type:'text'},
       {k:'phone',l:'Phone',type:'text'},
-      {k:'display_order',l:'Order',type:'number'} ] },
-    steps:      { title: 'Admission Steps',     fields: [
-      {k:'step_number',l:'Step #',type:'number',req:1},
-      {k:'title',l:'Title',type:'text',req:1},
-      {k:'description',l:'Description',type:'textarea'},
-      {k:'icon',l:'Icon',type:'text'},
       {k:'display_order',l:'Order',type:'number'} ] },
     benefits:   { title: 'Careers Benefits',    fields: [
       {k:'title',l:'Title',type:'text',req:1},

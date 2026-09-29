@@ -114,20 +114,41 @@ const viewAttendanceController = {
     try {
       const response = await window.API.apiCall(`/attendance/expected-registers?date=${encodeURIComponent(dateInput.value)}`, "GET");
       const data = response?.data || response || {};
-      const rows = (Array.isArray(data.registers) ? data.registers : [])
+      const registers = (Array.isArray(data.registers) ? data.registers : [])
         .filter((row) => String(row.status || '').toLowerCase() !== 'not_required');
+      const grouped = new Map();
+      registers.forEach((row) => {
+        const key = String(row.stream_id || row.stream_name || 'unknown');
+        if (!grouped.has(key)) grouped.set(key, { ...row, sessions: [], expected_total: 0, marked_total: 0, states: [], teachers: new Set() });
+        const group = grouped.get(key);
+        group.sessions.push(String(row.session_name || row.session_code || ''));
+        group.expected_total += Number(row.expected_count || 0);
+        group.marked_total += Number(row.marked_count || 0);
+        group.states.push(String(row.status || 'scheduled').toLowerCase());
+        if (row.teacher_name) group.teachers.add(row.teacher_name);
+      });
+      const rows = [...grouped.values()].map((group) => {
+        const names = group.sessions.join(' ').toLowerCase();
+        const morning = /morning/.test(names), later = /afternoon|evening/.test(names);
+        group.coverage = morning && later ? 'Full day' : morning ? 'Morning' : later ? 'Afternoon / evening' : [...new Set(group.sessions)].join(' · ');
+        group.unmarked_total = Math.max(0, group.expected_total - group.marked_total);
+        const rank = { overdue: 6, missing: 6, not_marked: 6, open: 5, scheduled: 4, completed: 1, closed: 1 };
+        group.status = group.states.sort((a, b) => (rank[b] || 0) - (rank[a] || 0))[0] || 'scheduled';
+        group.teacher_label = [...group.teachers].join(', ');
+        return group;
+      });
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="6" class="text-muted">No attendance registers are required for this date.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" class="text-muted">No attendance registers are required for this date.</td></tr>';
         return;
       }
-      const labels = {scheduled: "Scheduled", open: "Open", overdue: "Overdue", not_marked: "Not marked", completed: "Completed", not_required: "Not required", closed: "Closed"};
-      const classes = {scheduled: "secondary", open: "primary", overdue: "warning", not_marked: "danger", completed: "success", not_required: "secondary", closed: "dark"};
+      const labels = {scheduled: "Scheduled", open: "Open", overdue: "Overdue", missing: "Missing register", not_marked: "Not marked", completed: "Completed", not_required: "Not required", closed: "Closed"};
+      const classes = {scheduled: "secondary", open: "primary", overdue: "warning", missing: "danger", not_marked: "danger", completed: "success", not_required: "secondary", closed: "dark"};
       body.innerHTML = rows.map((row) => {
         const status = row.status || "scheduled";
-        return `<tr><td>${this.escapeHtml(row.stream_name || "—")}</td><td>${this.escapeHtml(row.session_name || row.session_code || "—")}</td><td>${this.escapeHtml(row.expected_count ?? 0)}</td><td>${this.escapeHtml(row.marked_count ?? 0)}</td><td><span class="badge text-bg-${classes[status] || "secondary"}">${this.escapeHtml(labels[status] || status)}</span></td><td>${this.escapeHtml(row.teacher_name || (row.register_type === "boarding" ? "Boarding team" : "Unassigned"))}</td></tr>`;
+        return `<tr><td>${this.escapeHtml(row.stream_name || "—")}</td><td>${this.escapeHtml(row.coverage)}</td><td>${this.escapeHtml(row.expected_total)}</td><td>${this.escapeHtml(row.marked_total)}</td><td>${this.escapeHtml(row.unmarked_total)}</td><td><span class="badge text-bg-${classes[status] || "secondary"}">${this.escapeHtml(labels[status] || status)}</span></td><td>${this.escapeHtml(row.teacher_label || (row.register_type === "boarding" ? "Boarding team" : "Unassigned"))}</td></tr>`;
       }).join("");
     } catch (error) {
-      body.innerHTML = '<tr><td colspan="6" class="text-danger">Attendance registers could not be loaded.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="text-danger">Attendance registers could not be loaded.</td></tr>';
       console.error("Failed to load expected attendance registers", error);
     }
   },
@@ -600,13 +621,18 @@ const viewAttendanceController = {
       absent: summary.absent || 0,
       late: summary.late || 0,
       permission: summary.permission || 0,
+      unmarked: summary.unmarked || 0,
     });
+    const coverageSummary = document.getElementById('attendanceCoverageSummary');
+    if (coverageSummary) {
+      coverageSummary.textContent = `${Number(summary.total_days || 0)} learner school-days in scope: ${Number(summary.present || 0)} present, ${Number(summary.absent || 0)} absent, ${Number(summary.late || 0)} late, ${Number(summary.permission || 0)} on permission, ${Number(summary.unmarked || 0)} unmarked.`;
+    }
 
     const tbody = document.querySelector("#summaryTable tbody");
     if (tbody) {
       if (!students.length) {
         tbody.innerHTML =
-          '<tr><td colspan="10" class="text-center text-muted py-4">No attendance records found for the selected filters.</td></tr>';
+          '<tr><td colspan="11" class="text-center text-muted py-4">No attendance records found for the selected filters.</td></tr>';
       } else {
         tbody.innerHTML = students
           .map(
@@ -616,6 +642,7 @@ const viewAttendanceController = {
                   <td>${this.escapeHtml(student.student_name || "-")}</td>
                   <td>${this.renderStudentType(student.student_type_code, student.student_type)}</td>
                   <td>${student.total_days || 0}</td>
+                  <td>${student.unmarked || 0}</td>
                   <td>${student.present || 0}</td>
                   <td>${student.absent || 0}</td>
                   <td>${student.late || 0}</td>
@@ -921,6 +948,7 @@ const viewAttendanceController = {
     const absentCount = document.getElementById("absentCount");
     const lateCount = document.getElementById("lateCount");
     const permissionCount = document.getElementById("permissionCount");
+    const unmarkedCount = document.getElementById("unmarkedCount");
 
     if (avgAttendance) {
       avgAttendance.textContent = this.formatPercent(
@@ -938,6 +966,9 @@ const viewAttendanceController = {
     }
     if (permissionCount) {
       permissionCount.textContent = Number(summary.permission || 0);
+    }
+    if (unmarkedCount) {
+      unmarkedCount.textContent = Number(summary.unmarked || 0);
     }
   },
 
@@ -1193,6 +1224,7 @@ const viewAttendanceController = {
         student_name: row.student_name,
         student_type: row.student_type || row.student_type_code,
         total_days: row.total_days,
+        unmarked: row.unmarked,
         present: row.present,
         absent: row.absent,
         late: row.late,
@@ -1325,6 +1357,7 @@ const viewAttendanceController = {
         { key: 'student_name', label: 'Student Name' },
         { key: 'student_type', label: 'Student Type' },
         { key: 'total_days', label: 'Total Days' },
+        { key: 'unmarked', label: 'Unmarked' },
         { key: 'present', label: 'Present' },
         { key: 'absent', label: 'Absent' },
         { key: 'late', label: 'Late' },
@@ -1383,6 +1416,7 @@ const viewAttendanceController = {
         title: 'Attendance Summary',
         fields: [
           { label: 'Total Days', value: this.studentData.total_days || '—' },
+          { label: 'Unmarked', value: this.studentData.unmarked || 0 },
           { label: 'Present', value: this.studentData.present || '—' },
           { label: 'Absent', value: this.studentData.absent || '—' },
           { label: 'Late', value: this.studentData.late || '—' },

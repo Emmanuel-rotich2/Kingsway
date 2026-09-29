@@ -15,6 +15,8 @@ window.studentsManagementController = window.studentsManagementController || {
     transportStops: [],
   },
   editingId: null,
+  editingStudentTransport: false,
+  transportInitialState: null,
   bulkImportPreviewState: null,
   bulkImportPreviewToken: 0,
 
@@ -389,11 +391,28 @@ window.studentsManagementController = window.studentsManagementController || {
       }
       const route = document.getElementById("studentTransportRoute");
       if (route) route.innerHTML = '<option value="">Select route</option>' + this.data.transportRoutes.map(item => `<option value="${item.id}">${this.escapeHtml(item.name || item.route_name)}</option>`).join('');
-      const periods = Array.isArray(context.transport_periods) ? context.transport_periods : [];
-      const periodSelect = document.getElementById("studentTransportPeriod");
-      if (periodSelect && periods.length) {
-        periodSelect.innerHTML = periods.map(item => `<option value="${this.escapeHtml(item.code)}">${this.escapeHtml(item.label)}</option>`).join('');
-        periodSelect.value = periods.some(item => item.code === "term") ? "term" : periods[0].code;
+      const terms = Array.isArray(context.academic_year_terms) ? context.academic_year_terms : [];
+      const termSelect = document.getElementById("studentTransportStartTerm");
+      if (termSelect) {
+        termSelect.innerHTML = terms.map((term) => `<option value="${Number(term.id)}">${this.escapeHtml(term.name || term.code || `Term ${term.term_id}`)}</option>`).join("");
+        termSelect.value = String(context.current_term?.id || terms[0]?.id || "");
+      }
+      const unit = document.getElementById("studentTransportDurationUnit");
+      const duration = document.getElementById("studentTransportDuration");
+      if (unit && duration) {
+        const syncDuration = () => {
+          const termUnit = unit.value === "terms";
+          document.getElementById("studentTransportStartTermWrap")?.classList.toggle("d-none", !termUnit);
+          duration.disabled = unit.value === "academic_year";
+          if (unit.value === "academic_year") duration.value = "1";
+          duration.step = unit.value === "terms" || unit.value === "school_days" || unit.value === "weeks" ? "1" : "0.5";
+          duration.min = unit.value === "months" ? "0.5" : "1";
+          this.updateStudentTransportPeriod();
+        };
+        unit.onchange = syncDuration;
+        duration.oninput = () => this.updateStudentTransportPeriod();
+        if (termSelect) termSelect.onchange = () => this.updateStudentTransportPeriod();
+        syncDuration();
       }
       this.updateStudentTransportStops();
     } catch (error) {
@@ -406,6 +425,92 @@ window.studentsManagementController = window.studentsManagementController || {
     const stops = this.data.transportStops.filter(item => Number(item.route_id) === routeId && item.status !== "inactive").sort((a, b) => Number(a.sequence) - Number(b.sequence));
     const options = stops.length ? '<option value="">Select point</option>' + stops.map(item => `<option value="${item.id}">${this.escapeHtml(item.name)}</option>`).join('') : `<option value="">${routeId ? 'No points configured' : 'Select route first'}</option>`;
     ["studentPickupStop", "studentDropoffStop"].forEach(id => { const select = document.getElementById(id); if (select) select.innerHTML = options; });
+  },
+
+  updateStudentTransportPeriod: function () {
+    const context = this.data.importContext || {};
+    const unit = document.getElementById("studentTransportDurationUnit")?.value || "weeks";
+    const rawDuration = Number(document.getElementById("studentTransportDuration")?.value || 1);
+    const duration = unit === "months" ? Math.max(0.5, rawDuration) : Math.max(1, rawDuration);
+    const terms = Array.isArray(context.academic_year_terms) ? context.academic_year_terms : [];
+    const schoolDays = Array.isArray(context.school_day_dates) ? context.school_day_dates.slice().sort() : [];
+    const formatDate = (date) => date.toISOString().slice(0, 10);
+    const addDays = (dateString, count) => {
+      const date = new Date(`${dateString}T00:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + count);
+      return formatDate(date);
+    };
+    let startDate = "";
+    let endDate = "";
+    let count = 0;
+    let termId = null;
+    const today = new Date();
+    const currentDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (unit === "terms") {
+      const startIndex = terms.findIndex((term) => String(term.id) === String(document.getElementById("studentTransportStartTerm")?.value || ""));
+      if (startIndex >= 0) {
+        const selectedTerms = terms.slice(startIndex, startIndex + Math.trunc(duration));
+        if (selectedTerms.length === Math.trunc(duration)) {
+          startDate = selectedTerms[0].calendar_start_date || selectedTerms[0].opening_date || "";
+          endDate = selectedTerms[selectedTerms.length - 1].calendar_end_date || selectedTerms[selectedTerms.length - 1].closing_date || "";
+          count = selectedTerms.reduce((sum, term) => sum + Number(term.school_days || 0), 0);
+          termId = Number(selectedTerms[0].id);
+        }
+      }
+    } else if (unit === "academic_year") {
+      startDate = context.academic_year?.start_date || "";
+      endDate = context.academic_year?.end_date || "";
+      count = Number(context.academic_year?.school_days || 0);
+    } else {
+      const schoolDates = schoolDays.filter((date) => date >= currentDate);
+      startDate = schoolDates[0] || "";
+      if (unit === "school_days" || unit === "weeks") {
+        const requiredDays = Math.trunc(duration) * (unit === "weeks" ? 5 : 1);
+        endDate = schoolDates[requiredDays - 1] || "";
+        count = endDate ? requiredDays : 0;
+      } else if (unit === "months" && startDate) {
+        const wholeMonths = Math.floor(duration);
+        const fraction = duration - wholeMonths;
+        const start = new Date(`${startDate}T00:00:00Z`);
+        const originalDay = start.getUTCDate();
+        const monthStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + wholeMonths, 1));
+        const daysInTargetMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)).getUTCDate();
+        monthStart.setUTCDate(Math.min(originalDay, daysInTargetMonth));
+        let exclusiveEnd = monthStart;
+        if (fraction > 0) {
+          const daysInFractionMonth = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0)).getUTCDate();
+          exclusiveEnd = new Date(monthStart.getTime());
+          exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + Math.round(daysInFractionMonth * fraction));
+        }
+        endDate = addDays(formatDate(exclusiveEnd), -1);
+        count = schoolDays.filter((date) => date >= startDate && date <= endDate).length;
+      }
+    }
+    const start = document.getElementById("studentTransportStart");
+    const end = document.getElementById("studentTransportEnd");
+    const days = document.getElementById("studentTransportDays");
+    if (start) start.value = startDate;
+    if (end) end.value = endDate;
+    if (days) days.value = count;
+    this.transportPreview = { duration, unit, termId };
+  },
+
+  captureTransportState: function () {
+    const value = (id) => document.getElementById(id)?.value ?? "";
+    return {
+      enabled: Boolean(document.getElementById("usesSchoolTransport")?.checked),
+      route: value("studentTransportRoute"),
+      pickup: value("studentPickupStop"),
+      dropoff: value("studentDropoffStop"),
+      duration: value("studentTransportDuration"),
+      unit: value("studentTransportDurationUnit"),
+      term: value("studentTransportStartTerm"),
+      amount: value("studentTransportAmount"),
+      notes: value("studentTransportNotes"),
+      start: value("studentTransportStart"),
+      end: value("studentTransportEnd"),
+      schoolDays: value("studentTransportDays"),
+    };
   },
 
   toggleStudentTransport: function () {
@@ -646,51 +751,17 @@ window.studentsManagementController = window.studentsManagementController || {
         const studentPhoto = this.escapeHtml(this.photoUrl(s.photo_url));
         const studentName = this.escapeHtml(`${s.first_name || ""} ${s.middle_name || ""} ${s.last_name || ""}`.replace(/\s+/g, " ").trim() || "Unnamed learner");
 
-        const actions = [];
-        if (this.canPerformAction("view")) {
-          actions.push(`
-              <button class="btn btn-info btn-sm" onclick="studentsManagementController.viewStudent(${s.id})" title="View">
-                  <i class="bi bi-eye"></i>
-              </button>
-          `);
+        const menuActions = [];
+        if (this.canPerformAction("view")) menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.viewStudent(${Number(s.id)})"><i class="bi bi-eye me-2"></i>View</button>`);
+        if (this.canPerformAction("edit")) menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.editStudent(${Number(s.id)})"><i class="bi bi-pencil me-2"></i>Edit</button>`);
+        if (this.canPerformAction("edit") && s.status === "active") {
+          menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.deactivateStudent(${Number(s.id)})"><i class="bi bi-person-x me-2"></i>Deactivate</button>`);
+          menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.transferStudent(${Number(s.id)})"><i class="bi bi-arrow-left-right me-2"></i>Transfer</button>`);
         }
-        if (this.canPerformAction("edit")) {
-          actions.push(`
-              <button class="btn btn-warning btn-sm" onclick="studentsManagementController.editStudent(${s.id})" title="Edit">
-                  <i class="bi bi-pencil"></i>
-              </button>
-          `);
-        }
-        if (this.canPerformAction("delete")) {
-          actions.push(`
-              <button class="btn btn-danger btn-sm" onclick="studentsManagementController.deleteStudent(${s.id})" title="Delete">
-                  <i class="bi bi-trash"></i>
-              </button>
-          `);
-        }
-        if (this.canPerformAction("edit")) {
-          if (s.status === "active") {
-            actions.push(`
-              <button class="btn btn-outline-secondary btn-sm" onclick="studentsManagementController.deactivateStudent(${s.id})" title="Deactivate">
-                <i class="bi bi-person-x"></i>
-              </button>
-            `);
-            actions.push(`
-              <button class="btn btn-outline-info btn-sm" onclick="studentsManagementController.transferStudent(${s.id})" title="Transfer">
-                <i class="bi bi-arrow-left-right"></i>
-              </button>
-            `);
-          } else {
-            actions.push(`
-              <button class="btn btn-outline-success btn-sm" onclick="studentsManagementController.activateStudent(${s.id})" title="Activate">
-                <i class="bi bi-person-check"></i>
-              </button>
-            `);
-          }
-        }
-
-        const actionsHtml = actions.length
-          ? `<div class="btn-group btn-group-sm">${actions.join("")}</div>`
+        if (this.canPerformAction("edit") && s.status !== "active") menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.activateStudent(${Number(s.id)})"><i class="bi bi-person-check me-2"></i>Activate</button>`);
+        if (this.canPerformAction("delete")) menuActions.push(`<div class="dropdown-divider"></div><button class="dropdown-item text-danger" type="button" onclick="studentsManagementController.deleteStudent(${Number(s.id)})"><i class="bi bi-trash me-2"></i>Delete</button>`);
+        const actionsHtml = menuActions.length
+          ? `<div class="dropdown"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for ${studentName}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button><div class="dropdown-menu dropdown-menu-end">${menuActions.join("")}</div></div>`
           : '<span class="text-muted">No actions</span>';
         const entrySource = s.entry_source === "admission"
           ? '<span class="badge bg-primary">Admitted</span>'
@@ -790,9 +861,15 @@ window.studentsManagementController = window.studentsManagementController || {
       existingSection.style.display = isNew ? "none" : "block";
   },
 
-  showStudentModal: function (student = null) {
+  showStudentModal: async function (student = null) {
     this.editingId = student?.id || null;
     this.resetForm();
+    this.editingStudentTransport = Boolean(student?.transport_arrangements?.length);
+
+    // These controls are dependent dropdowns. Finish loading their options
+    // before setting saved values so an edit cannot race the form population.
+    if (student?.class_id) await this.loadStreamsForClass(student.class_id);
+    if (student?.transport_arrangements?.length) await this.loadTransportOptions();
 
     const modal = new bootstrap.Modal(document.getElementById("studentModal"));
     const title = document.getElementById("studentModalLabel");
@@ -804,12 +881,15 @@ window.studentsManagementController = window.studentsManagementController || {
       title.textContent = "Add Existing Student";
       this.bindImportFinancialInputs();
       this.refreshImportFeePreview();
+      this.updateStudentTransportPeriod();
     }
 
     modal.show();
   },
 
   resetForm: function () {
+    this.editingStudentTransport = false;
+    this.transportInitialState = null;
     const form = document.getElementById("studentForm");
     if (form) form.reset();
 
@@ -860,12 +940,7 @@ window.studentsManagementController = window.studentsManagementController || {
     document.getElementById("admissionNumber").readOnly = true;
     document.getElementById("studentClass").value = student.class_id || "";
 
-    if (student.class_id) {
-      this.loadStreamsForClass(student.class_id).then(() => {
-        document.getElementById("studentStream").value =
-          student.stream_id || "";
-      });
-    }
+    document.getElementById("studentStream").value = student.stream_id || "";
 
     document.getElementById("studentTypeId").value =
       student.student_type_id || "";
@@ -891,6 +966,19 @@ window.studentsManagementController = window.studentsManagementController || {
     // never invent an external sponsor name or type.
     const sponsorship = (student.active_sponsorships || [])[0] || null;
     if (sponsorship?.scholarship_program_id) {
+      const programs = this.data.importContext?.scholarship_programs || [];
+      if (!programs.some((program) => Number(program.id) === Number(sponsorship.scholarship_program_id))) {
+        const preservedProgram = {
+          id: Number(sponsorship.scholarship_program_id),
+          name: sponsorship.programme_name || `Existing programme ${sponsorship.scholarship_program_id}`,
+          coverage_type: sponsorship.coverage_type,
+          default_percentage: sponsorship.coverage_percentage,
+          default_amount: sponsorship.coverage_amount,
+        };
+        programs.push(preservedProgram);
+        const select = document.getElementById("schoolSponsorshipProgram");
+        if (select) select.add(new Option(preservedProgram.name, String(preservedProgram.id)));
+      }
       document.getElementById("schoolSponsorshipProgram").value = String(sponsorship.scholarship_program_id);
       document.getElementById("schoolSponsorshipPercentage").value = sponsorship.coverage_percentage ?? "";
       document.getElementById("schoolSponsorshipAmount").value = sponsorship.coverage_amount ?? "";
@@ -911,25 +999,77 @@ window.studentsManagementController = window.studentsManagementController || {
     const parent = (student.parents || [])[0] || null;
     if (parent) {
       document.getElementById("isNewParent").checked = false;
-      document.getElementById("existingParentId").value = String(parent.parent_id || "");
+      const parentId = String(parent.parent_id || parent.id || "");
+      const parentSelect = document.getElementById("existingParentId");
+      // The general parent picker is paginated. Preserve this student's
+      // linked parent even when that parent is outside the picker page.
+      if (parentSelect && parentId && !Array.from(parentSelect.options).some((option) => option.value === parentId)) {
+        const option = document.createElement("option");
+        option.value = parentId;
+        option.textContent = parent.full_name || [parent.first_name, parent.last_name].filter(Boolean).join(" ");
+        parentSelect.appendChild(option);
+      }
+      if (parentSelect) parentSelect.value = parentId;
       document.getElementById("guardianRelationship").value = parent.relationship || "parent";
+      const parentFields = {
+        parentFirstName: parent.first_name || "",
+        parentLastName: parent.last_name || "",
+        parentPhone1: parent.phone_1 || parent.phone || "",
+        parentPhone2: parent.phone_2 || "",
+        parentEmail: parent.email || "",
+        parentOccupation: parent.occupation || "",
+        parentAddress: parent.address || "",
+      };
+      Object.entries(parentFields).forEach(([id, value]) => {
+        const field = document.getElementById(id);
+        if (field) field.value = value;
+      });
     }
     this.toggleParentType();
 
     const transport = (student.transport_arrangements || [])[0] || null;
     if (transport) {
       document.getElementById("usesSchoolTransport").checked = true;
-      document.getElementById("studentTransportRoute").value = String(transport.route_id || "");
+      const routeSelect = document.getElementById("studentTransportRoute");
+      const routeId = String(transport.route_id || "");
+      if (routeSelect && routeId && !Array.from(routeSelect.options).some((option) => option.value === routeId)) {
+        routeSelect.add(new Option(transport.route_name || `Route ${routeId}`, routeId));
+      }
+      if (routeSelect) routeSelect.value = routeId;
       this.updateStudentTransportStops();
-      document.getElementById("studentPickupStop").value = String(transport.pickup_stop_id || "");
-      document.getElementById("studentDropoffStop").value = String(transport.dropoff_stop_id || "");
-      document.getElementById("studentTransportPeriod").value = transport.period_type || "term";
-      document.getElementById("studentTransportStart").value = transport.period_start || "";
-      document.getElementById("studentTransportEnd").value = transport.period_end || "";
+      [["studentPickupStop", transport.pickup_stop_id, transport.pickup_stop], ["studentDropoffStop", transport.dropoff_stop_id, transport.dropoff_stop]].forEach(([id, stopId, label]) => {
+        const select = document.getElementById(id);
+        const value = String(stopId || "");
+        if (select && value && !Array.from(select.options).some((option) => option.value === value)) {
+          select.add(new Option(label || `Point ${value}`, value));
+        }
+        if (select) select.value = value;
+      });
+      const unitByType = { day: "school_days", week: "weeks", month: "months", term: "terms", year: "academic_year" };
+      const labelMatch = String(transport.period_label || "").match(/^(\d+(?:\.\d+)?)\s*(school days?|weeks?|months?|terms?)/i);
+      const labelUnit = labelMatch ? labelMatch[2].toLowerCase().replace(/s$/, "") : "";
+      const unitByLabel = { "school day": "school_days", week: "weeks", month: "months", term: "terms" };
+      const durationUnit = labelMatch ? unitByLabel[labelUnit] : (unitByType[transport.period_type] || "months");
+      const durationValue = labelMatch ? Number(labelMatch[1]) : (durationUnit === "months" ? 1 : 1);
+      document.getElementById("studentTransportDurationUnit").value = durationUnit;
+      document.getElementById("studentTransportDuration").value = durationValue;
+      if (transport.academic_year_term_id) document.getElementById("studentTransportStartTerm").value = String(transport.academic_year_term_id);
+      document.getElementById("studentTransportDurationUnit").dispatchEvent(new Event("change"));
+      this.updateStudentTransportPeriod();
+      // Legacy assignments without entitlement rows retain the DB-derived
+      // window and actual stored school-day allocation when calendar rules
+      // cannot reconstruct their original duration exactly.
+      if (!transport.period_label && transport.period_start && transport.period_end) {
+        document.getElementById("studentTransportStart").value = transport.period_start;
+        document.getElementById("studentTransportEnd").value = transport.period_end;
+        if (transport.allocated_school_days != null) document.getElementById("studentTransportDays").value = transport.allocated_school_days;
+      }
       document.getElementById("studentTransportAmount").value = transport.entitlement_amount ?? transport.expected_amount ?? "";
+      document.getElementById("studentTransportDays").value = transport.allocated_school_days ?? "";
       document.getElementById("studentTransportNotes").value = transport.notes || "";
     }
     this.toggleStudentTransport();
+    this.transportInitialState = this.captureTransportState();
     this.refreshImportFeePreview();
     // refreshImportFeePreview supplies a live schedule but must not replace
     // the saved financial figures while editing an existing learner.
@@ -1097,11 +1237,17 @@ window.studentsManagementController = window.studentsManagementController || {
 
     let transportArrangement = null;
     if (document.getElementById("usesSchoolTransport")?.checked) {
+      const durationUnit = document.getElementById("studentTransportDurationUnit").value;
+      const preview = this.transportPreview || {};
       transportArrangement = {
         route_id: Number(document.getElementById("studentTransportRoute").value),
         pickup_stop_id: Number(document.getElementById("studentPickupStop").value),
         dropoff_stop_id: Number(document.getElementById("studentDropoffStop").value),
-        period_type: document.getElementById("studentTransportPeriod").value,
+        period_type: ({ school_days: "day", weeks: "week", months: "month", terms: "term", academic_year: "year" })[durationUnit],
+        duration_value: durationUnit === "academic_year" ? 1 : Number(document.getElementById("studentTransportDuration").value),
+        duration_unit: durationUnit,
+        academic_year_term_id: durationUnit === "terms" ? Number(document.getElementById("studentTransportStartTerm").value) : null,
+        label: durationUnit === "academic_year" ? "Full academic year" : `${Number(document.getElementById("studentTransportDuration").value)} ${durationUnit.replace("school_days", "school days")}`,
         period_start: document.getElementById("studentTransportStart").value,
         period_end: document.getElementById("studentTransportEnd").value,
         amount_due: Number(document.getElementById("studentTransportAmount").value),
@@ -1109,14 +1255,34 @@ window.studentsManagementController = window.studentsManagementController || {
         source_type: "subscription",
         notes: document.getElementById("studentTransportNotes").value.trim(),
       };
-      if (!transportArrangement.route_id || !transportArrangement.pickup_stop_id || !transportArrangement.dropoff_stop_id || !transportArrangement.period_start || !transportArrangement.period_end || transportArrangement.allocated_school_days < 1 || transportArrangement.amount_due < 0) {
+      if (this.editingId && this.transportInitialState && JSON.stringify(this.captureTransportState()) === JSON.stringify(this.transportInitialState)) {
+        transportArrangement = null;
+      }
+      const completeTransport = transportArrangement.route_id > 0
+        && transportArrangement.pickup_stop_id > 0
+        && transportArrangement.dropoff_stop_id > 0
+        && Boolean(transportArrangement.period_start)
+        && Boolean(transportArrangement.period_end)
+        && transportArrangement.allocated_school_days >= 1
+        && Number.isFinite(transportArrangement.amount_due)
+        && transportArrangement.amount_due >= 0;
+      const existingTransport = this.editingId && (this.editingStudentTransport || false);
+      if (!completeTransport && !existingTransport) {
         this.showError("Complete the transport route, both gate points, eligible dates and agreed charge");
         return;
       }
-      if (transportArrangement.period_end < transportArrangement.period_start) {
+      if (completeTransport && transportArrangement.period_end < transportArrangement.period_start) {
         this.showError("Transport eligibility end date cannot be before its start date");
         return;
       }
+      if (completeTransport && !document.getElementById("studentTransportAmount").value.trim()) {
+        this.showError("Enter the agreed transport charge for this subscription.");
+        return;
+      }
+      // Older assignments may predate entitlement dates/charges. An ordinary
+      // student profile edit must preserve them without trying to create a
+      // replacement entitlement from incomplete legacy data.
+      if (!completeTransport && existingTransport) transportArrangement = null;
     }
 
     // Persist the arrangement through the student add/update API so the form
@@ -1203,7 +1369,7 @@ window.studentsManagementController = window.studentsManagementController || {
       const resp = await window.API.students.get(id);
       const payload = this.unwrapPayload(resp);
       if (payload) {
-        this.showStudentModal(payload);
+        await this.showStudentModal(payload);
       }
     } catch (error) {
       this.showError("Failed to load student details");

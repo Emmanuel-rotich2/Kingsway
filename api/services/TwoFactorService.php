@@ -584,6 +584,29 @@ class TwoFactorService
         } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
     }
 
+    /** Disable every enrolled factor when a System Administrator manages recovery. */
+    public function administrativeDisable(int $targetUserId, int $actorUserId): void
+    {
+        if ($this->is2FARequiredByPolicy($targetUserId)) {
+            throw new \DomainException('2FA cannot be disabled while this account has a role that requires it.');
+        }
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare('DELETE FROM user_two_factor_methods WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_passkeys WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_passkey_challenges WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_2fa_backup_codes WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare('DELETE FROM user_2fa_otp_sessions WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare("UPDATE user_two_factor_challenges SET status='expired' WHERE user_id=? AND status='pending'")->execute([$targetUserId]);
+            $this->db->prepare('UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,NOW()) WHERE user_id=?')->execute([$targetUserId]);
+            $this->db->prepare("UPDATE user_sessions SET session_status='logged_out',logout_time=COALESCE(logout_time,NOW()) WHERE user_id=? AND session_status='active'")->execute([$targetUserId]);
+            $this->db->prepare("UPDATE users SET two_factor_enabled=0,two_factor_method='none',two_factor_secret=NULL,two_factor_verified_at=NULL,backup_codes_generated_at=NULL WHERE id=?")->execute([$targetUserId]);
+            $this->db->prepare("INSERT INTO user_two_factor_audit_events(user_id,event_type,method,success,ip_address,user_agent,metadata) VALUES(?,'administrative_disable','none',1,?,?,?)")
+                ->execute([$targetUserId, $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 512), json_encode(['actor_user_id' => $actorUserId])]);
+            $this->db->commit();
+        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
     public function setChallengeMethod(string $raw, int $userId, string $method): bool
     {
         if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
@@ -607,6 +630,7 @@ class TwoFactorService
         if (!$requiredRoles) return false;
 
         $roleIds = array_map('intval', array_filter(explode(',', $requiredRoles)));
+        if (!$roleIds) return false;
 
         $stmt = $this->db->prepare(
             "SELECT ur.role_id FROM user_roles ur

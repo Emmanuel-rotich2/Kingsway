@@ -9,6 +9,7 @@ const ManageUsersController = {
     roles: [],
     editingUserId: null,
     manageRolesUserId: null,
+    bulkRoleAction: "assign",
     initialized: false,
     eventsBound: false,
     initializationPromise: null,
@@ -93,6 +94,16 @@ const ManageUsersController = {
       bulkGrantBtn: document.getElementById("bulkGrantBtn"),
       bulkRevokeBtn: document.getElementById("bulkRevokeBtn"),
       bulkRoleBtn: document.getElementById("bulkRoleBtn"),
+      bulkRevokeRoleBtn: document.getElementById("bulkRevokeRoleBtn"),
+      bulkActivateBtn: document.getElementById("bulkActivateBtn"),
+      bulkDeactivateBtn: document.getElementById("bulkDeactivateBtn"),
+      bulkPasswordResetBtn: document.getElementById("bulkPasswordResetBtn"),
+      bulkMfaResetBtn: document.getElementById("bulkMfaResetBtn"),
+      bulkMfaEnableBtn: document.getElementById("bulkMfaEnableBtn"),
+      bulkMfaDisableBtn: document.getElementById("bulkMfaDisableBtn"),
+      bulkDeleteBtn: document.getElementById("bulkDeleteBtn"),
+      bulkAccountTypeSelect: document.getElementById("bulkAccountTypeSelect"),
+      bulkAccountTypeBtn: document.getElementById("bulkAccountTypeBtn"),
       bulkClearBtn: document.getElementById("bulkClearBtn"),
       tableHead: document.getElementById("userAccountsTableHead"),
       tableBody: document.getElementById("userAccountsTableBody"),
@@ -115,6 +126,7 @@ const ManageUsersController = {
       autoLockSwitch: document.getElementById("autoLockSwitch"),
       applyPhaseBtn: document.getElementById("applyPhaseBtn"),
       bulkRoleModalElement: document.getElementById("bulkRoleModal"),
+      bulkRoleTitle: document.getElementById("bulkRoleModalTitle"),
       bulkRoleSelect: document.getElementById("bulkRoleSelect"),
       bulkRoleCount: document.getElementById("bulkRoleCount"),
       bulkRoleApplyBtn: document.getElementById("bulkRoleApplyBtn"),
@@ -216,6 +228,23 @@ const ManageUsersController = {
     this.elements.bulkGrantBtn.addEventListener("click", () => this.openBulkGrant());
     this.elements.bulkRevokeBtn.addEventListener("click", () => this.openBulkRevoke());
     this.elements.bulkRoleBtn.addEventListener("click", () => this.openBulkRole());
+    this.elements.bulkRevokeRoleBtn?.addEventListener("click", () => this.openBulkRole("revoke"));
+    this.elements.bulkScopeBtn?.addEventListener("click", () => this.openBulkScope());
+    this.elements.bulkActivateBtn?.addEventListener("click", () => void this.runBulkAccountAction("status", { status: "active" }, "Activate the selected accounts?"));
+    this.elements.bulkDeactivateBtn?.addEventListener("click", () => void this.runBulkAccountAction("status", { status: "inactive" }, "Deactivate the selected accounts? Their active sessions will end."));
+    this.elements.bulkPasswordResetBtn?.addEventListener("click", () => void this.runBulkAccountAction("password_reset", {}, "Send password reset instructions to the selected accounts’ email addresses?"));
+    this.elements.bulkMfaResetBtn?.addEventListener("click", () => void this.runBulkAccountAction("mfa_reset", {}, "Reset MFA for the selected accounts? This revokes device factors and sessions, then requires email verification."));
+    this.elements.bulkMfaEnableBtn?.addEventListener("click", () => void this.runBulkAccountAction("mfa_enable", {}, "Enable email verification for selected accounts? Existing MFA devices and sessions will be reset."));
+    this.elements.bulkMfaDisableBtn?.addEventListener("click", () => void this.runBulkAccountAction("mfa_disable", {}, "Disable 2FA for selected accounts? Device factors and sessions will be revoked."));
+    this.elements.bulkDeleteBtn?.addEventListener("click", () => void this.runBulkAccountAction("delete", {}, "Permanently delete the selected accounts? Test accounts and their test data will be purged."));
+    this.elements.bulkAccountTypeBtn?.addEventListener("click", () => {
+      const type = this.elements.bulkAccountTypeSelect.value;
+      if (!type) {
+        this.notify("Choose an account type first.", "warning");
+        return;
+      }
+      void this.runBulkAccountAction("account_type", { account_type: type }, `Change the selected accounts to ${type}? Linked person and staff data scopes will be updated.`);
+    });
     if (this.elements.manageRolesSaveBtn) {
       this.elements.manageRolesSaveBtn.addEventListener("click", () => void this.saveManageRoles());
     }
@@ -495,6 +524,42 @@ const ManageUsersController = {
     );
   },
 
+  async runBulkAccountAction(action, data = {}, confirmation, explicitIds = null) {
+    let users = explicitIds
+      ? this.state.users.filter((user) => explicitIds.includes(Number(user.id ?? user.user_id ?? 0)))
+      : this.selectedUsers();
+    if (action === "mfa_disable") users = users.filter((user) => Number(user.two_factor_enabled || 0) === 1);
+    if (action === "mfa_enable") users = users.filter((user) => Number(user.two_factor_enabled || 0) !== 1);
+    const ids = [...new Set(users.map((user) => Number(user.id ?? user.user_id ?? 0)).filter((id) => id > 0))];
+    if (!ids.length) {
+      this.notify("No eligible accounts are selected for that action.", "warning");
+      return;
+    }
+    if (confirmation) {
+      const accepted = window.confirmAction
+        ? await window.confirmAction("Confirm account action", `${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`, { confirmText: "Continue", danger: action === "delete" || action === "mfa_disable" })
+        : window.confirm(`${confirmation}\n\n${ids.length} account${ids.length === 1 ? "" : "s"} selected.`);
+      if (!accepted) return;
+    }
+    const button = explicitIds ? null : document.activeElement;
+    if (button && "disabled" in button) button.disabled = true;
+    try {
+      const response = await window.API.users.bulkAction(ids, action, data);
+      const result = response?.data?.data || response?.data || response || {};
+      const updated = Array.isArray(result.updated) ? result.updated.length : 0;
+      const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+      const failed = Array.isArray(result.failed) ? result.failed.length : 0;
+      const firstFailure = result.failed?.[0]?.reason;
+      this.notify(`${updated} account${updated === 1 ? "" : "s"} updated${skipped ? `; ${skipped} skipped` : ""}${failed ? `; ${failed} failed${firstFailure ? ` (${firstFailure})` : ""}` : ""}.`, failed ? "warning" : "success");
+      if (!explicitIds) this.clearSelection();
+      await this.loadData();
+    } catch (error) {
+      this.notify(this.formatError(error, "The bulk account action failed."), "error");
+    } finally {
+      if (button && "disabled" in button) button.disabled = false;
+    }
+  },
+
   // ---------------------------------------------------------------------------
   // Bulk grant / revoke
   // ---------------------------------------------------------------------------
@@ -641,13 +706,17 @@ const ManageUsersController = {
   // Bulk role assignment
   // ---------------------------------------------------------------------------
 
-  openBulkRole() {
+  openBulkRole(action = "assign") {
+    this.state.bulkRoleAction = action;
     const users = this.selectedUsers();
     const count = users.length;
     if (!count) return;
     const roles = this.state.roles.filter((role) => Number(role.is_active ?? 1) === 1);
+    const verb = action === "revoke" ? "Revoke a role from" : "Assign a role to";
+    this.elements.bulkRoleTitle.textContent = action === "revoke" ? "Revoke role from selected accounts" : "Assign role to selected accounts";
+    this.elements.bulkRoleApplyBtn.textContent = action === "revoke" ? "Revoke role" : "Assign role";
     this.elements.bulkRoleCount.textContent =
-      `Assign a role to ${count} selected account${count === 1 ? "" : "s"}.`;
+      `${verb} ${count} selected account${count === 1 ? "" : "s"}.`;
     this.elements.bulkRoleSelect.innerHTML =
       `<option value="">Select a role</option>` +
       roles
@@ -664,8 +733,8 @@ const ManageUsersController = {
     const count = users.length;
     if (!count) return;
     this.elements.bulkScopeCount.textContent =
-      `Switch workspace for ${count} selected account${count === 1 ? "" : "s"}. Settings persist per account; test accounts stay money-safe (recordScope 'test').`;
-    this.elements.bulkScopeSelect.value = "both";
+      `Choose the data scope for ${count} selected account${count === 1 ? "" : "s"}.`;
+    this.elements.bulkScopeSelect.value = "";
     this.elements.bulkScopeModal.show();
   },
 
@@ -717,13 +786,15 @@ const ManageUsersController = {
     }
     this.elements.bulkRoleApplyBtn.disabled = true;
     try {
-      const result = await window.API.users.bulkAssignUsersToRole(roleId, ids);
+      const result = this.state.bulkRoleAction === "revoke"
+        ? await window.API.users.bulkRevokeUsersFromRole(roleId, ids)
+        : await window.API.users.bulkAssignUsersToRole(roleId, ids);
       this.elements.bulkRoleModal.hide();
       const data = result?.data || {};
-      const updated = Number(data.assigned_users || 0);
+      const updated = Number(this.state.bulkRoleAction === "revoke" ? data.revoked_users : data.assigned_users) || 0;
       const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
       this.notify(
-        `Role assigned to ${updated} account${updated === 1 ? "" : "s"}${skipped ? `; ${skipped} no longer exist` : ""}.`,
+        `Role ${this.state.bulkRoleAction === "revoke" ? "revoked from" : "assigned to"} ${updated || ids.length} account${(updated || ids.length) === 1 ? "" : "s"}${skipped ? `; ${skipped} skipped` : ""}.`,
         skipped ? "warning" : "success",
       );
       this.clearSelection();
@@ -1039,7 +1110,15 @@ const ManageUsersController = {
     const hasActiveGrant = ["scheduled", "active"].includes(
       String(user.test_access_status || "").toLowerCase(),
     );
+    const active = String(user.status || "").toLowerCase() === "active";
+    const twoFactorEnabled = Number(user.two_factor_enabled || 0) === 1;
     return `
+      <button type="button" class="dropdown-item" data-user-action="status" data-status="${active ? "inactive" : "active"}" data-user-id="${userId}" role="menuitem" ${isCurrentUser ? 'disabled title="You cannot change your own account status here"' : ""}>
+        <i class="fas ${active ? "fa-user-slash text-warning" : "fa-user-check text-success"}" aria-hidden="true"></i><span>${active ? "Deactivate account" : "Activate account"}</span>
+      </button>
+      <button type="button" class="dropdown-item" data-user-action="password-reset" data-user-id="${userId}" role="menuitem">
+        <i class="fas fa-key text-secondary" aria-hidden="true"></i><span>Send password reset</span>
+      </button>
       <button
         type="button"
         class="dropdown-item"
@@ -1059,6 +1138,12 @@ const ManageUsersController = {
         title="View or change all roles assigned to this user"
       >
         <i class="fas fa-user-tag text-secondary" aria-hidden="true"></i><span>Manage roles</span>
+      </button>
+      <button type="button" class="dropdown-item" data-user-action="mfa-enable" data-user-id="${userId}" role="menuitem" ${isCurrentUser || twoFactorEnabled ? 'disabled title="Use Account Settings for your own MFA; account is already enabled"' : ""}>
+        <i class="fas fa-shield-halved text-success" aria-hidden="true"></i><span>Enable 2FA by email</span>
+      </button>
+      <button type="button" class="dropdown-item" data-user-action="mfa-disable" data-user-id="${userId}" role="menuitem" ${isCurrentUser || !twoFactorEnabled ? 'disabled title="Use Account Settings for your own MFA; account has no enabled 2FA"' : ""}>
+        <i class="fas fa-shield-halved text-warning" aria-hidden="true"></i><span>Disable 2FA</span>
       </button>
       <button
         type="button"
@@ -1215,8 +1300,23 @@ const ManageUsersController = {
       return;
     }
 
-    if (button.dataset.userAction === "reset-mfa") {
-      await this.resetMfa(user);
+    if (button.dataset.userAction === "status") {
+      await this.runBulkAccountAction("status", { status: button.dataset.status }, `Set ${user.username || "this account"} to ${button.dataset.status}?`, [userId]);
+      return;
+    }
+
+    if (button.dataset.userAction === "password-reset") {
+      await this.runBulkAccountAction("password_reset", {}, `Send password reset instructions to ${user.email || "this account's email address"}?`, [userId]);
+      return;
+    }
+
+    if (["reset-mfa", "mfa-enable", "mfa-disable"].includes(button.dataset.userAction)) {
+      const action = button.dataset.userAction === "reset-mfa" ? "mfa_reset"
+        : (button.dataset.userAction === "mfa-enable" ? "mfa_enable" : "mfa_disable");
+      const prompt = action === "mfa_reset" ? "Reset MFA? Device factors and sessions will be revoked; email verification remains enabled."
+        : (action === "mfa_enable" ? "Enable email verification? Existing MFA devices and sessions will be reset."
+          : "Disable 2FA? Device factors and sessions will be revoked.");
+      await this.runBulkAccountAction(action, {}, prompt, [userId]);
       return;
     }
 
@@ -1238,22 +1338,6 @@ const ManageUsersController = {
       await this.loadData();
     } catch (error) {
       this.notify(this.formatError(error, "Failed to revoke test access."), "error");
-    }
-  },
-
-  async resetMfa(user) {
-    const userId = Number(user.id ?? user.user_id ?? 0);
-    const label = user.username || user.email || `user ${userId}`;
-    if (!window.confirm(`Reset MFA for ${label}?\n\nAuthenticator factors, passkeys, recovery codes and active sessions will be revoked. Email verification will remain enabled.`)) return;
-
-    this.showState(`Resetting MFA for ${label}...`, "warning");
-    try {
-      await window.API.apiCall("/twofactor/admin-reset", "POST", { user_id: userId });
-      this.notify("MFA reset completed. The user must sign in again with email verification.", "success");
-      this.hideState();
-    } catch (error) {
-      console.error("[ManageUsersController] MFA reset failed:", error);
-      this.showState(this.formatError(error, "MFA reset failed."), this.isForbidden(error) ? "warning" : "danger");
     }
   },
 

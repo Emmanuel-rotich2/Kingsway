@@ -183,12 +183,15 @@ if ($appBase === '.') $appBase = '';
       <div class="d-flex gap-2 mb-3">
         <select id="appStatusFilter" class="form-select form-select-sm" style="width:180px">
           <option value="">All statuses</option>
-          <option value="received">Received</option>
-          <option value="reviewing">Reviewing</option>
-          <option value="assessment_scheduled">Assessment Scheduled</option>
-          <option value="offer_sent">Offer Sent</option>
+          <option value="submitted">Submitted</option>
+          <option value="documents_pending">Documents Pending</option>
+          <option value="documents_verified">Documents Verified</option>
+          <option value="placement_offered">Placement Offered</option>
+          <option value="fees_pending">Fees Pending</option>
+          <option value="placement_test_required">Placement Test Required</option>
+          <option value="waitlisted">Waitlisted</option>
           <option value="enrolled">Enrolled</option>
-          <option value="declined">Declined</option>
+          <option value="cancelled">Cancelled</option>
         </select>
         <button class="btn btn-outline-success btn-sm" onclick="wsLoadApplications()">
           <i class="bi bi-arrow-clockwise"></i>
@@ -273,14 +276,13 @@ if ($appBase === '.') $appBase = '';
 
   <!-- ── TAB: STATIC CONTENT (9 generic tables) ─────────────────────────── -->
   <div id="tab-static" class="ws-tab-panel" style="display:none">
-    <p class="text-muted small mt-1 mb-3">School values, history, programs, facilities, departments, admission steps, benefits &amp; testimonials. Each row is editable inline; changes appear on the public site immediately. Leadership hierarchy is managed in its own section below.</p>
+    <p class="text-muted small mt-1 mb-3">School values, history, programs, facilities, departments, benefits &amp; testimonials. Each row is editable inline; changes appear on the public site immediately. Leadership hierarchy is managed in its own section below.</p>
     <div class="row g-4" id="staticTablesWrap">
       <div id="staticCard-values"    class="col-xl-6"></div>
       <div id="staticCard-history"   class="col-xl-6"></div>
       <div id="staticCard-programs"   class="col-xl-6"></div>
       <div id="staticCard-facilities" class="col-xl-6"></div>
       <div id="staticCard-departments"class="col-xl-6"></div>
-      <div id="staticCard-steps"      class="col-xl-6"></div>
       <div id="staticCard-benefits"   class="col-xl-6"></div>
       <div id="staticCard-testimonials" class="col-xl-6"></div>
     </div>

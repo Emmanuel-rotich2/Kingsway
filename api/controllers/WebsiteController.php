@@ -592,6 +592,10 @@ class WebsiteController extends BaseController
         if (!$this->hasPerm('website_applications_view')) return $this->forbidden('Access denied.');
         if (!$id) return $this->badRequest('Application ID required.');
         if (empty($data['status'])) return $this->badRequest('Status is required.');
+        $allowedStatuses = ['submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending', 'waitlisted', 'placement_test_required', 'enrolled', 'cancelled'];
+        if (!in_array((string) $data['status'], $allowedStatuses, true)) {
+            return $this->badRequest('Invalid admission application status.');
+        }
         return $this->handleResponse($this->manager->updateApplicationStatus($id, (string) $data['status']));
     }
 

@@ -57,13 +57,16 @@ const ExamResultsController = {
       if (yearId) params.academic_year_id = yearId;
       if (termId) params.term_id = termId;
       const payload = this.unwrap(await window.API.academic.listExamSchedules(params)) || {};
-      this.state.exams = (payload.exams || []).filter((exam) => Number(exam.assessment_id) > 0);
+      this.state.exams = (payload.exams || []).filter((exam) =>
+        Number(exam.assessment_id) > 0 &&
+        (!exam.exam_period_id || ['results_open', 'moderation'].includes(exam.exam_period_status))
+      );
       this.populateFilters();
       this.applyFilters();
       document.getElementById("examAcademicContext").textContent =
         window.AcademicContext?.getContextLabel?.() || "Current academic context";
     } catch (error) {
-      window.showNotification?.(error.message || "Unable to load published examinations", "error");
+      window.showNotification?.(error.message || "Unable to load examinations open for result entry", "error");
     }
   },
 

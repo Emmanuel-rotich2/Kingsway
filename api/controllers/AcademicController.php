@@ -1031,6 +1031,128 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+    // ==================== EXAM PERIOD WORKFLOW ====================
+
+    public function getExamPeriodsOptions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny([], [1, 4, 5, 6, 7, 8], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'deputy head - discipline'])) return $this->forbidden('Academic leadership access is required.');
+        return $this->examPeriodCall(fn($service) => $service->options(isset($data['term_id']) ? (int) $data['term_id'] : null));
+    }
+
+    public function getExamPeriods($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['assessments_view', 'academic_view', 'academic_manage'], [1, 4, 5, 6, 7, 8], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'deputy head - discipline', 'class teacher', 'subject teacher'])) return $this->forbidden('You do not have access to exam periods.');
+        return $this->examPeriodCall(fn($service) => $id ? $service->detail((int) $id) : $service->list());
+    }
+
+    public function postExamPeriods($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can create an exam period.');
+        return $this->examPeriodCall(fn($service) => $service->create($data), 'Exam period created.', true);
+    }
+
+    public function putExamPeriodsTimetable($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can manage the exam timetable.');
+        return $this->examPeriodCall(fn($service) => $service->saveTimetable((int) $id, (array) ($data['entries'] ?? [])));
+    }
+
+    /** POST /api/academic/exam-periods-ai-timetable-draft-queue */
+    public function postExamPeriodsAiTimetableDraftQueue($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can draft an exam timetable.');
+        if (!filter_var(\App\Config\Config::get('AI_ENABLED', false), FILTER_VALIDATE_BOOLEAN)
+            || trim((string) \App\Config\Config::get('AI_PROVIDER_BASE_URL', '')) === ''
+            || trim((string) \App\Config\Config::get('AI_MODEL', '')) === '') {
+            return $this->respond(null, 'AI timetable drafting is not enabled or configured for this deployment.', 503, false);
+        }
+        $periodId = (int) ($data['period_id'] ?? 0);
+        if ($periodId < 1) return $this->badRequest('period_id is required');
+        try {
+            $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), (int) ($this->getUserId() ?? 0));
+            $plan = $service->aiTimetableInput($periodId, (array) $data);
+            $queued = $this->contract(AiDraftService::class)->queue(
+                'academics.exam_timetable_planning', $this->aiAcademicContext(), $plan['input'],
+                ['subject_type' => 'exam_period_timetable', 'subject_id' => $periodId, 'scope' => 'class_level_exam_period', 'scope_hash' => $plan['scope_hash'], 'planning' => $plan['planning']]
+            );
+            return $this->accepted($queued, 'AI exam timetable draft queued. It will remain a proposal until you review and save it.');
+        } catch (RuntimeException|DomainException $e) {
+            $status = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), in_array($status, [400, 403, 404, 409, 422], true) ? $status : 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] exam timetable AI queue failed: ' . $e->getMessage());
+            return $this->serverError('Unable to queue the AI exam timetable draft.');
+        }
+    }
+
+    /** GET /api/academic/exam-periods-ai-timetable-drafts?period_id=X */
+    public function getExamPeriodsAiTimetableDrafts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can review this exam timetable draft.');
+        $periodId = (int) ($_GET['period_id'] ?? $data['period_id'] ?? 0);
+        if ($periodId < 1) return $this->badRequest('period_id is required');
+        try {
+            $pdo = $this->db->getConnection();
+            $drafts = $this->contract(AiDraftService::class)->listForReview($pdo, (int) ($this->getUserId() ?? 0), false, 'academics');
+            foreach ($drafts as $record) {
+                if (($record['workflow_id'] ?? '') !== 'academics.exam_timetable_planning'
+                    || ($record['metadata']['subject_type'] ?? '') !== 'exam_period_timetable'
+                    || (int) ($record['subject_id'] ?? 0) !== $periodId) continue;
+                $service = $this->contract(\App\API\Services\ExamPeriodService::class, $pdo, (int) ($this->getUserId() ?? 0));
+                $proposal = $service->materializeAiTimetableDraft($periodId, (array) ($record['metadata'] ?? []), (array) ($record['draft'] ?? []));
+                return $this->success(['draft_id' => (int) $record['id'], 'status' => $record['status'], 'title' => (string) ($record['draft']['title'] ?? ''), 'body' => (string) ($record['draft']['body'] ?? ''), 'next_steps' => (array) ($record['draft']['next_steps'] ?? []), 'unresolved_constraints' => $proposal['unresolved_constraints'], 'ready' => $proposal['ready'], 'entries' => $proposal['entries']], 'AI exam timetable draft retrieved');
+            }
+            return $this->success(['status' => 'pending', 'ready' => false, 'entries' => []], 'AI exam timetable draft is still processing');
+        } catch (RuntimeException|DomainException $e) {
+            $status = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), in_array($status, [400, 403, 404, 409, 422], true) ? $status : 422, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] exam timetable AI retrieval failed: ' . $e->getMessage());
+            return $this->serverError('Unable to retrieve the AI exam timetable draft.');
+        }
+    }
+
+    public function postExamPeriodsPublish($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can publish an exam timetable.');
+        return $this->examPeriodCall(fn($service) => $service->publish((int) $id));
+    }
+
+    public function postExamPeriodsOpenResults($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can open exam results entry.');
+        return $this->examPeriodCall(fn($service) => $service->openResults((int) $id));
+    }
+
+    public function getExamPeriodsResults($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_view', 'academic_manage', 'assessments_view'], [1, 4, 5, 6, 7, 8], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'deputy head - discipline'])) return $this->forbidden('School-wide result access requires academic leadership permission.');
+        return $this->examPeriodCall(fn($service) => $service->results((int) $id));
+    }
+
+    public function getExamPeriodsMyResults($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_view', 'assessments_view', 'results_view'], [], ['class teacher', 'subject teacher', 'teacher'])) return $this->forbidden('Teacher results are limited to streams and learning areas assigned to you for that term.');
+        return $this->examPeriodCall(fn($service) => $service->resultsForTeacher((int) $id));
+    }
+
+    private function examPeriodCall(callable $operation, string $message = 'Exam period data loaded.', bool $isCreated = false)
+    {
+        try {
+            $userId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            $service = $this->contract(\App\API\Services\ExamPeriodService::class, $this->db->getConnection(), $userId);
+            $data = $operation($service);
+            return $isCreated ? $this->created($data, $message) : $this->success($data, $message);
+        } catch (RuntimeException $e) {
+            $status = (int) $e->getCode();
+            if (!in_array($status, [400, 403, 404, 409, 422], true)) $status = 400;
+            return $this->respond(null, $e->getMessage(), $status, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] exam period workflow: ' . $e->getMessage());
+            return $this->serverError('Unable to process the exam period request.');
+        }
+    }
+
     // ==================== SUPERVISION ROSTER CRUD ====================
     // URLs: GET/POST/PUT/DELETE /api/academic/supervision-roster
     //       POST /api/academic/supervision-roster-auto-generate

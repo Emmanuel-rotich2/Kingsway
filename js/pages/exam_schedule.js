@@ -323,11 +323,11 @@ const ExamScheduleController = (() => {
             <td><span class="badge bg-${statusBadge(status)}">${formatStatus(status)}</span></td>
             <td>
               <div class="btn-group btn-group-sm">
-                ${state.canManageSchedules ? `
+                ${state.canManageSchedules && !exam.exam_period_id ? `
                 <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit">
                   <i class="bi bi-pencil"></i>
                 </button>` : ''}
-                ${state.canDeleteSchedules ? `
+                ${state.canDeleteSchedules && !exam.exam_period_id ? `
                 <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete">
                   <i class="bi bi-trash"></i>
                 </button>` : ''}
@@ -366,6 +366,10 @@ const ExamScheduleController = (() => {
     const modalEl = document.getElementById("examModal");
     const form = document.getElementById("examForm");
     if (!modalEl || !form) return;
+    if (!examId) {
+      showError("Create an exam period first, then schedule each stream learning area inside it.");
+      return;
+    }
 
     form.reset();
     document.getElementById("examId").value = "";
