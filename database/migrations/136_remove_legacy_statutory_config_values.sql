@@ -1,9 +1,0 @@
--- The normalized statutory rule tables are now the only source of truth.
-DELETE FROM payroll_configurations
-WHERE config_key IN (
-    'SHIF_RATE','NHIF_RATE','NSSF_RATE','NSSF_RATE_EMPLOYER',
-    'NSSF_MAX_CONTRIBUTION','NSSF_LOWER_EARNINGS_LIMIT',
-    'NSSF_UPPER_EARNINGS_LIMIT','PAYE_PERSONAL_RELIEF',
-    'TAX_RELIEF_MONTHLY','TAX_RELIEF_PERSONAL',
-    'HOUSING_LEVY_EMPLOYEE_RATE','HOUSING_LEVY_EMPLOYER_RATE'
-);
