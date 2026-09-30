@@ -6,6 +6,7 @@ use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
+use App\API\Services\Logger;
 use App\API\Services\TestAccountAccessService;
 use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\UsernameService;
@@ -605,13 +606,13 @@ class UsersAPI extends BaseAPI
             $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, label, is_primary, is_enabled, verified_at) VALUES (?, 'email', 'Account email', 1, 1, NULL) ON DUPLICATE KEY UPDATE is_enabled=1, is_primary=1")
                 ->execute([$userId]);
 
-            \App\API\Services\Logger::legacyError("User creation: inserted id=$userId");
+            \App\API\Services\Logger::info('users', "User creation: inserted id=$userId");
 
             // STEP 3: Assign PRIMARY role and copy its permissions
             // Only the primary role is assigned to user_roles (for consistency)
             $rolesAssigned = 0;
             $roleResult = $this->userRoleManager->assignRole($userId, $primaryRoleId);
-            \App\API\Services\Logger::legacyError("User creation: assignRole result=" . json_encode($roleResult));
+            \App\API\Services\Logger::info('users', "User creation: assignRole result=" . json_encode($roleResult));
             if ($roleResult['success']) {
                 $rolesAssigned++;
             } else {

@@ -210,12 +210,14 @@ class AuthMiddleware
         $authHeader = self::resolveBearerHeader();
 
         if (!$authHeader) {
-            \App\API\Services\Logger::legacyError('AuthMiddleware: No Authorization header found');
+            \App\API\Services\Logger::warning('auth', 'AuthMiddleware: No Authorization header found');
             self::deny(401, 'Missing Authorization header. Please ensure you are logged in and the token is being sent.');
         }
 
-        // Never log any part of an access token.
-        \App\API\Services\Logger::legacyError('AuthMiddleware: Authorization header found');
+        // Never log any part of an access token. A present header is the
+        // success path, so it is a debug trace — journalling it as an error on
+        // every authenticated request buried genuine faults under noise.
+        \App\API\Services\Logger::debug('auth', 'AuthMiddleware: Authorization header found');
         $token = str_replace('Bearer ', '', $authHeader);
         try {
             $decoded = JWT::decode(
