@@ -2991,7 +2991,7 @@ class FinanceAPI extends BaseAPI
 
             // Total staff
             [$sScope, $sParams] = DataScopeService::predicateFor('staff', 's');
-            $staffStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status='active' AND $sScope");
+            $staffStmt = $this->db->prepare("SELECT COUNT(*) FROM staff s WHERE s.status='active' AND $sScope");
             $staffStmt->execute($sParams);
             $totalStaff = $staffStmt->fetchColumn();
 

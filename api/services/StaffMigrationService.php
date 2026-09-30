@@ -1203,7 +1203,17 @@ PHP;
         return (bool)$setup->fetchColumn();
     }
     private function audit(int $uid,string $action,string $entity,int $eid,array $details=[],string $status='success'):void{\App\API\Includes\FileLogger::write('audit',['type'=>'audit','action'=>$action,'entity'=>$entity,'entity_id'=>$eid,'user_id'=>$uid,'ip'=>$_SERVER['REMOTE_ADDR']??null,'user_agent'=>substr($_SERVER['HTTP_USER_AGENT']??'',0,255),'details'=>$details,'status'=>$status]);}
-    private function rows(string $sql):array{return$this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);}
+    private function rows(string $sql, array $params = []):array
+    {
+        // Placeholders must go through prepare()/execute(). A bare query() with a
+        // bound placeholder is a hard PDO error under EMULATE_PREPARES=false.
+        if ($params === []) {
+            return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
     private function scalar(string $sql, array $params = []): mixed { $stmt = $this->db->prepare($sql); $stmt->execute($params); return $stmt->fetchColumn(); }
     private function assignableSchoolRoles(): array
     {
