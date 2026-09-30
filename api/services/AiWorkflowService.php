@@ -27,19 +27,19 @@ class AiWorkflowService
         $route = strtolower(trim($route));
         $module = strtolower(trim($module));
         $routeDomains = [
-            'admissions' => ['admission', 'enrollment', 'manage_students'],
-            'academics' => ['academic', 'scheme', 'lesson', 'assessment', 'timetable'],
-            'attendance' => ['attendance'], 'boarding' => ['boarding', 'roll_call', 'exeat'],
-            'transport' => ['transport'], 'inventory' => ['inventory', 'stock', 'requisition'],
-            'catering' => ['food', 'catering', 'meal'], 'maintenance' => ['maintenance', 'facility', 'equipment'],
-            'finance' => ['finance', 'payment', 'fee', 'reconciliation'],
-            'communications' => ['communication', 'message', 'sms', 'email', 'whatsapp'],
-            'staff' => ['staff', 'hr', 'leave', 'workload', 'onboarding', 'appraisal'],
-            'health' => ['health', 'sick', 'welfare', 'counsel'],
-            'counseling' => ['counsel', 'welfare', 'safeguard', 'case'],
-            'activities' => ['activit', 'sport', 'club', 'library', 'resource'],
-            'reports' => ['report', 'analytics'], 'system' => ['system', 'diagnostic', 'health', 'admin'],
-            'curriculum' => ['curriculum', 'scheme', 'lesson', 'assessment'],
+            'admissions' => ['admission', 'enrollment', 'manage_students', 'interview', 'placement', 'applicant'],
+            'academics' => ['academic', 'scheme', 'lesson', 'assessment', 'timetable', 'exam', 'cbc', 'rubric', 'coverage', 'curriculum', 'portfolio', 'grade'],
+            'attendance' => ['attendance', 'absen', 'late', 'register'], 'boarding' => ['boarding', 'roll_call', 'exeat', 'dorm', 'hostel'],
+            'transport' => ['transport', 'route', 'vehicle', 'fuel', 'manifest', 'driver'], 'inventory' => ['inventory', 'stock', 'requisition', 'store', 'asset', 'uniform'],
+            'catering' => ['food', 'catering', 'meal', 'menu', 'bakery'], 'maintenance' => ['maintenance', 'facility', 'equipment'],
+            'finance' => ['finance', 'payment', 'fee', 'reconciliation', 'budget', 'expense', 'payroll', 'ledger', 'arrear', 'invoice'],
+            'communications' => ['communication', 'message', 'sms', 'email', 'whatsapp', 'inbox', 'announcement', 'forum', 'outbox'],
+            'staff' => ['staff', 'hr', 'leave', 'workload', 'onboarding', 'appraisal', 'payslip'],
+            'health' => ['health', 'sick', 'welfare', 'counsel', 'clinic', 'nurse'],
+            'counseling' => ['counsel', 'welfare', 'safeguard', 'case', 'guidance'],
+            'activities' => ['activit', 'sport', 'club', 'library', 'resource', 'talent'],
+            'reports' => ['report', 'analytics', 'kpi', 'insight'], 'system' => ['system', 'diagnostic', 'health', 'admin', 'queue', 'log', 'audit', 'security'],
+            'curriculum' => ['curriculum', 'scheme', 'lesson', 'assessment', 'kicd', 'strand'],
         ];
         $roleNames = array_values(array_filter(array_map(static function ($role): string {
             if (is_array($role)) {
@@ -54,13 +54,44 @@ class AiWorkflowService
             $required = (string) ($workflow['permission'] ?? '');
             if ($required !== '' && !in_array('*', $permissions, true) && !in_array($required, $permissions, true)) return false;
             if ($roleNames !== [] && !self::roleMayUseDomain($roleNames, (string) ($workflow['domain'] ?? 'system'))) return false;
-            if ($route === '' || $route === 'dashboard') return true;
+            return true;
+        }));
+        $routeMatches = static function (array $workflow) use ($route, $module, $routeDomains): bool {
+            if ($route === '' || $route === 'dashboard') return false;
             $domain = strtolower((string) ($workflow['domain'] ?? 'system'));
             foreach ($routeDomains[$domain] ?? [$module] as $token) {
                 if ($token !== '' && str_contains($route, $token)) return true;
             }
             return false;
-        }));
+        };
+        $contextualCount = 0;
+        foreach ($visible as $workflow) {
+            if ($routeMatches($workflow)) {
+                $contextualCount++;
+            }
+        }
+        if ($contextualCount > 0) {
+            // A recognized workspace shows its domain assistance first and
+            // keeps the catalogue scoped to that domain (existing contract).
+            $visible = array_values(array_filter($visible, $routeMatches));
+            foreach ($visible as &$workflow) {
+                $workflow['contextual'] = true;
+            }
+            unset($workflow);
+        } elseif ($route !== '' && $route !== 'dashboard') {
+            // An unrecognized route must never hide every permitted workflow:
+            // surface everything the user may use, ranked with contextual
+            // metadata so the shell can still order its display.
+            foreach ($visible as &$workflow) {
+                $workflow['contextual'] = false;
+            }
+            unset($workflow);
+        } else {
+            foreach ($visible as &$workflow) {
+                $workflow['contextual'] = true;
+            }
+            unset($workflow);
+        }
         foreach ($visible as &$workflow) {
             $workflow['suggested_questions'] = $this->suggestedQuestions((string)($workflow['id'] ?? ''));
         }

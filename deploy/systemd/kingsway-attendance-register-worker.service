@@ -1,9 +1,0 @@
-[Unit]
-Description=Kingsway attendance register reconciliation
-After=network.target
-
-[Service]
-Type=oneshot
-User=www-data
-WorkingDirectory=/home/prof_angera/Projects/php_pages/Kingsway
-ExecStart=/usr/bin/php /home/prof_angera/Projects/php_pages/Kingsway/scripts/process_attendance_registers.php

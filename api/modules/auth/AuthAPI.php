@@ -318,16 +318,22 @@ class AuthAPI extends BaseAPI
             $tfa = new \App\API\Services\TwoFactorService();
             $userId = (int) ($userData['id'] ?? 0);
             $isTestUser = (int) ($userData['is_test_user'] ?? 0) === 1;
+            // `two_factor_enabled` is the single authoritative switch: only 0
+            // disables the second-factor step. $requiredMethod is a separate
+            // question - which channel can actually deliver a code.
+            $stepActive    = $tfa->isTwoFactorStepActive($userId);
             $requiredMethod = $tfa->getRequiredMethod($userId);
             $policyForced   = $tfa->is2FARequiredByPolicy($userId);
 
             $testMfaBypassAllowed = $isTestUser
-                && TestAccountAccessService::environment() === 'development';
+                && (new TestAccountAccessService($this->db))->mfaBypassAllowed($userId);
 
-            if (!$testMfaBypassAllowed && ($requiredMethod || $policyForced)) {
-                // For policy-forced users who haven't set up 2FA yet,
-                // return 'setup_required' so the frontend can redirect them.
-                if (!$requiredMethod && $policyForced) {
+            if (!$testMfaBypassAllowed && ($stepActive || $policyForced)) {
+                // The step is required - either the account flag is set, or
+                // school policy forces it - but no usable method exists to
+                // deliver a code (for example the 'none' sentinel). Never let
+                // the account through on a password alone: send it to setup.
+                if (!$requiredMethod) {
                     return [
                         'success' => true,
                         'status' => 'success',
@@ -365,13 +371,17 @@ class AuthAPI extends BaseAPI
                     'message' => 'Two-factor verification required.',
                 ];
             }
-            if ($testMfaBypassAllowed && ($requiredMethod || $policyForced)) {
+            if ($testMfaBypassAllowed && ($stepActive || $policyForced)) {
                 Logger::audit(
                     'test_mfa_bypass',
                     'user',
                     $userId,
                     'MFA was bypassed for an explicitly flagged test account.',
-                    ['username' => $userData['username'] ?? null, 'policy_forced' => $policyForced]
+                    [
+                        'username' => $userData['username'] ?? null,
+                        'flag_enabled' => $stepActive,
+                        'policy_forced' => $policyForced,
+                    ]
                 );
             }
             // ── end 2FA gate ──────────────────────────────────────────────

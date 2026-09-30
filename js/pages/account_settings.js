@@ -458,8 +458,8 @@ const accountSettings = {
             showNotification('Please fill in all password fields', 'warning');
             return;
         }
-        if (newPass.length < 10) {
-            showNotification('New password must be at least 10 characters', 'warning');
+        if (newPass.length < 6) {
+            showNotification('New password must be at least 6 characters', 'warning');
             return;
         }
         if (newPass !== confirm) {

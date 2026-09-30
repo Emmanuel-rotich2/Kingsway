@@ -800,7 +800,10 @@
         : [];
       const queryForm = $("#global-ai-assistant-query");
       const canAskReports = workflows.some((workflow) => workflow.id === "system.nlq_query");
-      if (queryForm) queryForm.hidden = !canAskReports;
+      // The governed agent assistant answers process/guidance questions for
+      // every authenticated staff member, so the form stays available even
+      // when this role has no report permissions.
+      if (queryForm) queryForm.hidden = false;
       const suggestions = $("#global-ai-assistant-suggestions");
       if (suggestions && workflows.length) {
         const questions = workflows.flatMap((workflow) => Array.isArray(workflow.suggested_questions) ? workflow.suggested_questions : []).slice(0, 5);
@@ -812,7 +815,9 @@
       }
 
       if (!workflows.length) {
-        content.innerHTML = '<p class="text-muted">No assistance is currently available for your permissions.</p>';
+        content.innerHTML = canAskReports
+          ? '<p class="text-muted">No assistance is currently available for your permissions.</p>'
+          : '<p class="text-muted">No module assistance matches this workspace yet, but you can still ask a question above — the assistant answers school-process and guidance questions for every staff member.</p>';
         return;
       }
 
@@ -820,14 +825,18 @@
         const domain = String(workflow.domain || "system");
         const target = aiWorkspaceRoutes[domain] || route || "dashboard";
         const implemented = workflow.status === "implemented";
+        const contextual = workflow.contextual !== false;
         const status = implemented ? "Available" : "Not yet available";
+        const contextualBadge = contextual
+          ? '<span class="badge text-bg-success-subtle text-success-emphasis border border-success-subtle me-1">For this workspace</span>'
+          : "";
         const action = implemented
           ? `<a class="btn btn-sm btn-outline-success" href="${escapeHtml((window.APP_BASE || "") + "/home.php?route=" + target)}">Open workspace</a>`
           : '<span class="small text-muted">This capability is registered in the roadmap but is not yet enabled.</span>';
         return `<div class="card border-0 shadow-sm mb-3">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-start gap-2">
-              <h6 class="mb-1">${escapeHtml(workflow.summary || workflow.id)}</h6>
+              <h6 class="mb-1">${contextualBadge}${escapeHtml(workflow.summary || workflow.id)}</h6>
               <span class="badge text-bg-light">${escapeHtml(status)}</span>
             </div>
             <p class="small text-muted mb-2">${escapeHtml(domain)} · ${escapeHtml(workflow.action_level || "assist")}</p>
@@ -853,16 +862,92 @@
       const question = String(input?.value || "").trim();
       if (!question || !answer) return;
       answer.innerHTML =
-        '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Working out the best governed report…</div>';
+        '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div>';
       try {
-        const payload = await window.API?.reports?.askNlq?.(question);
+        const payload = await window.API?.dashboard?.agentAssist?.(
+          question,
+          String(window.REQUESTED_ROUTE || ""),
+          "dashboard"
+        );
         const result = payload?.data !== undefined ? payload.data : payload;
-        answer.innerHTML = renderAiAnswer(result);
-      } catch (error) {
-        answer.innerHTML =
-          '<div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>';
+        answer.innerHTML = renderAiAgentAnswer(result);
+      } catch (agentError) {
+        // Fall back to the governed reports NLQ assistant when the agent
+        // layer is unavailable (older deployments, provider outage).
+        try {
+          const payload = await window.API?.reports?.askNlq?.(question);
+          const result = payload?.data !== undefined ? payload.data : payload;
+          answer.innerHTML = renderAiAnswer(result);
+        } catch (error) {
+          answer.innerHTML =
+            '<div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>';
+        }
       }
     });
+  }
+
+  function renderAiAgentAnswer(result) {
+    if (!result || typeof result !== "object") {
+      return '<div class="alert alert-warning small mb-0">No answer was returned.</div>';
+    }
+    if (result.status === "unavailable") {
+      return `<div class="alert alert-warning small mb-0">${escapeHtml(
+        result.answer?.body || "The assistant is not available right now."
+      )}</div>`;
+    }
+    if (result.status !== "answered" || !result.answer) {
+      return '<div class="alert alert-info small mb-0">The assistant could not answer that question.</div>';
+    }
+    const agent = result.agent || {};
+    const toolsUsed = Array.isArray(result.tools_used) ? result.tools_used : [];
+    const nextSteps = Array.isArray(result.answer.next_steps) && result.answer.next_steps.length
+      ? `<ul class="small mb-2">${result.answer.next_steps
+          .map((step) => `<li>${escapeHtml(String(step))}</li>`)
+          .join("")}</ul>`
+      : "";
+    const tools = toolsUsed.length
+      ? `<span class="small text-muted">Grounded via: ${toolsUsed
+          .map((tool) => escapeHtml(String(tool)))
+          .join(", ")}</span>`
+      : "";
+    const escalation = result.answer.escalation_required
+      ? '<div class="alert alert-warning small mt-2 mb-0">This needs a human decision — the assistant cannot act on it.</div>'
+      : "";
+    const followUps = Array.isArray(result.answer.suggested_questions) && result.answer.suggested_questions.length
+      ? `<div class="d-flex flex-wrap gap-1 mt-2">${result.answer.suggested_questions
+          .map(
+            (question) =>
+              `<button type="button" class="btn btn-sm btn-outline-secondary ai-followup-question">${escapeHtml(
+                String(question)
+              )}</button>`
+          )
+          .join("")}</div>`
+      : "";
+    const rendered = `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+        <h6 class="mb-0">${escapeHtml(result.answer.title || "Assistant")}</h6>
+        <span class="badge text-bg-light">${escapeHtml(agent.name || "Agent")}</span>
+      </div>
+      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(result.answer.body || "")}</p>
+      ${nextSteps}
+      ${tools}
+      ${escalation}
+      ${followUps}
+    </div></div>`;
+    requestAnimationFrame(() => {
+      document
+        .querySelectorAll("#global-ai-assistant-answer .ai-followup-question")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const input = $("#global-ai-assistant-question");
+            if (input) {
+              input.value = button.textContent;
+              input.focus();
+            }
+          })
+        );
+    });
+    return rendered;
   }
 
   function renderAiAnswer(result) {

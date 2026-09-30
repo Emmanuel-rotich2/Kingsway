@@ -284,6 +284,21 @@ class StaffController extends BaseController
         $staffTypes = $pdo->query("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC);
         $staffCategories = $pdo->query("SELECT id,staff_type_id,category_name AS name FROM staff_categories WHERE is_active=1 ORDER BY category_name")->fetchAll(\PDO::FETCH_ASSOC);
         $supervisors = $pdo->query("SELECT s.id,s.staff_no,CONCAT_WS(' ',p.first_name,p.last_name) AS name FROM staff s JOIN persons p ON p.id=s.person_id WHERE s.status='active' AND s.data_scope='live' ORDER BY p.last_name,p.first_name")->fetchAll(\PDO::FETCH_ASSOC);
+        // The employment position is a governed catalogue, not free text. Send
+        // the active options plus this role's default so the form can never
+        // offer a retired label that the server would reject.
+        $positions = \App\API\Services\StaffPositionCatalog::list($pdo, true);
+        $defaultPosition = $schoolAdminRole
+            ? \App\API\Services\StaffPositionCatalog::defaultForRole($pdo, (int)$schoolAdminRole['id'])
+            : null;
+        $positionRoleIds = [];
+        foreach ($positions as $positionRow) {
+            $positionRoleIds[(int)$positionRow['id']] = array_values(array_filter(array_map(
+                'intval',
+                explode(',', (string)($positionRow['role_ids'] ?? ''))
+            )));
+        }
+        unset($positionRow);
         $invitationsQuery = $pdo->prepare("
             SELECT u.id AS user_id, u.username, u.status AS user_status,
                    u.force_password_change AS setup_required,
@@ -346,6 +361,9 @@ class StaffController extends BaseController
             'staff_types' => $staffTypes,
             'staff_categories' => $staffCategories,
             'supervisors' => $supervisors,
+            'positions' => $positions,
+            'position_role_ids' => $positionRoleIds,
+            'default_position' => $defaultPosition ? (string)$defaultPosition['name'] : null,
             'invitations' => $invitations,
             'role' => $schoolAdminRole,
         ]);
@@ -357,13 +375,16 @@ class StaffController extends BaseController
         if (!$this->userHasRole('System Administrator')) {
             return $this->forbidden('Only a System Administrator may invite a School Administrator.');
         }
-        $required = ['first_name', 'last_name', 'email', 'department_id', 'position', 'employment_date', 'contract_type', 'staff_type_id', 'staff_category_id'];
+        $required = ['first_name', 'last_name', 'email', 'department_id', 'employment_date', 'contract_type', 'staff_type_id', 'staff_category_id'];
         $missing = array_values(array_filter($required, static fn($key) => !isset($data[$key]) || trim((string)$data[$key]) === ''));
         if ($missing) return $this->badRequest('Enter the administrator identity and school-owned employment assignment.', ['fields' => $missing]);
         $data['first_name'] = trim((string)$data['first_name']);
         $data['last_name'] = trim((string)$data['last_name']);
         $data['email'] = strtolower(trim((string)$data['email']));
-        $data['position'] = \App\API\Services\StaffPositionCatalog::normalize((string)$data['position']);
+        // Optional: when blank the position catalogue default for the School
+        // Administrator role is used, so the form never depends on a legacy
+        // free-text job title that may have been retired from the catalogue.
+        $data['position'] = \App\API\Services\StaffPositionCatalog::normalize((string)($data['position'] ?? ''));
         $data['employment_date'] = trim((string)$data['employment_date']);
         $data['contract_type'] = strtolower(trim((string)$data['contract_type']));
         $data['staff_type_id'] = filter_var($data['staff_type_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -401,6 +422,40 @@ class StaffController extends BaseController
             $supervisorCheck->execute([$supervisorId]);
             if (!$supervisorCheck->fetchColumn()) return $this->badRequest('Choose an active supervisor or leave the field blank.');
         }
+
+        // Resolve the School Administrator role and the employment position
+        // BEFORE opening the transaction. The job title must be an active
+        // `staff_positions` catalogue entry compatible with the Administration
+        // classification and this role, otherwise the caller gets an
+        // actionable 400 instead of a rolled-back 500 from deep inside the
+        // transaction. A blank title falls back to the role's catalogue
+        // default, so retired legacy labels can never block an invitation.
+        $schoolAdminRoleLookup = $pdo->prepare(
+            "SELECT id FROM roles
+             WHERE LOWER(TRIM(name))='school administrator'
+               AND is_active=1 AND scope='school' AND is_system=0
+             LIMIT 1"
+        );
+        $schoolAdminRoleLookup->execute();
+        $schoolAdminRoleId = (int)$schoolAdminRoleLookup->fetchColumn();
+        if ($schoolAdminRoleId < 1) {
+            return $this->badRequest('The active School Administrator role is not configured.');
+        }
+        $catalog = \App\API\Services\StaffPositionCatalog::class;
+        try {
+            if ($position === '') {
+                $fallback = $catalog::defaultForRole($pdo, $schoolAdminRoleId, $staffTypeId, $staffCategoryId);
+                if (!$fallback) {
+                    return $this->badRequest('No active employment position is configured for the School Administrator role. Ask the System Administrator to add one to the school position catalogue.');
+                }
+                $position = (string)$fallback['name'];
+            } else {
+                $position = $catalog::assertActive($pdo, $position, $staffTypeId, $staffCategoryId, $schoolAdminRoleId);
+            }
+            $positionId = $catalog::resolveId($pdo, $position);
+        } catch (RuntimeException $positionError) {
+            return $this->badRequest($positionError->getMessage(), ['field' => 'position']);
+        }
         // Keep staff assignment fields out of UsersAPI's flattened payload;
         // that legacy path enforces payroll eligibility during account creation.
         unset(
@@ -417,6 +472,9 @@ class StaffController extends BaseController
         if ($lock !== 1) return $this->conflict('Another School Administrator invitation is being processed.');
         try {
             $pdo->beginTransaction();
+            // Re-verify inside the transaction: the role or the position could
+            // have been retired between validation and the write, and the
+            // invitation must never land against a deactivated role/position.
             $schoolAdminRole = $pdo->prepare(
                 "SELECT id FROM roles
                  WHERE LOWER(TRIM(name))='school administrator'
@@ -424,9 +482,14 @@ class StaffController extends BaseController
                  LIMIT 1"
             );
             $schoolAdminRole->execute();
-            $schoolAdminRoleId = (int)$schoolAdminRole->fetchColumn();
-            if ($schoolAdminRoleId < 1) {
+            $lockedSchoolAdminRoleId = (int)$schoolAdminRole->fetchColumn();
+            if ($lockedSchoolAdminRoleId !== $schoolAdminRoleId) {
                 throw new \RuntimeException('The active School Administrator role is not configured.');
+            }
+            $activePosition = $pdo->prepare('SELECT id FROM staff_positions WHERE id=? AND is_active=1');
+            $activePosition->execute([$positionId]);
+            if ((int)$activePosition->fetchColumn() !== $positionId) {
+                throw new \RuntimeException('The selected employment position is no longer active. Choose an active school position.');
             }
             $data['role_id'] = $schoolAdminRoleId;
             $data['role_ids'] = [$schoolAdminRoleId];
@@ -454,13 +517,15 @@ class StaffController extends BaseController
             $pdo->prepare("INSERT INTO staff (person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,data_scope,supervisor_id,salary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'active','live',NULLIF(?,0),?,NOW(),NOW())")
                 ->execute([(int)$created['person_id'], $staffTypeId, $staffCategoryId, $staffNo, $position, $contractType, $employmentDateValue, $supervisorId, null]);
             $staffId = (int)$pdo->lastInsertId();
-            $positionId = \App\API\Services\StaffPositionCatalog::resolveId($pdo, $position);
             $pdo->prepare("INSERT INTO staff_employment_profiles
                 (staff_id,department_id,position_id,position,employment_date,contract_type,status,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,'active',NOW(),NOW())")
                 ->execute([$staffId, (int)$departmentId, $positionId, $position, $employmentDateValue, $contractType]);
-            $pdo->prepare("INSERT INTO staff_department_assignments(staff_id,department_id,role,effective_from,created_at) VALUES(?,?,?, ?,NOW())")
-                ->execute([$staffId, (int)$departmentId, $position, $employmentDateValue]);
+            // `role` on the department binding is a vestigial column; the job
+            // title lives on staff_employment_profiles. Match every other
+            // writer (StaffMigrationService) and keep it NULL.
+            $pdo->prepare("INSERT INTO staff_department_assignments(staff_id,department_id,role,effective_from,created_at) VALUES(?,?,NULL,?,NOW())")
+                ->execute([$staffId, (int)$departmentId, $employmentDateValue]);
             $migration = $this->contract('App\\API\\Services\\StaffMigrationService', $pdo);
             $invitation = $migration->resendInvitation((int)$created['user_id'], (int)($this->getUserId() ?? 0));
             if (empty($invitation['queued'])) throw new \RuntimeException('The account was created but the invitation could not be queued.');

@@ -89,6 +89,10 @@ class CsrfMiddleware
         'realtime/worker',
         'realtime/cleanup',
         'realtime/sync-projection',
+        // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
+        'dashboard/agent-digest-worker',
+        'dashboard/insight-brief-queue',
+        'dashboard/kicd-policy-watch',
         'mcp',
     ];
 
