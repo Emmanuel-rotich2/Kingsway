@@ -143,6 +143,10 @@ class AuthMiddleware
             'realtime/worker',
             'realtime/cleanup',
             'realtime/sync-projection',
+            // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
+            'dashboard/agent-digest-worker',
+            'dashboard/insight-brief-queue',
+            'dashboard/kicd-policy-watch',
             // MCP authenticates with its own expiring machine token inside
             // McpController, never with a staff JWT.
             'mcp',

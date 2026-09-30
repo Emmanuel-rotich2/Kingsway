@@ -29,6 +29,39 @@ final class TestAccountAccessService
             : 'development';
     }
 
+    /**
+     * Whether an explicitly flagged test account may sign in without a
+     * second factor.
+     *
+     * A test account exists to exercise the application; its email address and
+     * phone number are deliberately fictitious, so any emailed or texted code
+     * is undeliverable and the account can never complete the challenge. The
+     * two-factor gate therefore cannot apply to these accounts in any
+     * environment, otherwise a test account is permanently locked out of the
+     * production host.
+     *
+     * This is deliberately narrow: it requires `is_test_user = 1` AND an
+     * allowed access context, so a real staff account can never reach it. The
+     * decision remains reversible through the
+     * `security.test_account_mfa_bypass` school setting, and every use is
+     * journaled by the caller as `test_mfa_bypass`.
+     */
+    public function mfaBypassAllowed(int $userId): bool
+    {
+        $context = $this->contextForUser($userId);
+        if (!$context) return false;
+        if ((int) ($context['is_test_user'] ?? 0) !== 1) return false;
+        if (empty($context['access_allowed'])) return false;
+
+        $stmt = $this->db->prepare("SELECT setting_value FROM school_settings WHERE setting_key = 'security.test_account_mfa_bypass' LIMIT 1");
+        $stmt->execute();
+        $configured = $stmt->fetchColumn();
+        if ($configured === false || $configured === null || trim((string)$configured) === '') {
+            return true; // Bypass is on unless an administrator turns it off.
+        }
+        return in_array(strtolower(trim((string)$configured)), ['1', 'true', 'yes', 'on', 'enabled'], true);
+    }
+
     public function contextForUser(int $userId): ?array
     {
         $this->expireDueGrants($userId);

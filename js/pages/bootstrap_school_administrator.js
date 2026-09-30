@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  const state = { invitations: [], loading: false };
+  const state = { invitations: [], loading: false, positions: [], positionRoleIds: {}, defaultPosition: "", roleId: 0, positionTouched: false };
   const el = (id) => document.getElementById(id);
   const rows = (response) => response?.data || response || {};
   const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
@@ -64,7 +64,47 @@
     }).join("");
   }
 
+  /**
+   * The employment position is a governed catalogue, not free text. Offer only
+   * the active positions that the server will actually accept for the selected
+   * staff classification and the School Administrator system role, and keep
+   * the role default selected until the operator picks something else.
+   */
+  function renderPositionOptions() {
+    const select = el("bootstrapPosition");
+    if (!select) return;
+    const typeSelect = el("bootstrapStaffType");
+    const categorySelect = el("bootstrapStaffCategory");
+    const staffTypeId = Number(typeSelect?.value || 0);
+    const staffCategoryId = Number(categorySelect?.value || 0);
+    const allowed = state.positions.filter((item) => {
+      const typeOk = !item.staff_type_id || Number(item.staff_type_id) === staffTypeId;
+      const categoryOk = !item.staff_category_id || Number(item.staff_category_id) === staffCategoryId;
+      const roleIds = state.positionRoleIds[String(item.id)] || state.positionRoleIds[item.id] || [];
+      const roleOk = !roleIds.length || !state.roleId || roleIds.includes(state.roleId);
+      return typeOk && categoryOk && roleOk;
+    });
+    const previous = select.value;
+    const preferred = state.positionTouched && previous ? previous : state.defaultPosition;
+    // The position is optional: an empty value means "use the role default",
+    // so the control is never disabled and never blocks submission.
+    select.disabled = false;
+    select.innerHTML = '<option value="">Use the role default position</option>' + allowed.map((item) => {
+      const label = item.default_role_ids && String(item.default_role_ids).split(",").includes(String(state.roleId))
+        ? `${item.name} (default for this role)`
+        : item.name;
+      return `<option value="${escapeHtml(item.name)}">${escapeHtml(label)}</option>`;
+    }).join("");
+    const desired = allowed.some((item) => item.name === preferred) ? preferred : "";
+    select.value = desired;
+  }
+
   function populateEmploymentReferences(response) {
+    state.positions = Array.isArray(response.positions) ? response.positions : [];
+    state.positionRoleIds = response.position_role_ids || {};
+    state.defaultPosition = response.default_position || "";
+    state.roleId = Number(response.role?.id || 0);
+
     const supervisorSelect = el("bootstrapSupervisor");
     const previousSupervisor = supervisorSelect.value;
     supervisorSelect.innerHTML = '<option value="">No supervisor assigned</option>' +
@@ -83,9 +123,17 @@
       const categories = (response.staff_categories || []).filter((item) => Number(item.staff_type_id) === typeId);
       categorySelect.innerHTML = '<option value="">Select category</option>' + categories.map((item) => `<option value="${Number(item.id)}">${escapeHtml(item.name)}</option>`).join("");
       if ([...categorySelect.options].some((option) => option.value === previousCategory)) categorySelect.value = previousCategory;
+      renderPositionOptions();
     };
     populateCategories();
     typeSelect.onchange = populateCategories;
+    categorySelect.onchange = () => renderPositionOptions();
+    const positionSelect = el("bootstrapPosition");
+    if (positionSelect && !positionSelect.dataset.wired) {
+      positionSelect.dataset.wired = "1";
+      positionSelect.addEventListener("change", () => { state.positionTouched = true; });
+    }
+    renderPositionOptions();
   }
 
   async function refreshInvitations(showMessage = false) {

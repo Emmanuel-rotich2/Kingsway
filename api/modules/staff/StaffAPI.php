@@ -10,6 +10,7 @@ use PDO;
 use Exception;
 use InvalidArgumentException;
 use DateTimeImmutable;
+use Throwable;
 use function App\API\Includes\formatResponse;
 use \App\API\Modules\users\UsersAPI;
 class StaffAPI extends BaseAPI {
@@ -1112,7 +1113,36 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            $positionName = \App\API\Services\StaffPositionCatalog::normalize((string)($data['position'] ?? 'Staff'));
+            // The position is a governed catalogue value. When the caller omits
+            // it, derive it from the assigned role's default instead of writing
+            // a hardcoded 'Staff' label that may not be valid for that role.
+            $positionName = \App\API\Services\StaffPositionCatalog::normalize((string)($data['position'] ?? ''));
+            if ($positionName === '') {
+                $primaryRoleId = 0;
+                foreach ($roleIds as $candidateRoleId) {
+                    if ((int)$candidateRoleId > 0) { $primaryRoleId = (int)$candidateRoleId; break; }
+                }
+                if ($primaryRoleId > 0) {
+                    try {
+                        $defaultPosition = \App\API\Services\StaffPositionCatalog::defaultForRole(
+                            $this->db,
+                            $primaryRoleId,
+                            isset($data['staff_type_id']) ? (int)$data['staff_type_id'] : null,
+                            isset($data['staff_category_id']) ? (int)$data['staff_category_id'] : null
+                        );
+                    } catch (Throwable $positionError) {
+                        $defaultPosition = null; // Fall through to the managed check below.
+                    }
+                    if ($defaultPosition) $positionName = (string)$defaultPosition['name'];
+                }
+            }
+            if ($positionName === '') {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active employment position is configured for the selected role. Choose a position managed by the School Administrator.',
+                    'fields' => ['position']
+                ], 400);
+            }
 
             // Map staff_type string to staff_type_id if provided
             $staffTypeId = null;

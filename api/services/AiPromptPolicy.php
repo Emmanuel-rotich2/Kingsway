@@ -41,6 +41,8 @@ class AiPromptPolicy
         'counseling.welfare_review' => ['report_date', 'total_cases', 'open_cases', 'urgent_cases', 'follow_ups_due', 'sessions_count', 'student_case_count', 'staff_case_count', 'follow_up_intent'],
         'curriculum.kicd_change_interpretation' => ['source', 'report_date', 'audience', 'previous_hash', 'current_hash', 'content'],
         'system.nlq_query' => ['question', 'audience'],
+        'system.agent_triage' => ['question', 'audience', 'agents', 'route', 'module'],
+        'system.agent_chat' => ['question', 'audience', 'agent_id', 'route', 'module', 'behavior_hints', 'tools', 'tool_results'],
         'system.operations_brief' => ['report_date', 'queue_total', 'queue_pending', 'queue_processing', 'queue_stale', 'queue_failed', 'queue_done', 'queue_cancelled', 'queue_dead_letter', 'oldest_processing_minutes', 'oldest_pending_minutes', 'worker_freshness_minutes', 'error_total_24h', 'error_critical_24h', 'error_category_count', 'error_signatures', 'follow_up_intent'],
         'system.security_brief' => ['report_date', 'failed_login_count', 'failed_login_identities', 'permission_denied_count', 'security_incident_count', 'top_signals', 'follow_up_intent'],
     ];

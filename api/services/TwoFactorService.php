@@ -36,6 +36,20 @@ class TwoFactorService
     private const BACKUP_CODE_COUNT = 10;
     private const BACKUP_CODE_LENGTH = 8;
 
+    /**
+     * Methods that can actually deliver or verify a code during login.
+     *
+     * `users.two_factor_method` is an ENUM that also carries the sentinel
+     * value 'none' (meaning "flag set, but no usable method"). That sentinel
+     * is truthy in PHP, so it must never be treated as a required method: it
+     * would gate the login and then fail to store a challenge, because
+     * `user_two_factor_challenges.method` does not accept 'none'.
+     */
+    public const DELIVERABLE_METHODS = ['totp', 'email', 'sms', 'whatsapp', 'passkey'];
+
+    /** Fallback used when a stored method is missing or not deliverable. */
+    private const FALLBACK_METHOD = 'email';
+
     public function __construct(?PDO $db = null)
     {
         $this->db = $db ?? Database::getInstance()->getConnection();
@@ -388,9 +402,17 @@ class TwoFactorService
 
         $methods = $this->db->prepare("SELECT method, label, is_primary, verified_at FROM user_two_factor_methods WHERE user_id = ? AND is_enabled = 1 ORDER BY is_primary DESC, id ASC");
         $methods->execute([$userId]);
+        $flagEnabled = (bool) ($row['two_factor_enabled'] ?? 0);
+        $storedMethod = strtolower(trim((string)($row['two_factor_method'] ?? '')));
+        $deliverable = in_array($storedMethod, self::DELIVERABLE_METHODS, true);
         return [
-            'enabled' => (bool) ($row['two_factor_enabled'] ?? 0),
-            'method' => $row['two_factor_method'] ?? null,
+            // `two_factor_enabled` is the authoritative switch: only 0 turns the
+            // second-factor step off. `method_configured` reports separately
+            // whether a usable channel exists, so the interface can prompt for
+            // enrolment when the step is on but nothing can deliver a code.
+            'enabled' => $flagEnabled,
+            'method_configured' => $deliverable,
+            'method' => $deliverable ? $storedMethod : null,
             'methods' => $methods->fetchAll(PDO::FETCH_ASSOC),
             'verified_at' => $row['two_factor_verified_at'] ?? null,
             'backup_codes_generated_at' => $row['backup_codes_generated_at'] ?? null,
@@ -460,12 +482,29 @@ class TwoFactorService
 
     public function createLoginChallenge(int $userId, string $method): string
     {
+        // `user_two_factor_challenges.method` is a strict ENUM. Storing a
+        // non-member (for example the 'none' sentinel) aborts the INSERT, so
+        // the challenge is never persisted and every follow-up request reports
+        // "Invalid or expired 2FA challenge". Normalise before writing.
+        $method = strtolower(trim($method));
+        if (!in_array($method, self::DELIVERABLE_METHODS, true)) {
+            $method = self::FALLBACK_METHOD;
+        }
         $raw = bin2hex(random_bytes(32));
         $this->db->prepare("UPDATE user_two_factor_challenges SET status='expired' WHERE user_id=? AND status='pending'")
             ->execute([$userId]);
-        $stmt = $this->db->prepare("INSERT INTO user_two_factor_challenges (user_id, challenge_hash, method, expires_at, ip_address, user_agent) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), ?, ?)");
+        $stmt = $this->db->prepare("INSERT INTO user_two_factor_challenges (user_id, challenge_hash, method, expires_at, ip_address, user_agent) VALUES (?, ?, ?, " . $this->challengeExpiryExpression() . ", ?, ?)");
         $stmt->execute([$userId, hash('sha256', $raw), $method, $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 512)]);
         return $raw;
+    }
+
+    /**
+     * Expiry expression for a login challenge. It is expressed in SQL so the
+     * deadline uses the database clock rather than the application clock.
+     */
+    protected function challengeExpiryExpression(): string
+    {
+        return 'DATE_ADD(NOW(), INTERVAL ' . self::OTP_TTL_MINUTES . ' MINUTE)';
     }
 
     private function challenge(string $raw, ?int $userId = null, array $statuses = ['pending']): ?array
@@ -528,7 +567,41 @@ class TwoFactorService
 
         if (!$row || !$row['two_factor_enabled']) return null;
 
-        return $row['two_factor_method'] ?? null;
+        // 'none' is the catalogued "no method" sentinel, and any value outside
+        // the deliverable set cannot produce a code. Returning it would gate
+        // the login on a challenge that can never be stored or delivered.
+        $method = strtolower(trim((string)($row['two_factor_method'] ?? '')));
+        if ($method !== '' && in_array($method, self::DELIVERABLE_METHODS, true)) return $method;
+
+        // The stored method is unusable, but the account may still have a
+        // factor enrolled. Prefer a real enrolled channel over forcing the
+        // account back through setup. The flag above remains the only thing
+        // that switches the second factor off.
+        $enrolled = $this->db->prepare(
+            "SELECT method FROM user_two_factor_methods
+             WHERE user_id = ? AND is_enabled = 1
+               AND method IN ('" . implode("','", self::DELIVERABLE_METHODS) . "')
+             ORDER BY is_primary DESC, id ASC LIMIT 1"
+        );
+        $enrolled->execute([$userId]);
+        $fallback = strtolower(trim((string)($enrolled->fetchColumn() ?: '')));
+        return in_array($fallback, self::DELIVERABLE_METHODS, true) ? $fallback : null;
+    }
+
+    /**
+     * Whether the second-factor step is active for this account.
+     *
+     * `users.two_factor_enabled` is the single authoritative switch: only a
+     * value of 0 disables the step. When the flag is set but no method can
+     * deliver a code, the step is still active and the account must enrol
+     * rather than being let through on a password alone.
+     */
+    public function isTwoFactorStepActive(int $userId): bool
+    {
+        $stmt = $this->db->prepare("SELECT two_factor_enabled FROM users WHERE id = ? AND status = 'active'");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return (bool) ($row['two_factor_enabled'] ?? 0);
     }
 
     public function getEnabledMethods(int $userId): array

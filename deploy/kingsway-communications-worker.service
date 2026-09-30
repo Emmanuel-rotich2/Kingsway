@@ -1,8 +1,0 @@
-[Unit]
-Description=Kingsway communication outbox worker
-After=apache2.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=/home/prof_angera/Projects/php_pages/Kingsway/config/.env
-ExecStart=/usr/bin/curl --fail --silent --show-error --location --insecure --http1.1 --max-time 50 -X POST ${BASE_URL}/api/communications/process-outbox -H X-Kingsway-Worker-Secret:${COMMUNICATION_WORKER_SECRET} -H Content-Type:application/json --data '{"limit":25}'
