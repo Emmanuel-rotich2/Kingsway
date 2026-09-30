@@ -273,6 +273,59 @@ class AiAgentService
         return JobQueue::push(self::JOB_TYPE, $base, 0, 3, 60);
     }
 
+    /**
+     * Execute ONE allowlisted governed tool for the Python AI platform's
+     * agents (POST /api/dashboard/agent-tool). The recorded operator is
+     * re-authorized against the tool's workflow before execution - the
+     * calling agent never bypasses permissions, and the payload shape is
+     * bounded to exactly {operator:{user_id,permissions}, tool, tool_input}.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    public function executeToolRequest(PDO $pdo, array $payload): array
+    {
+        $operator = is_array($payload['operator'] ?? null) ? $payload['operator'] : [];
+        $userId = (int) ($operator['user_id'] ?? 0);
+        $permissions = array_values(array_map('strval', (array) ($operator['permissions'] ?? [])));
+        if ($userId < 1) {
+            throw new DomainException('A recorded operator is required.', 422);
+        }
+        $tool = (string) ($payload['tool'] ?? '');
+        $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG];
+        if (!in_array($tool, $allowedTools, true)) {
+            return ['status' => 'unknown_tool'];
+        }
+        $toolInput = is_array($payload['tool_input'] ?? null) ? $payload['tool_input'] : [];
+        if ($tool === AiAgentRegistry::TOOL_NLQ) {
+            $toolInput = ['question' => mb_substr((string) ($toolInput['question'] ?? ''), 0, self::MAX_QUESTION_CHARS)];
+        } elseif ($tool === AiAgentRegistry::TOOL_INSIGHT_BRIEF) {
+            $cadence = (string) ($toolInput['cadence'] ?? 'daily');
+            $toolInput = ['cadence' => in_array($cadence, self::VALID_CADENCES, true) ? $cadence : 'daily'];
+        } else {
+            $toolInput = [];
+        }
+        $context = [
+            'user_id' => $userId,
+            'roles' => [],
+            'permissions' => $permissions,
+            'effective_permissions' => $permissions,
+            'request_id' => mb_substr((string) ($payload['request_id'] ?? 'ai-agent-tool'), 0, 100),
+            'audience' => 'staff',
+            'route' => '',
+            'module' => 'dashboard',
+        ];
+        $result = $this->executeTool($pdo, $context, $tool, $toolInput, $permissions, (string) $context['request_id']);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'agent_tool_executed',
+            'operator_id' => $userId,
+            'tool' => $tool,
+            'outcome' => (string) ($result['status'] ?? 'ok'),
+        ]);
+        return $result;
+    }
+
     /** Read the latest cached agent result/digest for a staff member. */
     public function cachedResult(int $userId): ?array
     {
