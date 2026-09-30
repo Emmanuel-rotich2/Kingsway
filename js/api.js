@@ -1837,7 +1837,7 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/id-cards-bulk-generate": null,
   "/staff/id-cards-issue": null,
   "/staff/import-existing": "staff_import_manage",
-  "/staff-migration/reference-data": "staff_import",
+  "/staff-migration/reference-data": ["staff_view", "staff_import"],
   "/staff-migration/batches": "staff_import",
   "/staff-migration/batch": "staff_import",
   "/staff-migration/template": "staff_import",

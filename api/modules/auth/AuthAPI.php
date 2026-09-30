@@ -638,8 +638,8 @@ class AuthAPI extends BaseAPI
         if (empty($userData['permissions'])) {
             $permsRes = $this->userPermissionManager->getEffectivePermissions($userId);
             $userData['permissions'] = $permsRes['data'] ?? [];
-            \App\API\Services\Logger::legacyError("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
-            \App\API\Services\Logger::legacyError("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
+            \App\API\Services\Logger::debug('auth', "Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
+            \App\API\Services\Logger::debug('auth', "First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
         }
 
         $userRoles = $userData['roles'] ?? [];
@@ -689,7 +689,7 @@ class AuthAPI extends BaseAPI
             }
         }
         $userPermissions = array_values(array_filter(array_unique($userPermissions)));
-        \App\API\Services\Logger::legacyError("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
+        \App\API\Services\Logger::debug('auth', "userPermissions extracted: " . count($userPermissions) . " items");
 
         // NOTE: Per-item menu delegation (the legacy `role_delegations_items` /
         // `user_delegations_items` tables) has been retired. Those tables no
@@ -1025,7 +1025,7 @@ class AuthAPI extends BaseAPI
             }
         }
 
-        \App\API\Services\Logger::legacyError("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
+        \App\API\Services\Logger::info('auth', "Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
 
         // If no sidebar items found, try to get first accessible dashboard
         if (empty($sidebarItems)) {

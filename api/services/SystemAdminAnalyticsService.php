@@ -616,35 +616,70 @@ final class SystemAdminAnalyticsService
         ];
     }
 
+    /**
+     * Pure transform: journal entries -> health error rows.
+     *
+     * Kept separate from the I/O so the severity contract is unit-testable
+     * without a database or a writable journal.
+     *
+     * @param array<int,array<string,mixed>> $entries Raw `errors` journal entries.
+     * @return array{errors:array<int,array<string,mixed>>,count:int}
+     */
+    public static function healthErrorRows(array $entries, ?string $since = null, int $limit = 50): array
+    {
+        $since = $since ?? date('Y-m-d H:i:s', time() - 86400);
+        $rows = [];
+        $count = 0;
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            // Only genuine fault severities count. Benign success traces (a
+            // token header being present, a successful login, a created user)
+            // are journaled as debug/info and must never surface as errors.
+            $level = strtolower((string) ($entry['level'] ?? ''));
+            if (!in_array($level, ['error', 'critical'], true)) {
+                continue;
+            }
+            $createdAt = (string) ($entry['timestamp'] ?? '');
+            if ($createdAt !== '' && $createdAt < $since) {
+                continue;
+            }
+            $count++;
+            if (count($rows) >= $limit) {
+                continue;
+            }
+            $rows[] = [
+                'id' => null,
+                'error_type' => (string) ($entry['type'] ?? $level),
+                'message' => (string) ($entry['message'] ?? ''),
+                'file_path' => $entry['source_file'] ?? null,
+                'line_number' => $entry['source_line'] ?? null,
+                'user_id' => $entry['user_id'] ?? null,
+                'ip_address' => $entry['ip'] ?? $entry['ip_address'] ?? null,
+                'created_at' => $createdAt,
+            ];
+        }
+        return ['errors' => $rows, 'count' => $count];
+    }
+
     public function getHealthErrors(): array
     {
+        // Errors are journaled to the `errors` file by Logger (see the logging
+        // rule: logs are file journals, never database tables). The former
+        // system_error_logs table was dropped in migration 042, so it must not
+        // be queried here — that produced a 1146 on every health refresh while
+        // the dashboard still reported zero errors.
         $errors = [];
         $errorCount = 0;
         try {
-            $errorsStmt = $this->db->query(
-                "SELECT
-                    id,
-                    error_type,
-                    message,
-                    file_path,
-                    line_number,
-                    user_id,
-                    ip_address,
-                    created_at
-                 FROM system_error_logs
-                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                 ORDER BY created_at DESC
-                 LIMIT 50"
-            );
-            $errors = $errorsStmt->fetchAll(PDO::FETCH_ASSOC);
-            $errorCount = $this->scalar(
-                "SELECT COUNT(*)
-                 FROM system_error_logs
-                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
-            );
+            $extracted = self::healthErrorRows(\App\API\Includes\FileLogger::recent('errors', 5000));
+            $errors = $extracted['errors'];
+            $errorCount = $extracted['count'];
         } catch (\Throwable $e) {
-            // system_error_logs was dropped; errors now live in the errors log
-            // file and the frontend reads them directly.
+            // A missing or unreadable journal must not break the health page.
+            $errors = [];
+            $errorCount = 0;
         }
 
         $incidentsStmt = $this->db->query(
