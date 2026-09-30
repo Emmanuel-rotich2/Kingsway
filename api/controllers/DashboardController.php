@@ -17,6 +17,8 @@ use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
 use App\API\Services\AiAgentService;
 use App\API\Services\AiBehaviorProfiler;
+use App\API\Services\AiPythonBridge;
+use App\API\Services\AiProviderException;
 use App\API\Services\AiWorkflowService;
 use App\API\Services\AiInsightOrchestrator;
 use App\API\Services\CurriculumPolicyWatchAgent;
@@ -99,12 +101,13 @@ class DashboardController extends BaseController
 
     /**
      * POST /api/dashboard/agent-assist
-     * Governed multi-agent staff assistant: deterministic routing (or one
-     * bounded triage call) selects a domain agent, which may call ONLY
-     * allowlisted governed tools (reports.nlq, reports.insight_brief,
-     * assistant.catalog). Every tool is re-authorized with the caller's own
-     * permissions before deterministic execution; the provider never writes
-     * records. Structured answer: title/body/next_steps/suggested_questions.
+     * Governed multi-agent staff assistant. The Python AI platform
+     * (AiPythonBridge) is the PRIMARY engine when configured - all agent
+     * routing, provider calls, tool loops and behaviour personalization
+     * run there, freeing PHP workers after a single bounded relay. The
+     * PHP-native AiAgentService remains as the resilience path so a
+     * Python redeployment never takes the assistant down. Frontend
+     * contract is identical either way.
      */
     public function postAgentAssist($id = null, $data = [], $segments = [])
     {
@@ -117,28 +120,80 @@ class DashboardController extends BaseController
         if ($question === '' || mb_strlen($question) > 500) {
             return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
         }
+        $context = [
+            'user_id' => $userId,
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
+            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+        ];
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+
+            // PRIMARY: the Python AI platform.
+            $bridge = $this->contract(AiPythonBridge::class);
+            if ($bridge->available()) {
+                $result = $bridge->assist($context, $question);
+                return $this->success($result, 'Agent answer prepared');
+            }
+
+            // Resilience: the PHP-native governed agent loop.
             $result = $this->contract(AiAgentService::class)->assist(
                 $this->getDb()->getConnection(),
-                [
-                    'user_id' => $userId,
-                    'roles' => $this->user['roles'] ?? [],
-                    'permissions' => $permissions,
-                    'effective_permissions' => $permissions,
-                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
-                    'audience' => 'staff',
-                    'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
-                    'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
-                ],
+                $context,
                 $question
             );
             return $this->success($result, 'Agent answer prepared');
+        } catch (AiProviderException $e) {
+            // Python platform down mid-redeploy: degrade to the PHP engine
+            // rather than failing the staff member's question.
+            try {
+                $result = $this->contract(AiAgentService::class)->assist(
+                    $this->getDb()->getConnection(),
+                    $context,
+                    $question
+                );
+                return $this->success($result, 'Agent answer prepared');
+            } catch (\Throwable $inner) {
+                \App\API\Services\Logger::legacyError('[DashboardController] agent assist failed: ' . $inner->getMessage());
+                return $this->serverError('The assistant could not answer right now');
+            }
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[DashboardController] agent assist failed: ' . $e->getMessage());
             return $this->serverError('The assistant could not answer right now');
+        }
+    }
+
+    /**
+     * POST /api/dashboard/agent-tool
+     * Worker-secret service endpoint called by the Python AI platform's
+     * agents for governed school data. The RECORDED operator context is
+     * re-authorized against the tool's workflow inside PHP before any
+     * governed service runs - the model never touches school data and
+     * this endpoint is never browser-facing.
+     */
+    public function postAgentTool($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->respond(null, 'Invalid worker credential', 403, false);
+        }
+        $payload = is_array($data) ? $data : [];
+        try {
+            $result = $this->contract(AiAgentService::class)->executeToolRequest(
+                $this->getDb()->getConnection(),
+                $payload
+            );
+            return $this->success($result, 'Agent tool executed');
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent tool failed: ' . $e->getMessage());
+            return $this->serverError('The governed tool could not run');
         }
     }
 
