@@ -1472,7 +1472,7 @@ const ManageUsersController = {
             id="userPassword"
             name="password"
             type="password"
-            minlength="10"
+            minlength="6"
             maxlength="128"
             autocomplete="new-password"
             ${editing ? "" : "required"}

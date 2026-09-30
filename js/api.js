@@ -1680,6 +1680,7 @@ const ENDPOINT_PERMISSIONS = {
   "/system/ai-readiness": "system_view",
   "/system/ai-provider-health": "system_view",
   "/dashboard/ai-assistant-catalog": null,
+  "/dashboard/agent-assist": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
@@ -7460,6 +7461,11 @@ window.API = {
 
   // Dashboard endpoints — one canonical namespace for all role dashboards.
   dashboard: {
+    // Governed multi-agent staff assistant (triage -> allowlisted tools ->
+    // structured answer). Server owns routing and per-tool authorization.
+    agentAssist: async (question, route = "", module = "dashboard") =>
+      apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
+
     // System Administrator (role 2): infrastructure only, no School Domain data.
     getAuthEvents: async () =>
       apiCall("/dashboard/system-admin/auth-events", "GET"),

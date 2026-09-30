@@ -262,19 +262,19 @@
             The assistant prepares explanations, recommendations, and drafts for staff review. It does not approve admissions, post finance entries, change grades, or send messages by itself.
         </div>
         <form id="global-ai-assistant-query" class="mb-3" autocomplete="off" hidden>
-            <label class="form-label small text-muted" for="global-ai-assistant-question">Ask about school data</label>
+            <label class="form-label small text-muted" for="global-ai-assistant-question">Ask the staff assistant</label>
             <div class="input-group input-group-sm">
                 <input
                     type="text"
                     class="form-control"
                     id="global-ai-assistant-question"
                     maxlength="500"
-                    placeholder="e.g. Attendance rate by level this term"
+                    placeholder="e.g. Which registers need follow-up today?"
                     aria-label="Ask the staff assistant"
                 >
                 <button class="btn btn-success" type="submit">Ask</button>
             </div>
-            <div class="form-text">Answers use only reports you are already authorized to run.</div>
+            <div class="form-text">The assistant routes your question to the right governed agent using only data you are authorized to see.</div>
             <div id="global-ai-assistant-suggestions" class="d-flex flex-wrap gap-1 mt-2" aria-label="Suggested questions"></div>
         </form>
         <div id="global-ai-assistant-answer" class="mb-3" aria-live="polite"></div>

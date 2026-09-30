@@ -14,9 +14,11 @@ use RuntimeException;
  * database is never touched for queue bookkeeping, so background churn cannot
  * slow down primary reads/writes.
  *
- * Writers push jobs with status 'pending'. The cron worker
- * (scripts/cron/worker.php, or the HTTP fallback at POST /api/realtime/worker)
- * claims, processes and finalises them. Claims use a guarded UPDATE so
+ * Writers push jobs with status 'pending'. The worker at
+ * POST /api/realtime/worker — invoked by a single `curl` line in the crontab in
+ * both localhost and production — claims, processes and finalises them. The
+ * legacy scripts/cron/worker.php CLI is dormant and must not be scheduled; see
+ * AGENTS.md "Background scheduling (curl crontab only)". Claims use a guarded UPDATE so
  * concurrent / overlapping workers cannot double-process a row. Failed jobs
  * retry with per-job exponential backoff ($max_attempts / $backoff_seconds)
  * and, once exhausted, are copied to the dead-letter registry for review and

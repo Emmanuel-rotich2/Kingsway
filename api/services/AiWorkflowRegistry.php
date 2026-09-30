@@ -90,6 +90,8 @@ class AiWorkflowRegistry
             ['id' => 'system.nlq_query', 'domain' => 'system', 'summary' => 'Answer a natural-language staff question by routing it to an authorized governed report.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => 'analytics_catalogue_view', 'status' => 'implemented'],
             ['id' => 'system.operations_brief', 'domain' => 'system', 'summary' => 'Summarize queue, health, and data-quality signals for administrators.', 'action_level' => 'recommend', 'permission' => 'system_view', 'status' => 'implemented'],
             ['id' => 'system.security_brief', 'domain' => 'system', 'summary' => 'Summarize aggregate authentication and authorization anomaly signals for administrators.', 'action_level' => 'recommend', 'permission' => 'system_view', 'status' => 'implemented'],
+            ['id' => 'system.agent_triage', 'domain' => 'system', 'summary' => 'Route a staff question to the best governed domain agent from the registry.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => '', 'status' => 'implemented'],
+            ['id' => 'system.agent_chat', 'domain' => 'system', 'summary' => 'Run the governed domain-agent loop: allowlisted tools, deterministic execution, structured answer.', 'action_level' => 'assist', 'requires_approval' => false, 'sensitive' => false, 'permission' => '', 'status' => 'implemented'],
         ] as $definition) {
             self::register($definition);
         }

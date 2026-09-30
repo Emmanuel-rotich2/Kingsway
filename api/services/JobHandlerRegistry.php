@@ -160,6 +160,13 @@ class JobHandlerRegistry
             'curriculum.policy_interpret' => static function (array $payload, PDO $pdo): void {
                 (new CurriculumPolicyWatchAgent())->interpret($pdo, $payload);
             },
+            // Governed multi-agent runs (staff co-worker layer): queued agent
+            // assists and deterministic personal digests. The worker
+            // re-authorizes with the recorded operator context (AiAgentService
+            // enforces per-tool workflow authorization inside every run).
+            'ai.agent.run' => static function (array $payload, PDO $pdo): void {
+                (new AiAgentService())->runBackground($pdo, $payload);
+            },
             // Extend here with 'generate_report_card' => ..., 'send_bulk_sms' => ...
             // only once the producing workflow pushes and consumes them.
         ];

@@ -53,6 +53,8 @@ var FormValidation = window.FormValidation || {
     /**
      * Validate password strength
      * Rules: Min 6 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char
+     * Must stay aligned with ValidationHelper::validatePassword() in
+     * api/includes/ValidationHelper.php and the minlength="6" markup.
      */
     validatePassword(password) {
         if (!password || password === '') {

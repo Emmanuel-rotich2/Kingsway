@@ -12,6 +12,7 @@ use App\API\Services\UsernameService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
+use Throwable;
 
 class UsersAPI extends BaseAPI
 {
@@ -654,8 +655,14 @@ class UsersAPI extends BaseAPI
 
                 // These define the school-owned assignment. Personal and payroll
                 // details may be completed by the employee after account setup.
+                // `position` is deliberately NOT required here: the employment
+                // position is a governed catalogue whose value is derived from
+                // the assigned role (staff_role_default_positions) when the
+                // caller does not supply one. Workbooks and the single-user
+                // forms both omit the column, so requiring it would break
+                // every import and re-enable the retired-label 500.
                 $requiredStaffFields = [
-                    'department_id', 'position', 'employment_date', 'contract_type',
+                    'department_id', 'employment_date', 'contract_type',
                     'staff_type_id', 'staff_category_id',
                 ];
                 $missingStaff = [];
@@ -2153,6 +2160,28 @@ class UsersAPI extends BaseAPI
         return (bool)$stmt->fetchColumn();
     }
 
+    /**
+     * Resolve the employment position from the assigned roles' catalogue
+     * defaults. The primary role wins; remaining roles are tried in order so a
+     * multi-role assignment still yields a governed active position.
+     */
+    private function defaultPositionNameForRoles(array $roleIds, ?int $staffTypeId = null, ?int $staffCategoryId = null): string
+    {
+        $roleIds = array_values(array_unique(array_filter(array_map('intval', (array)$roleIds), static fn($id) => $id > 0)));
+        if (!$roleIds) return '';
+        foreach ($roleIds as $roleId) {
+            try {
+                $default = \App\API\Services\StaffPositionCatalog::defaultForRole($this->db, $roleId, $staffTypeId, $staffCategoryId);
+            } catch (Throwable $error) {
+                $default = null; // A missing default must not abort staff creation.
+            }
+            if ($default && trim((string)$default['name']) !== '') {
+                return trim((string)$default['name']);
+            }
+        }
+        return '';
+    }
+
     private function addToStaffTable($userId, $staffInfo, $roleIds = [])
     {
         try {
@@ -2184,8 +2213,17 @@ class UsersAPI extends BaseAPI
             $position = trim((string)($staffInfo['position'] ?? ''));
             $employmentDate = trim((string)($staffInfo['employment_date'] ?? ''));
             $contractType = strtolower(trim((string)($staffInfo['contract_type'] ?? '')));
-            if (!$departmentId || !$staffTypeId || !$staffCategoryId || $position === '') {
-                throw new Exception('Department, position, staff type, and staff category must be assigned by the school.');
+            if (!$departmentId || !$staffTypeId || !$staffCategoryId) {
+                throw new Exception('Department, staff type, and staff category must be assigned by the school.');
+            }
+            // The employment position comes from the assigned role's catalogue
+            // default when the caller omits it, so an import workbook without a
+            // position column still produces a governed, active position.
+            if ($position === '') {
+                $position = $this->defaultPositionNameForRoles($roleIds, (int)$staffTypeId, (int)$staffCategoryId);
+            }
+            if ($position === '') {
+                throw new Exception('No active employment position is configured for the assigned role. Choose a position managed by the School Administrator.');
             }
             $parsedEmploymentDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $employmentDate);
             if (!$parsedEmploymentDate || $parsedEmploymentDate->format('Y-m-d') !== $employmentDate) {

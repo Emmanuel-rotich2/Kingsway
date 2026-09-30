@@ -154,7 +154,12 @@ class RealtimeController extends BaseAPI
      *
      * Bounded retention maintenance for shared-hosting cron. This deliberately
      * avoids schema operations and table locks; it only removes expired queue
-     * rows, old outbox events, and rotated static buffers.
+     * rows, old outbox events, rotated static buffers, and expired local
+     * SQLite cache entries.
+     *
+     * Scheduled from the crontab as a single curl call, which is how
+     * HostAfrica shared hosting runs jobs. There is deliberately no
+     * scripts/cron dispatcher in this path.
      */
     public function postCleanup($id = null, $data = [], $segments = [])
     {
@@ -174,6 +179,24 @@ class RealtimeController extends BaseAPI
         );
         $stmt->execute();
         $report['events_purged'] = $stmt->rowCount();
+
+        // Expired SQLite cache rows are only removed lazily when a key is read
+        // again, so a key that is written once and never revisited would
+        // otherwise persist indefinitely. Prune them here, on the same curl
+        // schedule as the rest of the retention work.
+        try {
+            $temp = sys_get_temp_dir();
+            $report['local_buffers'] = (new \App\API\Services\LocalBufferMaintenanceService([
+                'shared_cache' => $temp . '/kingsway_cache/sqlite',
+                'response_cache' => $temp . '/kingsway_cache_responses/sqlite',
+                'offline_replay' => $temp . '/kingsway_offline_replay/store',
+                'local_buffers' => $temp . '/kingsway_local_buffers',
+            ]))->run();
+        } catch (\Throwable $error) {
+            // Local cache pruning is best-effort and must never fail the job.
+            \App\API\Services\Logger::legacyError('[RealtimeController] local buffer maintenance failed: ' . $error->getMessage());
+            $report['local_buffers'] = ['status' => 'degraded'];
+        }
 
         return $this->successResponse($report, 'Cleanup completed', 200);
     }

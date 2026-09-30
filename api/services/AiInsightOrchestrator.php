@@ -14,8 +14,11 @@ use Throwable;
  *
  * This service owns the "three proactive trigger patterns" for the briefing
  * surface:
- *   1. Scheduled (cron): scripts/cron/briefings.php calls enqueueBrief() for a
- *      daily/weekly/term cadence; the worker executes the job later.
+ *   1. Scheduled (cron): a worker-authenticated API endpoint reached by a single
+ *      `curl` line in the crontab (both localhost and production) calls
+ *      enqueueBrief() for a daily/weekly/term cadence; the worker executes the
+ *      job later. scripts/cron/briefings.php is dormant and must not be
+ *      scheduled — see AGENTS.md "Background scheduling (curl crontab only)".
  *   2. Event-driven (server-side PHP hooks): a domain service calls
  *      enqueueBrief() after a mutation; frontend JS never pushes provider work.
  *   3. Page-load: /api/dashboard/insight-brief calls pageLoad(), which serves a
