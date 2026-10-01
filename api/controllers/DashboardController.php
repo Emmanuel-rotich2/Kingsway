@@ -198,6 +198,49 @@ class DashboardController extends BaseController
     }
 
     /**
+     * GET /api/dashboard/workspace-briefing
+     * Proactive co-worker surface (roadmap Decision 2, page-load trigger):
+     * returns the staff member's cached workspace briefing immediately when
+     * fresh (< 30 min); when stale or absent it enqueues one background
+     * regeneration through the existing JobQueue (Python engine first,
+     * PHP-deterministic resilience) and returns a "generating" state. No
+     * synchronous provider call ever happens on page load.
+     */
+    public function getWorkspaceBriefing($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        try {
+            $route = strtolower(trim((string) ($_GET['route'] ?? $data['route'] ?? 'dashboard')));
+            $agent = $this->contract(AiAgentService::class);
+            $cached = $agent->cachedBriefing($userId, $route);
+            if (is_array($cached) && (string) ($cached['status'] ?? '') === 'ready') {
+                return $this->success([
+                    'status' => 'ready',
+                    'briefing' => $cached,
+                ], 'Workspace briefing retrieved');
+            }
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $agent->enqueue($userId, $permissions, [
+                'mode' => 'briefing',
+                'route' => $route,
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                'broadcast' => true,
+            ]);
+            return $this->success([
+                'status' => 'generating',
+                'briefing' => null,
+            ], 'Workspace briefing is being prepared');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] workspace briefing failed: ' . $e->getMessage());
+            return $this->serverError('Unable to prepare the workspace briefing');
+        }
+    }
+
+    /**
      * POST /api/dashboard/agent-digest-worker
      * Cron-driven (curl line with X-Kingsway-Worker-Secret, never a staff
      * JWT): resolve every staff member holding assistant-relevant permissions

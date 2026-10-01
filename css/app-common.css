@@ -750,3 +750,25 @@ table.table thead th[scope="col"] {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px rgba(16, 24, 40, 0.1);
 }
+
+/* Staff assistant (AI co-worker) panel: wider than the default offcanvas so
+   workspace scans, findings and suggested actions stay readable. */
+.offcanvas.ai-assistant-panel {
+  --bs-offcanvas-width: 500px;
+  width: 500px;
+  max-width: 94vw;
+}
+.ai-briefing-finding {
+  border-left: 3px solid var(--bs-info);
+}
+.ai-briefing-finding[data-severity="warning"] {
+  border-left-color: var(--bs-warning);
+}
+.ai-briefing-finding[data-severity="critical"] {
+  border-left-color: var(--bs-danger);
+}
+@media print {
+  .offcanvas.ai-assistant-panel {
+    display: none !important;
+  }
+}

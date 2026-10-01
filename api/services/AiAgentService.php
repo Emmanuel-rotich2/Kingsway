@@ -45,6 +45,9 @@ class AiAgentService
     public const WORKFLOW_TRIAGE = 'system.agent_triage';
     public const JOB_TYPE = 'ai.agent.run';
     public const CACHE_PREFIX = 'ai_agent:v1:u';
+    public const BRIEFING_CACHE_PREFIX = 'ai_wsbrief:v1:u';
+    public const BRIEFING_TTL = 1800;
+    public const TOOL_SCAN = 'assistant.workspace_scan';
 
     private const MAX_QUESTION_CHARS = 500;
     private const MAX_TOOL_STEPS = 2;
@@ -214,6 +217,23 @@ class AiAgentService
             return $result;
         }
 
+        if ($mode === 'briefing') {
+            // PHP-native resilience path: deterministic findings only, no
+            // provider call. The Python engine is the primary briefing path
+            // (narrative + root causes); this keeps the panel alive when the
+            // platform is unavailable.
+            $route = mb_substr((string) ($payload['route'] ?? ''), 0, 120);
+            $result = $this->buildDeterministicBriefing($pdo, $userId, $permissions, $route);
+            $this->cacheBriefing($userId, $route, $result);
+            if (!empty($payload['broadcast'])) {
+                EventBroadcaster::dispatch($pdo, 'intelligence', 'ai_agent.briefing_ready', [
+                    'route' => $route,
+                    'reference' => self::briefingCacheKey($userId, $route),
+                ]);
+            }
+            return $result;
+        }
+
         $cadence = (string) ($payload['cadence'] ?? 'daily');
         if (!in_array($cadence, self::VALID_CADENCES, true)) {
             $cadence = 'daily';
@@ -292,7 +312,7 @@ class AiAgentService
             throw new DomainException('A recorded operator is required.', 422);
         }
         $tool = (string) ($payload['tool'] ?? '');
-        $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG];
+        $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG, self::TOOL_SCAN];
         if (!in_array($tool, $allowedTools, true)) {
             return ['status' => 'unknown_tool'];
         }
@@ -302,6 +322,8 @@ class AiAgentService
         } elseif ($tool === AiAgentRegistry::TOOL_INSIGHT_BRIEF) {
             $cadence = (string) ($toolInput['cadence'] ?? 'daily');
             $toolInput = ['cadence' => in_array($cadence, self::VALID_CADENCES, true) ? $cadence : 'daily'];
+        } elseif ($tool === self::TOOL_SCAN) {
+            $toolInput = ['route' => mb_substr(strtolower(trim((string) ($toolInput['route'] ?? ''))), 0, 120)];
         } else {
             $toolInput = [];
         }
@@ -315,7 +337,9 @@ class AiAgentService
             'route' => '',
             'module' => 'dashboard',
         ];
-        $result = $this->executeTool($pdo, $context, $tool, $toolInput, $permissions, (string) $context['request_id']);
+        $result = $tool === self::TOOL_SCAN
+            ? $this->workspaceScan($pdo, $userId, $permissions, (string) ($toolInput['route'] ?? ''))
+            : $this->executeTool($pdo, $context, $tool, $toolInput, $permissions, (string) $context['request_id']);
 
         FileLogger::write('ai_generation', [
             'type' => 'agent_tool_executed',
@@ -324,6 +348,86 @@ class AiAgentService
             'outcome' => (string) ($result['status'] ?? 'ok'),
         ]);
         return $result;
+    }
+
+    /**
+     * Deterministic workspace scan for the proactive briefing: bounded,
+     * allowlisted aggregates only, for the route's domain. Everything here
+     * is computed (no provider) so the co-worker surfaces findings in
+     * milliseconds; the Python engine adds the narrative layer on top.
+     *
+     * @param list<string> $permissions
+     * @return array<string,mixed>
+     */
+    public function workspaceScan(PDO $pdo, int $userId, array $permissions, string $route): array
+    {
+        $agent = AiAgentRegistry::forRoute($route);
+        $domain = $agent !== null ? (string) $agent['domain'] : 'system';
+
+        $scan = [
+            'status' => 'ok',
+            'domain' => $domain,
+            'route' => mb_substr($route, 0, 120),
+            'as_of' => gmdate('c'),
+        ];
+
+        // Drafts awaiting THIS user's review (separation of duties kept).
+        try {
+            $pending = (new AiDraftService())->listForReview($pdo, $userId, true);
+            $scan['pending_review_count'] = is_array($pending) ? count($pending) : 0;
+            $scan['pending_review_workflows'] = array_values(array_slice(array_map(
+                static fn(array $draft): string => (string) ($draft['workflow_id'] ?? ''),
+                is_array($pending) ? $pending : []
+            ), 0, 6));
+        } catch (Throwable $e) {
+            $scan['pending_review_count'] = null;
+        }
+
+        // The user's cached deterministic intelligence alerts (if any).
+        // Key format mirrors AiInsightOrchestrator::cacheKeyFor().
+        try {
+            $brief = (new SharedCache())->get('ai_brief:v1:u' . $userId);
+            if (is_array($brief)) {
+                $scan['insight_alert_count'] = (int) ($brief['alert_count'] ?? 0);
+                $scan['insight_alerts'] = array_slice((array) ($brief['alerts'] ?? []), 0, 6);
+                $scan['insight_as_of'] = (string) ($brief['as_of'] ?? '');
+            }
+        } catch (Throwable $e) {
+            // Optional signal only.
+        }
+
+        // Domain-specific deterministic aggregates.
+        if ($domain === 'system') {
+            try {
+                $summary = (new SystemOperationsReviewService())->summary($pdo);
+                $payload = (new SystemOperationsReviewService())->aiPayload($summary);
+                foreach ([
+                    'queue_total', 'queue_pending', 'queue_processing', 'queue_stale',
+                    'queue_failed', 'queue_dead_letter', 'oldest_processing_minutes',
+                    'worker_freshness_minutes', 'error_total_24h', 'error_critical_24h',
+                    'error_signatures',
+                ] as $field) {
+                    $scan[$field] = $payload[$field] ?? ($field === 'error_signatures' ? [] : 0);
+                }
+            } catch (Throwable $e) {
+                $scan['system_scan_status'] = 'unavailable';
+            }
+        } elseif (in_array($domain, ['finance', 'reports', 'admissions'], true)) {
+            try {
+                $kpis = (new DirectorAnalyticsService())->getSummaryKPIs();
+                $compact = [];
+                foreach (is_array($kpis) ? $kpis : [] as $key => $value) {
+                    if (is_scalar($value)) {
+                        $compact[(string) $key] = $value;
+                    }
+                }
+                $scan['kpis'] = array_slice($compact, 0, 12, true);
+            } catch (Throwable $e) {
+                $scan['kpis_status'] = 'unavailable';
+            }
+        }
+
+        return $scan;
     }
 
     /** Read the latest cached agent result/digest for a staff member. */
@@ -655,6 +759,99 @@ class AiAgentService
         } catch (Throwable $e) {
             return ['status' => 'unavailable', 'message' => 'The intelligence briefing could not be loaded.'];
         }
+    }
+
+    /** Canonical cache key for a staff member's workspace briefing. */
+    public static function briefingCacheKey(int $userId, string $route): string
+    {
+        return self::BRIEFING_CACHE_PREFIX . $userId . ':' . hash('sha256', strtolower(trim($route)));
+    }
+
+    /**
+     * Read the cached workspace briefing for page-load serving. Returns null
+     * when stale or absent (the caller then enqueues regeneration).
+     */
+    public function cachedBriefing(int $userId, string $route): ?array
+    {
+        $cache = $this->sharedCache();
+        if ($cache === null) {
+            return null;
+        }
+        try {
+            $cached = $cache->get(self::briefingCacheKey($userId, $route));
+            return is_array($cached) ? $cached : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    private function cacheBriefing(int $userId, string $route, array $briefing): void
+    {
+        $cache = $this->sharedCache();
+        if ($cache === null) {
+            return;
+        }
+        try {
+            $cache->set(self::briefingCacheKey($userId, $route), $briefing, self::BRIEFING_TTL);
+        } catch (Throwable $e) {
+            // Best-effort cache only.
+        }
+    }
+
+    /**
+     * Deterministic briefing fallback: findings derived from the governed
+     * scan with rule-based severities and suggested actions - no provider
+     * call, so the panel always has something truthful to show.
+     *
+     * @param list<string> $permissions
+     * @return array<string,mixed>
+     */
+    public function buildDeterministicBriefing(PDO $pdo, int $userId, array $permissions, string $route): array
+    {
+        $scan = $this->workspaceScan($pdo, $userId, $permissions, $route);
+        $findings = [];
+        $add = static function (string $title, string $severity, string $rootCause, string $action) use (&$findings): void {
+            $findings[] = [
+                'title' => mb_substr($title, 0, 160),
+                'severity' => $severity,
+                'root_cause' => mb_substr($rootCause, 0, 240),
+                'suggested_action' => mb_substr($action, 0, 240),
+            ];
+        };
+        if ((int) ($scan['pending_review_count'] ?? 0) > 0) {
+            $add(
+                (int) $scan['pending_review_count'] . ' AI draft(s) await your review',
+                'info',
+                'Assistants prepared drafts that need a second person to approve before they become official.',
+                'Open the module workspace(s): ' . implode(', ', (array) ($scan['pending_review_workflows'] ?? [])) . ' and approve or reject each draft.'
+            );
+        }
+        if ((int) ($scan['queue_stale'] ?? 0) > 0) {
+            $add('Stale background jobs detected', 'warning', 'Jobs have sat in pending/processing beyond their lease window - the worker may have missed runs or a job crashed mid-flight.', 'Check the System Health page; requeue only after reviewing the job payload.');
+        }
+        if ((int) ($scan['queue_dead_letter'] ?? 0) > 0) {
+            $add('Dead-letter jobs present', 'warning', 'Jobs exhausted their retries.', 'Inspect the dead-letter queue and fix the underlying failure before requeueing.');
+        }
+        if ((int) ($scan['error_critical_24h'] ?? 0) > 0) {
+            $add((int) $scan['error_critical_24h'] . ' critical journal entries in 24h', 'warning', 'Recurring error signatures: ' . implode(' | ', array_slice((array) ($scan['error_signatures'] ?? []), 0, 3)), 'Review the errors journal from Audit & Forensics for the full signatures.');
+        }
+        foreach (array_slice((array) ($scan['insight_alerts'] ?? []), 0, 4) as $alert) {
+            if (is_scalar($alert)) {
+                $add('Intelligence alert: ' . (string) $alert, 'info', 'Deterministic detector crossed its threshold.', 'Open the related report from the analytics workspace.');
+            }
+        }
+        return [
+            'status' => 'ready',
+            'engine' => 'php-deterministic',
+            'route' => $route,
+            'generated_at' => gmdate('c'),
+            'headline' => $findings === [] ? 'Workspace looks healthy' : count($findings) . ' finding(s) in this workspace',
+            'summary' => $findings === []
+                ? 'No exceptions detected in the deterministic workspace scan. Everything within normal bounds.'
+                : 'The deterministic scan found items needing attention; review the findings below.',
+            'findings' => $findings,
+            'scan' => $scan,
+        ];
     }
 
     private function cacheResult(int $userId, array $result): void

@@ -496,19 +496,6 @@ class UsersAPI extends BaseAPI
             }
         }
 
-        // Validate input data
-        $validation = ValidationHelper::validateUserData($data, $this->db, false);
-
-        if (!$validation['valid']) {
-            return [
-                'success' => false,
-                'error' => 'Validation failed',
-                'errors' => $validation['errors']
-            ];
-        }
-
-        $validatedData = $validation['data'];
-
         // Extract role_ids from input (accept role_ids array or single role_id)
         $roleIds = [];
         if (isset($data['role_ids']) && is_array($data['role_ids'])) {
@@ -528,6 +515,33 @@ class UsersAPI extends BaseAPI
         if (count($requestedRoles) !== count(array_unique(array_map('intval', $roleIds)))) {
             return ['success' => false, 'error' => 'One or more selected roles do not exist.'];
         }
+
+        // Resolve the roles BEFORE validation so role-aware validation switches
+        // can be derived (parents are frequently onboarded with only a phone
+        // number, so their email may be absent).
+        $parentOnlyRoles = count($requestedRoles) > 0;
+        foreach ($requestedRoles as $requestedRole) {
+            if (strtolower(trim((string)$requestedRole['name'])) !== 'parent') {
+                $parentOnlyRoles = false;
+                break;
+            }
+        }
+
+        // Validate input data
+        $validation = ValidationHelper::validateUserData($data, $this->db, false, null, [
+            'email_required' => !$parentOnlyRoles,
+        ]);
+
+        if (!$validation['valid']) {
+            return [
+                'success' => false,
+                'error' => 'Validation failed',
+                'errors' => $validation['errors']
+            ];
+        }
+
+        $validatedData = $validation['data'];
+
         $hasStaffRole = false;
         foreach ($requestedRoles as $requestedRole) {
             $roleName = strtolower(trim((string)$requestedRole['name']));
@@ -553,6 +567,89 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'School Administrator accounts must be created through the administrator invitation or staff-onboarding workflow.'];
         }
 
+        // STEP 0: Identity check — a person that already exists as a parent or
+        // as a staff member must never be duplicated into a second person
+        // record. The match is deliberately multi-signal — canonical phone,
+        // email, national ID and full name are each scored, so the operator
+        // sees exactly WHICH details agree before deciding. Phone alone is
+        // never trusted (families share numbers); the operator's confirmation
+        // is the final safeguard. Pass confirm_person_reuse=true to proceed.
+        $identityPhone = \App\API\Services\PhoneNumberNormalizer::normalize($data['phone'] ?? null);
+        $identityEmail = trim((string) ($validatedData['email'] ?? ''));
+        $identityFirst = strtolower(trim((string) ($validatedData['first_name'] ?? '')));
+        $identityLast = strtolower(trim((string) ($validatedData['last_name'] ?? '')));
+        $identityNationalId = trim((string) ($data['national_id_no'] ?? $data['id_number'] ?? ''));
+        $existingPerson = null;
+        if ($identityPhone !== null || $identityEmail !== '' || $identityNationalId !== '' || ($identityFirst !== '' && $identityLast !== '')) {
+            $matchStmt = $this->db->prepare(
+                "SELECT p.id, p.first_name, p.last_name, p.phone, p.email, p.dob, p.national_id_no,
+                        (p.phone IS NOT NULL AND ? IS NOT NULL AND p.phone = ?) AS phone_match,
+                        (p.email IS NOT NULL AND ? <> '' AND LOWER(TRIM(p.email)) = LOWER(?)) AS email_match,
+                        (p.national_id_no IS NOT NULL AND ? <> '' AND TRIM(p.national_id_no) = ?) AS national_id_match,
+                        (? <> '' AND LOWER(TRIM(p.first_name)) = ?) AS first_name_match,
+                        (? <> '' AND LOWER(TRIM(p.last_name)) = ?) AS last_name_match,
+                        (SELECT GROUP_CONCAT(DISTINCT r2.name SEPARATOR ', ')
+                         FROM users u2
+                         JOIN user_roles ur2 ON ur2.user_id = u2.id
+                         JOIN roles r2 ON r2.id = ur2.role_id
+                         WHERE u2.person_id = p.id) AS existing_roles,
+                        (SELECT COUNT(*) FROM users u3 WHERE u3.person_id = p.id) AS has_user_account
+                 FROM persons p
+                 WHERE (? IS NOT NULL AND p.phone = ?)
+                    OR (? <> '' AND LOWER(TRIM(p.email)) = LOWER(?))
+                    OR (? <> '' AND TRIM(p.national_id_no) = ?)
+                    OR (? <> '' AND LOWER(TRIM(p.first_name)) = ? AND ? <> '' AND LOWER(TRIM(p.last_name)) = ?)
+                 ORDER BY (p.phone IS NOT NULL AND ? IS NOT NULL AND p.phone = ?) DESC,
+                          (p.email IS NOT NULL AND ? <> '' AND LOWER(TRIM(p.email)) = LOWER(?)) DESC,
+                          (p.national_id_no IS NOT NULL AND ? <> '' AND TRIM(p.national_id_no) = ?) DESC
+                 LIMIT 1"
+            );
+            $matchStmt->execute([
+                $identityPhone, $identityPhone,
+                $identityEmail, $identityEmail,
+                $identityNationalId, $identityNationalId,
+                $identityFirst, $identityFirst,
+                $identityLast, $identityLast,
+                $identityPhone, $identityPhone,
+                $identityEmail, $identityEmail,
+                $identityNationalId, $identityNationalId,
+                $identityFirst, $identityFirst, $identityLast, $identityLast,
+                $identityPhone, $identityPhone,
+                $identityEmail, $identityEmail,
+                $identityNationalId, $identityNationalId,
+            ]);
+            $candidate = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            if ($candidate !== null) {
+                $matchScore = ((int) $candidate['phone_match'])
+                    + ((int) $candidate['email_match'])
+                    + ((int) $candidate['national_id_match'])
+                    + ((int) $candidate['first_name_match'])
+                    + ((int) $candidate['last_name_match']);
+                $matchedOn = [];
+                foreach (['phone', 'email', 'national_id', 'first_name', 'last_name'] as $field) {
+                    if (!empty($candidate[$field . '_match'])) $matchedOn[] = str_replace('_', ' ', $field);
+                }
+                if ($matchScore > 0) {
+                    $existingPerson = $candidate;
+                    $existingPerson['match_score'] = $matchScore;
+                    $existingPerson['matched_on'] = $matchedOn;
+                }
+            }
+        }
+
+        if ($existingPerson !== null && empty($data['confirm_person_reuse'])) {
+            return [
+                'success' => false,
+                'status' => 'person_exists',
+                'requires_confirmation' => true,
+                'message' => 'This person already exists'
+                    . ($existingPerson['existing_roles'] ? ' as: ' . $existingPerson['existing_roles'] : '')
+                    . ' — matched on ' . implode(' + ', $existingPerson['matched_on'])
+                    . '. Proceed with adding the requested role(s) to the existing person record instead of creating a duplicate?',
+                'existing_person' => $existingPerson,
+            ];
+        }
+
         // Join an outer workflow transaction when one exists. This lets staff
         // onboarding commit Person + User + Staff + payroll as one unit.
         $ownsTransaction = !$this->db->inTransaction();
@@ -563,50 +660,93 @@ class UsersAPI extends BaseAPI
         try {
             $primaryRoleId = $roleIds[0];
 
-            // STEP 1: Create the person record (identity: names + email)
-            $personStmt = $this->db->prepare(
-                'INSERT INTO persons (first_name, middle_name, last_name, email, data_scope)
-                 VALUES (?, ?, ?, ?, ?)'
-            );
-            $personOk = $personStmt->execute([
-                $validatedData['first_name'] ?? '',
-                $data['middle_name'] ?? null,
-                $validatedData['last_name'] ?? '',
-                $validatedData['email'] ?? null,
-                $recordScope,
-            ]);
-            if (!$personOk) {
-                throw new Exception('Person creation failed');
+            // STEP 1: Create the person record — or, after the operator has
+            // explicitly confirmed reuse, link onto the EXISTING person: the
+            // same human never gets a second person record. Relevant fields
+            // are updated only when currently empty.
+            $reusingExistingPerson = $existingPerson !== null && !empty($data['confirm_person_reuse']);
+            $existingUserId = null;
+            if ($reusingExistingPerson) {
+                $personId = (int) $existingPerson['id'];
+                $personUpdateSets = [];
+                $personUpdateParams = [];
+                if (empty($existingPerson['email']) && $identityEmail !== '') {
+                    $personUpdateSets[] = 'email = ?';
+                    $personUpdateParams[] = $identityEmail;
+                }
+                if (empty($existingPerson['phone']) && $identityPhone !== null) {
+                    $personUpdateSets[] = 'phone = ?';
+                    $personUpdateParams[] = $identityPhone;
+                }
+                if ($personUpdateSets) {
+                    $personUpdateParams[] = $personId;
+                    $this->db->prepare('UPDATE persons SET ' . implode(', ', $personUpdateSets) . ' WHERE id = ?')
+                        ->execute($personUpdateParams);
+                }
+                $userStmt2 = $this->db->prepare('SELECT id FROM users WHERE person_id = ? LIMIT 1');
+                $userStmt2->execute([$personId]);
+                $existingUserId = (int) ($userStmt2->fetchColumn() ?: 0);
+            } else {
+                // STEP 1: Create the person record (identity: names + email +
+                // phone). The phone is part of the person identity and the
+                // duplicate-detection match, so it must be stored here.
+                $personStmt = $this->db->prepare(
+                    'INSERT INTO persons (first_name, middle_name, last_name, email, phone, data_scope)
+                     VALUES (?, ?, ?, ?, ?, ?)'
+                );
+                $personOk = $personStmt->execute([
+                    $validatedData['first_name'] ?? '',
+                    $data['middle_name'] ?? null,
+                    $validatedData['last_name'] ?? '',
+                    $validatedData['email'] ?? null,
+                    $identityPhone,
+                    $recordScope,
+                ]);
+                if (!$personOk) {
+                    throw new Exception('Person creation failed');
+                }
+                $personId = (int)$this->db->lastInsertId();
             }
-            $personId = (int)$this->db->lastInsertId();
 
-            // STEP 2: Create user record linked to the person (roles via user_roles)
-            $sql = 'INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
-            $stmt = $this->db->prepare($sql);
+            // STEP 2: Create user record linked to the person (roles via user_roles).
+            // The email second factor is only enrolled when an email address
+            // actually exists — enabling it for a phone-only parent would gate
+            // the login on a challenge that can never be delivered.
+            // On the reuse path the person may already hold a user account
+            // (uk_users_person allows one per person): the requested roles are
+            // then assigned to the EXISTING account in STEP 3 instead, and no
+            // second account is created.
+            if (!$existingUserId) {
+                $hasEmailForTfa = !empty($validatedData['email']);
+                $sql = 'INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ' . ($hasEmailForTfa ? "1, 'email'" : '0, NULL') . ', NULL, NOW(), NOW())';
+                $stmt = $this->db->prepare($sql);
 
-            $ok = $stmt->execute([
-                $validatedData['username'],
-                password_hash($validatedData['password'], PASSWORD_DEFAULT),
-                $personId,
-                $validatedData['status'] ?? 'active',
-                $data['last_login'] ?? null,
-                $data['password_changed_at'] ?? null,
-                $data['force_password_change'] ?? 0,
-                $isTestAccount ? 1 : 0,
-                $accountType,
-                $dataScope,
-            ]);
-            $userId = (int)$this->db->lastInsertId();
+                $ok = $stmt->execute([
+                    $validatedData['username'],
+                    password_hash($validatedData['password'], PASSWORD_DEFAULT),
+                    $personId,
+                    $validatedData['status'] ?? 'active',
+                    $data['last_login'] ?? null,
+                    $data['password_changed_at'] ?? null,
+                    $data['force_password_change'] ?? 0,
+                    $isTestAccount ? 1 : 0,
+                    $accountType,
+                    $dataScope,
+                ]);
+                $userId = (int)$this->db->lastInsertId();
 
-            if (!$ok) {
-                throw new Exception('User creation failed');
+                if (!$ok) {
+                    throw new Exception('User creation failed');
+                }
+
+                $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, label, is_primary, is_enabled, verified_at) VALUES (?, 'email', 'Account email', 1, 1, NULL) ON DUPLICATE KEY UPDATE is_enabled=1, is_primary=1")
+                    ->execute([$userId]);
+
+                \App\API\Services\Logger::info('users', "User creation: inserted id=$userId");
+            } else {
+                $userId = $existingUserId;
             }
-
-            $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, label, is_primary, is_enabled, verified_at) VALUES (?, 'email', 'Account email', 1, 1, NULL) ON DUPLICATE KEY UPDATE is_enabled=1, is_primary=1")
-                ->execute([$userId]);
-
-            \App\API\Services\Logger::info('users', "User creation: inserted id=$userId");
 
             // STEP 3: Assign PRIMARY role and copy its permissions
             // Only the primary role is assigned to user_roles (for consistency)
@@ -863,7 +1003,8 @@ class UsersAPI extends BaseAPI
 
         try {
             $personStmt = $this->db->prepare('INSERT INTO persons (first_name, middle_name, last_name, email, data_scope) VALUES (?, ?, ?, ?, ?)');
-            $stmt = $this->db->prepare('INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
+            // Email 2FA only when an email exists (see the single-create path).
+            $stmt = $this->db->prepare('INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
                 // Normalize top-level staff fields into staff_info for each user record
@@ -1002,6 +1143,7 @@ class UsersAPI extends BaseAPI
                     $personId = (int)$this->db->lastInsertId();
 
                     // Create user
+                    $hasEmailForTfa = !empty($userData['email']);
                     $ok = $stmt->execute([
                         $userData['username'],
                         password_hash($userData['password'], PASSWORD_DEFAULT),
@@ -1013,6 +1155,8 @@ class UsersAPI extends BaseAPI
                         $isTestAccount ? 1 : 0,
                         $accountType,
                         $dataScope,
+                        $hasEmailForTfa ? 1 : 0,
+                        $hasEmailForTfa ? 'email' : null,
                     ]);
                     $userId = (int)$this->db->lastInsertId();
 

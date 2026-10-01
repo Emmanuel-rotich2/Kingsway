@@ -10,13 +10,14 @@ row-level scope and audit inside PHP while ALL agent logic runs in Python.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.request
 from typing import Any, Callable
 
 from .config import Config
 
-ALLOWED_TOOLS = ("reports.nlq", "reports.insight_brief", "assistant.catalog")
+ALLOWED_TOOLS = ("reports.nlq", "reports.insight_brief", "assistant.catalog", "assistant.workspace_scan")
 VALID_CADENCES = ("daily", "weekly", "term")
 
 
@@ -71,7 +72,14 @@ class ToolBridge:
                     30,
                 )
             else:
-                with urllib.request.urlopen(request, timeout=40) as response:
+                context = (
+                    ssl._create_unverified_context()
+                    if not self.config.php_verify_tls
+                    else None
+                )
+                with urllib.request.urlopen(
+                    request, timeout=40, context=context
+                ) as response:
                     raw, status, error = (
                         response.read().decode("utf-8", "replace"),
                         response.status,
@@ -140,4 +148,7 @@ class ToolBridge:
         elif tool == "reports.insight_brief":
             cadence = str(tool_input.get("cadence") or "daily")
             bounded["cadence"] = cadence if cadence in VALID_CADENCES else "daily"
+        elif tool == "assistant.workspace_scan":
+            route = str(tool_input.get("route") or "dashboard")[:120]
+            bounded["route"] = route
         return bounded

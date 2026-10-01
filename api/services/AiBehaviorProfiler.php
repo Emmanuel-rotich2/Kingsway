@@ -40,11 +40,44 @@ final class AiBehaviorProfiler
         'route', 'module', 'domain', 'agent_id', 'tool', 'workflow_id', 'outcome', 'cadence',
     ];
 
-    private LocalSqliteBuffer $buffer;
+    private ?LocalSqliteBuffer $buffer;
 
-    public function __construct(?LocalSqliteBuffer $buffer = null)
+    /**
+     * @param LocalSqliteBuffer|string|null $store an injected buffer, a
+     *        directory path for one, or null to use the default location
+     */
+    public function __construct(LocalSqliteBuffer|string|null $store = null)
     {
-        $this->buffer = $buffer ?: new LocalSqliteBuffer();
+        $this->buffer = $store instanceof LocalSqliteBuffer
+            ? $store
+            : self::constructBuffer(is_string($store) ? $store : null);
+    }
+
+    /**
+     * Shared hosting may block the system temp directory outright, so the
+     * default store prefers the project's own storage/buffers area (the
+     * same account-local tree the file journals already write to) and only
+     * then falls back to the system temp. If no location is writable the
+     * study layer degrades to a no-op instead of breaking every assistant
+     * call that constructs this profiler.
+     */
+    private static function constructBuffer(?string $directory): ?LocalSqliteBuffer
+    {
+        $candidates = $directory !== null
+            ? [$directory]
+            : [dirname(__DIR__, 2) . '/storage/buffers/ai_behavior', sys_get_temp_dir() . '/kingsway_local_buffers'];
+        foreach ($candidates as $candidate) {
+            try {
+                // The @ is scoped to this fallback seam: the buffer signals
+                // an unusable location by throwing, which we handle below;
+                // its intermediate mkdir diagnostic must not surface as a
+                // PHP warning on hosts that block the path.
+                return @new LocalSqliteBuffer($candidate);
+            } catch (Throwable) {
+                continue;
+            }
+        }
+        return null;
     }
 
     /**
@@ -78,14 +111,15 @@ final class AiBehaviorProfiler
             $events = array_slice($events, -self::MAX_EVENTS);
         }
 
-        try {
-            $this->buffer->put(self::NAMESPACE, $this->keyFor($userId), [
-                'version' => 1,
-                'events' => $events,
-            ], self::TTL_SECONDS);
-        } catch (Throwable) {
-            // A full or unavailable buffer must never break the caller.
-            return;
+        if ($this->buffer !== null) {
+            try {
+                $this->buffer->put(self::NAMESPACE, $this->keyFor($userId), [
+                    'version' => 1,
+                    'events' => $events,
+                ], self::TTL_SECONDS);
+            } catch (Throwable) {
+                // A full or unavailable buffer must never break the caller.
+            }
         }
 
         try {
@@ -158,7 +192,7 @@ final class AiBehaviorProfiler
     /** Erase the rolling profile for a staff member (DPA erasure path). */
     public function forget(int $userId): void
     {
-        if ($userId < 1) {
+        if ($userId < 1 || $this->buffer === null) {
             return;
         }
         try {
@@ -183,6 +217,9 @@ final class AiBehaviorProfiler
     /** @return array<string,mixed> */
     private function rawProfile(int $userId): array
     {
+        if ($this->buffer === null) {
+            return [];
+        }
         try {
             $profile = $this->buffer->get(self::NAMESPACE, $this->keyFor($userId));
         } catch (Throwable) {
