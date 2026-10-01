@@ -196,6 +196,13 @@ if (!isset($response)) {
     $response = $router->handle();
 }
 
+// A streamed endpoint (assistant SSE) has already written its response body
+// directly and flushed it, so the JSON envelope must not be appended.
+if (is_array($response) && !empty($response['stream_flushed'])) {
+    ob_end_clean();
+    return;
+}
+
 // MCP speaks the protocol's native JSON-RPC envelope. It is intentionally
 // marked by McpController so the normal application envelope does not wrap it.
 if (is_array($response) && !empty($response['mcp_raw'])) {

@@ -2522,7 +2522,7 @@ class AcademicAPI extends BaseAPI
             $sql = "
                 SELECT id, name, code, description, status
                 FROM school_levels
-                WHERE la.status = 'active'
+                WHERE status = 'active'
                 ORDER BY id ASC
             ";
 

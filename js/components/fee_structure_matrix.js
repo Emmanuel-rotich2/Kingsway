@@ -39,7 +39,10 @@
         const typeId = container.querySelector('[data-matrix-type]')?.value || '';
         const filteredClasses = classes.filter(c => (!level || levelId(c) === level) && (!classId || String(c.id) === classId));
         const filteredTypes = types.filter(t => !typeId || String(t.id) === typeId);
-        let html = '<div class="table-responsive"><table class="table table-bordered table-sm align-middle mb-0"><thead class="table-success text-center"><tr><th class="text-start">Grade</th><th class="text-start">Student Type</th><th>Term 3</th><th>Term 2</th><th>Term 1</th><th>Total</th></tr></thead><tbody>';
+        // Headers must match the value order: terms = [1, 2, 3] ascending, so
+        // Term 1 is column 1. The hardcoded descending header put Term 1's
+        // amount under the "Term 3" heading and flipped the display.
+        let html = '<div class="table-responsive"><table class="table table-bordered table-sm align-middle mb-0"><thead class="table-success text-center"><tr><th class="text-start">Grade</th><th class="text-start">Student Type</th><th>Term 1</th><th>Term 2</th><th>Term 3</th><th>Total</th></tr></thead><tbody>';
         filteredClasses.forEach(cls => filteredTypes.forEach((type, index) => {
         const values = terms.map(n => Number(grid?.[cls.id]?.SCHOOL_FEES?.[`term${n}`]?.[String(type.id)] || 0));
         const hasValue = values.some(v => v > 0);

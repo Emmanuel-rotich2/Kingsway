@@ -21,6 +21,15 @@ FIELDS: dict[str, list[str]] = {
         "behavior_hints",
         "tools",
         "tool_results",
+        # Conversational continuity: bounded prior turns and the resolved
+        # quick-command instruction. Both are capped by the caller and carry
+        # no learner identity.
+        "conversation",
+        "instruction",
+        # Tells the model the governed results are already in hand, so it
+        # answers from them instead of spending a round trip re-requesting
+        # data the caller already supplied.
+        "grounding_note",
     ],
     "system.workspace_briefing": [
         "route",

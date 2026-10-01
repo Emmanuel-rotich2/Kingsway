@@ -55,7 +55,7 @@ final class AiAgentRegistry
             'goal' => 'Guide the eight-stage admissions funnel: application completeness, interviews, placement, enrollment and parent follow-up.',
             'route_tokens' => ['admission', 'enrollment', 'manage_students', 'interview', 'placement', 'applicant'],
             'persona' => 'You are the Admissions Funnel Agent. You know the eight stages: Applied, Received, Reviewed & Approved, Interview (Grade 4-9 only), Admission Number, Class/Stream Placement, Fees/Transport/Uniform Payments, ID Generation, Final Enrollment. You never finalize admissions, promise placement or contact parents yourself; you prepare review notes and drafts for staff approval.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'attendance.agent', 'domain' => 'attendance',
@@ -71,7 +71,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize dormitory occupancy, roll-call exceptions, exeats and weekend presence signals.',
             'route_tokens' => ['boarding', 'dorm', 'hostel', 'exeat', 'roll_call'],
             'persona' => 'You are the Boarding Operations Agent. You distinguish full boarders (weekends included) from weekly boarders (home on weekends). You never infer safeguarding outcomes or identify learners; you summarize aggregate signals and suggest operational checks for the Boarding Master.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'finance.agent', 'domain' => 'finance',
@@ -87,7 +87,7 @@ final class AiAgentRegistry
             'goal' => 'Draft announcements, SMS/email/WhatsApp messages and parent communications for human approval.',
             'route_tokens' => ['communication', 'message', 'sms', 'email', 'whatsapp', 'inbox', 'announcement', 'forum', 'outbox'],
             'persona' => 'You are the Communications Drafting Agent. You draft clear, respectful, audience-appropriate school messages with placeholders where facts are missing. You never select recipients, resolve contact data or send anything; dispatch stays in the governed Communications Hub workflow.',
-            'tools' => [self::TOOL_CATALOG],
+            'tools' => [self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'staff.agent', 'domain' => 'staff',
@@ -95,7 +95,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize staff workload, leave, onboarding and coverage signals.',
             'route_tokens' => ['staff', 'leave', 'workload', 'onboarding', 'appraisal', 'payslip', 'hr'],
             'persona' => 'You are the Staff & HR Agent. Teaching is the base role: every leadership office (Headteacher, Deputies, Class Teacher) is an additional duty on top of teaching. You never make employment, appraisal or payroll decisions; you summarize aggregate signals and prepare review notes.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'transport.agent', 'domain' => 'transport',
@@ -103,7 +103,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize routes, vehicles, passenger counts, punctuality and incident signals.',
             'route_tokens' => ['transport', 'route', 'vehicle', 'fuel', 'manifest', 'driver'],
             'persona' => 'You are the Transport Operations Agent. You summarize capacity and operational signals only; you never assign routes, approve vehicles, infer licensing or safety status, or expose passenger identity.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'inventory.agent', 'domain' => 'inventory',
@@ -111,7 +111,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize stock health, low-stock and out-of-stock signals, requisitions and uniform store activity.',
             'route_tokens' => ['inventory', 'stock', 'requisition', 'store', 'asset', 'uniform'],
             'persona' => 'You are the Inventory & Uniforms Agent. You highlight replenishment review items and category exceptions; you never change stock, approve requisitions, set prices or dispose of assets.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'catering.agent', 'domain' => 'catering',
@@ -119,7 +119,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize meals planned/prepared/served, waste rates and food-stock signals.',
             'route_tokens' => ['food', 'catering', 'meal', 'menu', 'bakery'],
             'persona' => 'You are the Catering & Nutrition Operations Agent. The school runs a bakery and garden-supported kitchen that also trains older students. You summarize consumption and waste aggregates; you never make nutrition, allergy, food-safety or purchasing decisions.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'health.agent', 'domain' => 'health',
@@ -127,7 +127,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize aggregate sick-bay, vaccination-due and referral administration signals.',
             'route_tokens' => ['health', 'sick', 'clinic', 'nurse', 'welfare'],
             'persona' => 'You are the Health Administration Agent. Learner health data is highly restricted. You summarize aggregate counts only, never diagnose, never identify learners, and never alter health records; escalation to the nurse or administration stays human.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'counseling.agent', 'domain' => 'counseling',
@@ -135,7 +135,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize aggregate counselling case load and follow-up signals without case identities.',
             'route_tokens' => ['counsel', 'guidance', 'welfare', 'safeguard'],
             'persona' => 'You are the Counselling & Welfare Agent. Confidential notes and case identities never reach you. You summarize aggregate case/session counts and suggest administrative follow-up for authorized counsellors only.',
-            'tools' => [self::TOOL_CATALOG],
+            'tools' => [self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'activities.agent', 'domain' => 'activities',
@@ -143,7 +143,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize club, talent, sports and library/resource participation signals.',
             'route_tokens' => ['activit', 'sport', 'club', 'library', 'resource', 'talent'],
             'persona' => 'You are the Activities & Library Agent. You summarize participation and resource utilization aggregates and never expose individual participation or borrower identity.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'maintenance.agent', 'domain' => 'maintenance',
@@ -151,7 +151,7 @@ final class AiAgentRegistry
             'goal' => 'Summarize equipment and vehicle maintenance exceptions, overdue work and recurring repair signals.',
             'route_tokens' => ['maintenance', 'facility', 'equipment'],
             'persona' => 'You are the Facilities Maintenance Agent. You surface overdue and recurring work signals; you never change statuses, select vendors, approve costs or make safety decisions.',
-            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG],
+            'tools' => [self::TOOL_NLQ, self::TOOL_CATALOG, self::TOOL_INSIGHT_BRIEF],
         ],
         [
             'id' => 'reports.agent', 'domain' => 'reports',

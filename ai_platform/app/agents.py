@@ -7,6 +7,7 @@ is a registry row here plus tests; never a route change.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 TOOL_CATALOG = "assistant.catalog"
@@ -54,7 +55,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             "applicant",
         ],
         "persona": "You are the Admissions Funnel Agent. You know the eight stages: Applied, Received, Reviewed & Approved, Interview (Grade 4-9 only), Admission Number, Class/Stream Placement, Fees/Transport/Uniform Payments, ID Generation, Final Enrollment. You never finalize admissions, promise placement or contact parents yourself; you prepare review notes and drafts for staff approval.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "attendance.agent": {
         "id": "attendance.agent",
@@ -72,7 +73,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize dormitory occupancy, roll-call exceptions, exeats and weekend presence signals.",
         "route_tokens": ["boarding", "dorm", "hostel", "exeat", "roll_call"],
         "persona": "You are the Boarding Operations Agent. You distinguish full boarders (weekends included) from weekly boarders (home on weekends). You never infer safeguarding outcomes or identify learners; you summarize aggregate signals and suggest operational checks for the Boarding Master.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "finance.agent": {
         "id": "finance.agent",
@@ -111,7 +112,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             "outbox",
         ],
         "persona": "You are the Communications Drafting Agent. You draft clear, respectful, audience-appropriate school messages with placeholders where facts are missing. You never select recipients, resolve contact data or send anything; dispatch stays in the governed Communications Hub workflow.",
-        "tools": [TOOL_CATALOG],
+        "tools": [TOOL_CATALOG, "reports.insight_brief"],
     },
     "staff.agent": {
         "id": "staff.agent",
@@ -128,7 +129,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             "hr",
         ],
         "persona": "You are the Staff & HR Agent. Teaching is the base role: every leadership office (Headteacher, Deputies, Class Teacher) is an additional duty on top of teaching. You never make employment, appraisal or payroll decisions; you summarize aggregate signals and prepare review notes.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "transport.agent": {
         "id": "transport.agent",
@@ -137,7 +138,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize routes, vehicles, passenger counts, punctuality and incident signals.",
         "route_tokens": ["transport", "route", "vehicle", "fuel", "manifest", "driver"],
         "persona": "You are the Transport Operations Agent. You summarize capacity and operational signals only; you never assign routes, approve vehicles, infer licensing or safety status, or expose passenger identity.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "inventory.agent": {
         "id": "inventory.agent",
@@ -153,7 +154,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             "uniform",
         ],
         "persona": "You are the Inventory & Uniforms Agent. You highlight replenishment review items and category exceptions; you never change stock, approve requisitions, set prices or dispose of assets.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "catering.agent": {
         "id": "catering.agent",
@@ -162,7 +163,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize meals planned/prepared/served, waste rates and food-stock signals.",
         "route_tokens": ["food", "catering", "meal", "menu", "bakery"],
         "persona": "You are the Catering & Nutrition Operations Agent. The school runs a bakery and garden-supported kitchen that also trains older students. You summarize consumption and waste aggregates; you never make nutrition, allergy, food-safety or purchasing decisions.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "health.agent": {
         "id": "health.agent",
@@ -171,7 +172,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize aggregate sick-bay, vaccination-due and referral administration signals.",
         "route_tokens": ["health", "sick", "clinic", "nurse", "welfare"],
         "persona": "You are the Health Administration Agent. Learner health data is highly restricted. You summarize aggregate counts only, never diagnose, never identify learners, and never alter health records; escalation to the nurse or administration stays human.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "counseling.agent": {
         "id": "counseling.agent",
@@ -180,7 +181,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize aggregate counselling case load and follow-up signals without case identities.",
         "route_tokens": ["counsel", "guidance", "welfare", "safeguard"],
         "persona": "You are the Counselling & Welfare Agent. Confidential notes and case identities never reach you. You summarize aggregate case/session counts and suggest administrative follow-up for authorized counsellors only.",
-        "tools": [TOOL_CATALOG],
+        "tools": [TOOL_CATALOG, "reports.insight_brief"],
     },
     "activities.agent": {
         "id": "activities.agent",
@@ -189,7 +190,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize club, talent, sports and library/resource participation signals.",
         "route_tokens": ["activit", "sport", "club", "library", "resource", "talent"],
         "persona": "You are the Activities & Library Agent. You summarize participation and resource utilization aggregates and never expose individual participation or borrower identity.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "maintenance.agent": {
         "id": "maintenance.agent",
@@ -198,7 +199,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize equipment and vehicle maintenance exceptions, overdue work and recurring repair signals.",
         "route_tokens": ["maintenance", "facility", "equipment"],
         "persona": "You are the Facilities Maintenance Agent. You surface overdue and recurring work signals; you never change statuses, select vendors, approve costs or make safety decisions.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG],
+        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
     },
     "reports.agent": {
         "id": "reports.agent",
@@ -273,6 +274,182 @@ def resolve(agent_id: str) -> dict[str, Any] | None:
     return AGENTS.get(agent_id)
 
 
+
+# Deterministic lexical routing. A tiny bag-of-words classifier runs before
+# any provider call so ordinary questions ("recap today's attendance") reach
+# the right agent with zero latency and zero cost. It is intentionally
+# conservative: it only fires on strong keyword signals, and the provider
+# triage remains the fallback for anything ambiguous.
+_ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    # agent id: (strong signals, supporting signals)
+    "attendance.agent": (
+        ("attendance", "absent", "absentee", "present", "register", "roll call"),
+        ("lateness", "late", "truancy", "rollcall", "mark", "session"),
+    ),
+    "academics.agent": (
+        ("scheme of work", "lesson plan", "learning area", "curriculum", "cbc",
+         "assignment", "homework", "class test", "exam", "rubric", "assessment",
+         "topic", "learning outcome", "strand", "sub-strand", "portfolio", "course outline"),
+        ("exam", "rubric", "assessment", "grade", "marks", "strand", "sub-strand",
+         "topic", "objective", "outcome", "learner", "class"),
+    ),
+    "finance.agent": (
+        ("fee", "fees", "invoice", "payment", "collection", "budget", "revenue",
+         "expense", "mpesa", "finance", "financial", "salary", "payroll"),
+        ("balance", "owing", "debt", "receivable", "ledger", "bank", "profit",
+         "expenditure", "grant", "donor"),
+    ),
+    "admissions.agent": (
+        ("admission", "applicant", "application", "enrol", "enrollment",
+         "enrolment", "intake", "waiting list"),
+        ("interview", "placement", "transfer", "withdraw", "prospect"),
+    ),
+    "transport.agent": (
+        ("transport", "route", "vehicle", "driver", "bus", "passenger",
+         "manifest", "pickup", "drop-off"),
+        ("trip", "fare", "commute", "fleet", "accident", "journey"),
+    ),
+    "boarding.agent": (
+        ("boarding", "boarder", "dormitory", "dorm", "hostel", "exeat",
+         "roll call", "overnight"),
+        ("bed", "welfare", "weekend", "night", "preacher"),
+    ),
+    "inventory.agent": (
+        ("inventory", "stock", "requisition", "supplier", "procurement",
+         "warehouse", "store"),
+        ("item", "quantity", "out of stock", "order", "purchase", "asset"),
+    ),
+    "catering.agent": (
+        ("catering", "meal", "menu", "kitchen", "food", "nutrition", "diet"),
+        ("waste", "portion", "cook", "canteen", "dining", "snack", "consume"),
+    ),
+    "staff.agent": (
+        ("staff", "teacher", "employee", "payroll", "appraisal", "leave",
+         "workload", "timetable for staff", "human resource"),
+        ("sick", "vacation", "contract", "department", "training", "cpd",
+         "salary", "recruitment", "discipline of staff"),
+    ),
+    "health.agent": (
+        ("health", "medical", "clinic", "illness", "disease", "medication",
+         "immunization", "injury", "first aid"),
+        ("nurse", "diagnosis", "referral", "sick bay", "hygiene"),
+    ),
+    "counseling.agent": (
+        ("counsel", "counselling", "counseling", "psychology", "mental health",
+         "wellbeing", "grief", "peer pressure"),
+        ("confidential", "emotional", "support", "referral", "well-being"),
+    ),
+    "communications.agent": (
+        ("message", "sms", "email", "whatsapp", "announcement", "parent",
+         "communication", "forum", "letter", "notice"),
+        ("broadcast", "recipient", "send", "reply", "inbox"),
+    ),
+    "maintenance.agent": (
+        ("maintenance", "repair", "broken", "plumbing", "electrical", "generator",
+         "cleaning", "grinding", "compound", "facility"),
+        ("work order", "artisan", "spare part", "tool", "building", "fence"),
+    ),
+    "activities.agent": (
+        ("activity", "club", "sport", "library", "music", "drama", "football",
+         "athletics", "competition"),
+        ("event", "team", "participant", "talent", "resource", "book"),
+    ),
+    "reports.agent": (
+        ("report", "report card", "analytics", "kpi", "dashboard figure",
+         "statistic", "trend", "chart"),
+        ("summary", "figure", "number of", "how many", "average", "total"),
+    ),
+    "system.agent": (
+        ("system health", "server health", "queue", "job queue", "audit log",
+         "error log", "security", "login failure", "backup", "system error",
+         "system performance", "failing api"),
+        ("incident", "outage", "slow", "log file", "journal", "permission drift"),
+    ),
+}
+
+_STOPWORDS = {
+    "the", "a", "an", "of", "for", "to", "and", "or", "in", "on", "at", "is",
+    "are", "was", "were", "do", "does", "did", "can", "could", "should", "would",
+    "i", "me", "my", "we", "our", "you", "your", "it", "this", "that", "today",
+    "now", "please", "give", "show", "tell", "list", "summarise", "summarize",
+    "explain", "recap", "what", "how", "much", "many", "there", "have", "has",
+    "with", "from", "about", "get", "make", "need", "help", "check", "any",
+}
+
+
+def _matches(keyword: str, text: str) -> bool:
+    """Word-boundary match tolerant of the plural/singular forms staff use."""
+    if re.search(r"\b" + re.escape(keyword) + r"\b", text):
+        return True
+    parts = keyword.split()
+    if len(parts) == 1 and len(keyword) > 3 and keyword[-1] not in "s":
+        return bool(re.search(r"\b" + re.escape(keyword) + r"s\b", text))
+    return False
+
+
+def route_hint_for(question: str) -> tuple[str, int] | None:
+    """Deterministically pick an agent from question wording.
+
+    Returns (agent_id, strength) or None when no signal is strong enough. A
+    strong signal alone is sufficient; supporting words only decide between
+    candidates that already matched a strong signal.
+    """
+    if not isinstance(question, str):
+        return None
+    text = " " + re.sub(r"[^a-z0-9\- ]+", " ", question.lower()) + " "
+    scores: dict[str, tuple[int, int]] = {}
+    for agent_id, (strong, supporting) in _ROUTE_HINTS.items():
+        score = 0
+        strong_count = 0
+        for keyword in strong:
+            if _matches(keyword, text):
+                score += 3
+                strong_count += 1
+        for keyword in supporting:
+            if _matches(keyword, text):
+                score += 1
+        if score:
+            scores[agent_id] = (score, strong_count)
+    if not scores:
+        return None
+
+    def _specificity(agent_id: str) -> int:
+        return max(
+            (
+                len(keyword.split())
+                for keyword in _ROUTE_HINTS[agent_id][0]
+                if _matches(keyword, text)
+            ),
+            default=0,
+        )
+
+    best = max(
+        scores,
+        key=lambda key: (scores[key][0], _specificity(key), scores[key][1]),
+    )
+    strength, strong_count = scores[best]
+    # Require at least one strong signal, or two supporting ones.
+    if strong_count == 0 and strength < 2:
+        return None
+
+    # Tie-break on specificity: "system health" is a phrase, "health" alone is
+    # not, so the phrase owner wins instead of deferring to a provider call.
+    runner_up = max(
+        (value[0] for key, value in scores.items() if key != best), default=0
+    )
+    if runner_up and (strength - runner_up) < 2:
+        best_spec = _specificity(best)
+        rivals = [key for key in scores if key != best]
+        best_rival_spec = max(_specificity(key) for key in rivals)
+        # Equal score: a longer matched phrase is the more specific signal, so
+        # it resolves the tie. Identical specificity stays ambiguous and is
+        # handed to the provider triage.
+        if best_spec > best_rival_spec:
+            return best, strength
+        return None
+    return best, strength
+
+
 def for_route(route: str) -> dict[str, Any] | None:
     route = (route or "").strip().lower()
     if not route or route == "dashboard":
@@ -333,6 +510,48 @@ def system_prompt(agent: dict[str, Any]) -> str:
             f"AGENT PERSONA - {agent['name']}: {agent['persona']}",
             f"AGENT GOAL: {agent['goal']}",
             "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
+        ]
+    )
+
+
+def stream_prompt(agent: dict[str, Any]) -> str:
+    """System prompt for the streamed answer surface.
+
+    The buffered agent loop uses a strict JSON answer contract, which is right
+    for a machine consumer but wrong for a live chat surface: the browser would
+    render raw JSON as it arrives. The streamed contract is therefore plain
+    text, with JSON reserved for the one thing that still needs structure - a
+    governed tool request. The first character of the reply distinguishes the
+    two, so the relay can stream prose immediately and never show a tool frame.
+    """
+    return "\n\n".join(
+        [
+            "You are a governed AI co-worker agent inside a Kenyan CBC primary and "
+            "junior-secondary school system (Kingsway Preparatory School). You help "
+            "authenticated staff only; learners are never system users. You are "
+            "writing a live, streamed reply.",
+            f"AGENT PERSONA - {agent['name']}: {agent['persona']}",
+            f"AGENT GOAL: {agent['goal']}",
+            "TOOLS AVAILABLE (use exact ids):\n- "
+            + "\n- ".join(tool_summaries(agent)),
+            (
+                "CONTRACT - follow exactly:\n"
+                "1. Write the answer directly, in plain text. Never emit JSON, "
+                "markdown fences, or an \"answer\" wrapper.\n"
+                "2. Answer from the governed tool_results already provided. They are "
+                "the only school facts you may use. Never invent numbers, identifiers, "
+                "balances, dates, learner or staff details, or policy.\n"
+                "3. Keep it under 150 words, professional and warm, no preamble such as "
+                "\"Based on the data\".\n"
+                "4. Only if the provided results genuinely cannot answer the question, "
+                "request ONE governed tool and reply with nothing except JSON: "
+                '{"action":"tool","tools":[{"tool":"<exact tool id>",'
+                '"tool_input":{...}}]}. Do not wrap it in prose.\n'
+                "5. Never claim to have created, approved, posted, sent, published or "
+                "changed anything - drafts and decisions belong to human staff.\n"
+                "6. If a result is missing, say plainly what could not be retrieved and "
+                "point to the related workspace."
+            ),
         ]
     )
 
