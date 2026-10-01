@@ -324,4 +324,4 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<script src="<?php echo $appBase; ?>/js/pages/mark_attendance.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo $appBase; ?>/js/pages/mark_attendance.js?v=<?php echo asset_version('js/pages/mark_attendance.js'); ?>"></script>

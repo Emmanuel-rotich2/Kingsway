@@ -34,27 +34,37 @@
         <div class="alert alert-light border small">This is the learner account view. To enter or reconcile a payment, use <strong>Payment Register</strong>.</div>
 
         <!-- Search & Filter -->
-        <div class="row mb-4">
+        <div class="row g-2 mb-4 align-items-end">
             <div class="col-md-3">
                 <input type="text" class="form-control" id="searchStudent" placeholder="Search student...">
             </div>
             <div class="col-md-2">
+                <label class="form-label small text-muted mb-1" for="yearFilter">Academic year</label>
+                <select class="form-select" id="yearFilter">
+                    <option value="">All years</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small text-muted mb-1" for="classFilter">Class</label>
                 <select class="form-select" id="classFilter">
                     <option value="">All Classes</option>
                 </select>
             </div>
             <div class="col-md-2">
+                <label class="form-label small text-muted mb-1" for="statusFilter">Status</label>
                 <select class="form-select" id="statusFilter">
                     <option value="">All Status</option>
-                    <option value="paid">Fully Paid</option>
-                    <option value="partial">Partial Payment</option>
-                    <option value="unpaid">Not Paid</option>
-                    <option value="overpaid">Overpaid</option>
+                    <option value="paid">Paid</option>
+                    <option value="partial">Partial</option>
+                    <option value="pending">Pending</option>
+                    <option value="credit">Overpaid (Credit)</option>
+                    <option value="arrears">Arrears</option>
                 </select>
             </div>
             <div class="col-md-2">
+                <label class="form-label small text-muted mb-1" for="termFilter">Term</label>
                 <select class="form-select" id="termFilter">
-                    <option value="">Whole Year (All Terms)</option>
+                    <option value="">All</option>
                     <option value="1">Term 1</option>
                     <option value="2">Term 2</option>
                     <option value="3">Term 3</option>
@@ -70,37 +80,41 @@
             </div>
         </div>
 
-        <!-- Summary Cards — every figure names its period -->
-        <div class="row mb-3">
+        <!-- Summary Cards — the annual figure with the selected term below it -->
+        <div class="row mb-3 g-3">
             <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Expected <span class="badge bg-primary-subtle text-primary" id="expectedPeriodLabel">Whole Year</span></h6>
-                        <h3 class="text-primary mb-0" id="totalExpected">KES 0</h3>
+                <div class="card border-primary h-100">
+                    <div class="card-body py-3">
+                        <h6 class="text-muted mb-1 small">Total Expected <span class="fw-normal" id="expectedPeriodLabel">—</span></h6>
+                        <h4 class="text-primary mb-1" id="totalExpected">KES 0</h4>
+                        <small class="text-muted" id="expectedTermLine">—</small>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Collected <span class="badge bg-success-subtle text-success" id="collectedPeriodLabel">Whole Year</span></h6>
-                        <h3 class="text-success mb-0" id="totalCollected">KES 0</h3>
+                <div class="card border-success h-100">
+                    <div class="card-body py-3">
+                        <h6 class="text-muted mb-1 small">Total Collected <span class="fw-normal" id="collectedPeriodLabel">—</span></h6>
+                        <h4 class="text-success mb-1" id="totalCollected">KES 0</h4>
+                        <small class="text-muted" id="collectedTermLine">—</small>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Outstanding <span class="badge bg-warning-subtle text-warning" id="outstandingPeriodLabel">Whole Year</span></h6>
-                        <h3 class="text-warning mb-0" id="totalOutstanding">KES 0</h3>
+                <div class="card border-warning h-100">
+                    <div class="card-body py-3">
+                        <h6 class="text-muted mb-1 small">Total Outstanding <span class="fw-normal" id="outstandingPeriodLabel">—</span></h6>
+                        <h4 class="text-warning mb-1" id="totalOutstanding">KES 0</h4>
+                        <small class="text-muted" id="outstandingTermLine">—</small>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Collection Rate <span class="badge bg-info-subtle text-info" id="ratePeriodLabel">Whole Year</span></h6>
-                        <h3 class="text-info mb-0" id="collectionRate">0%</h3>
+                <div class="card border-info h-100">
+                    <div class="card-body py-3">
+                        <h6 class="text-muted mb-1 small">Collection Rate <span class="fw-normal" id="ratePeriodLabel">—</span></h6>
+                        <h4 class="text-info mb-1" id="collectionRate">0%</h4>
+                        <small class="text-muted" id="rateTermLine">—</small>
                     </div>
                 </div>
             </div>

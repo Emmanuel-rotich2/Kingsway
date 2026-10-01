@@ -96,4 +96,4 @@
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="ManageTermsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
-<script src="<?= $appBase ?>/js/pages/manage_terms.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_terms.js?v=<?php echo asset_version('js/pages/manage_terms.js'); ?>"></script>

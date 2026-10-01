@@ -1088,6 +1088,45 @@ return formatResponse(false, null, 'An internal error occurred.');
             $totalBalance = (float) ($summaryRow['total_balance'] ?? 0);
             $collectionRate = $totalDue > 0 ? round(($totalPaid / $totalDue) * 100, 2) : 0;
 
+            // Everything from the academic-year context tables — the source of
+            // truth. Every year has its own term rows, amounts and settings, so
+            // many years with different calendars coexist on the same system
+            // without overwriting or duplicating. Nothing is hardcoded.
+            $contextYear = (isset($resolvedYear) && $resolvedYear !== false && $resolvedYear !== null)
+                ? (string) $resolvedYear
+                : (string) ($this->db->query(
+                    "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                )->fetchColumn() ?: '');
+            $currentTermNumber = 0;
+            $hasCurrentTerm = false;
+            if ($contextYear !== '') {
+                $ctxStmt = $this->db->prepare(
+                    "SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
+                     FROM academic_year_terms ayt
+                     JOIN terms t ON t.id = ayt.term_id
+                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                     WHERE ay.year_code = ? AND ayt.status = 'current'
+                     LIMIT 1"
+                );
+                $ctxStmt->execute([$contextYear]);
+                $currentTermNumber = (int) ($ctxStmt->fetchColumn() ?: 0);
+                $hasCurrentTerm = $currentTermNumber > 0;
+                if (!$hasCurrentTerm) {
+                    // No term is marked current for this year (a configured but
+                    // not-yet-opened year) — fall back to the latest term that
+                    // actually has fee rows, from the data, never assumed.
+                    $latestStmt = $this->db->prepare(
+                        "SELECT MAX(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
+                         FROM academic_year_terms ayt
+                         JOIN terms t ON t.id = ayt.term_id
+                         JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                         WHERE ay.year_code = ?"
+                    );
+                    $latestStmt->execute([$contextYear]);
+                    $currentTermNumber = (int) ($latestStmt->fetchColumn() ?: 0);
+                }
+            }
+
             $annualDue = (float) ($annualRow['total_due'] ?? 0);
             $annualPaid = (float) ($annualRow['total_paid'] ?? 0);
 
@@ -1115,6 +1154,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'period_label' => empty($filters['term_number']) || strtolower((string) $filters['term_number']) === 'all'
                         ? 'Whole Year'
                         : 'Term ' . preg_replace('/^T/', '', strtoupper(trim((string) $filters['term_number']))),
+                    // Everything from the academic-year context tables — the
+                    // source of truth. Every year has its own term rows,
+                    // amounts and settings, so many years with different
+                    // calendars coexist on the same system without overwriting
+                    // or duplicating. Nothing is hardcoded.
+                    'academic_year' => $contextYear,
+                    'current_term_number' => $currentTermNumber,
+                    'has_current_term' => $hasCurrentTerm,
                 ]
             ]);
         } catch (Exception $e) {

@@ -74,4 +74,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/exam_moderation.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/exam_moderation.js?v=<?php echo asset_version('js/pages/exam_moderation.js'); ?>"></script>

@@ -750,6 +750,11 @@ class Orchestrator:
             "route": route,
             "module": module,
             "behavior_hints": self._hint_lines(hints),
+            "grounding_note": (
+                "Governed results are already in tool_results. Answer from them; "
+                "only request a tool if the results genuinely do not cover the "
+                "question."
+            ),
             "tool_results": tool_results,
             "conversation": history,
         }
@@ -771,11 +776,6 @@ class Orchestrator:
         # That keeps raw tool frames out of the chat bubble and still lets a
         # genuinely data-hungry question get its facts.
         for attempt in range(2):
-            envelope["grounding_note"] = (
-                "Governed results are already in tool_results. Answer from them; "
-                "only request a tool if the results genuinely do not cover the "
-                "question."
-            )
             messages = [
                 {"role": "system", "content": agents.stream_prompt(agent)},
                 {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},

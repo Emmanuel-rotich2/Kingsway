@@ -124,4 +124,4 @@
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
 </div></div></div>
 
-<script src="<?= $appBase ?>/js/pages/manage_staff_meetings.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_staff_meetings.js?v=<?php echo asset_version('js/pages/manage_staff_meetings.js'); ?>"></script>

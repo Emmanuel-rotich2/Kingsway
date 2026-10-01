@@ -132,4 +132,4 @@
     </div>
 </div></div></div>
 
-<script src="<?= $appBase ?>/js/pages/year_calendar.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/year_calendar.js?v=<?php echo asset_version('js/pages/year_calendar.js'); ?>"></script>

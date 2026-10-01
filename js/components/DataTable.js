@@ -69,7 +69,7 @@ class DataTable {
                 <!-- Pagination -->
                 <div class="d-flex justify-content-between align-items-center mt-3">
                     <div>
-                        <small class="text-muted">
+                        <small class="text-muted" id="${this.containerId}-info">
                             Showing ${this.pageSize} of ${this.filteredData.length} records
                         </small>
                     </div>
@@ -197,6 +197,20 @@ class DataTable {
         const start = (this.currentPage - 1) * this.pageSize;
         const end = start + this.pageSize;
         const pageData = this.filteredData.slice(start, end);
+
+        // The skeleton renders "Showing {pageSize} of 0 records" before data
+        // arrives and nothing ever updated it — every table said "of 0" while
+        // showing rows. Keep the info line in sync with the loaded data.
+        const info = document.getElementById(`${this.containerId}-info`);
+        if (info) {
+            if (this.filteredData.length === 0) {
+                info.textContent = "No records found";
+            } else {
+                const from = start + 1;
+                const to = Math.min(end, this.filteredData.length);
+                info.textContent = `Showing ${from}–${to} of ${this.filteredData.length} records`;
+            }
+        }
 
         if (pageData.length === 0) {
             tbody.innerHTML = '<tr><td colspan="100%" class="text-center text-muted py-4">No records found</td></tr>';

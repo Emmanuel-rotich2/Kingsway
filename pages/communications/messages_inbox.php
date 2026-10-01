@@ -139,4 +139,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/communications.js?v=<?= time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/communications.js?v=<?php echo asset_version('js/pages/communications.js'); ?>"></script>

@@ -79,6 +79,11 @@ const StudentFeesController = {
       collectedPeriodLabel: document.getElementById("collectedPeriodLabel"),
       outstandingPeriodLabel: document.getElementById("outstandingPeriodLabel"),
       ratePeriodLabel: document.getElementById("ratePeriodLabel"),
+      expectedTermLine: document.getElementById("expectedTermLine"),
+      collectedTermLine: document.getElementById("collectedTermLine"),
+      outstandingTermLine: document.getElementById("outstandingTermLine"),
+      rateTermLine: document.getElementById("rateTermLine"),
+      yearFilter: document.getElementById("yearFilter"),
       perPageFilter: document.getElementById("perPageFilter"),
       paymentModal: document.getElementById("paymentModal"),
       paymentForm: document.getElementById("paymentForm"),
@@ -188,6 +193,15 @@ const StudentFeesController = {
       });
     }
 
+    if (this.ui.yearFilter) {
+      this.ui.yearFilter.addEventListener("change", (event) => {
+        const value = event.target.value;
+        this.filters.academic_year = value ? value : "";
+        this.filters.page = 1;
+        this.loadPaymentStatus();
+      });
+    }
+
     if (this.ui.recordPaymentBtn) {
       this.ui.recordPaymentBtn.addEventListener("click", () => {
         this.openPaymentModal();
@@ -280,6 +294,7 @@ const StudentFeesController = {
 
       const years = this.unwrapList(yearsResp);
       this.data.years = years;
+      this.populateYearFilter(years);
       const currentYear = years.find(
         (year) => year.is_current == 1 || year.is_current === "1",
       );
@@ -344,16 +359,21 @@ const StudentFeesController = {
 
   renderSummary: function () {
     const summary = this.data.summary || {};
-    // Every card names its period: the selected scope, with the annual
-    // position shown alongside when a single term is selected.
+    // Everything comes from the database context tables (academic_year_*):
+    // the year label, the current term and the per-term figures. Nothing is
+    // hardcoded — the school runs for years and the workspace follows the
+    // calendar data.
+    const yearLabel = summary.academic_year || "";
+    const currentTerm = Number(summary.current_term_number || 0);
+    const hasCurrent = summary.has_current_term === true || Number(summary.has_current_term || 0) === 1;
     const period = summary.period_label || "Whole Year";
     const setPeriod = (el, text) => {
       if (el) el.textContent = text;
     };
-    setPeriod(this.ui.expectedPeriodLabel, period);
-    setPeriod(this.ui.collectedPeriodLabel, period);
-    setPeriod(this.ui.outstandingPeriodLabel, period);
-    setPeriod(this.ui.ratePeriodLabel, period);
+    setPeriod(this.ui.expectedPeriodLabel, yearLabel || period);
+    setPeriod(this.ui.collectedPeriodLabel, yearLabel || period);
+    setPeriod(this.ui.outstandingPeriodLabel, yearLabel || period);
+    setPeriod(this.ui.ratePeriodLabel, yearLabel || period);
 
     this.ui.totalExpected.textContent = this.formatCurrency(
       summary.total_due || 0,
@@ -365,6 +385,29 @@ const StudentFeesController = {
       summary.total_balance || 0,
     );
     this.ui.collectionRate.textContent = `${summary.collection_rate || 0}%`;
+
+    // The selected-term (or current-term) figures below each annual figure —
+    // picked from the summary's terms, which come from the actual term rows.
+    const terms = Array.isArray(summary.terms) ? summary.terms : [];
+    const selectedTermNumber = this.filters.term_number
+      ? Number(this.filters.term_number)
+      : (hasCurrent ? currentTerm : 0);
+    const selectedTerm = terms.find((t) => Number(t.term_number) === selectedTermNumber) || null;
+    const termLine = (el, format) => {
+      if (!el) return;
+      if (!selectedTerm) {
+        el.textContent = "No term data for this year";
+        return;
+      }
+      const suffix = Number(selectedTerm.term_number) === currentTerm && hasCurrent
+        ? " (current)"
+        : (this.filters.term_number ? " (selected)" : "");
+      el.textContent = `Term ${selectedTerm.term_number}${suffix}: ${format(selectedTerm)}`;
+    };
+    termLine(this.ui.expectedTermLine, (t) => this.formatCurrency(t.total_due || 0));
+    termLine(this.ui.collectedTermLine, (t) => this.formatCurrency(t.total_paid || 0));
+    termLine(this.ui.outstandingTermLine, (t) => this.formatCurrency(t.total_balance || 0));
+    termLine(this.ui.rateTermLine, (t) => `${t.collection_rate || 0}%`);
 
     this.renderTermProgress(summary);
   },
@@ -508,51 +551,46 @@ const StudentFeesController = {
       return;
     }
 
+    // Same shape as the staff table: Showing from–to of total, a rows-per-page
+    // selector, and page N of totalPages. The page count derives from the data
+    // size and the rows the user chooses to display; the values change with
+    // the filters and stay fast.
     const { page, limit, total } = this.data.pagination;
     const totalPages = Math.max(1, Math.ceil(total / limit));
+    const from = total ? (page - 1) * limit + 1 : 0;
+    const to = Math.min(page * limit, total);
+    const currentLimit = Number(limit || this.filters.limit || 25);
 
-    if (totalPages <= 1) {
-      this.ui.pagination.innerHTML = "";
-      return;
+    const pageSizeOptions = [10, 25, 50, 100, 250];
+
+    this.ui.pagination.innerHTML = `
+      <div class="small text-muted">Showing ${from}–${to} of ${total}</div>
+      <div class="d-flex align-items-center gap-2">
+        <label class="small text-muted" for="feePageSize">Rows</label>
+        <select id="feePageSize" class="form-select form-select-sm" style="width:auto" aria-label="Rows per page">
+          ${pageSizeOptions.map((n) => `<option value="${n}" ${currentLimit === n ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Fee accounts pages">
+          <button class="btn btn-outline-secondary" type="button" data-fee-page="${Math.max(1, page - 1)}" ${page <= 1 ? "disabled" : ""}>Previous</button>
+          <span class="btn btn-outline-secondary disabled">${page} / ${totalPages}</span>
+          <button class="btn btn-outline-secondary" type="button" data-fee-page="${Math.min(totalPages, page + 1)}" ${page >= totalPages ? "disabled" : ""}>Next</button>
+        </div>
+      </div>`;
+
+    this.ui.pagination.querySelectorAll("[data-fee-page]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.filters.page = Number(btn.dataset.feePage);
+        this.loadPaymentStatus();
+      });
+    });
+    const sizeSelect = this.ui.pagination.querySelector("#feePageSize");
+    if (sizeSelect) {
+      sizeSelect.addEventListener("change", () => {
+        this.filters.limit = Number(sizeSelect.value);
+        this.filters.page = 1;
+        this.loadPaymentStatus();
+      });
     }
-
-    const createItem = (label, targetPage, disabled, active) => {
-      const li = document.createElement("li");
-      li.className = `page-item${disabled ? " disabled" : ""}${active ? " active" : ""}`;
-      const link = document.createElement("a");
-      link.className = "page-link";
-      link.href = "#";
-      link.textContent = label;
-      if (!disabled) {
-        link.addEventListener("click", (event) => {
-          event.preventDefault();
-          this.filters.page = targetPage;
-          this.loadPaymentStatus();
-        });
-      }
-      li.appendChild(link);
-      return li;
-    };
-
-    this.ui.pagination.innerHTML = "";
-    this.ui.pagination.appendChild(
-      createItem("Prev", Math.max(1, page - 1), page === 1, false),
-    );
-
-    for (let p = 1; p <= totalPages; p += 1) {
-      this.ui.pagination.appendChild(
-        createItem(String(p), p, false, p === page),
-      );
-    }
-
-    this.ui.pagination.appendChild(
-      createItem(
-        "Next",
-        Math.min(totalPages, page + 1),
-        page === totalPages,
-        false,
-      ),
-    );
   },
 
   openFeeDetails: async function (studentId) {
@@ -788,6 +826,20 @@ const StudentFeesController = {
     this.resetPaymentForm();
     const modal = new bootstrap.Modal(this.ui.paymentModal);
     modal.show();
+  },
+
+  populateYearFilter: function (years) {
+    if (!this.ui.yearFilter) return;
+    const list = Array.isArray(years) ? years : [];
+    this.ui.yearFilter.innerHTML =
+      '<option value="">All years</option>' +
+      list
+        .map((year) => {
+          const value = year.year_code || year.year || year.name || year.id || "";
+          const label = `${value}${year.is_current == 1 ? " (current)" : ""}`;
+          return `<option value="${this.esc(String(value))}">${this.esc(label)}</option>`;
+        })
+        .join("");
   },
 
   populateClassFilter: function (classes) {

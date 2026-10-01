@@ -169,4 +169,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
-<script src="<?= $appBase ?>/js/pages/assign_subjects_to_teachers.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/assign_subjects_to_teachers.js?v=<?php echo asset_version('js/pages/assign_subjects_to_teachers.js'); ?>"></script>

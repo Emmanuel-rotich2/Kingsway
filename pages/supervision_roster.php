@@ -194,4 +194,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/supervision_roster.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/supervision_roster.js?v=<?php echo asset_version('js/pages/supervision_roster.js'); ?>"></script>

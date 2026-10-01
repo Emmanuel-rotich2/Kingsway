@@ -260,4 +260,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/boarding_roll_call.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/boarding_roll_call.js?v=<?php echo asset_version('js/pages/boarding_roll_call.js'); ?>"></script>

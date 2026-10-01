@@ -115,6 +115,16 @@ class Provider:
                 )
         return chain
 
+    # Model ids that emit reasoning tokens by default. Measured on the live
+    # NVIDIA account: nemotron-3 answers take 2.5x longer with thinking on and
+    # can exhaust small budgets before any answer text is produced.
+    REASONING_MODEL_MARKERS = ("nemotron-3",)
+
+    @classmethod
+    def _is_reasoning_model(cls, model: str) -> bool:
+        lowered = (model or "").lower()
+        return any(marker in lowered for marker in cls.REASONING_MODEL_MARKERS)
+
     @staticmethod
     def _kind(entry: dict[str, str]) -> str:
         kind = (entry.get("provider_kind") or "generic").strip().lower()
@@ -221,6 +231,13 @@ class Provider:
             payload["response_format"] = {"type": "json_object"}
         if options.get("stream"):
             payload["stream"] = True
+        # Reasoning-family models emit hidden "thinking" tokens that count
+        # against max_tokens and multiply latency: a 500-token chat budget was
+        # observed consumed by reasoning with the answer arriving only after
+        # 6-12s. The NIM chat-template switch turns thinking off for these
+        # models; non-reasoning models never receive the parameter.
+        if self._is_reasoning_model(model) and not options.get("allow_thinking"):
+            payload["chat_template_kwargs"] = {"thinking": False}
         if api_key:
             headers.append(f"Authorization: Bearer {api_key}")
         return (

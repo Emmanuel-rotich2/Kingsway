@@ -82,4 +82,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/class_capacity.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/class_capacity.js?v=<?php echo asset_version('js/pages/class_capacity.js'); ?>"></script>
