@@ -68,6 +68,20 @@ class Config:
         # PHP gateway contract: [{"name","base_url","model","api_key"?,"provider_kind"?}]
         self.fallbacks_raw = _env("AI_PROVIDER_FALLBACKS")
 
+        # Optional fast/cheap model for classification-style work (triage,
+        # routing, short extraction). Omit it and every task uses the primary
+        # model; when set, "fast" tasks prefer it and transparently fall back
+        # to the primary chain. Same provider credentials by default.
+        self.fast_model = _env("AI_FAST_MODEL")
+        self.fast_model_base_url = _env("AI_FAST_MODEL_BASE_URL")
+        self.fast_model_api_key = _env("AI_FAST_MODEL_API_KEY")
+
+        # Concurrency bounds. The co-worker is deliberately aggressive about
+        # parallel work but never unbounded: hard caps keep request latency
+        # and provider spend predictable on shared hosting.
+        self.max_tool_parallel = min(4, _env_int("AI_MAX_TOOL_PARALLEL", 3))
+        self.briefing_specialists = min(3, _env_int("AI_BRIEFING_SPECIALISTS", 2))
+
         # Storage (behavior study + journals) under the app root by default.
         self.data_dir = Path(_env("KINGSWAY_AI_DATA_DIR", str(APP_ROOT / "data")))
         self.log_dir = Path(_env("KINGSWAY_AI_LOG_DIR", str(APP_ROOT / "logs")))

@@ -191,14 +191,32 @@ final class AiAgentRegistry
         if ($route === '' || $route === 'dashboard') {
             return null;
         }
+        // Most specific match wins: prefer the agent matching the longest and
+        // most tokens, so "system_health" resolves to System Operations
+        // ("system") rather than whichever agent happens to sit first with a
+        // shorter token such as "health".
+        $best = null;
+        $bestScore = 0;
         foreach (self::all() as $agent) {
+            $matched = 0;
+            $longest = 0;
             foreach ((array) ($agent['route_tokens'] ?? []) as $token) {
+                $token = (string) $token;
                 if ($token !== '' && str_contains($route, $token)) {
-                    return $agent;
+                    $matched++;
+                    $longest = max($longest, strlen($token));
                 }
             }
+            if ($matched === 0) {
+                continue;
+            }
+            $score = ($matched * 1000) + $longest;
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $agent;
+            }
         }
-        return null;
+        return $best;
     }
 
     /** Default generalist when neither route nor triage resolves an agent. */

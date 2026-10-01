@@ -778,6 +778,160 @@
     system: "system_diagnostics",
   };
 
+// Proactive workspace briefing (page-load trigger). Three tiers, no blocking:
+// 1) the persisted snapshot (memory LRU -> IndexedDB) renders instantly, even
+//    offline, so opening the panel never waits on the network;
+// 2) DataStore revalidates in the background (stale-while-revalidate) and
+//    rewrites the snapshot, so the next open is already current;
+// 3) while the server is still generating, we keep the snapshot visible and
+//    poll a bounded number of times instead of showing a spinner.
+  let aiBriefingTimer = null;
+  let aiBriefingSnapshot = null;
+
+  const AI_BRIEFING_TTL = 15 * 60 * 1000;
+
+  async function fetchWorkspaceBriefing(route) {
+    const payload = await window.API?.dashboard?.getWorkspaceBriefing?.(route);
+    return payload?.data !== undefined ? payload.data : payload;
+  }
+
+  async function loadWorkspaceBriefing(attempt = 0) {
+    const host = $("#global-ai-assistant-briefing");
+    if (!host) return;
+    const route = currentRoute() || "dashboard";
+    const storeKey = "ai_workspace_briefing";
+
+    if (attempt === 0 && !host.querySelector("[data-ai-briefing-body]")) {
+      // Instant first paint from the persisted snapshot, before any network.
+      window.DataStore?.peek?.(storeKey, {
+        storeName: "ai_workspace_cache",
+        ttl: AI_BRIEFING_TTL,
+        params: { route },
+      }).then((snapshot) => {
+        if (snapshot?.status === "ready" && snapshot?.briefing && !host.querySelector("[data-ai-briefing-body]")) {
+          host.innerHTML = renderWorkspaceBriefing(snapshot.briefing, true);
+        }
+      });
+      host.innerHTML =
+        '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Reviewing this workspace…</div>';
+    }
+
+    try {
+      const result = window.DataStore?.get
+        ? await window.DataStore.get(storeKey, {
+            strategy: "stale-while-revalidate",
+            storeName: "ai_workspace_cache",
+            ttl: AI_BRIEFING_TTL,
+            params: { route },
+            fetcher: () => fetchWorkspaceBriefing(route),
+          })
+        : await fetchWorkspaceBriefing(route);
+      if (result?.status === "ready" && result?.briefing) {
+        host.innerHTML = renderWorkspaceBriefing(result.briefing, false);
+        return;
+      }
+      if (attempt < 5) {
+        host.innerHTML = aiBriefingSnapshot
+          ? renderWorkspaceBriefing(aiBriefingSnapshot, true, true)
+          : '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Preparing your workspace briefing…</div>';
+        if (aiBriefingTimer) clearTimeout(aiBriefingTimer);
+        aiBriefingTimer = setTimeout(() => {
+          void loadWorkspaceBriefing(attempt + 1);
+        }, 4000 * (attempt + 1));
+        return;
+      }
+      host.innerHTML =
+        '<div class="alert alert-secondary small mb-0">Your workspace briefing is still being prepared. It will be ready shortly.</div>';
+    } catch (briefingError) {
+      host.innerHTML =
+        '<div class="alert alert-secondary small mb-0">Workspace briefing is unavailable right now. You can still ask the assistant a question below.</div>';
+    }
+  }
+
+  function renderWorkspaceBriefing(briefing, fromSnapshot, updating) {
+    if (briefing && !updating) aiBriefingSnapshot = briefing;
+    const findings = Array.isArray(briefing?.findings) ? briefing.findings : [];
+    const engine = String(briefing?.engine || "deterministic");
+    const generatedAt = String(briefing?.generated_at || "");
+    const parts = [];
+    parts.push('<div data-ai-briefing-body>');
+    if (updating) {
+      parts.push(
+        '<div class="alert alert-info py-1 px-2 small mb-2"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Refreshing this workspace review…</div>'
+      );
+    }
+    parts.push(
+      '<div class="card border-0 bg-light-subtle mb-2"><div class="card-body p-3">'
+    );
+    parts.push(
+      `<div class="d-flex align-items-center justify-content-between mb-1">
+        <span class="badge text-bg-light border text-uppercase"><i class="bi bi-clipboard-data me-1"></i>Workspace review</span>
+        <small class="text-muted">${escapeHtml(engine.replace(/-/g, " "))}</small>
+      </div>`
+    );
+    parts.push(
+      `<h6 class="mb-1">${escapeHtml(briefing?.headline || "Workspace review")}</h6>`
+    );
+    if (briefing?.summary) {
+      parts.push(
+        `<p class="small mb-0 text-muted">${escapeHtml(briefing.summary)}</p>`
+      );
+    }
+    parts.push("</div></div>");
+
+    if (findings.length) {
+      findings.forEach((finding) => {
+        const severity = ["info", "warning", "critical"].includes(
+          String(finding?.severity)
+        )
+          ? String(finding.severity)
+          : "info";
+        parts.push(
+          `<div class="ai-briefing-finding border rounded p-2 mb-2 bg-white" data-severity="${escapeHtml(severity)}">`
+        );
+        parts.push(
+          `<div class="d-flex justify-content-between align-items-start gap-2">
+            <strong class="small">${escapeHtml(finding?.title || "Finding")}</strong>
+            <span class="badge text-bg-${severity === "critical" ? "danger" : severity === "warning" ? "warning" : "info"} text-uppercase">${escapeHtml(severity)}</span>
+          </div>`
+        );
+        if (finding?.root_cause) {
+          parts.push(
+            `<p class="small mb-1 mt-1"><span class="text-muted fw-semibold">Likely cause:</span> ${escapeHtml(finding.root_cause)}</p>`
+          );
+        }
+        if (finding?.suggested_action) {
+          parts.push(
+            `<p class="small mb-0"><span class="text-muted fw-semibold">Suggested:</span> ${escapeHtml(finding.suggested_action)}</p>`
+          );
+        }
+        parts.push("</div>");
+      });
+    } else {
+      parts.push(
+        '<div class="alert alert-success small mb-2"><i class="bi bi-check-circle me-1"></i>No exceptions detected in this workspace.</div>'
+      );
+    }
+
+    if (generatedAt) {
+      const ageMinutes = Math.max(
+        0,
+        Math.round((Date.now() - new Date(generatedAt).getTime()) / 60000)
+      );
+      parts.push(
+        `<div class="d-flex justify-content-between align-items-center mt-2">
+          <small class="text-muted">${fromSnapshot && ageMinutes >= 15 ? "Saved review from" : "Updated"} ${escapeHtml(new Date(generatedAt).toLocaleString())}</small>
+          <button type="button" class="btn btn-sm btn-link p-0" id="global-ai-assistant-briefing-refresh">Refresh</button>
+        </div>`
+      );
+    }
+    parts.push("</div>");
+    $("#global-ai-assistant-briefing-refresh")?.addEventListener("click", () => {
+      void loadWorkspaceBriefing(0);
+    });
+    return parts.join("");
+  }
+
   async function loadAiAssistantCatalog() {
     const content = $("#global-ai-assistant-content");
     const context = $("#global-ai-assistant-context");
@@ -791,10 +945,19 @@
     }
 
     try {
-      const payload = await window.API?.apiCall?.(
-        `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`,
-        "GET"
-      );
+      // Persisted catalogue (IndexedDB + memory LRU) so opening the panel
+      // paints from the snapshot; DataStore revalidates in the background
+      // instead of blocking the click on a PHP round trip.
+      const catalogUrl = `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`;
+      const payload = window.DataStore?.get
+        ? await window.DataStore.get("ai_assistant_catalog", {
+            strategy: "stale-while-revalidate",
+            storeName: "ai_workspace_cache",
+            ttl: 10 * 60 * 1000,
+            params: { route },
+            fetcher: () => window.API?.apiCall?.(catalogUrl, "GET"),
+          })
+        : await window.API?.apiCall?.(catalogUrl, "GET");
       const workflows = Array.isArray(payload?.workflows)
         ? payload.workflows
         : [];
