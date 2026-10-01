@@ -51,9 +51,16 @@ final class StaffMigrationController extends BaseController
     {
         $this->guard('staff_import');
 
+        // Import templates are the school's DEFINED files — the system never
+        // generates them. The download serves the placed template exactly as
+        // the school maintains it; a missing template is an error, not
+        // something to synthesise. Exports may be generated; imports may not.
         $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.csv');
-        if (!$this->atomicWriteManagedFile($path, $this->service->templateCsv())) {
-            throw new RuntimeException('Unable to prepare staff import template.');
+        if (!is_file($path) || !is_readable($path)) {
+            throw new RuntimeException(
+                'The staff import template is not placed. The school defines import templates; '
+                . 'place existing_staff_import_template.csv at the managed templates path.'
+            );
         }
         $this->downloads()->streamAbsolutePath($path, 'existing_staff_import_template.csv', 'text/csv; charset=utf-8');
     }
@@ -62,9 +69,14 @@ final class StaffMigrationController extends BaseController
     {
         $this->guard('staff_import');
 
+        // Defined file served as-is — the system never generates import templates.
         $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.xlsx');
-        $this->ensureManagedDirectory(dirname($path));
-        $this->service->writeTemplateXlsx($path);
+        if (!is_file($path) || !is_readable($path)) {
+            throw new RuntimeException(
+                'The staff import template is not placed. The school defines import templates; '
+                . 'place existing_staff_migration_template.xlsx at the managed templates path.'
+            );
+        }
         $this->downloads()->streamAbsolutePath(
             $path,
             'existing_staff_migration_template.xlsx',
@@ -75,9 +87,14 @@ final class StaffMigrationController extends BaseController
     public function getTemplateOds($id = null, $data = [], $segments = []): never
     {
         $this->guard('staff_import');
+        // Defined file served as-is — the system never generates import templates.
         $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.ods');
-        $this->ensureManagedDirectory(dirname($path));
-        $this->service->writeTemplateOds($path);
+        if (!is_file($path) || !is_readable($path)) {
+            throw new RuntimeException(
+                'The staff import template is not placed. The school defines import templates; '
+                . 'place existing_staff_import_template.ods at the managed templates path.'
+            );
+        }
         $this->downloads()->streamAbsolutePath(
             $path,
             'existing_staff_import_template.ods',

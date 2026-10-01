@@ -3,10 +3,12 @@
 namespace App\API\Modules\finance;
 
 use App\Database\Database;
-use PDO;
+
 use App\API\Services\FinancialPostingCoordinator;
 use App\API\Services\payments\FinancialAccountService;
 use App\API\Services\payments\ReferenceNormalizer;
+use App\API\Services\ReadReplicaService;
+use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
 
@@ -36,6 +38,9 @@ use function App\API\Includes\formatResponse;
 class PaymentManager
 {
     private $db;
+
+    /** Whether listStudentPaymentStatus is reading the materialized summary. */
+    private bool $feeStatusUsingSummary = false;
 
     public function __construct()
     {
@@ -893,7 +898,32 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function listStudentPaymentStatus($filters = [])
     {
         try {
-            $baseSql = "FROM vw_student_payment_status_enhanced WHERE 1=1";
+            // The fee-workspace scalability fix: the materialized summary
+            // (synced by the 5-minute projection worker) reads in ~2ms where
+            // the enhanced view measured ~515ms at 454 learners and would
+            // reach ~1.5s at 1000+. The view stays as the fallback so a
+            // not-yet-synced projection degrades to correct live data.
+            $baseSql = null;
+            try {
+                // The materialized target lives in the reads namespace — an
+                // unqualified reference resolves against the master schema,
+                // which has no such table, and silently degraded every read
+                // to the slow enhanced view.
+                $summaryTable = \App\Database\ConnectionManager::schemaFor(\App\Database\ConnectionManager::NS_READS)
+                    . '.' . ReadReplicaService::table('fee_status_summary');
+                $countStmt = $this->db->prepare("SELECT COUNT(*) FROM " . $summaryTable);
+                $countStmt->execute();
+                if ((int) $countStmt->fetchColumn() > 0) {
+                    $baseSql = "FROM " . $summaryTable . " WHERE 1=1";
+                    $this->feeStatusUsingSummary = true;
+                }
+            } catch (\Throwable $e) {
+                $baseSql = null;
+            }
+            if ($baseSql === null) {
+                $baseSql = "FROM vw_student_payment_status_enhanced WHERE 1=1";
+                $this->feeStatusUsingSummary = false;
+            }
             $params = [];
             $termParamIndex = null;
 

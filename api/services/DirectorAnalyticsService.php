@@ -263,17 +263,33 @@ class DirectorAnalyticsService
         $teacher_count = $teacher_stmt->fetch()['count'] ?? 1;
         $result['teacher_student_ratio'] = $teacher_count > 0 ? round($result['total_students'] / $teacher_count, 1) : 0;
 
-        // Fees Collected YTD - Get current academic year date range or fall back to last 12 months
+        // Fees Collected YTD. Payments alone report 0 for a migrated
+        // register: the imported fee position lives in the fee obligations
+        // (migration_paid_amount), not as confirmed payment rows. The
+        // fee-balances view carries the REAL collected figure (payments +
+        // migration) — read it first and keep the payments query as the
+        // fallback only.
+        $realCollectedQuery = "
+            SELECT COALESCE(SUM(amount_paid), 0) as total
+            FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
+        ";
+        try {
+            $realCollected = (float) ($this->db->query($realCollectedQuery)->fetch()['total'] ?? 0);
+        } catch (\Throwable $e) {
+            $realCollected = 0.0;
+        }
+
         $academicYearQuery = "
-            SELECT start_date, end_date 
-            FROM academic_years 
-            WHERE status IN ('active', 'registration', 'current') 
+            SELECT start_date, end_date
+            FROM academic_years
+            WHERE status IN ('active', 'registration', 'current')
             ORDER BY start_date DESC LIMIT 1
         ";
         $ayStmt = $this->db->query($academicYearQuery);
         $academicYear = $ayStmt->fetch();
 
         // Use academic year dates if available, otherwise last 12 months
+        $confirmedPayments = 0.0;
         if ($academicYear && $academicYear['start_date']) {
             $startDate = $academicYear['start_date'];
             // If academic year hasn't started yet, look at previous year's data
@@ -287,12 +303,21 @@ class DirectorAnalyticsService
         }
 
         // Execute with or without parameter
-        if (isset($startDate) && strtotime($startDate) <= time()) {
-            $stmt = $this->db->query($query, [$startDate]);
-        } else {
-            $stmt = $this->db->query($query);
+        try {
+            if (isset($startDate) && strtotime($startDate) <= time()) {
+                $stmt = $this->db->query($query, [$startDate]);
+            } else {
+                $stmt = $this->db->query($query);
+            }
+            $confirmedPayments = (float) ($stmt->fetch()['total'] ?? 0);
+        } catch (\Throwable $e) {
+            $confirmedPayments = 0.0;
         }
-        $result['fees_collected_ytd'] = $stmt->fetch()['total'] ?? 0;
+
+        // The larger of the two is the real collected position: the balances
+        // view covers the migrated register; confirmed payments cover the
+        // live payment workflow.
+        $result['fees_collected_ytd'] = max($realCollected, $confirmedPayments);
 
         // Fees Outstanding - Calculate from expected fees minus collected
         // First try vw_student_fee_balances, fall back to fee_catalog estimate

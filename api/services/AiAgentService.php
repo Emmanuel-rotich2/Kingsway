@@ -551,7 +551,10 @@ class AiAgentService
                 }
 
                 $providerCalls++;
-                $response = $this->provider->complete($messages);
+                $response = $this->provider->complete(
+                    $messages,
+                    ['task' => 'chat']
+                );
                 if (!is_array($response)) {
                     throw new AiProviderException('The agent provider returned an unusable response.');
                 }
@@ -688,10 +691,13 @@ class AiAgentService
         ]);
         $prompt = $this->templates->resolve(self::WORKFLOW_TRIAGE);
         try {
-            $intent = $this->provider->complete([
-                ['role' => 'system', 'content' => (string) $prompt['content']],
-                ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-            ]);
+            $intent = $this->provider->complete(
+                [
+                    ['role' => 'system', 'content' => (string) $prompt['content']],
+                    ['role' => 'user', 'content' => json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+                ],
+                ['task' => 'triage']
+            );
         } catch (AiProviderException $e) {
             return null;
         }
