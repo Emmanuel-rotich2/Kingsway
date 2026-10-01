@@ -223,8 +223,9 @@ class DashboardController extends BaseController
                     'briefing' => $cached,
                 ], 'Workspace briefing retrieved');
             }
-            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
-            $agent->enqueue($userId, $permissions, [
+            // No grant list in the queue payload: the worker re-resolves the
+            // operator's permissions before briefing generation.
+            $agent->enqueue($userId, [], [
                 'mode' => 'briefing',
                 'route' => $route,
                 'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),

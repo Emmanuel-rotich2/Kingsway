@@ -254,7 +254,10 @@ PROMPT_TEMPLATES: dict[str, str] = {
         '{"action":"final","answer":{"title":"...","body":"...","next_steps":[...],'
         '"suggested_questions":[...],"escalation_required":false}}. Call a tool ONLY when the '
         "question needs school data, a governed report, the intelligence briefing, or the workflow "
-        "catalogue; answer directly for process, policy or guidance questions. Use each tool at most "
+        "catalogue; answer directly for process, policy or guidance questions. When you need more "
+        "than one tool, request them together in a single turn as "
+        '{"action":"tool","tools":[{"tool":"<exact tool id>","tool_input":{...}},...]} (max 3); '
+        "independent tools run at the same time, so batching is faster. Use each tool at most "
         "once; you have at most two tool steps. Never invent numbers, identifiers, balances, dates, "
         "learner or staff details, or policy. Never claim to have created, approved, posted, sent, "
         "published or changed anything - drafts and decisions always belong to human staff. If a tool "
@@ -274,11 +277,25 @@ def for_route(route: str) -> dict[str, Any] | None:
     route = (route or "").strip().lower()
     if not route or route == "dashboard":
         return None
+    # Most specific match wins (mirror of AiAgentRegistry::forRoute): a
+    # longer / multi-token match such as "system" beats a shorter incidental
+    # token such as "health" inside "system_health".
+    best: dict[str, Any] | None = None
+    best_score = 0
     for agent in AGENTS.values():
+        matched = 0
+        longest = 0
         for token in agent["route_tokens"]:
             if token and token in route:
-                return agent
-    return None
+                matched += 1
+                longest = max(longest, len(token))
+        if matched == 0:
+            continue
+        score = (matched * 1000) + longest
+        if score > best_score:
+            best_score = score
+            best = agent
+    return best
 
 
 def default_agent() -> dict[str, Any]:
@@ -296,6 +313,17 @@ def describe_for_triage() -> list[str]:
 
 def tool_summaries(agent: dict[str, Any]) -> list[str]:
     return [TOOL_SUMMARIES.get(t, f"{t} - governed tool") for t in agent["tools"]]
+
+
+def specialist_prompt(focus: str) -> str:
+    """Tiny, bounded prompt for one domain 'eye' in the briefing fan-out."""
+    return (
+        "You are one specialist reviewer inside a school operations briefing. Focus ONLY on: "
+        f"{focus[:120]}. You receive deterministic aggregate facts about the workspace. "
+        "Return ONLY JSON: {\"insight\": \"<=180 chars\"} stating the single most useful "
+        "observation for the staff member, grounded only in the supplied facts. If the facts show "
+        "nothing notable, return an empty insight. Never invent numbers, names or causes."
+    )
 
 
 def system_prompt(agent: dict[str, Any]) -> str:

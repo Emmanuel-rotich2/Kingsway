@@ -123,7 +123,11 @@ final class AiPythonBridge
     public function runJob(array $payload): array
     {
         $userId = (int) ($payload['user_id'] ?? 0);
-        $permissions = array_values(array_map('strval', (array) ($payload['permissions'] ?? [])));
+        $hint = AiAgentService::permissionHint(
+            array_values(array_map('strval', (array) ($payload['permissions'] ?? []))),
+            200
+        );
+        $permissions = $hint['permissions'];
         $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
         $mode = (string) ($payload['mode'] ?? 'digest');
         if ($mode === 'assist') {
@@ -140,11 +144,7 @@ final class AiPythonBridge
             $route = mb_substr((string) ($payload['route'] ?? ''), 0, 120);
             $result = $this->briefing($userId, $permissions, $route, $requestId);
             if ($userId > 0) {
-                try {
-                    (new SharedCache())->set(AiAgentService::briefingCacheKey($userId, $route), $result, AiAgentService::BRIEFING_TTL);
-                } catch (Throwable $e) {
-                    // Best-effort cache only.
-                }
+                $this->cacheBriefingResult($userId, $route, $result);
             }
             return $result;
         } else {
@@ -154,10 +154,48 @@ final class AiPythonBridge
             try {
                 (new SharedCache())->set(AiAgentService::CACHE_PREFIX . $userId, $result, AiInsightOrchestrator::BRIEF_TTL);
             } catch (Throwable $e) {
-                // Best-effort cache only.
+                FileLogger::write('ai_generation', [
+                    'type' => 'agent_cache_failed',
+                    'mode' => $mode,
+                    'error_class' => get_class($e),
+                    'message' => mb_substr($e->getMessage(), 0, 160),
+                ]);
             }
         }
         return $result;
+    }
+
+    /**
+     * Publish the generated briefing for page-load serving. The write is
+     * best-effort but journaled: a silent cache failure would otherwise make
+     * every panel open regenerate.
+     *
+     * @param array<string,mixed> $briefing
+     */
+    private function cacheBriefingResult(int $userId, string $route, array $briefing): void
+    {
+        try {
+            $written = (new SharedCache())->set(
+                AiAgentService::briefingCacheKey($userId, $route),
+                $briefing,
+                AiAgentService::BRIEFING_TTL
+            );
+            FileLogger::write('ai_generation', [
+                'type' => 'agent_briefing_cached',
+                'operator_id' => $userId,
+                'route' => $route,
+                'engine' => (string) ($briefing['engine'] ?? ''),
+                'written' => (bool) $written,
+            ]);
+        } catch (Throwable $e) {
+            FileLogger::write('ai_generation', [
+                'type' => 'agent_briefing_cache_failed',
+                'operator_id' => $userId,
+                'route' => $route,
+                'error_class' => get_class($e),
+                'message' => mb_substr($e->getMessage(), 0, 160),
+            ]);
+        }
     }
 
     /**

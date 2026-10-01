@@ -193,7 +193,15 @@ const PageShell = (() => {
 
         fetch(templateUrl)
             .then(function (response) {
-                if (!response.ok) throw new Error('Template not found: ' + templateUrl);
+                if (!response.ok) {
+                    // 403 means the template was blocked (deny rule/permission),
+                    // not that it is missing — reporting "Template not found"
+                    // sent the operator chasing a file that exists.
+                    var reason = response.status === 403
+                        ? 'Access denied loading template: ' + templateUrl
+                        : 'Template not found: ' + templateUrl;
+                    throw new Error(reason);
+                }
                 return response.text();
             })
             .then(function (html) {

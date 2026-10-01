@@ -2175,9 +2175,19 @@ window.studentsManagementController = window.studentsManagementController || {
         return aliases[key] || key;
       };
       const headers = rows[0].map(normalizeHeader);
+      // TEMPORAL (2026-10): the real migration sheet has no usable dates of
+      // birth (all 454 rows), 348 rows without a gender, 17 parents without a
+      // phone number and 16 rows without a complete guardian name. The
+      // client-side preview must match the server's temporal import rules or
+      // it flags 454 issues for rows that import fine. Restore the original
+      // list once the real DOB, gender, parent phones and names are collected.
+      // const required = [
+      //   "first_name", "last_name", "date_of_birth", "gender", "class_name", "student_type",
+      //   "status", "parent_relationship", "parent_first_name", "parent_last_name", "parent_phone",
+      // ];
       const required = [
-        "first_name", "last_name", "date_of_birth", "gender", "class_name", "student_type",
-        "status", "parent_relationship", "parent_first_name", "parent_last_name", "parent_phone",
+        "first_name", "last_name", "class_name", "student_type",
+        "status", "parent_relationship",
       ];
       const missingHeaders = required.filter((field) => !headers.includes(field));
       const records = rows.slice(1)
