@@ -186,12 +186,60 @@ class AiAgentService
      * @param array<string,mixed> $payload
      * @return array<string,mixed>
      */
+    /**
+     * Resolve a user's effective permissions in ONE query.
+     *
+     * @return list<string>
+     */
+    public function resolveEffectivePermissions(PDO $pdo, int $userId): array
+    {
+        if ($userId < 1) {
+            return [];
+        }
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT DISTINCT permission_code FROM v_user_permissions_effective
+                 WHERE user_id = ? AND permission_code IS NOT NULL AND LENGTH(permission_code) > 0'
+            );
+            $stmt->execute([$userId]);
+            return array_values(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Bounded permission hint for the Python engine. Python only needs scope
+     * to pick an agent; every governed tool re-authorizes the recorded
+     * operator against the database, so the full grant list is never relayed.
+     *
+     * @param list<string> $permissions
+     * @return array{permissions: list<string>, permission_count: int, truncated: bool}
+     */
+    public static function permissionHint(array $permissions, int $cap = 200): array
+    {
+        $unique = array_values(array_unique(array_filter(array_map('strval', $permissions), static fn(string $p): bool => $p !== '')));
+        sort($unique);
+        $total = count($unique);
+        return [
+            'permissions' => array_slice($unique, 0, $cap),
+            'permission_count' => $total,
+            'truncated' => $total > $cap,
+        ];
+    }
+
     public function runBackground(PDO $pdo, array $payload): array
     {
         $userId = (int) ($payload['user_id'] ?? 0);
-        $permissions = array_values(array_map('strval', (array) ($payload['permissions'] ?? [])));
         if ($userId < 1) {
             throw new DomainException('Background agent payload is incomplete.', 422);
+        }
+        // Queue payloads stay tiny: permissions are resolved here, from the
+        // authoritative source, instead of being carried through the queue
+        // (a System Administrator holds thousands and blows the payload cap).
+        $permissions = $this->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            $permissions = array_values(array_map('strval', (array) ($payload['permissions'] ?? [])));
         }
         $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
         $mode = (string) ($payload['mode'] ?? 'digest');
@@ -278,17 +326,30 @@ class AiAgentService
     /** Queue a background agent run on the existing JobQueue (never a second queue). */
     public function enqueue(int $userId, array $permissions, array $payload): int
     {
+        // Only a bounded hint travels with the job: the worker re-resolves the
+        // operator's real permissions, so queue rows stay small and a grant
+        // change between enqueue and execution takes effect immediately.
+        $hint = self::permissionHint($permissions, 60);
         $base = array_merge($payload, [
             'user_id' => $userId,
-            'permissions' => array_values(array_map('strval', $permissions)),
+            'permissions' => $hint['permissions'],
+            'permission_count' => $hint['permission_count'],
         ]);
         $mode = (string) ($base['mode'] ?? 'digest');
+        // One briefing job per staff member, route and briefing window. The
+        // panel is opened many times a day, so a per-day key would leave a
+        // served briefing stale until tomorrow; a per-second key would queue
+        // a job on every panel open.
+        $window = $mode === 'briefing'
+            ? gmdate('Y-m-d\THi', time() - (time() % self::BRIEFING_TTL))
+            : date('Y-m-d');
         $base['idempotency_key'] = 'ai-agent:' . hash('sha256', implode('|', [
             $mode,
             (string) $userId,
             (string) ($base['cadence'] ?? ''),
             (string) ($base['question'] ?? ''),
-            date('Y-m-d'),
+            (string) ($base['route'] ?? ''),
+            $window,
         ]));
         return JobQueue::push(self::JOB_TYPE, $base, 0, 3, 60);
     }
@@ -307,9 +368,14 @@ class AiAgentService
     {
         $operator = is_array($payload['operator'] ?? null) ? $payload['operator'] : [];
         $userId = (int) ($operator['user_id'] ?? 0);
-        $permissions = array_values(array_map('strval', (array) ($operator['permissions'] ?? [])));
         if ($userId < 1) {
             throw new DomainException('A recorded operator is required.', 422);
+        }
+        // The relayed permission list is only a routing hint; authorization is
+        // always resolved from the authoritative source for the operator.
+        $permissions = $this->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            $permissions = array_values(array_map('strval', (array) ($operator['permissions'] ?? [])));
         }
         $tool = (string) ($payload['tool'] ?? '');
         $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG, self::TOOL_SCAN];

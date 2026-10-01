@@ -55,6 +55,7 @@ final class ResponseCacheMiddleware
         // short TTL keeps freshness while absorbing dashboard tab bursts.
         'dashboard/config' => 120,
         'dashboard/insight-brief' => 60,
+        'dashboard/workspace-briefing' => 60,
         'staff/stats' => 120,
         'payments/stats' => 120,
         'finance/fees-annual-summary' => 120,

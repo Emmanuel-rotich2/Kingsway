@@ -8,6 +8,7 @@ edge. Bounded: max 2 tool steps, max 3 provider calls per assist.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import time
 from typing import Any
@@ -19,7 +20,9 @@ from .providers import Provider, ProviderError
 from .tools import ToolBridge
 
 MAX_TOOL_STEPS = 2
+MAX_TOOL_EXECUTIONS = 6
 MAX_PROVIDER_CALLS = 3
+MAX_TOOLS_PER_STEP = 3
 MAX_TOOL_RESULT_CHARS = 500
 TOOL_RESULT_FIELDS = (
     "status",
@@ -49,6 +52,8 @@ class Orchestrator:
         self.tools = tools
         self.behavior = behavior
         self.journal = journal
+        # Provider carries the runtime Config; tolerate stub providers in tests.
+        self.config = getattr(provider, "config", None)
 
     # ------------------------------------------------------------------ assist
     def assist(self, context: dict, question: str) -> dict[str, Any]:
@@ -172,6 +177,7 @@ class Orchestrator:
         facts into a briefing and NEVER invents numbers. When the provider
         is disabled or fails, deterministic findings still surface.
         """
+        started = time.monotonic()
         user_id = int(context["user_id"])
         permissions = list(context["permissions"])
         request_id = context.get("request_id", "")
@@ -186,6 +192,8 @@ class Orchestrator:
         )
         hints = self.behavior.hints(user_id)
 
+        specialist_notes = self._run_specialists(scan, route)
+
         narrative: dict[str, Any] | None = None
         try:
             envelope = policy.minimize(
@@ -198,6 +206,7 @@ class Orchestrator:
                         "audience": "staff",
                         "scan": self._scan_lines(scan),
                         "behavior_hints": self._hint_lines(hints),
+                        "specialist_notes": specialist_notes,
                     }.items()
                     if value
                 },
@@ -274,7 +283,90 @@ class Orchestrator:
                 "finding_count": len(findings),
             },
         )
+        self.journal.write(
+            "ai_performance",
+            {
+                "type": "workspace_briefing",
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "engine": result["engine"],
+                "specialists": len(specialist_notes),
+                "provider_calls": 1 if narrative else 0,
+                "finding_count": len(findings),
+                "tool_status": str(scan.get("status") or "ok"),
+            },
+        )
         return result
+
+    def _run_specialists(self, scan: dict[str, Any], route: str) -> list[str]:
+        """Run several domain eyes concurrently over one governed scan.
+
+        Each specialist gets a tiny bounded prompt on the fast task class, so
+        the fan-out is cheap and its wall-clock cost is one call, not N. Any
+        failure degrades silently to the deterministic findings below.
+        """
+        count = int(getattr(self.config, "briefing_specialists", 0) or 0)
+        if count <= 0:
+            return []
+        lines = self._scan_lines(scan)
+        if len(lines) < 3:
+            return []
+
+        focuses = [
+            "background jobs, queue health and system stability",
+            "money: collection, arrears and ledger exceptions",
+            "attendance, CBC learning outcomes and assessment gaps",
+            "admissions funnel, placement and follow-up work",
+        ][: max(1, min(count, 4))]
+
+        def one(focus: str) -> str | None:
+            try:
+                envelope = policy.minimize(
+                    "system.workspace_briefing",
+                    {
+                        "route": route,
+                        "module": "dashboard",
+                        "audience": "staff",
+                        "scan": lines,
+                    },
+                )
+                raw = self.provider.complete(
+                    [
+                        {
+                            "role": "system",
+                            "content": agents.specialist_prompt(focus),
+                        },
+                        {
+                            "role": "user",
+                            "content": json.dumps(envelope, ensure_ascii=False),
+                        },
+                    ],
+                    {
+                        "response_format": "json_object",
+                        "task": "triage",
+                        "max_tokens": 220,
+                    },
+                )
+                if not isinstance(raw, dict):
+                    return None
+                note = str(raw.get("insight") or raw.get("summary") or "").strip()
+                return note[:200] or None
+            except (ProviderError, policy.PolicyError):
+                return None
+
+        notes: list[str] = []
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, len(focuses)),
+            thread_name_prefix="kingsway-specialist",
+        ) as pool:
+            futures = [pool.submit(one, focus) for focus in focuses]
+            for future in futures:
+                try:
+                    note = future.result(timeout=60)
+                except Exception:  # noqa: BLE001 - specialists are best effort
+                    note = None
+                if note:
+                    notes.append(note)
+        return notes
 
     @staticmethod
     def _scan_lines(scan: dict[str, Any]) -> list[str]:
@@ -381,6 +473,92 @@ class Orchestrator:
                 )
         return findings
 
+    @staticmethod
+    def _requested_tools(
+        response: dict[str, Any], allowed: list[str]
+    ) -> tuple[list[tuple[str, dict[str, Any]]], str | None]:
+        """Validate one tool proposal, or a batch of up to MAX_TOOLS_PER_STEP.
+
+        Accepts the legacy single {"tool":..,"tool_input":..} shape and the
+        batched {"tools":[{tool,tool_input}..]} shape. Every entry is checked
+        against the agent allowlist before anything executes.
+        """
+        proposals: list[tuple[str, dict[str, Any]]] = []
+        raw_batch = response.get("tools")
+        if isinstance(raw_batch, list) and raw_batch:
+            for item in raw_batch[:MAX_TOOLS_PER_STEP]:
+                if not isinstance(item, dict):
+                    continue
+                tool_id = str(item.get("tool") or "").strip()
+                tool_input = item.get("tool_input")
+                proposals.append(
+                    (tool_id, tool_input if isinstance(tool_input, dict) else {})
+                )
+        else:
+            tool_id = str(response.get("tool") or "").strip()
+            raw_input = response.get("tool_input")
+            proposals.append(
+                (tool_id, raw_input if isinstance(raw_input, dict) else {})
+            )
+
+        valid: list[tuple[str, dict[str, Any]]] = []
+        rejected: list[str] = []
+        seen: set[str] = set()
+        for tool_id, tool_input in proposals:
+            if tool_id not in allowed:
+                rejected.append(tool_id or "(unnamed tool)")
+            elif tool_id in seen:
+                continue
+            else:
+                seen.add(tool_id)
+                valid.append((tool_id, tool_input))
+        note = None
+        if rejected:
+            note = (
+                "error: tool not available to this agent; available tools: "
+                + ", ".join(allowed)
+            )
+        return valid, note
+
+    def _run_tools_parallel(
+        self,
+        requests: list[tuple[str, dict[str, Any]]],
+        user_id: int,
+        permissions: list[str],
+        request_id: str,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        if len(requests) == 1:
+            tool_id, tool_input = requests[0]
+            return [(tool_id, self.tools.execute(user_id, permissions, tool_id, tool_input, request_id))]
+
+        parallel_limit = int(getattr(self.config, "max_tool_parallel", 3) or 3)
+        call_timeout = int(getattr(self.config, "timeout", 25) or 25) + 5
+        workers = max(1, min(parallel_limit, len(requests)))
+        results: list[tuple[str, dict[str, Any]]] = []
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="kingsway-tool"
+        ) as pool:
+            futures = [
+                (
+                    tool_id,
+                    pool.submit(
+                        self.tools.execute,
+                        user_id,
+                        permissions,
+                        tool_id,
+                        tool_input,
+                        request_id,
+                    ),
+                )
+                for tool_id, tool_input in requests
+            ]
+            for tool_id, future in futures:
+                try:
+                    results.append((tool_id, future.result(timeout=call_timeout)))
+                except Exception as error:  # noqa: BLE001 - one tool must not fail the turn
+                    results.append((tool_id, {"status": "error", "message": str(error)[:200]}))
+        return results
+
     # ------------------------------------------------------------- agent loop
     def _run_agent_loop(
         self, agent: dict[str, Any], context: dict, question: str
@@ -397,6 +575,7 @@ class Orchestrator:
         messages: list[dict[str, str]] = [{"role": "system", "content": system}]
         tool_results: list[str] = []
         tools_used: list[str] = []
+        tool_steps = 0
         provider_calls = 0
         answer: dict[str, Any] | None = None
 
@@ -439,20 +618,14 @@ class Orchestrator:
                 if action != "tool":
                     answer = self._validate_answer(response.get("answer") or response)
                     break
-                if len(tools_used) >= MAX_TOOL_STEPS:
+                if tool_steps >= MAX_TOOL_STEPS or len(tools_used) >= MAX_TOOL_EXECUTIONS:
                     answer = self._fallback_answer(tools_used, tool_results)
                     break
 
-                tool_id = str(response.get("tool") or "")
-                raw_tool_input = response.get("tool_input")
-                tool_input: dict = (
-                    raw_tool_input if isinstance(raw_tool_input, dict) else {}
-                )
-                if tool_id not in tools:
-                    tool_results.append(
-                        "error: tool not available to this agent; available tools: "
-                        + ", ".join(tools)
-                    )
+                requests, rejected = self._requested_tools(response, tools)
+                if rejected:
+                    tool_results.append(rejected)
+                if not requests:
                     messages.append(
                         {
                             "role": "assistant",
@@ -460,21 +633,26 @@ class Orchestrator:
                         }
                     )
                     continue
+                requests = requests[: max(0, MAX_TOOL_EXECUTIONS - len(tools_used))]
 
-                tool_result = self.tools.execute(
-                    user_id, permissions, tool_id, tool_input, request_id
-                )
-                tools_used.append(tool_id)
-                tool_results.append(self._compact_result(tool_id, tool_result))
-                self.behavior.observe(
-                    user_id,
-                    "tool_use",
-                    {
-                        "agent_id": agent["id"],
-                        "tool": tool_id,
-                        "outcome": str(tool_result.get("status") or "ok"),
-                    },
-                )
+                # Independent governed tools run concurrently: latency drops to
+                # the slowest single call instead of their sum, while the
+                # worker count stays hard-capped so nothing floods PHP.
+                tool_steps += 1
+                for tool_id, tool_result in self._run_tools_parallel(
+                    requests, user_id, permissions, request_id
+                ):
+                    tools_used.append(tool_id)
+                    tool_results.append(self._compact_result(tool_id, tool_result))
+                    self.behavior.observe(
+                        user_id,
+                        "tool_use",
+                        {
+                            "agent_id": agent["id"],
+                            "tool": tool_id,
+                            "outcome": str(tool_result.get("status") or "ok"),
+                        },
+                    )
                 messages.append(
                     {
                         "role": "assistant",

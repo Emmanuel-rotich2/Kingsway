@@ -36,8 +36,15 @@ class Provider:
         self.journal = journal
         self._transport = transport
         self._chain = self._build_chain()
+        # Pre-built so request handling never pays chain construction cost.
+        self._fast_chain = self._build_chain(fast=True) if getattr(config, "fast_model", "") else []
 
-    def _build_chain(self) -> list[dict[str, str]]:
+    # Task classes that only need cheap, fast classification work (agent
+    # routing, short extraction). They may use AI_FAST_MODEL when configured
+    # and transparently fall back to the primary chain on any failure.
+    FAST_TASKS = ("triage", "classify", "extract", "route")
+
+    def _build_chain(self, fast: bool = False) -> list[dict[str, str]]:
         chain: list[dict[str, str]] = []
         primary = {
             "name": self.config.provider_name,
@@ -46,6 +53,14 @@ class Provider:
             "api_key": self.config.api_key,
             "provider_kind": self.config.provider_kind,
         }
+        if fast and getattr(self.config, "fast_model", ""):
+            primary = {
+                "name": f"{self.config.provider_name}-fast",
+                "base_url": self.config.fast_model_base_url or self.config.provider_base_url,
+                "model": self.config.fast_model,
+                "api_key": self.config.fast_model_api_key or self.config.api_key,
+                "provider_kind": self.config.provider_kind,
+            }
         if primary["base_url"] and primary["model"]:
             chain.append(primary)
         try:
@@ -263,8 +278,13 @@ class Provider:
         if not self._chain:
             raise ProviderError("AI provider is not fully configured.")
 
+        task = str(options.get("task") or "default")
+        chain = self._chain
+        if task in self.FAST_TASKS and self._fast_chain:
+            chain = self._fast_chain + self._chain
+
         errors: list[str] = []
-        for index, entry in enumerate(self._chain):
+        for index, entry in enumerate(chain):
             try:
                 return self._complete_through(entry, messages, options, index)
             except ProviderError as error:
