@@ -278,6 +278,14 @@ final class AiPythonBridge
         }
 
         $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
+        // Shared hosting caps a request with max_execution_time; detect it at
+        // runtime instead of assuming any particular host configuration. The
+        // stream must finish inside the host limit, never rely on editing
+        // php.ini.
+        $executionLimit = (int) ini_get('max_execution_time');
+        if ($executionLimit > 0) {
+            $timeout = min($timeout, max(10, $executionLimit - 5));
+        }
         $url = $baseUrl . '/api/agents/assist/stream';
         $headers = [
             'Content-Type: application/json',

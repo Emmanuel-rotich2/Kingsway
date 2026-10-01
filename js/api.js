@@ -8110,7 +8110,7 @@ window.API = {
     downloadTemplate: async () =>
       apiCall("/staff-migration/template", "GET", null, {}, {
         isDownload: true,
-        filename: "existing_staff_migration_template.csv",
+        filename: "existing_staff_import_template.csv",
       }),
     downloadTemplateXlsx: async () =>
       apiCall("/staff-migration/template-xlsx", "GET", null, {}, {
@@ -8120,7 +8120,7 @@ window.API = {
     downloadTemplateOds: async () =>
       apiCall("/staff-migration/template-ods", "GET", null, {}, {
         isDownload: true,
-        filename: "existing_staff_migration_template.ods",
+        filename: "existing_staff_import_template.ods",
       }),
     stage: async (formData) =>
       apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),
