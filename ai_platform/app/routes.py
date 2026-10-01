@@ -8,18 +8,21 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
   GET  /v1/models                  model advertisement for health checks
   POST /internal/worker            curl-cron batch processing (digest/assist)
   POST /internal/behavior/forget   DPA erasure for one staff member
+                              (behaviour profile and conversation turns)
 """
 
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Any
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 from .agents import default_agent
 from .behavior import BehaviorStore
+from .conversation import ConversationStore
 from .config import Config
 from .journal import Journal
 from .orchestrator import Orchestrator
@@ -35,7 +38,8 @@ def create_app(config: Config | None = None) -> Flask:
     behavior = BehaviorStore(cfg.data_dir, journal)
     provider = Provider(cfg, journal)
     tools = ToolBridge(cfg, journal)
-    orchestrator = Orchestrator(provider, tools, behavior, journal)
+    conversation = ConversationStore(cfg.data_dir, journal)
+    orchestrator = Orchestrator(provider, tools, behavior, journal, conversation)
 
     def auth_guard() -> Any | None:
         if not bearer_authorized(request.headers, cfg.secret):
@@ -87,6 +91,87 @@ def create_app(config: Config | None = None) -> Flask:
         return jsonify(
             {"success": True, "data": result, "message": "Agent answer prepared"}
         )
+
+    @app.post("/api/agents/assist/stream")
+    def agent_assist_stream():
+        """Server-sent events: the answer starts arriving in well under a
+        second instead of after the whole answer has been generated.
+
+        Authorization is identical to the non-streaming route, and the event
+        types are typed so a mid-stream failure can be rendered as a graceful
+        "response interrupted" state rather than a blank bubble.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+            question = bound_question(payload.get("question"))
+        except (ValueError, PermissionError) as error:
+            message, code = (
+                str(error),
+                (403 if isinstance(error, PermissionError) else 422),
+            )
+            return jsonify({"success": False, "message": message}), code
+
+        def _event(name: str, data: dict) -> str:
+            return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        timing: dict[str, int] = {"ttft_ms": 0}
+
+        def _generate():
+            started = time.monotonic()
+
+            def _mark_ttft() -> None:
+                if not timing["ttft_ms"]:
+                    timing["ttft_ms"] = int((time.monotonic() - started) * 1000)
+
+            yield _event("start", {"status": "streaming"})
+            try:
+                for delta in orchestrator.stream_answer(context, question):
+                    _mark_ttft()
+                    if delta.get("kind") == "final":
+                        yield _event("final", delta)
+                    elif delta.get("kind") == "status":
+                        yield _event("status", {"text": delta.get("text", "")})
+                    else:
+                        yield _event("delta", {"text": delta.get("text", "")})
+            except Exception as error:  # noqa: BLE001 - bounded relay surface
+                journal.write(
+                    "ai_generation",
+                    {
+                        "type": "agent_stream_failed",
+                        "operator_id": context.get("user_id"),
+                        "error_class": type(error).__name__,
+                    },
+                )
+                yield _event(
+                    "error",
+                    {
+                        "message": "the response was interrupted — please try again",
+                    },
+                )
+            yield _event(
+                "done",
+                {
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "ttft_ms": timing["ttft_ms"],
+                },
+            )
+
+        # Headers are flushed before generation so the browser's first paint is
+        # not held behind the model.
+        response = Response(
+            _generate(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+        return response
 
     @app.post("/api/agents/digest")
     def agent_digest():
@@ -271,6 +356,15 @@ def create_app(config: Config | None = None) -> Flask:
         if user_id < 1:
             return jsonify({"success": False, "message": "user_id is required"}), 422
         behavior.forget(user_id)
-        return jsonify({"success": True, "message": "behaviour profile erased"})
+        # Erasure must cover the conversation thread too, not just the
+        # behaviour profile: both are per-operator personal data.
+        turns = conversation.forget(user_id)
+        return jsonify(
+            {
+                "success": True,
+                "message": "behaviour profile erased",
+                "turns_removed": turns,
+            }
+        )
 
     return app

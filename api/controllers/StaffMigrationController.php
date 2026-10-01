@@ -51,11 +51,11 @@ final class StaffMigrationController extends BaseController
     {
         $this->guard('staff_import');
 
-        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.csv');
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.csv');
         if (!$this->atomicWriteManagedFile($path, $this->service->templateCsv())) {
             throw new RuntimeException('Unable to prepare staff import template.');
         }
-        $this->downloads()->streamAbsolutePath($path, 'existing_staff_migration_template.csv', 'text/csv; charset=utf-8');
+        $this->downloads()->streamAbsolutePath($path, 'existing_staff_import_template.csv', 'text/csv; charset=utf-8');
     }
 
     public function getTemplateXlsx($id = null, $data = [], $segments = []): never
@@ -75,12 +75,12 @@ final class StaffMigrationController extends BaseController
     public function getTemplateOds($id = null, $data = [], $segments = []): never
     {
         $this->guard('staff_import');
-        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.ods');
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_import_template.ods');
         $this->ensureManagedDirectory(dirname($path));
         $this->service->writeTemplateOds($path);
         $this->downloads()->streamAbsolutePath(
             $path,
-            'existing_staff_migration_template.ods',
+            'existing_staff_import_template.ods',
             'application/vnd.oasis.opendocument.spreadsheet'
         );
     }

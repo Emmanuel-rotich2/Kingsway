@@ -28,13 +28,20 @@ class SharedCache
     private const DEFAULT_TTL = 300; // 5 minutes
 
     private string $dir;
-    private UploadService $storage;
+    private ?UploadService $storage;
     private ?LocalSqliteBuffer $sqlite = null;
     private bool $disabled = false;
 
     public function __construct(?string $dir = null)
     {
-        $this->storage = new UploadService();
+        // A cache must not require the upload subsystem (or its directory
+        // constants) to be configured: unit tests and cron contexts construct
+        // it without a booted application.
+        try {
+            $this->storage = new UploadService();
+        } catch (\Throwable) {
+            $this->storage = null;
+        }
         $this->dir = $this->resolveDirectory($dir);
         // A cache must never be the reason a request or job fails: when no
         // writable directory exists the cache degrades to read-only no-ops.
@@ -73,7 +80,7 @@ class SharedCache
         }
 
         foreach ($candidates as $candidate) {
-            if (!is_dir($candidate)) {
+            if (!is_dir($candidate) && $this->storage !== null) {
                 try {
                     $this->storage->ensureDirectoryPath($candidate);
                 } catch (\Throwable) {
@@ -145,8 +152,21 @@ class SharedCache
                 // The JSON copy below is the portable fallback.
             }
         }
+        $path = $this->pathFor($key);
         try {
-            $this->storage->atomicWrite($this->pathFor($key), $payload);
+            if ($this->storage !== null) {
+                $this->storage->atomicWrite($path, $payload);
+            } else {
+                // Native atomic replace when the upload service is unavailable.
+                $tmp = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
+                if (@file_put_contents($tmp, $payload, LOCK_EX) === false) {
+                    return false;
+                }
+                if (!@rename($tmp, $path)) {
+                    @unlink($tmp);
+                    return false;
+                }
+            }
         } catch (\Throwable) {
             return false;
         }

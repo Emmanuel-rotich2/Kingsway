@@ -9,6 +9,7 @@ const StudentFeesController = {
     classes: [],
     years: [],
     academicYearTerms: [],
+    currentTermNumber: null,
     pagination: { page: 1, limit: 25, total: 0 },
     selectedStudentIds: new Set(),
     summary: {
@@ -74,6 +75,11 @@ const StudentFeesController = {
       totalCollected: document.getElementById("totalCollected"),
       totalOutstanding: document.getElementById("totalOutstanding"),
       collectionRate: document.getElementById("collectionRate"),
+      expectedPeriodLabel: document.getElementById("expectedPeriodLabel"),
+      collectedPeriodLabel: document.getElementById("collectedPeriodLabel"),
+      outstandingPeriodLabel: document.getElementById("outstandingPeriodLabel"),
+      ratePeriodLabel: document.getElementById("ratePeriodLabel"),
+      perPageFilter: document.getElementById("perPageFilter"),
       paymentModal: document.getElementById("paymentModal"),
       paymentForm: document.getElementById("paymentForm"),
       paymentStudent: document.getElementById("paymentStudent"),
@@ -168,6 +174,15 @@ const StudentFeesController = {
       this.ui.termFilter.addEventListener("change", (event) => {
         const value = event.target.value;
         this.filters.term_number = value ? value : "";
+        this.filters.page = 1;
+        this.loadPaymentStatus();
+      });
+    }
+
+    if (this.ui.perPageFilter) {
+      this.ui.perPageFilter.addEventListener("change", (event) => {
+        const value = Number(event.target.value);
+        this.filters.limit = value > 0 ? value : 25;
         this.filters.page = 1;
         this.loadPaymentStatus();
       });
@@ -329,6 +344,17 @@ const StudentFeesController = {
 
   renderSummary: function () {
     const summary = this.data.summary || {};
+    // Every card names its period: the selected scope, with the annual
+    // position shown alongside when a single term is selected.
+    const period = summary.period_label || "Whole Year";
+    const setPeriod = (el, text) => {
+      if (el) el.textContent = text;
+    };
+    setPeriod(this.ui.expectedPeriodLabel, period);
+    setPeriod(this.ui.collectedPeriodLabel, period);
+    setPeriod(this.ui.outstandingPeriodLabel, period);
+    setPeriod(this.ui.ratePeriodLabel, period);
+
     this.ui.totalExpected.textContent = this.formatCurrency(
       summary.total_due || 0,
     );
@@ -339,6 +365,51 @@ const StudentFeesController = {
       summary.total_balance || 0,
     );
     this.ui.collectionRate.textContent = `${summary.collection_rate || 0}%`;
+
+    this.renderTermProgress(summary);
+  },
+
+  renderTermProgress: function (summary) {
+    const strip = document.getElementById("termProgressStrip");
+    if (!strip) return;
+    const terms = Array.isArray(summary.terms) ? summary.terms : [];
+    if (!terms.length) {
+      strip.innerHTML =
+        '<div class="col-12 text-muted small">No term data available yet.</div>';
+      return;
+    }
+    const annual = summary.annual || {};
+    strip.innerHTML = terms
+      .map((t) => {
+        const rate = Number(t.collection_rate || 0);
+        const barColor =
+          rate >= 95 ? "bg-success" : rate >= 75 ? "bg-warning" : "bg-danger";
+        const isCurrent = Number(t.term_number) === this.data.currentTermNumber;
+        return (
+          '<div class="col-md-4 mb-2">' +
+          '<div class="d-flex justify-content-between small">' +
+          `<span>${this.esc(t.label || "Term " + t.term_number)}${isCurrent ? ' <span class="badge bg-primary">Current</span>' : ""}</span>` +
+          `<span class="text-muted">${rate.toFixed(2)}%</span>` +
+          "</div>" +
+          '<div class="progress" style="height: 8px;">' +
+          `<div class="progress-bar ${barColor}" role="progressbar" style="width:${Math.min(100, rate)}%;" aria-valuenow="${rate}" aria-valuemin="0" aria-valuemax="100"></div>` +
+          "</div>" +
+          `<div class="d-flex justify-content-between small text-muted mt-1">` +
+          `<span>Due ${this.formatCurrency(t.total_due || 0)}</span>` +
+          `<span>Paid ${this.formatCurrency(t.total_paid || 0)}</span>` +
+          `<span>Balance ${this.formatCurrency(t.total_balance || 0)}</span>` +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+    const updated = document.getElementById("termProgressUpdated");
+    if (updated && annual.total_due !== undefined) {
+      updated.textContent =
+        `Whole year: due ${this.formatCurrency(annual.total_due || 0)} · ` +
+        `paid ${this.formatCurrency(annual.total_paid || 0)} · ` +
+        `balance ${this.formatCurrency(annual.total_balance || 0)}`;
+    }
   },
 
   renderTable: function () {
@@ -694,13 +765,16 @@ const StudentFeesController = {
     const rows = this.data.rows.filter((row) => this.data.selectedStudentIds.has(Number(row.id)));
     if (!rows.length) { this.notify("Select at least one student to print.", "warning"); return; }
     if (!window.PrintManager?.printTable) { this.notify("Print service is unavailable.", "danger"); return; }
+    const periodLabel = (this.data.summary || {}).period_label || "Whole Year";
     return window.PrintManager.printTable({
-      title: "Selected Student Fee Accounts", subtitle: new Date().toLocaleDateString("en-KE"),
+      title: "Selected Student Fee Accounts", subtitle: new Date().toLocaleDateString("en-KE") + " · " + periodLabel,
       filename: `selected_student_fee_accounts_${new Date().toISOString().slice(0, 10)}`,
       columns: [
         { key: "admission_no", label: "Admission No" }, { key: "student_name", label: "Student Name" },
-        { key: "class_name", label: "Class" }, { key: "total_due", label: "Expected", type: "currency" },
-        { key: "total_paid", label: "Paid", type: "currency" }, { key: "current_balance", label: "Balance", type: "currency" },
+        { key: "class_name", label: "Class" },
+        { key: "total_due", label: `Expected (${periodLabel})`, type: "currency" },
+        { key: "total_paid", label: `Paid (${periodLabel})`, type: "currency" },
+        { key: "current_balance", label: `Balance (${periodLabel})`, type: "currency" },
         { key: "payment_status", label: "Status" },
       ], rows,
     });
@@ -738,7 +812,8 @@ const StudentFeesController = {
       return;
     }
 
-    this.ui.termFilter.innerHTML = '<option value="">Current Term</option>';
+    this.ui.termFilter.innerHTML =
+      '<option value="">Whole Year (All Terms)</option>';
 
     if (!Array.isArray(terms) || terms.length === 0) {
       return;
@@ -776,8 +851,9 @@ const StudentFeesController = {
         term.is_current === "1",
     );
     if (currentTerm && currentTerm.term_number) {
-      this.ui.termFilter.value = String(currentTerm.term_number);
-      this.filters.term_number = String(currentTerm.term_number);
+      // The current term badges the progress strip; the default scope stays
+      // the whole year so the first open shows the complete position.
+      this.data.currentTermNumber = Number(currentTerm.term_number);
     }
   },
 
@@ -888,13 +964,14 @@ const StudentFeesController = {
       return;
     }
 
+    const periodLabel = (this.data.summary || {}).period_label || "Whole Year";
     const headers = [
       "Admission No",
       "Student Name",
       "Class",
-      "Expected",
-      "Paid",
-      "Balance",
+      `Expected (${periodLabel})`,
+      `Paid (${periodLabel})`,
+      `Balance (${periodLabel})`,
       "Status",
     ];
 
@@ -944,8 +1021,10 @@ const StudentFeesController = {
     if (normalized === "partial") {
       return { label: "Partial", badge: "bg-warning text-dark" };
     }
-    if (normalized === "overpaid") {
-      return { label: "Overpaid", badge: "bg-info" };
+    if (normalized === "overpaid" || normalized === "credit") {
+      // The balances view marks an overpay (negative balance) as 'credit'.
+      // Falling through to "Pending" made fully-paid credit rows look owed.
+      return { label: "Overpaid (Credit)", badge: "bg-info text-dark" };
     }
     if (normalized === "arrears") {
       return { label: "Arrears", badge: "bg-danger" };

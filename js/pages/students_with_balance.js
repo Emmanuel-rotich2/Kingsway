@@ -133,7 +133,10 @@ const StudentsWithBalanceController = {
       const payload = this.unwrapPayload(resp);
 
       if (payload) {
-        this.data.students = payload.students || payload.data || (Array.isArray(payload) ? payload : []);
+        // The endpoint returns { items, pagination, summary } — reading
+        // payload.students always produced an empty array, so this page said
+        // "No students with outstanding balances found" while balances exist.
+        this.data.students = payload.items || payload.students || payload.data || (Array.isArray(payload) ? payload : []);
         this.data.pagination = payload.pagination || this.data.pagination;
         this.data.summary = payload.summary || {};
       }

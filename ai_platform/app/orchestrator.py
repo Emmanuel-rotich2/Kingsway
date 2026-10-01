@@ -13,15 +13,19 @@ import json
 import time
 from typing import Any
 
-from . import agents, policy
+from . import agents, guard, policy
 from .behavior import BehaviorStore
+from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
 from .tools import ToolBridge
 
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
-MAX_PROVIDER_CALLS = 3
+MAX_PROVIDER_CALLS = 2
+# Retained follow-up turns supplied by the client for conversational context.
+MAX_HISTORY_TURNS = 6
+CONVERSATION_PROMPT_TURNS = 4
 MAX_TOOLS_PER_STEP = 3
 MAX_TOOL_RESULT_CHARS = 500
 TOOL_RESULT_FIELDS = (
@@ -47,11 +51,14 @@ class Orchestrator:
         tools: ToolBridge,
         behavior: BehaviorStore,
         journal: Journal,
+        conversation: ConversationStore | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
         self.behavior = behavior
         self.journal = journal
+        # Optional so tests and ephemeral contexts keep working unchanged.
+        self.conversation = conversation
         # Provider carries the runtime Config; tolerate stub providers in tests.
         self.config = getattr(provider, "config", None)
 
@@ -59,7 +66,11 @@ class Orchestrator:
     def assist(self, context: dict, question: str) -> dict[str, Any]:
         from .security import bound_question
 
-        question = bound_question(question)
+        question_raw = question
+        question_clean, slash_instr = guard.extract_slash(question_raw)
+        question = bound_question(question_clean or question_raw)
+        instruction = slash_instr or (context.get("instruction") or "")
+        context = {**context, "instruction": instruction}
         user_id = int(context["user_id"])
         permissions = list(context["permissions"])
         route = context.get("route", "")
@@ -67,7 +78,56 @@ class Orchestrator:
         request_id = context.get("request_id", "")
 
         agent = agents.for_route(route)
+
+        # Deterministic pre-flight, before any provider call:
+        #   - a confidentiality probe is refused locally and never reaches a
+        #     model, so school/Angisoft internals cannot be exfiltrated by
+        #     prompt injection;
+        #   - small talk is answered locally, so a greeting costs ~0ms
+        #     instead of a full model round-trip.
+        started_guard = time.monotonic()
+        if guard.is_confidential(question):
+            self._observe_outcome(user_id, route, module, agent, [], "refused")
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_confidentiality_refusal",
+                    "operator_id": user_id,
+                    "route": route,
+                    "module": module,
+                    "question_hash": hash_text(question),
+                    "duration_ms": int((time.monotonic() - started_guard) * 1000),
+                    "provider_calls": 0,
+                    "request_id": request_id,
+                },
+            )
+            return guard.confidential_response(agent)
+        if guard.is_smalltalk(question):
+            self._observe_outcome(user_id, route, module, agent, [], "instant")
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_instant_reply",
+                    "operator_id": user_id,
+                    "route": route,
+                    "module": module,
+                    "question_hash": hash_text(question),
+                    "duration_ms": int((time.monotonic() - started_guard) * 1000),
+                    "provider_calls": 0,
+                    "request_id": request_id,
+                },
+            )
+            return guard.greeting_response(question, agent)
+
         routing = "route_match"
+        if agent is None:
+            # Deterministic lexical routing before any provider call: a clear
+            # keyword signal ("recap today's attendance") resolves in
+            # microseconds instead of spending a full model round-trip.
+            hinted = agents.route_hint_for(question)
+            if hinted is not None:
+                agent = agents.AGENTS.get(hinted[0])
+                routing = "lexical"
         if agent is None:
             agent = self._triage(question, route, module)
             routing = "triage"
@@ -88,6 +148,7 @@ class Orchestrator:
 
         started = time.monotonic()
         result = self._run_agent_loop(agent, context, question)
+        self._remember(int(context["user_id"]), str(context.get("route", "")), question, result.get("answer"))
 
         self.behavior.observe(
             user_id,
@@ -123,6 +184,40 @@ class Orchestrator:
                 "domain": agent["domain"],
             },
         }
+
+    def _observe_outcome(
+        self,
+        user_id: int,
+        route: str,
+        module: str,
+        agent: dict[str, Any] | None,
+        tools_used: list[str],
+        outcome: str,
+    ) -> None:
+        """Record the question + outcome pair in the behaviour study.
+
+        Only allowlisted scalar facts are stored (see BehaviorStore); no
+        question text and no learner data ever reaches the buffer.
+        """
+        self.behavior.observe(
+            user_id,
+            "question",
+            {
+                "route": route,
+                "module": module,
+                "domain": (agent or {}).get("domain", ""),
+                "agent_id": (agent or {}).get("id", ""),
+            },
+        )
+        self.behavior.observe(
+            user_id,
+            "assist_outcome",
+            {
+                "agent_id": (agent or {}).get("id", ""),
+                "tool": ",".join(tools_used),
+                "outcome": outcome,
+            },
+        )
 
     # ------------------------------------------------------------------ digest
     def digest(
@@ -475,7 +570,7 @@ class Orchestrator:
 
     @staticmethod
     def _requested_tools(
-        response: dict[str, Any], allowed: list[str]
+        response: dict[str, Any], allowed: list[str], already_run: set[str] | None = None
     ) -> tuple[list[tuple[str, dict[str, Any]]], str | None]:
         """Validate one tool proposal, or a batch of up to MAX_TOOLS_PER_STEP.
 
@@ -484,6 +579,9 @@ class Orchestrator:
         against the agent allowlist before anything executes.
         """
         proposals: list[tuple[str, dict[str, Any]]] = []
+        # Seeded with what already ran so a prefetched governed read is never
+        # paid for twice in one turn (the NLQ report run alone costs seconds).
+        already: set[str] = set(already_run or ())
         raw_batch = response.get("tools")
         if isinstance(raw_batch, list) and raw_batch:
             for item in raw_batch[:MAX_TOOLS_PER_STEP]:
@@ -503,7 +601,7 @@ class Orchestrator:
 
         valid: list[tuple[str, dict[str, Any]]] = []
         rejected: list[str] = []
-        seen: set[str] = set()
+        seen: set[str] = set(already)
         for tool_id, tool_input in proposals:
             if tool_id not in allowed:
                 rejected.append(tool_id or "(unnamed tool)")
@@ -559,6 +657,391 @@ class Orchestrator:
                     results.append((tool_id, {"status": "error", "message": str(error)[:200]}))
         return results
 
+    # -------------------------------------------------------------- streaming
+    def stream_answer(self, context: dict, question: str):
+        """Yield typed events for the streamed answer surface.
+
+        Order matters for perceived latency: the deterministic answers and the
+        governed context are produced first (near-instant), and the model is
+        only consulted for the wording. Deltas are emitted as the provider
+        produces them, so the first words reach the browser in well under a
+        second.
+        """
+        from .security import bound_question
+
+        question_raw = str(question or "").strip()
+        question_clean, slash_instruction = guard.extract_slash(question_raw)
+        question = bound_question(question_clean or question_raw)
+        user_id = int(context["user_id"])
+        permissions = list(context["permissions"])
+        route = context.get("route", "")
+        module = context.get("module", "dashboard")
+        request_id = context.get("request_id", "")
+        agent = agents.for_route(route)
+
+        # Same deterministic pre-flight as the buffered path.
+        if guard.is_confidential(question):
+            result = guard.confidential_response(agent)
+            yield {"kind": "final", **result}
+            return
+        if guard.is_smalltalk(question):
+            result = guard.greeting_response(question, agent)
+            yield {"kind": "final", **result}
+            return
+
+        routing = "route_match"
+        if agent is None:
+            hinted = agents.route_hint_for(question)
+            if hinted is not None:
+                agent = agents.AGENTS.get(hinted[0])
+                routing = "lexical"
+        if agent is None:
+            agent = agents.default_agent()
+            routing = "default"
+
+        started = time.monotonic()
+        allowed_tools = list(agent["tools"])
+        prefetched = self._prefetch_context(agent, user_id, permissions, request_id, route)
+        tool_results = [self._compact_result(tool_id, result) for tool_id, result in prefetched]
+        tools_used = [tool_id for tool_id, _ in prefetched]
+
+        hints = self.behavior.hints(user_id)
+        self.behavior.observe(
+            user_id,
+            "question",
+            {
+                "route": route,
+                "module": module,
+                "domain": agent["domain"],
+                "agent_id": agent["id"],
+            },
+        )
+
+        history = self._conversation_turns(user_id, route)
+        if not history:
+            history = list((context.get("history") or []))[-MAX_HISTORY_TURNS:]
+        instruction = (
+            slash_instruction or str((context.get("instruction") or "") or "")
+        )[:400]
+        base_envelope = {
+            "question": question,
+            "audience": "staff",
+            "agent_id": agent["id"],
+            "route": route,
+            "module": module,
+            "behavior_hints": self._hint_lines(hints),
+            "tool_results": tool_results,
+            "conversation": history,
+        }
+        if instruction:
+            base_envelope["instruction"] = instruction
+
+        envelope = policy.minimize(
+            "system.agent_chat",
+            {key: value for key, value in base_envelope.items() if value},
+        )
+        provider_error: str | None = None
+        answer: dict[str, Any] | None = None
+        body = ""
+        rendered_any = False
+
+        # One governed lookup is allowed mid-stream. The first character decides
+        # everything: prose streams straight to the browser, while a tool
+        # request is buffered, executed, and answered in a second (final) round.
+        # That keeps raw tool frames out of the chat bubble and still lets a
+        # genuinely data-hungry question get its facts.
+        for attempt in range(2):
+            envelope["grounding_note"] = (
+                "Governed results are already in tool_results. Answer from them; "
+                "only request a tool if the results genuinely do not cover the "
+                "question."
+            )
+            messages = [
+                {"role": "system", "content": agents.stream_prompt(agent)},
+                {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},
+            ]
+            # An oversized envelope must be trimmed rather than lose the answer.
+            self._assert_prompt_fits(messages)
+
+            body = ""
+            buffered = ""
+            emitted = 0
+            is_tool_frame: bool | None = None
+            provider_error = None
+            try:
+                for delta in self.provider.stream(messages, {"task": "chat"}):
+                    buffered += delta
+                    if is_tool_frame is None:
+                        stripped = buffered.lstrip()
+                        if stripped:
+                            is_tool_frame = stripped.startswith("{")
+                    if is_tool_frame is False:
+                        # Prose: pass every byte straight through as it lands.
+                        yield {"kind": "delta", "text": buffered[emitted:]}
+                        emitted = len(buffered)
+                        rendered_any = True
+            except ProviderError as error:
+                provider_error = str(error)[:200]
+                break
+
+            body = buffered.strip()
+            if not body:
+                break
+
+            if is_tool_frame:
+                proposal = self._json_object(body)
+                requests, _rejected = self._requested_tools(
+                    proposal, allowed_tools, already_run=set(tools_used)
+                )
+                if requests and attempt == 0:
+                    yield {
+                        "kind": "status",
+                        "text": "Consulting the governed school records…",
+                    }
+                    for tool_id, tool_input in requests:
+                        payload = dict(tool_input or {})
+                        if tool_id == "reports.nlq":
+                            payload.setdefault("question", question)
+                        result = self.tools.execute(
+                            user_id, permissions, tool_id, payload, request_id
+                        )
+                        tools_used.append(tool_id)
+                        tool_results.append(self._compact_result(tool_id, result))
+                    envelope["tool_results"] = tool_results
+                    continue
+                # A second tool request breaches the step budget: fall through
+                # and answer from the governed results gathered so far.
+
+            parsed = self._parse_answer_text(body)
+            if parsed:
+                answer = parsed
+            break
+
+        outcome = "answered" if answer else "unavailable"
+        degraded = False
+        if answer is None:
+            fallback = self._fallback_answer(tools_used, tool_results)
+            if provider_error is None:
+                answer = fallback
+                outcome = "answered"
+            elif not rendered_any:
+                # Nothing was shown to the user yet, so the governed facts in
+                # hand are a better answer than an error bubble: the staff
+                # member gets real numbers, flagged as model-degraded.
+                answer = fallback
+                outcome = "answered"
+                degraded = True
+            else:
+                yield {
+                    "kind": "final",
+                    "status": "unavailable",
+                    "answer": None,
+                    "message": "the response was interrupted — please try again",
+                    "degraded": True,
+                    "tools_used": tools_used,
+                    "provider_calls": 1,
+                    "routing": routing,
+                    "agent": {
+                        "id": agent["id"],
+                        "name": agent["name"],
+                        "domain": agent["domain"],
+                    },
+                }
+                self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
+                return
+
+        self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
+        self._remember(user_id, route, question, answer)
+        self.journal.write(
+            "ai_generation",
+            {
+                "type": "agent_assist_stream",
+                "operator_id": user_id,
+                "agent_id": agent["id"],
+                "route": route,
+                "outcome": outcome,
+                "tools_used": tools_used,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "request_id": request_id,
+            },
+        )
+        yield {
+            "kind": "final",
+            "status": "answered",
+            "answer": answer,
+            "degraded": degraded,
+            "tools_used": tools_used,
+            "provider_calls": 1,
+            "routing": routing,
+            "agent": {
+                "id": agent["id"],
+                "name": agent["name"],
+                "domain": agent["domain"],
+            },
+        }
+
+    def _conversation_turns(self, user_id: int, route: str) -> list[str]:
+        """Prior turns flattened to "Q: ... / A: ..." strings.
+
+        Flat strings are required: the prompt policy accepts only scalar array
+        items, which is what keeps arbitrary nested content out of the prompt.
+        The list is also kept short so the total envelope stays well inside the
+        approved context budget alongside governed tool results.
+        """
+        store = getattr(self, "conversation", None)
+        if store is None:
+            return []
+        try:
+            turns = list(store.turns(int(user_id), route))
+        except Exception:
+            return []
+        lines: list[str] = []
+        for turn in turns[-CONVERSATION_PROMPT_TURNS:]:
+            question = str(turn.get("question") or "").strip()[:240]
+            answer = str(turn.get("answer") or "").strip()[:240]
+            if question:
+                lines.append(f"Q: {question} / A: {answer}" if answer else f"Q: {question}")
+        return lines
+
+    def _remember(
+        self, user_id: int, route: str, question: str, answer: dict[str, Any] | None
+    ) -> None:
+        store = getattr(self, "conversation", None)
+        if store is None or not isinstance(answer, dict):
+            return
+        body = str(answer.get("body") or "")
+        if not body:
+            return
+        try:
+            store.record(int(user_id), route, question, body)
+        except Exception:
+            pass
+
+    def _assert_prompt_fits(self, messages: list[dict[str, str]]) -> None:
+        """Trim the prompt rather than fail the whole answer.
+
+        Governed tool results are the only unbounded part of the envelope. If a
+        rare report result pushes the prompt past the approved budget, drop the
+        oldest tool results one at a time rather than losing the answer.
+        """
+        if policy.MAX_CONTEXT_BYTES <= 0:
+            return
+        while self._prompt_bytes(messages) > policy.MAX_CONTEXT_BYTES:
+            user_turn = next(
+                (message for message in messages if message.get("role") == "user"),
+                None,
+            )
+            if user_turn is None:
+                return
+            try:
+                payload = json.loads(user_turn["content"])
+            except (TypeError, ValueError):
+                return
+            results = payload.get("tool_results")
+            if not isinstance(results, list) or len(results) <= 1:
+                payload.pop("tool_results", None)
+            else:
+                payload["tool_results"] = results[1:]
+            user_turn["content"] = json.dumps(payload, ensure_ascii=False)
+            if "tool_results" not in payload and not results:
+                return
+
+    @staticmethod
+    def _prompt_bytes(messages: list[dict[str, str]]) -> int:
+        return len(
+            json.dumps(messages, ensure_ascii=False).encode("utf-8")
+        )
+
+    @staticmethod
+    def _json_object(text: str) -> dict[str, Any]:
+        """Best-effort extraction of the model's JSON reply, or an empty dict."""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:]
+        start = cleaned.find("{")
+        if start == -1:
+            return {}
+        try:
+            parsed = json.loads(cleaned[start:])
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _parse_answer_text(self, text: str) -> dict[str, Any] | None:
+        """Validate a streamed answer body into the governed answer shape."""
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:]
+        start = cleaned.find("{")
+        if start == -1:
+            body = cleaned.strip()
+            if not body or len(body) > 4000:
+                return None
+            return {
+                "body": body,
+                "confidence": "medium",
+                "next_steps": [],
+                "suggested_questions": [],
+                "escalation_required": False,
+            }
+        try:
+            parsed = json.loads(cleaned[start:])
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return self._validate_answer(parsed)
+
+    # ----------------------------------------------------------- prefetch
+    def _prefetch_context(
+        self,
+        agent: dict[str, Any],
+        user_id: int,
+        permissions: list[str],
+        request_id: str,
+        route: str,
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Warm the governed facts the agent almost always needs.
+
+        The workspace scan and the workflow catalogue are both cheap,
+        deterministic, authorized reads, and the model needs both to answer
+        anything about this user's context. Running them concurrently here
+        removes one full provider-call/tool-step pair from the critical path.
+        """
+        # The briefing is the deterministic, authorized, cached source of real
+        # numbers for the current route. Without it the model has no facts and
+        # can only restate the workflow catalogue, which is why an ungrounded
+        # question previously produced a placeholder answer.
+        wanted = {
+            name: args
+            for name, args in (
+                ("assistant.workspace_scan", {"route": route or "dashboard"}),
+                ("reports.insight_brief", {"cadence": "daily"}),
+                ("assistant.catalog", {}),
+            )
+            if name in agent.get("tools", ())
+        }
+        if not wanted:
+            return []
+
+        results: list[tuple[str, dict[str, Any]]] = []
+        workers = min(len(wanted), max(1, int(getattr(self.config, "max_tool_parallel", 3) or 3)))
+
+        def _run(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+            name, args = item
+            return name, self.tools.execute(
+                user_id, permissions, name, args, request_id
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            for name, result in pool.map(_run, list(wanted.items())):
+                results.append((name, result))
+        return results
+
     # ------------------------------------------------------------- agent loop
     def _run_agent_loop(
         self, agent: dict[str, Any], context: dict, question: str
@@ -579,6 +1062,19 @@ class Orchestrator:
         provider_calls = 0
         answer: dict[str, Any] | None = None
 
+        # Prefetch deterministic context up front, concurrently. Every serial
+        # round trip is multiplied by the model's own latency, so the loop
+        # starts with the governed facts already in hand and the first provider
+        # call can usually answer directly instead of spending a whole
+        # provider-call + tool-step pair just to discover what to ask for.
+        prefetched = self._prefetch_context(agent, user_id, permissions, request_id, route)
+        for tool_id, result in prefetched:
+            tools_used.append(tool_id)
+            tool_results.append(self._compact_result(tool_id, result))
+
+        history = self._conversation_turns(user_id, route)
+        instruction = str(context.get("instruction") or "")[:400]
+
         try:
             while provider_calls < MAX_PROVIDER_CALLS:
                 envelope = policy.minimize(
@@ -594,6 +1090,8 @@ class Orchestrator:
                             "behavior_hints": self._hint_lines(hints),
                             "tools": tools,
                             "tool_results": tool_results,
+                            "conversation": history,
+                            "instruction": instruction,
                         }.items()
                         if value
                     },
@@ -622,7 +1120,9 @@ class Orchestrator:
                     answer = self._fallback_answer(tools_used, tool_results)
                     break
 
-                requests, rejected = self._requested_tools(response, tools)
+                requests, rejected = self._requested_tools(
+                    response, tools, already_run=set(tools_used)
+                )
                 if rejected:
                     tool_results.append(rejected)
                 if not requests:
@@ -763,7 +1263,16 @@ class Orchestrator:
 
     def _validate_answer(self, draft: Any) -> dict[str, Any]:
         draft = draft if isinstance(draft, dict) else {}
-        body = self._clean(draft.get("body"), 2000) or (
+        # Providers disagree about the key for the answer text ("body",
+        # "answer", "text", "message"). Treating an unknown key as "no answer"
+        # replaced real replies with a generic placeholder, so the common
+        # aliases are accepted before falling back.
+        body = ""
+        for key in ("body", "answer", "text", "message", "content", "summary"):
+            body = self._clean(draft.get(key), 2000)
+            if body:
+                break
+        body = body or (
             "The assistant could not prepare a complete answer. Open the related workspace or rephrase the question."
         )
         return {

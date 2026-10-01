@@ -1681,6 +1681,7 @@ const ENDPOINT_PERMISSIONS = {
   "/system/ai-provider-health": "system_view",
   "/dashboard/ai-assistant-catalog": null,
   "/dashboard/agent-assist": null,
+  "/dashboard/agent-assist-stream": null,
   "/dashboard/workspace-briefing": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
@@ -7467,6 +7468,145 @@ window.API = {
     agentAssist: async (question, route = "", module = "dashboard") =>
       apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
 
+    /**
+     * Streamed assistant answer. Returns an object exposing `promise`,
+     * `cancel()`, and an `onDelta`/`onStatus` callback pair, so the caller can
+     * render words as they arrive instead of waiting for the whole answer.
+     *
+     * Falls back automatically to the buffered endpoint when the browser has
+     * no ReadableStream support or the relay returns a non-event response, so
+     * every caller keeps working.
+     */
+    agentAssistStream: (question, route = "", module = "dashboard", handlers = {}) => {
+      const controller = new AbortController();
+      const state = {
+        cancelled: false,
+        controller,
+        onDelta: handlers.onDelta || (() => {}),
+        onStatus: handlers.onStatus || (() => {}),
+        onFinal: handlers.onFinal || (() => {}),
+        onError: handlers.onError || (() => {}),
+      };
+
+      const promise = (async () => {
+        const token = AuthContext.getToken?.();
+        if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+          const fallback = await apiCall(
+            "/dashboard/agent-assist",
+            "POST",
+            { question, route, module },
+          );
+          state.onFinal(fallback?.data ?? fallback);
+          return fallback?.data ?? fallback;
+        }
+
+        try {
+          const response = await fetch("/Kingsway/api/dashboard/agent-assist-stream", {
+            method: "POST",
+            credentials:
+              window.location.hostname === "localhost" ? "same-origin" : "include",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream",
+              Authorization: "Bearer " + token,
+              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+              "X-Request-ID": crypto.randomUUID
+                ? crypto.randomUUID()
+                : String(Date.now()),
+            },
+            body: JSON.stringify({ question, route, module }),
+          });
+
+          if (!response.ok || !response.body) {
+            throw new Error(`stream unavailable (${response.status})`);
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let final = null;
+
+          // Parse SSE frames: "event: <name>" then one or more "data:" lines.
+          const consume = (frame) => {
+            const nameLine = frame.split("\n").find((l) => l.startsWith("event:"));
+            const dataLine = frame
+              .split("\n")
+              .filter((l) => l.startsWith("data:"))
+              .map((l) => l.slice(5).trim())
+              .join("");
+            if (!nameLine || !dataLine) return;
+            const name = nameLine.slice(6).trim();
+            let payload;
+            try {
+              payload = JSON.parse(dataLine);
+            } catch {
+              return;
+            }
+            if (name === "delta") {
+              state.onDelta(payload.text || "");
+            } else if (name === "start") {
+              state.onStatus("streaming");
+            } else if (name === "status") {
+              state.onStatus(payload.text || "working");
+            } else if (name === "final") {
+              final = payload;
+            } else if (name === "error") {
+              state.onError(payload.message || "The response was interrupted");
+            }
+          };
+
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split("\n\n");
+            buffer = frames.pop() || "";
+            frames.forEach(consume);
+          }
+          if (buffer.trim()) consume(buffer);
+
+          if (final) {
+            state.onFinal(final);
+            return final;
+          }
+          // Stream ended without a final frame: fetch the authoritative answer
+          // rather than showing a half-rendered bubble.
+          const fallback = await apiCall(
+            "/dashboard/agent-assist",
+            "POST",
+            { question, route, module },
+          );
+          const data = fallback?.data ?? fallback;
+          state.onFinal(data);
+          return data;
+        } catch (error) {
+          if (state.cancelled || error?.name === "AbortError") return null;
+          state.onError(error?.message || "The assistant could not answer");
+          const fallback = await apiCall(
+            "/dashboard/agent-assist",
+            "POST",
+            { question, route, module },
+          ).catch(() => null);
+          const data = fallback?.data ?? fallback;
+          if (data) state.onFinal(data);
+          return data;
+        }
+      })();
+
+      return {
+        promise,
+        cancel() {
+          state.cancelled = true;
+          try {
+            controller.abort();
+          } catch {
+            /* already settled */
+          }
+        },
+      };
+    },
+
     // Proactive workspace co-worker: cached scan findings for the current
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
@@ -7970,7 +8110,7 @@ window.API = {
     downloadTemplate: async () =>
       apiCall("/staff-migration/template", "GET", null, {}, {
         isDownload: true,
-        filename: "existing_staff_migration_template.csv",
+        filename: "existing_staff_import_template.csv",
       }),
     downloadTemplateXlsx: async () =>
       apiCall("/staff-migration/template-xlsx", "GET", null, {}, {
@@ -7980,7 +8120,7 @@ window.API = {
     downloadTemplateOds: async () =>
       apiCall("/staff-migration/template-ods", "GET", null, {}, {
         isDownload: true,
-        filename: "existing_staff_migration_template.ods",
+        filename: "existing_staff_import_template.ods",
       }),
     stage: async (formData) =>
       apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),

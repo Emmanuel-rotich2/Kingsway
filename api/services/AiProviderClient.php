@@ -25,6 +25,42 @@ class AiProviderClient implements AiCompletionProvider
         $this->healthBuffer = $healthBuffer;
     }
 
+    /**
+     * Latency budgets per task class.
+     *
+     * Latency is close to linear in generated output tokens, so an uncapped
+     * ceiling is the single largest source of multi-second stalls: an
+     * unbounded 1200-token JSON intent measured ~32s against the same
+     * provider, while the identical call bounded to 200 tokens took ~2.4s.
+     * Every internal call therefore declares a real ceiling and a timeout
+     * short enough that a stalled provider degrades gracefully instead of
+     * holding a member of staff waiting.
+     *
+     * @return array{0:int,1:int} [max_tokens, timeout_seconds]
+     */
+    public const TASK_BUDGETS = [
+        'triage' => [200, 8],
+        'classify' => [200, 8],
+        'extract' => [200, 8],
+        'route' => [160, 6],
+        'intent' => [200, 8],
+        'tool_plan' => [220, 8],
+        'specialist' => [240, 10],
+        'briefing' => [520, 14],
+        'chat' => [500, 14],
+        'answer' => [500, 14],
+        'draft' => [1200, 32],
+    ];
+
+    public const DEFAULT_MAX_TOKENS = 600;
+    public const DEFAULT_TIMEOUT = 20;
+
+    /** @return array{0:int,1:int} */
+    public static function budgetFor(string $task): array
+    {
+        return self::TASK_BUDGETS[$task] ?? [self::DEFAULT_MAX_TOKENS, self::DEFAULT_TIMEOUT];
+    }
+
     public function complete(array $messages, array $options = []): array
     {
         if (!$this->enabled()) {
@@ -50,7 +86,8 @@ class AiProviderClient implements AiCompletionProvider
         $providerKind = $this->providerKind($baseUrl, array_merge($this->overrides, $options));
         $allowVision = filter_var($options['vision_enabled'] ?? Config::get('AI_VISION_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
         $cleanMessages = $this->sanitizeMessages($messages, $allowVision);
-        $maxTokens = min(4096, max(64, (int) ($options['max_tokens'] ?? Config::get('AI_MAX_TOKENS', 1200))));
+        [$taskMaxTokens] = self::budgetFor((string) ($options['task'] ?? 'default'));
+        $maxTokens = min(4096, max(64, (int) ($options['max_tokens'] ?? $taskMaxTokens)));
         $temperature = isset($options['temperature']) ? (float) $options['temperature'] : 0.2;
         $responseFormat = (string) ($options['response_format'] ?? Config::get('AI_RESPONSE_FORMAT', ''));
         $reasoning = (string) ($options['reasoning_effort'] ?? Config::get('AI_REASONING_EFFORT', ''));
@@ -64,7 +101,8 @@ class AiProviderClient implements AiCompletionProvider
         }
 
         $promptHash = hash('sha256', $body);
-        $timeout = min(60, max(5, (int) ($options['timeout'] ?? Config::get('AI_TIMEOUT', 25))));
+        [, $taskTimeout] = self::budgetFor((string) ($options['task'] ?? 'default'));
+        $timeout = min(60, max(3, (int) ($options['timeout'] ?? $taskTimeout)));
         $started = microtime(true);
         $retryLimit = min(3, max(0, (int)($options['_provider_retries'] ?? Config::get('AI_PROVIDER_RETRIES', 2))));
         $retryDelayMs = min(2000, max(0, (int)($options['_provider_retry_delay_ms'] ?? Config::get('AI_PROVIDER_RETRY_DELAY_MS', 250))));

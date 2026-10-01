@@ -54,20 +54,28 @@
             </div>
             <div class="col-md-2">
                 <select class="form-select" id="termFilter">
-                    <option value="">Current Term</option>
+                    <option value="">Whole Year (All Terms)</option>
                     <option value="1">Term 1</option>
                     <option value="2">Term 2</option>
                     <option value="3">Term 3</option>
                 </select>
             </div>
+            <div class="col-md-2">
+                <select class="form-select" id="perPageFilter" aria-label="Rows per page">
+                    <option value="25">25 rows per page</option>
+                    <option value="50">50 rows per page</option>
+                    <option value="100">100 rows per page</option>
+                    <option value="250">250 rows per page</option>
+                </select>
+            </div>
         </div>
 
-        <!-- Summary Cards -->
-        <div class="row mb-4">
+        <!-- Summary Cards — every figure names its period -->
+        <div class="row mb-3">
             <div class="col-md-3">
                 <div class="card border-primary">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Expected</h6>
+                        <h6 class="text-muted mb-2">Total Expected <span class="badge bg-primary-subtle text-primary" id="expectedPeriodLabel">Whole Year</span></h6>
                         <h3 class="text-primary mb-0" id="totalExpected">KES 0</h3>
                     </div>
                 </div>
@@ -75,7 +83,7 @@
             <div class="col-md-3">
                 <div class="card border-success">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Collected</h6>
+                        <h6 class="text-muted mb-2">Total Collected <span class="badge bg-success-subtle text-success" id="collectedPeriodLabel">Whole Year</span></h6>
                         <h3 class="text-success mb-0" id="totalCollected">KES 0</h3>
                     </div>
                 </div>
@@ -83,7 +91,7 @@
             <div class="col-md-3">
                 <div class="card border-warning">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Outstanding</h6>
+                        <h6 class="text-muted mb-2">Total Outstanding <span class="badge bg-warning-subtle text-warning" id="outstandingPeriodLabel">Whole Year</span></h6>
                         <h3 class="text-warning mb-0" id="totalOutstanding">KES 0</h3>
                     </div>
                 </div>
@@ -91,10 +99,22 @@
             <div class="col-md-3">
                 <div class="card border-info">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Collection Rate</h6>
+                        <h6 class="text-muted mb-2">Collection Rate <span class="badge bg-info-subtle text-info" id="ratePeriodLabel">Whole Year</span></h6>
                         <h3 class="text-info mb-0" id="collectionRate">0%</h3>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Term progress strip: term 1 we were here, term 2 here, term 3 is
+             where the school is now. -->
+        <div class="card mb-4" id="termProgressCard">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="text-muted mb-0">Collection progress by term</h6>
+                    <small class="text-muted" id="termProgressUpdated"></small>
+                </div>
+                <div class="row" id="termProgressStrip"></div>
             </div>
         </div>
 

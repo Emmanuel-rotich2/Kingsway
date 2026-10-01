@@ -196,7 +196,6 @@ class DataImporter
         $format = strtolower($format);
         if (!in_array($format, ['csv', 'xlsx', 'ods'], true)) return null;
 
-        $projectRoot = dirname(__DIR__, 3);
         $directory = rtrim((string) UPLOAD_PATH, '/\\') . '/imports/templates';
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) return null;
 
@@ -210,9 +209,14 @@ class DataImporter
         // Seed the managed template once from repository-owned source files.
         // uploads_backup is deliberately not a source of truth: it was the old
         // duplicate location and varies between local and hosted deployments.
+        // The maintained template copies live in uploads/imports/templates —
+        // the same location the school edits, so seeding picks up their
+        // current headers. Environment-agnostic: resolved at runtime, never
+        // hardcoded to a project root.
+        $managedRoot = dirname($directory);
         $sourceCandidates = $type === 'students'
-            ? [$projectRoot . '/templates/student_import_template.' . $format]
-            : [$projectRoot . '/templates/import/' . $type . '.' . $format];
+            ? [$directory . '/student_import_template.' . $format]
+            : [$directory . '/' . $type . '.' . $format];
         $source = null;
         foreach ($sourceCandidates as $candidate) {
             if (is_file($candidate) && is_readable($candidate)) { $source = $candidate; break; }
