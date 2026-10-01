@@ -177,6 +177,149 @@ class DashboardController extends BaseController
      * governed service runs - the model never touches school data and
      * this endpoint is never browser-facing.
      */
+    /**
+     * POST /api/dashboard/agent-assist-stream
+     *
+     * Streamed assistant answers (server-sent events).
+     *
+     * The buffered endpoint above is still the correct contract for machines
+     * and for the RPC layer, but it necessarily holds the whole answer before
+     * the browser sees anything, which made a staff question look frozen for
+     * the ~20s a slow model round trip can take. This endpoint relays the
+     * Python platform's event stream verbatim, so words reach the screen as
+     * they are produced.
+     *
+     * Authorization is identical to the buffered path: the same authenticated
+     * operator, the same server-resolved effective permissions, and the same
+     * governed-tool re-authorization on the far side. Streaming changes only
+     * transport, never scope.
+     */
+    public function postAgentAssistStream($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $question = (string) ($data['question'] ?? '');
+        if ($question === '' || mb_strlen($question) > 500) {
+            return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+
+        $context = [
+            'user_id' => $userId,
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
+            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+        ];
+
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+        } catch (\Throwable $e) {
+            return $this->serverError('The assistant could not answer right now');
+        }
+
+        $this->beginEventStream();
+
+        $bridge = $this->contract(AiPythonBridge::class);
+        if ($bridge->available()) {
+            try {
+                [$ok] = $bridge->streamAssist(
+                    $context,
+                    $question,
+                    function (string $chunk): void {
+                        $this->writeEventChunk($chunk);
+                    }
+                );
+                if ($ok) {
+                    $this->endEventStream();
+                    return ['stream_flushed' => true];
+                }
+            } catch (\Throwable $e) {
+                // Fall through to the deterministic/governed buffered answer:
+                // a broken stream must degrade, not leave a blank bubble.
+                \App\API\Services\Logger::legacyError('[DashboardController] agent stream relay failed: ' . $e->getMessage());
+                $this->writeEventChunk($this->eventChunk('error', [
+                    'message' => 'live streaming unavailable — showing the full answer',
+                ]));
+            }
+        }
+
+        try {
+            $result = $this->contract(AiAgentService::class)->assist(
+                $this->getDb()->getConnection(),
+                $context,
+                $question
+            );
+            $this->writeEventChunk($this->eventChunk('final', $result));
+            $this->writeEventChunk($this->eventChunk('done', ['fallback' => true]));
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent stream fallback failed: ' . $e->getMessage());
+            $this->writeEventChunk($this->eventChunk('error', [
+                'message' => 'The assistant could not answer right now',
+            ]));
+        }
+
+        $this->endEventStream();
+        return ['stream_flushed' => true];
+    }
+
+    /**
+     * Flush response headers and any output buffering so the first event is
+     * not held behind the application buffer or the PHP-FPM output layer.
+     */
+    private function beginEventStream(): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_flush();
+        }
+        if (!headers_sent()) {
+            http_response_code(200);
+            header('Content-Type: text/event-stream; charset=utf-8');
+            header('Cache-Control: no-cache, no-store, must-revalidate');
+            // nginx/proxy buffering would defeat the whole point of streaming.
+            header('X-Accel-Buffering: no');
+            header('Connection: keep-alive');
+        }
+        // Apache's output filter buffers a dynamic response until roughly 8KB
+        // has accumulated, which delayed the first event by several seconds in
+        // live testing. SSE comment lines are ignored by every parser, so one
+        // padding frame forces the initial flush without touching server
+        // configuration - the same technique the provider SDKs use.
+        echo ':' . str_repeat(' ', 8192) . "\n\n";
+        if (function_exists('ob_flush') && ob_get_level() > 0) {
+            @ob_flush();
+        }
+        flush();
+    }
+
+    private function writeEventChunk(string $chunk): void
+    {
+        echo $chunk;
+        if (function_exists('ob_flush') && ob_get_level() > 0) {
+            @ob_flush();
+        }
+        flush();
+    }
+
+    /** @param array<string,mixed> $data */
+    private function eventChunk(string $name, array $data): string
+    {
+        return 'event: ' . $name . "\n"
+            . 'data: ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n\n";
+    }
+
+    private function endEventStream(): void
+    {
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        }
+    }
+
     public function postAgentTool($id = null, $data = [], $segments = [])
     {
         if (!$this->hasValidWorkerCredential()) {

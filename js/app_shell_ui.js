@@ -1026,6 +1026,53 @@
       if (!question || !answer) return;
       answer.innerHTML =
         '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div>';
+
+      const stream = window.API?.dashboard?.agentAssistStream;
+      if (typeof stream === "function") {
+        // Streamed path: words appear as they are produced instead of after
+        // the whole answer has been generated.
+        const bubble = document.createElement("div");
+        bubble.className = "ai-stream-bubble";
+        answer.innerHTML = "";
+        answer.appendChild(bubble);
+        let text = "";
+        try {
+          const handle = stream(
+            question,
+            String(window.REQUESTED_ROUTE || ""),
+            "dashboard",
+            {
+              onStatus: () => {
+                bubble.innerHTML =
+                  '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Checking governed school data…</div>';
+              },
+              onDelta: (chunk) => {
+                text += chunk;
+                // Rendered as text nodes, never HTML: streamed content is
+                // model output and must not be able to inject markup.
+                bubble.textContent = text;
+              },
+              onError: (message) => {
+                if (!text) {
+                  bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(
+                    message || "The assistant could not answer right now."
+                  )}</div>`;
+                }
+              },
+            },
+          );
+          const result = await handle.promise;
+          if (result) {
+            answer.innerHTML = renderAiAgentAnswer(result);
+            handle.cancel();
+          }
+          if (answer.innerHTML === "") return;
+        } catch (streamError) {
+          answer.innerHTML = "";
+        }
+        if (answer.innerHTML !== "") return;
+      }
+
       try {
         const payload = await window.API?.dashboard?.agentAssist?.(
           question,

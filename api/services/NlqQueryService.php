@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\API\Services;
 
 use App\API\Includes\FileLogger;
+use App\API\Services\SharedCache;
 use App\API\Modules\reports\ReportsAPI;
 use DomainException;
 use PDO;
@@ -46,12 +47,20 @@ class NlqQueryService
     /** @var callable|null fn(string $code, array $params, array $user, string $requestId): array */
     private $executor;
 
+    /** @var SharedCache|null Injected cache; null disables intent caching. */
+    private ?SharedCache $cache;
+
+    /** @var bool Set once we decide to build a default cache. */
+    private bool $cacheResolved = false;
+
     public function __construct(
         ?AiCompletionProvider $provider = null,
         ?AiPromptTemplateService $templates = null,
         ?callable $catalogueProvider = null,
-        ?callable $executor = null
+        ?callable $executor = null,
+        ?SharedCache $cache = null
     ) {
+        $this->cache = $cache;
         $this->provider = $provider ?: new AiProviderGateway();
         $this->templates = $templates ?: new AiPromptTemplateService();
         $this->catalogueProvider = $catalogueProvider;
@@ -90,8 +99,31 @@ class NlqQueryService
             ];
         }
 
+        // Intent parsing is a pure function of the question and the caller's
+        // authorized catalogue, so it is cached per (operator, question,
+        // catalogue fingerprint). Staff ask repeated questions constantly
+        // during a term, and this removes both the provider call and its
+        // ~10s latency from every repeat.
+        $fingerprint = substr(
+            hash('sha256', json_encode([
+                'q' => $this->normalizeQuestion((string) $clean['question']),
+                'c' => $this->catalogueFingerprint($catalogue),
+            ])),
+            0,
+            32
+        );
+        $cache = $this->intentCache();
+
         try {
-            $intent = $this->parseIntent($clean['question'], (string) $clean['audience'], $catalogue);
+            $cachedIntent = $cache !== null ? $cache->get($this->cacheKey($user, $fingerprint)) : null;
+            $hit = is_array($cachedIntent) && $cachedIntent !== [];
+            $intent = $hit
+                ? $cachedIntent
+                : $this->parseIntent($clean['question'], (string) $clean['audience'], $catalogue);
+            if (!$hit && $cache !== null) {
+                // Short-lived: the catalogue can change under a deploy.
+                $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
+            }
         } catch (AiProviderException $e) {
             $this->journal($context, $question, null, 'unavailable', 0);
             return [
@@ -210,6 +242,57 @@ class NlqQueryService
         return $catalogue;
     }
 
+    /**
+     * Canonical question form for cache lookup: case, spacing, and trailing
+     * punctuation are not meaningful differences for staff rephrasing the same
+     * question, so they must not force a second intent parse.
+     */
+    private function normalizeQuestion(string $question): string
+    {
+        $question = mb_strtolower(trim($question));
+        $question = (string) preg_replace('/[^a-z0-9]+/', ' ', $question);
+        return trim($question);
+    }
+
+    /** @param array<string,mixed> $user */
+    private function cacheKey(array $user, string $fingerprint): string
+    {
+        // Keyed by operator: an intent is only ever reused for the same
+        // authorized principal, never across staff.
+        return 'nlq_intent:v1:' . (int) ($user['user_id'] ?? 0) . ':' . $fingerprint;
+    }
+
+    /**
+     * Stable fingerprint of the authorized catalogue, so a cache entry is
+     * never reused after a permission or report-definition change.
+     *
+     * @param array<int,array<string,mixed>> $catalogue
+     */
+    private function catalogueFingerprint(array $catalogue): string
+    {
+        $codes = [];
+        foreach ($catalogue as $report) {
+            $codes[] = (string) ($report['code'] ?? '');
+        }
+        sort($codes);
+        return substr(hash('sha256', implode('|', $codes)), 0, 16);
+    }
+
+    private function intentCache(): ?SharedCache
+    {
+        if (!$this->cacheResolved) {
+            $this->cacheResolved = true;
+            if ($this->cache === null) {
+                try {
+                    $this->cache = new SharedCache();
+                } catch (\Throwable) {
+                    $this->cache = null;
+                }
+            }
+        }
+        return $this->cache;
+    }
+
     private function parseIntent(string $question, string $audience, array $catalogue): array
     {
         $prompt = $this->templates->resolve(self::WORKFLOW);
@@ -225,9 +308,19 @@ class NlqQueryService
             throw new DomainException('The report catalogue is too large for this question.', 422);
         }
 
+        // Intent parsing is a classification task, not an essay: a bounded
+        // ceiling keeps it near ~2s instead of the ~32s an unbounded
+        // generation costs, and a short timeout degrades to `unavailable`
+        // rather than stalling the assistant.
         $intent = $this->provider->complete([
             ['role' => 'system', 'content' => (string) $prompt['content']],
             ['role' => 'user', 'content' => $payload],
+        ], [
+            'task' => 'intent',
+            'max_tokens' => 200,
+            'timeout' => 8,
+            '_provider_retries' => 1,
+            '_provider_retry_delay_ms' => 120,
         ]);
         if (!is_array($intent)) {
             throw new AiProviderException('AI provider returned an unusable intent.');

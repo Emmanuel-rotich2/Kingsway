@@ -65,6 +65,10 @@ const AllParentsController = {
         phone: p.phone || p.phone_1 || "",
         email: p.email || "",
         children: Array.isArray(p.children) ? p.children : [],
+        // The list endpoint returns children_count (number of linked
+        // learners), not a children array — the column showed "--" for every
+        // parent without it.
+        children_count: Number(p.children_count || (Array.isArray(p.children) ? p.children.length : 0)),
         class_ids: Array.isArray(p.class_ids) ? p.class_ids : [],
         fee_status: p.fee_status || (Number(p.total_fee_balance || 0) > 0 ? "owing" : "clear"),
       }));
@@ -98,7 +102,9 @@ const AllParentsController = {
       if (e) e.textContent = val;
     };
     el("totalParents", parents.length);
-    el("activeParents", parents.filter((p) => p.phone || p.email).length);
+    // The card is labelled "With Active Students" — it must count parents who
+    // actually have linked learners, not parents with contact details.
+    el("activeParents", parents.filter((p) => Number(p.children_count || 0) > 0).length);
     el("ptaMembers", parents.filter((p) => p.pta_member || p.is_pta).length);
   },
 
@@ -145,13 +151,19 @@ const AllParentsController = {
         const childrenList = (p.children || [])
           .map((c) => `${this.esc(c.name)} (${this.esc(c.class_name)})`)
           .join(", ");
+        // Show the number of linked learners; the names list when the
+        // endpoint supplies one.
+        const childrenCell = childrenList
+          || (Number(p.children_count || 0) > 0
+            ? `<span class="badge bg-secondary">${p.children_count} child${p.children_count > 1 ? "ren" : ""}</span>`
+            : "--");
         return `
             <tr>
                 <td>${i + 1}</td>
                 <td><strong>${this.esc(p.name)}</strong></td>
                 <td>${this.esc(p.phone || "--")}</td>
                 <td>${this.esc(p.email || "--")}</td>
-                <td><small>${childrenList || "--"}</small></td>
+                <td><small>${childrenCell}</small></td>
                 <td>${p.pta_member || p.is_pta ? '<span class="badge bg-success">PTA</span>' : '<span class="badge bg-secondary">No</span>'}</td>
                 <td>
                     <div class="btn-group btn-group-sm">

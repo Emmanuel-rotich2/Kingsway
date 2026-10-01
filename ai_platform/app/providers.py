@@ -44,6 +44,33 @@ class Provider:
     # and transparently fall back to the primary chain on any failure.
     FAST_TASKS = ("triage", "classify", "extract", "route")
 
+    # Latency budgets per task class. Latency is roughly linear in generated
+    # output tokens, so an uncapped ceiling is the single biggest source of
+    # multi-second stalls: a rambling 1200-token JSON intent costs ~32s while
+    # the same call bounded to 200 tokens costs ~2.4s. Every internal call
+    # therefore declares a real ceiling, and the timeout is never long enough
+    # to hold a user waiting on it.
+    TASK_BUDGETS: dict[str, tuple[int, int]] = {
+        # task:            (max_tokens, timeout_seconds)
+        "triage": (200, 8),
+        "classify": (200, 8),
+        "extract": (200, 8),
+        "route": (160, 6),
+        "intent": (200, 8),
+        "tool_plan": (220, 8),
+        "specialist": (240, 10),
+        "briefing": (520, 14),
+        "chat": (500, 14),
+        "answer": (500, 14),
+        "draft": (1200, 32),
+    }
+    DEFAULT_MAX_TOKENS = 600
+    DEFAULT_TIMEOUT = 20
+
+    @classmethod
+    def budget_for(cls, task: str) -> tuple[int, int]:
+        return cls.TASK_BUDGETS.get(task, (cls.DEFAULT_MAX_TOKENS, cls.DEFAULT_TIMEOUT))
+
     def _build_chain(self, fast: bool = False) -> list[dict[str, str]]:
         chain: list[dict[str, str]] = []
         primary = {
@@ -115,8 +142,10 @@ class Provider:
         kind = self._kind(entry)
         model = entry["model"]
         api_key = entry.get("api_key", "")
+        task = str(options.get("task") or "default")
+        task_max, task_timeout = self.budget_for(task)
         max_tokens = min(
-            4096, max(64, int(options.get("max_tokens", self.config.max_tokens)))
+            4096, max(64, int(options.get("max_tokens", task_max or self.DEFAULT_MAX_TOKENS)))
         )
         temperature = float(options.get("temperature", 0.2))
         headers = ["Content-Type: application/json", "Accept: application/json"]
@@ -138,6 +167,8 @@ class Provider:
                 "messages": chat,
                 "temperature": temperature,
             }
+            if options.get("stream"):
+                payload["stream"] = True
             if system:
                 payload["system"] = system
             return (
@@ -188,6 +219,8 @@ class Provider:
         }
         if options.get("response_format") == "json_object":
             payload["response_format"] = {"type": "json_object"}
+        if options.get("stream"):
+            payload["stream"] = True
         if api_key:
             headers.append(f"Authorization: Bearer {api_key}")
         return (
@@ -293,11 +326,132 @@ class Provider:
             "All configured AI providers were unavailable. " + " | ".join(errors[-2:])
         )
 
+    # ------------------------------------------------------------------ stream
+    def stream(self, messages: list[dict], options: dict | None = None):
+        """Yield text deltas as the provider produces them.
+
+        Streaming is the highest-return latency change available: measured
+        time-to-first-token here is well under a second while the same answer
+        takes many seconds to finish, so a user watching the text arrive is not
+        waiting. Providers that cannot stream, and any failure, fall back to one
+        buffered call, so the caller always receives at least one delta.
+        """
+        options = dict(options or {})
+        task = str(options.get("task") or "default")
+        chain = self._chain
+        if task in self.FAST_TASKS and self._fast_chain:
+            chain = self._fast_chain + self._chain
+
+        errors: list[str] = []
+        for index, entry in enumerate(chain):
+            try:
+                delivered = False
+                for delta in self._stream_through(entry, messages, options, index):
+                    delivered = True
+                    yield delta
+                if delivered:
+                    return
+            except ProviderError as error:
+                errors.append(f"{entry['name']}: {error}")
+
+        try:
+            result = self.complete(messages, options)
+        except ProviderError as error:
+            raise ProviderError(
+                "All configured AI providers were unavailable. " + " | ".join(errors[-2:])
+            ) from error
+        text = self._response_content(self._kind(chain[0]), result)
+        if text:
+            yield text
+
+    def _stream_through(
+        self, entry: dict[str, str], messages: list[dict], options: dict, index: int
+    ):
+        kind = self._kind(entry)
+        method, url, headers, body = self._build_request(
+            entry, messages, {**options, "stream": True}
+        )
+        headers = [*headers, "Accept: text/event-stream"]
+        _, task_timeout = self.budget_for(str(options.get("task") or "default"))
+        timeout = min(60, max(3, int(options.get("timeout", task_timeout))))
+
+        request = urllib.request.Request(
+            url, data=body.encode("utf-8") if body else None, method=method
+        )
+        for header in headers:
+            key, _, value = header.partition(":")
+            request.add_header(key.strip(), value.strip())
+
+        try:
+            response = urllib.request.urlopen(request, timeout=timeout)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as error:
+            raise ProviderError(f"{entry['name']} stream unavailable: {error}") from error
+
+        started = time.monotonic()
+        delivered = False
+        try:
+            for raw_line in response:
+                piece = self._stream_delta(kind, raw_line)
+                if piece:
+                    delivered = True
+                    yield piece
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            if not delivered:
+                raise ProviderError(f"{entry['name']} stream failed: {error}") from error
+        finally:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+        if self.journal is not None:
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "provider_stream",
+                    "provider_index": index,
+                    "model": entry["model"],
+                    "delivered": delivered,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+
+    @staticmethod
+    def _stream_delta(kind: str, raw_line: bytes) -> str:
+        """Extract one text delta from a streamed provider frame."""
+        try:
+            line = raw_line.decode("utf-8", "replace").strip()
+        except Exception:
+            return ""
+        if not line.startswith("data:"):
+            return ""
+        payload = line[5:].strip()
+        if payload in ("", "[DONE]"):
+            return ""
+        try:
+            frame = json.loads(payload)
+        except json.JSONDecodeError:
+            return ""
+        if kind == "anthropic":
+            if frame.get("type") != "content_block_delta":
+                return ""
+            return str((frame.get("delta") or {}).get("text") or "")
+        choices = frame.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        delta = choices[0].get("delta") or {}
+        return str(delta.get("content") or choices[0].get("text") or "")
+
     def _complete_through(
         self, entry: dict[str, str], messages: list[dict], options: dict, index: int
     ) -> dict:
         method, url, headers, body = self._build_request(entry, messages, options)
-        timeout = min(60, max(5, int(options.get("timeout", self.config.timeout))))
+        task_max, task_timeout = self.budget_for(
+            str(options.get("task") or "default")
+        )
+        timeout = min(
+            60, max(3, int(options.get("timeout", task_timeout or self.DEFAULT_TIMEOUT)))
+        )
         retries = min(
             3, max(0, int(options.get("_retries", self.config.provider_retries)))
         )

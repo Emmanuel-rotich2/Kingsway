@@ -895,6 +895,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $baseSql = "FROM vw_student_payment_status_enhanced WHERE 1=1";
             $params = [];
+            $termParamIndex = null;
 
             if (!empty($filters['student_id'])) {
                 $baseSql .= " AND id = ?";
@@ -928,6 +929,10 @@ return formatResponse(false, null, 'An internal error occurred.');
                     $termInput = $termMatch[1];
                 }
                 $baseSql .= " AND term_number = ?";
+                // Track the index so the annual query can drop exactly this
+                // placeholder's value — dropping only the SQL fragment left a
+                // dangling param and PDO raised HY093.
+                $termParamIndex = count($params);
                 $params[] = $termInput;
             }
 
@@ -1001,10 +1006,60 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt->execute($listParams);
             $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Per-term and per-period breakdowns — the workspace must say
+            // WHICH period every figure belongs to. term_scope: 'all' shows
+            // the whole year; '1'/'2'/'3' show that term only.
+            $periodSql = "SELECT term_number,"
+                . " COALESCE(SUM(total_due), 0) AS total_due,"
+                . " COALESCE(SUM(total_paid), 0) AS total_paid,"
+                . " COALESCE(SUM(current_balance), 0) AS total_balance"
+                . " " . $baseSql . " GROUP BY term_number ORDER BY term_number";
+            $periodStmt = $this->db->prepare($periodSql);
+            $periodStmt->execute($params);
+            $termRows = $periodStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $terms = [];
+            foreach ($termRows as $termRow) {
+                $tDue = (float) $termRow['total_due'];
+                $tPaid = (float) $termRow['total_paid'];
+                $terms[] = [
+                    'term_number' => (int) $termRow['term_number'],
+                    'label' => 'Term ' . (int) $termRow['term_number'],
+                    'total_due' => $tDue,
+                    'total_paid' => $tPaid,
+                    'total_balance' => (float) $termRow['total_balance'],
+                    'collection_rate' => $tDue > 0 ? round(($tPaid / $tDue) * 100, 2) : 0,
+                ];
+            }
+            // The scope filter may limit the summary to one term; the annual
+            // figures always show the whole filtered year regardless.
+            $annualParams = $params;
+            $annualBaseSql = preg_replace(
+                "/ AND term_number = \?/",
+                '',
+                $baseSql
+            );
+            if (isset($termParamIndex)) {
+                unset($annualParams[$termParamIndex]);
+                $annualParams = array_values($annualParams);
+            }
+            $annualStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(total_due), 0) AS total_due,"
+                . " COALESCE(SUM(total_paid), 0) AS total_paid,"
+                . " COALESCE(SUM(current_balance), 0) AS total_balance"
+                . " " . $annualBaseSql
+            );
+
+            $annualStmt->execute($annualParams);
+            $annualRow = $annualStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
             $totalDue = (float) ($summaryRow['total_due'] ?? 0);
             $totalPaid = (float) ($summaryRow['total_paid'] ?? 0);
             $totalBalance = (float) ($summaryRow['total_balance'] ?? 0);
             $collectionRate = $totalDue > 0 ? round(($totalPaid / $totalDue) * 100, 2) : 0;
+
+            $annualDue = (float) ($annualRow['total_due'] ?? 0);
+            $annualPaid = (float) ($annualRow['total_paid'] ?? 0);
 
             return formatResponse(true, [
                 'items' => $items,
@@ -1017,7 +1072,19 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'total_due' => $totalDue,
                     'total_paid' => $totalPaid,
                     'total_balance' => $totalBalance,
-                    'collection_rate' => $collectionRate
+                    'collection_rate' => $collectionRate,
+                    // Specific period figures: the annual position of the
+                    // filtered year plus the per-term breakdown.
+                    'annual' => [
+                        'total_due' => $annualDue,
+                        'total_paid' => $annualPaid,
+                        'total_balance' => (float) ($annualRow['total_balance'] ?? 0),
+                        'collection_rate' => $annualDue > 0 ? round(($annualPaid / $annualDue) * 100, 2) : 0,
+                    ],
+                    'terms' => $terms,
+                    'period_label' => empty($filters['term_number']) || strtolower((string) $filters['term_number']) === 'all'
+                        ? 'Whole Year'
+                        : 'Term ' . preg_replace('/^T/', '', strtoupper(trim((string) $filters['term_number']))),
                 ]
             ]);
         } catch (Exception $e) {
