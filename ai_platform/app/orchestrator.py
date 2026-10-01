@@ -163,6 +163,224 @@ class Orchestrator:
         )
         return digest
 
+    # ------------------------------------------------------------- briefing
+    def briefing(self, context: dict, route: str) -> dict[str, Any]:
+        """Proactive workspace co-worker: governed scan + LLM narrative.
+
+        Deterministic-first per the roadmap: the scan comes from PHP
+        (allowlisted aggregates, re-authorized operator); the LLM only turns
+        facts into a briefing and NEVER invents numbers. When the provider
+        is disabled or fails, deterministic findings still surface.
+        """
+        user_id = int(context["user_id"])
+        permissions = list(context["permissions"])
+        request_id = context.get("request_id", "")
+        route = (route or "dashboard")[:120]
+
+        scan = self.tools.execute(
+            user_id,
+            permissions,
+            "assistant.workspace_scan",
+            {"route": route},
+            request_id,
+        )
+        hints = self.behavior.hints(user_id)
+
+        narrative: dict[str, Any] | None = None
+        try:
+            envelope = policy.minimize(
+                "system.workspace_briefing",
+                {
+                    key: value
+                    for key, value in {
+                        "route": route,
+                        "module": context.get("module", "dashboard"),
+                        "audience": "staff",
+                        "scan": self._scan_lines(scan),
+                        "behavior_hints": self._hint_lines(hints),
+                    }.items()
+                    if value
+                },
+            )
+            raw = self.provider.complete(
+                [
+                    {
+                        "role": "system",
+                        "content": agents.PROMPT_TEMPLATES["system.workspace_briefing"],
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(envelope, ensure_ascii=False),
+                    },
+                ],
+                {"response_format": "json_object"},
+            )
+            narrative = self._bound_narrative(raw) if isinstance(raw, dict) else None
+        except (ProviderError, policy.PolicyError):
+            narrative = None
+
+        findings = (narrative or {}).get("findings") or self._deterministic_findings(
+            scan
+        )
+        headline = (narrative or {}).get("headline") or (
+            "Workspace looks healthy"
+            if not findings
+            else f"{len(findings)} finding(s) in this workspace"
+        )
+        summary = (narrative or {}).get("summary") or (
+            "No exceptions detected in the deterministic workspace scan. Everything within normal bounds."
+            if not findings
+            else "The workspace scan found items needing attention; review the findings below."
+        )
+        result = {
+            "status": "ready",
+            "engine": "python-llm" if narrative else "python-deterministic",
+            "route": route,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+            "headline": headline,
+            "summary": summary,
+            "findings": findings,
+            "scan": {
+                "domain": str(scan.get("domain") or ""),
+                "as_of": str(scan.get("as_of") or ""),
+                "pending_review_count": scan.get("pending_review_count"),
+                "insight_alert_count": scan.get("insight_alert_count"),
+                "queue_stale": scan.get("queue_stale"),
+                "queue_failed": scan.get("queue_failed"),
+                "queue_dead_letter": scan.get("queue_dead_letter"),
+                "error_critical_24h": scan.get("error_critical_24h"),
+                "error_total_24h": scan.get("error_total_24h"),
+                "kpis": scan.get("kpis")
+                if isinstance(scan.get("kpis"), dict)
+                else None,
+            },
+        }
+        self.behavior.observe(
+            user_id,
+            "tool_use",
+            {
+                "tool": "assistant.workspace_scan",
+                "route": route,
+                "outcome": str(scan.get("status") or "ok"),
+            },
+        )
+        self.journal.write(
+            "ai_generation",
+            {
+                "type": "agent_briefing_ready",
+                "operator_id": user_id,
+                "route": route,
+                "engine": result["engine"],
+                "finding_count": len(findings),
+            },
+        )
+        return result
+
+    @staticmethod
+    def _scan_lines(scan: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        for key, value in scan.items():
+            if len(lines) >= 20:
+                break
+            if isinstance(value, (list, tuple)):
+                text = ",".join(str(v) for v in list(value)[:6])
+            elif isinstance(value, (str, int, float)) or value is None:
+                text = str(value)
+            else:
+                continue
+            lines.append(f"{key}={text[:160]}")
+        return lines
+
+    @staticmethod
+    def _bound_narrative(raw: dict[str, Any]) -> dict[str, Any]:
+        allowed_severities = {"info", "warning", "critical"}
+        findings = []
+        for item in raw.get("findings") or []:
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "info").lower()
+            if severity not in allowed_severities:
+                severity = "info"
+            findings.append(
+                {
+                    "title": str(item.get("title") or "Finding")[:160],
+                    "severity": severity,
+                    "root_cause": str(
+                        item.get("root_cause") or "not determinable from the scan"
+                    )[:240],
+                    "suggested_action": str(
+                        item.get("suggested_action")
+                        or "Review in the related workspace."
+                    )[:240],
+                }
+            )
+            if len(findings) >= 6:
+                break
+        return {
+            "headline": str(raw.get("headline") or "")[:120],
+            "summary": str(raw.get("summary") or "")[:450],
+            "findings": findings,
+        }
+
+    @staticmethod
+    def _deterministic_findings(scan: dict[str, Any]) -> list[dict[str, str]]:
+        findings: list[dict[str, str]] = []
+
+        def add(title: str, severity: str, root_cause: str, action: str) -> None:
+            findings.append(
+                {
+                    "title": title[:160],
+                    "severity": severity,
+                    "root_cause": root_cause[:240],
+                    "suggested_action": action[:240],
+                }
+            )
+
+        pending = scan.get("pending_review_count")
+        if isinstance(pending, int) and pending > 0:
+            add(
+                f"{pending} AI draft(s) await your review",
+                "info",
+                "Assistants prepared drafts that need a second person to approve before they become official.",
+                "Open the module workspace(s) and approve or reject each draft.",
+            )
+        if isinstance(scan.get("queue_stale"), int) and int(scan["queue_stale"]) > 0:
+            add(
+                "Stale background jobs detected",
+                "warning",
+                "Jobs have sat beyond their lease window - the worker may have missed runs or a job crashed mid-flight.",
+                "Check the System Health page; requeue only after reviewing the job payload.",
+            )
+        if (
+            isinstance(scan.get("queue_dead_letter"), int)
+            and int(scan["queue_dead_letter"]) > 0
+        ):
+            add(
+                "Dead-letter jobs present",
+                "warning",
+                "Jobs exhausted their retries.",
+                "Inspect the dead-letter queue and fix the underlying failure before requeueing.",
+            )
+        if (
+            isinstance(scan.get("error_critical_24h"), int)
+            and int(scan["error_critical_24h"]) > 0
+        ):
+            add(
+                f"{int(scan['error_critical_24h'])} critical journal entries in 24h",
+                "warning",
+                "Recurring error signatures in the operational journals.",
+                "Review the errors journal from Audit & Forensics for the full signatures.",
+            )
+        for alert in (scan.get("insight_alerts") or [])[:4]:
+            if isinstance(alert, (str, int, float)):
+                add(
+                    f"Intelligence alert: {alert}",
+                    "info",
+                    "Deterministic detector crossed its threshold.",
+                    "Open the related report from the analytics workspace.",
+                )
+        return findings
+
     # ------------------------------------------------------------- agent loop
     def _run_agent_loop(
         self, agent: dict[str, Any], context: dict, question: str

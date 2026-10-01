@@ -68,7 +68,9 @@ class AuditLogger
             $userId,
             [
                 'username' => $userData['username'],
-                'email' => $userData['email'],
+                // Email is optional for parents (phone-only onboarding); the
+                // audit entry must not fail the creation when it is absent.
+                'email' => $userData['email'] ?? null,
                 'role_id' => $userData['role_id'] ?? null,
                 'status' => $userData['status'] ?? 'active'
             ]

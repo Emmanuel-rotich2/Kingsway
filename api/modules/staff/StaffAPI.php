@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
 use App\API\Services\StaffMigrationService;
 use App\API\Services\DataScopeService;
+use App\API\Services\PhoneNumberNormalizer;
 use PDO;
 use Exception;
 use InvalidArgumentException;
@@ -1240,7 +1241,13 @@ class StaffAPI extends BaseAPI {
                 'role_ids' => $roleIds,
                 'status' => 'active',
                 'force_password_change' => 1,
-                'staff_info' => $staffInfo
+                'staff_info' => $staffInfo,
+                // The person may already exist as a parent (phone-only
+                // families). The phone is part of the identity match and the
+                // confirmation flag must reach the duplicate-detection step in
+                // UsersAPI::create.
+                'phone' => PhoneNumberNormalizer::normalize($data['phone'] ?? null),
+                'confirm_person_reuse' => !empty($data['confirm_person_reuse']),
             ];
 
             // Only email identifies an existing person. A username collision belongs
@@ -1299,6 +1306,13 @@ class StaffAPI extends BaseAPI {
                     ? $usersApi->createStaffAccountForExistingPerson($existingStaffPersonId, $userPayload, $roleIds)
                     : $usersApi->create($userPayload, false, true);
                 if (!isset($userResult['success']) || !$userResult['success']) {
+                    // A person_exists envelope is a CONFIRMATION REQUEST, not a
+                    // failure: the operator is being asked whether to link the
+                    // requested role onto the existing person. Propagate it so
+                    // the decision reaches the client instead of dying here.
+                    if (($userResult['status'] ?? '') === 'person_exists') {
+                        return formatResponse(false, $userResult, (string)($userResult['message'] ?? 'This person already exists'));
+                    }
                     throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
                 }
                 $username = $userResult['data']['username'] ?? $userResult['username'] ?? '';

@@ -119,6 +119,47 @@ def create_app(config: Config | None = None) -> Flask:
             {"success": True, "data": result, "message": "Agent digest ready"}
         )
 
+    @app.post("/api/agents/briefing")
+    def agent_briefing():
+        """Proactive workspace co-worker: governed scan + narrative."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            message, code = (
+                str(error),
+                (403 if isinstance(error, PermissionError) else 422),
+            )
+            return jsonify({"success": False, "message": message}), code
+        route = str(
+            payload.get("route")
+            or (payload.get("context") or {}).get("route")
+            or "dashboard"
+        )[:120]
+        try:
+            result = orchestrator.briefing(context, route)
+        except Exception:  # noqa: BLE001 - bounded relay surface
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_briefing_failed",
+                    "operator_id": context.get("user_id"),
+                    "error_class": "runtime",
+                },
+            )
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "the workspace briefing could not be prepared",
+                }
+            ), 503
+        return jsonify(
+            {"success": True, "data": result, "message": "Workspace briefing ready"}
+        )
+
     @app.post("/v1/chat/completions")
     def chat_completions():
         """OpenAI-compatible surface so ANY existing consumer (including the

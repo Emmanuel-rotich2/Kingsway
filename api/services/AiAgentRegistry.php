@@ -157,7 +157,7 @@ final class AiAgentRegistry
             'id' => 'reports.agent', 'domain' => 'reports',
             'name' => 'Analytics & Reporting Agent',
             'goal' => 'Answer data questions through governed reports and explain KPI trends, alerts and intelligence briefings.',
-            'route_tokens' => ['report', 'analytics', 'kpi', 'insight', 'dashboard'],
+            'route_tokens' => ['report', 'analytics', 'kpi', 'insight'],
             'persona' => 'You are the Analytics & Reporting Agent. Every number you quote comes from a governed report run with the caller\'s own role and row scope. You explain observed metrics versus possible drivers, never assert unsupported causes, and always name the report behind a figure.',
             'tools' => [self::TOOL_NLQ, self::TOOL_INSIGHT_BRIEF, self::TOOL_CATALOG],
         ],

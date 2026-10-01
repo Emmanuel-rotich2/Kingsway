@@ -249,11 +249,18 @@ class ValidationHelper
     /**
      * Comprehensive user data validation
      * Used for create/update operations
+     *
+     * @param array $options Behaviour switches:
+     *   - email_required (bool, default true). Parents are frequently onboarded
+     *     with only a phone number, so the parent-creation path passes false:
+     *     an absent email is then accepted (validated for format only when
+     *     actually provided) instead of failing the whole creation.
      */
-    public static function validateUserData(array $data, \PDO $db, $isUpdate = false, $userId = null): array
+    public static function validateUserData(array $data, \PDO $db, $isUpdate = false, $userId = null, array $options = []): array
     {
         $errors = [];
         $validated = [];
+        $emailRequired = !isset($options['email_required']) || $options['email_required'] !== false;
 
         // Username validation
         if (!$isUpdate || isset($data['username'])) {
@@ -269,8 +276,10 @@ class ValidationHelper
             }
         }
 
-        // Email validation
-        if (!$isUpdate || isset($data['email'])) {
+        // Email validation. Required on create unless the caller opted out
+        // (parents may be onboarded with only a phone number); on update the
+        // format is checked only when an email is actually being changed.
+        if ((!$isUpdate && $emailRequired) || isset($data['email'])) {
             $result = self::validateEmail($data['email'] ?? '');
             if (!$result['valid']) {
                 $errors[] = $result['error'];
