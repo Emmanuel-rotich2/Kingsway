@@ -764,4 +764,4 @@
 <!-- =======================================================
      SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/exam_setup.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/exam_setup.js?v=<?php echo asset_version('js/pages/exam_setup.js'); ?>"></script>

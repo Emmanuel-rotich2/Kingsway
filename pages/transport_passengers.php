@@ -466,4 +466,4 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<script src="<?php echo $appBase; ?>/js/pages/transport_passengers.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo $appBase; ?>/js/pages/transport_passengers.js?v=<?php echo asset_version('js/pages/transport_passengers.js'); ?>"></script>

@@ -205,4 +205,4 @@ $appBase = $appBase ?? '';
     </div>
 </div>
 
-<script src="<?php echo $appBase; ?>/js/pages/staff_discipline.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo $appBase; ?>/js/pages/staff_discipline.js?v=<?php echo asset_version('js/pages/staff_discipline.js'); ?>"></script>

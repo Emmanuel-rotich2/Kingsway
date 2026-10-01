@@ -30,6 +30,6 @@
     Last updated: <span id="lastRefreshTime">—</span>
 </div>
 
-<script src="<?= $appBase ?>/js/dashboards/dashboard_router.js?v=<?php echo time(); ?>"></script>
-<script src="<?= $appBase ?>/js/components/insight_brief_widget.js?v=<?php echo time(); ?>"></script>
-<script src="<?= $appBase ?>/js/pages/dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/dashboard_router.js?v=<?php echo asset_version('js/dashboards/dashboard_router.js'); ?>"></script>
+<script src="<?= $appBase ?>/js/components/insight_brief_widget.js?v=<?php echo asset_version('js/components/insight_brief_widget.js'); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/dashboard.js?v=<?php echo asset_version('js/pages/dashboard.js'); ?>"></script>

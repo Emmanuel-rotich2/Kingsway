@@ -245,4 +245,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_communications.js?v=<?= time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_communications.js?v=<?php echo asset_version('js/pages/manage_communications.js'); ?>"></script>

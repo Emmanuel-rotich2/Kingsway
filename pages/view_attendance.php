@@ -443,4 +443,4 @@
 }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/view_attendance.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/view_attendance.js?v=<?php echo asset_version('js/pages/view_attendance.js'); ?>"></script>

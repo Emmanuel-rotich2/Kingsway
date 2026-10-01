@@ -163,4 +163,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/assessment_rubrics.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/assessment_rubrics.js?v=<?php echo asset_version('js/pages/assessment_rubrics.js'); ?>"></script>

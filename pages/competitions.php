@@ -86,4 +86,4 @@
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="CompetitionsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
-<script src="<?= $appBase ?>/js/pages/competitions.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/competitions.js?v=<?php echo asset_version('js/pages/competitions.js'); ?>"></script>

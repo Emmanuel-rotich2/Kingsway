@@ -530,15 +530,19 @@ class AiAgentService
 
         try {
             while ($providerCalls < self::MAX_PROVIDER_CALLS) {
+                // Field order is deliberate: stable context first, the
+                // per-request question last, so providers can cache by exact
+                // token prefix across turns for the same agent and route.
                 $envelope = AiPromptPolicy::minimize(self::WORKFLOW_CHAT, array_filter([
-                    'question' => $question,
                     'audience' => 'staff',
                     'agent_id' => (string) $agent['id'],
                     'route' => $route,
                     'module' => $module,
-                    'behavior_hints' => $this->hintLines($hints),
                     'tools' => $tools,
+                    'behavior_hints' => $this->hintLines($hints),
+                    'grounding_note' => 'Governed results are already in tool_results. Answer from them; only request a tool if the results genuinely do not cover the question.',
                     'tool_results' => $toolResults,
+                    'question' => $question,
                 ], static fn($value): bool => $value !== null && $value !== []));
 
                 if ($messages === []) {

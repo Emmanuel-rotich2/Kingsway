@@ -340,4 +340,4 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<script src="<?php echo $appBase; ?>/js/pages/student_promotion.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo $appBase; ?>/js/pages/student_promotion.js?v=<?php echo asset_version('js/pages/student_promotion.js'); ?>"></script>

@@ -431,36 +431,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Audit Logs -->
-            <div class="row mb-4">
-                <div class="col-12">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);">
-                            <h6 class="mb-0 "><i class="bi bi-clock-history me-2"></i>Recent Audit Logs</h6>
-                        </div>
-                        <div class="card-body p-0" id="audit_logs_table">
-                            <div class="text-center py-4">
-                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Approval Status Chart -->
-            <div class="row">
-                <div class="col-lg-6 col-md-8 mx-auto">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <h6 class="mb-0 "><i class="bi bi-pie-chart me-2"></i>Approval Status Overview</h6>
-                        </div>
-                        <div class="card-body d-flex align-items-center justify-content-center">
-                            <canvas id="approval_status_chart" height="250"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -473,50 +443,64 @@
                 </div>
                 <h4 class="mb-0">Attendance & Discipline</h4>
             </div>
-            
-            <!-- Attendance Summary Cards -->
-            <div class="row g-3 mb-4">
-                <div class="col-md-3 col-sm-6">
-                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <div class="card-body text-white text-center py-3">
-                            <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="bi bi-people fa-2x opacity-75"></i>
+
+            <!-- Attendance summary cards (2x2, left) beside the approval chart (right) -->
+            <div class="row g-4">
+                <div class="col-lg-7">
+                    <div class="row g-3">
+                        <div class="col-md-6 col-sm-6">
+                            <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                <div class="card-body text-white text-center py-3">
+                                    <div class="d-flex align-items-center justify-content-center mb-2">
+                                        <i class="bi bi-people fa-2x opacity-75"></i>
+                                    </div>
+                                    <h3 class="mb-1" id="attendance_total_marked"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
+                                    <small class="opacity-75">Marked Today</small>
+                                </div>
                             </div>
-                            <h3 class="mb-1" id="attendance_total_marked"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
-                            <small class="opacity-75">Marked Today</small>
+                        </div>
+                        <div class="col-md-6 col-sm-6">
+                            <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                                <div class="card-body text-white text-center py-3">
+                                    <div class="d-flex align-items-center justify-content-center mb-2">
+                                        <i class="bi bi-check-lg-circle fa-2x opacity-75"></i>
+                                    </div>
+                                    <h3 class="mb-1" id="attendance_present_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
+                                    <small class="opacity-75">Present Today</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-sm-6">
+                            <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                                <div class="card-body text-white text-center py-3">
+                                    <div class="d-flex align-items-center justify-content-center mb-2">
+                                        <i class="bi bi-x-lg-circle fa-2x opacity-75"></i>
+                                    </div>
+                                    <h3 class="mb-1" id="attendance_absent_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
+                                    <small class="opacity-75">Absent Today</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-sm-6">
+                            <div class="card border-0 shadow-sm h-100" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
+                                <div class="card-body text-white text-center py-3">
+                                    <div class="d-flex align-items-center justify-content-center mb-2">
+                                        <i class="bi bi-clock fa-2x opacity-75"></i>
+                                    </div>
+                                    <h3 class="mb-1" id="attendance_late_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
+                                    <small class="opacity-75">Late Today</small>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-3 col-sm-6">
-                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
-                        <div class="card-body text-white text-center py-3">
-                            <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="bi bi-check-lg-circle fa-2x opacity-75"></i>
-                            </div>
-                            <h3 class="mb-1" id="attendance_present_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
-                            <small class="opacity-75">Present Today</small>
+                <div class="col-lg-5">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Approval Status Overview</h6>
                         </div>
-                    </div>
-                </div>
-                <div class="col-md-3 col-sm-6">
-                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                        <div class="card-body text-white text-center py-3">
-                            <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="bi bi-x-lg-circle fa-2x opacity-75"></i>
-                            </div>
-                            <h3 class="mb-1" id="attendance_absent_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
-                            <small class="opacity-75">Absent Today</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3 col-sm-6">
-                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
-                        <div class="card-body text-white text-center py-3">
-                            <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="bi bi-clock fa-2x opacity-75"></i>
-                            </div>
-                            <h3 class="mb-1" id="attendance_late_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
-                            <small class="opacity-75">Late Today</small>
+                        <div class="card-body d-flex align-items-center justify-content-center">
+                            <canvas id="approval_status_chart" height="250"></canvas>
                         </div>
                     </div>
                 </div>
