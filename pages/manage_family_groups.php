@@ -281,4 +281,4 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<script src="<?php echo $appBase; ?>/js/pages/family_groups.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo $appBase; ?>/js/pages/family_groups.js?v=<?php echo asset_version('js/pages/family_groups.js'); ?>"></script>

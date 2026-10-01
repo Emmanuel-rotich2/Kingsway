@@ -12,24 +12,28 @@ from typing import Any
 
 FIELDS: dict[str, list[str]] = {
     "system.agent_triage": ["question", "audience", "agents", "route", "module"],
+    # Field ORDER is deliberate: OpenAI-compatible providers cache by exact
+    # token prefix, so everything stable for a given agent and route comes
+    # first and the per-request question comes last. With the question first,
+    # every request had a different prefix and could never reuse a cached
+    # prompt; with this order the audience/agent/route/tools/hints head is
+    # byte-identical across turns for the same operator context.
     "system.agent_chat": [
-        "question",
         "audience",
         "agent_id",
         "route",
         "module",
-        "behavior_hints",
         "tools",
+        "behavior_hints",
+        # Constant guidance: answer from the governed results already supplied.
+        "grounding_note",
         "tool_results",
         # Conversational continuity: bounded prior turns and the resolved
         # quick-command instruction. Both are capped by the caller and carry
         # no learner identity.
         "conversation",
         "instruction",
-        # Tells the model the governed results are already in hand, so it
-        # answers from them instead of spending a round trip re-requesting
-        # data the caller already supplied.
-        "grounding_note",
+        "question",
     ],
     "system.workspace_briefing": [
         "route",

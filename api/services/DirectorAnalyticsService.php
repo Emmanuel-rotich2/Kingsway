@@ -55,10 +55,24 @@ class DirectorAnalyticsService
     public function getFinanceStats()
     {
         $result = [];
-        // Total fees collected (normalized: payments table)
-        $query = "SELECT SUM(amount) as collected FROM payments WHERE status = 'confirmed'";
+        // Total fees collected. Payments alone report 0 for a migrated
+        // register: the imported fee position lives in the obligations
+        // (migration_paid_amount). The fee-balances view carries the REAL
+        // collected figure (payments + migration) — keep payments as fallback.
+        $realCollected = 0.0;
+        try {
+            $stmt = $this->db->query(
+                "SELECT COALESCE(SUM(amount_paid), 0) as collected
+                 FROM " . ReadReplicaService::qualifiedRef('student_fee_balances')
+            );
+            $realCollected = (float) ($stmt->fetch()['collected'] ?? 0);
+        } catch (\Throwable $e) {
+            $realCollected = 0.0;
+        }
+        $query = "SELECT COALESCE(SUM(amount), 0) as collected FROM payments WHERE status = 'confirmed'";
         $stmt = $this->db->query($query);
-        $result['collected'] = $stmt->fetch()['collected'] ?? 0;
+        $confirmed = (float) ($stmt->fetch()['collected'] ?? 0);
+        $result['collected'] = max($realCollected, $confirmed);
 
         // Total outstanding fees (normalized: vw_student_fee_balances, served
         // from the realtime read replica when deployed)
@@ -589,6 +603,26 @@ class DirectorAnalyticsService
             ");
             $rows  = $stmt->fetchAll();
             $total = array_sum(array_column($rows, 'amount'));
+
+            // A migrated register records its fee position in the obligations,
+            // not as confirmed payment rows — payments alone reported an empty
+            // revenue-source mix. Add the migration position as its own source.
+            $migrationPaid = 0.0;
+            try {
+                $mig = $this->db->query(
+                    "SELECT COALESCE(SUM(migration_paid_amount), 0) AS total
+                     FROM student_fee_obligations
+                     WHERE academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1)"
+                );
+                $migrationPaid = (float) ($mig->fetch()['total'] ?? 0);
+            } catch (\Exception $e) {
+                $migrationPaid = 0.0;
+            }
+            if ($migrationPaid > 0) {
+                $rows[] = ['source' => 'Migration Import', 'amount' => $migrationPaid];
+                $total += $migrationPaid;
+            }
+
             return array_map(function ($r) use ($total) {
                 return [
                     'source'     => $r['source'] ?? 'Other',

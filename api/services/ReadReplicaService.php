@@ -419,8 +419,12 @@ final class ReadReplicaService
 
             $order = '';
             if ($orderBy !== []) {
-                $orderCol = (string) $orderBy[0];
-                $dir = isset($orderBy[1]) ? strtoupper((string) $orderBy[1]) : 'ASC';
+                // Callers pass an associative array (['level_name' => 'ASC']).
+                // Reading it positionally made $orderCol the DIRECTION ('ASC'),
+                // failed the column check, and silently degraded the whole
+                // result to [] — the "No records found" bug.
+                $orderCol = (string) array_key_first($orderBy);
+                $dir = strtoupper((string) ($orderBy[$orderCol] ?? 'ASC'));
                 if (!in_array($orderCol, $cols, true)) {
                     throw new \DomainException("Unknown replica order column '{$orderCol}'.", 422);
                 }
