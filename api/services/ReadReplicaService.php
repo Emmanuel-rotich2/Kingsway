@@ -47,6 +47,7 @@ final class ReadReplicaService
         'student_transport_summary' => 'vw_student_transport_summary',
         'student_health_summary' => 'vw_student_health_summary',
         'fee_collection_monthly_trend' => 'vw_fee_collection_monthly_trend',
+        'fee_status_summary' => 'vw_fee_status_summary',
     ];
 
     /**
@@ -70,6 +71,7 @@ final class ReadReplicaService
         'student_transport_summary' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'student_health_summary' => ['storage_mode' => 'pass_through_view', 'sensitivity' => 'health', 'max_age_seconds' => 300],
         'fee_collection_monthly_trend' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 900],
+        'fee_status_summary' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 300],
     ];
 
     /** Materialized targets use separate names from the legacy pass-through views. */
@@ -79,6 +81,10 @@ final class ReadReplicaService
         'budget_utilization' => 'mmv_budget_utilization',
         'dormitory_occupancy' => 'mmv_dormitory_occupancy',
         'fee_collection_monthly_trend' => 'mmv_fee_collection_monthly_trend',
+        // The fee-workspace scalability fix: the heavy aggregation runs only
+        // in the 5-minute projection worker; the fee pages read this summary
+        // table (a filtered scan, millisecond-fast at any enrolment).
+        'fee_status_summary' => 'mmv_fee_status_summary',
     ];
 
     /** Fully-qualified source object (master schema resolved at runtime). */

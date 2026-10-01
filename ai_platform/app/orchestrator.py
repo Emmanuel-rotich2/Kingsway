@@ -148,7 +148,12 @@ class Orchestrator:
 
         started = time.monotonic()
         result = self._run_agent_loop(agent, context, question)
-        self._remember(int(context["user_id"]), str(context.get("route", "")), question, result.get("answer"))
+        self._remember(
+            int(context["user_id"]),
+            str(context.get("route", "")),
+            question,
+            result.get("answer"),
+        )
 
         self.behavior.observe(
             user_id,
@@ -317,7 +322,7 @@ class Orchestrator:
                         "content": json.dumps(envelope, ensure_ascii=False),
                     },
                 ],
-                {"response_format": "json_object"},
+                {"response_format": "json_object", "task": "briefing"},
             )
             narrative = self._bound_narrative(raw) if isinstance(raw, dict) else None
         except (ProviderError, policy.PolicyError):
@@ -437,8 +442,8 @@ class Orchestrator:
                     ],
                     {
                         "response_format": "json_object",
-                        "task": "triage",
-                        "max_tokens": 220,
+                        "task": "specialist",
+                        "max_tokens": 240,
                     },
                 )
                 if not isinstance(raw, dict):
@@ -570,7 +575,9 @@ class Orchestrator:
 
     @staticmethod
     def _requested_tools(
-        response: dict[str, Any], allowed: list[str], already_run: set[str] | None = None
+        response: dict[str, Any],
+        allowed: list[str],
+        already_run: set[str] | None = None,
     ) -> tuple[list[tuple[str, dict[str, Any]]], str | None]:
         """Validate one tool proposal, or a batch of up to MAX_TOOLS_PER_STEP.
 
@@ -627,7 +634,14 @@ class Orchestrator:
     ) -> list[tuple[str, dict[str, Any]]]:
         if len(requests) == 1:
             tool_id, tool_input = requests[0]
-            return [(tool_id, self.tools.execute(user_id, permissions, tool_id, tool_input, request_id))]
+            return [
+                (
+                    tool_id,
+                    self.tools.execute(
+                        user_id, permissions, tool_id, tool_input, request_id
+                    ),
+                )
+            ]
 
         parallel_limit = int(getattr(self.config, "max_tool_parallel", 3) or 3)
         call_timeout = int(getattr(self.config, "timeout", 25) or 25) + 5
@@ -654,7 +668,9 @@ class Orchestrator:
                 try:
                     results.append((tool_id, future.result(timeout=call_timeout)))
                 except Exception as error:  # noqa: BLE001 - one tool must not fail the turn
-                    results.append((tool_id, {"status": "error", "message": str(error)[:200]}))
+                    results.append(
+                        (tool_id, {"status": "error", "message": str(error)[:200]})
+                    )
         return results
 
     # -------------------------------------------------------------- streaming
@@ -701,8 +717,12 @@ class Orchestrator:
 
         started = time.monotonic()
         allowed_tools = list(agent["tools"])
-        prefetched = self._prefetch_context(agent, user_id, permissions, request_id, route)
-        tool_results = [self._compact_result(tool_id, result) for tool_id, result in prefetched]
+        prefetched = self._prefetch_context(
+            agent, user_id, permissions, request_id, route
+        )
+        tool_results = [
+            self._compact_result(tool_id, result) for tool_id, result in prefetched
+        ]
         tools_used = [tool_id for tool_id, _ in prefetched]
 
         hints = self.behavior.hints(user_id)
@@ -847,7 +867,9 @@ class Orchestrator:
                         "domain": agent["domain"],
                     },
                 }
-                self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
+                self._observe_outcome(
+                    user_id, route, module, agent, tools_used, outcome
+                )
                 return
 
         self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
@@ -900,7 +922,9 @@ class Orchestrator:
             question = str(turn.get("question") or "").strip()[:240]
             answer = str(turn.get("answer") or "").strip()[:240]
             if question:
-                lines.append(f"Q: {question} / A: {answer}" if answer else f"Q: {question}")
+                lines.append(
+                    f"Q: {question} / A: {answer}" if answer else f"Q: {question}"
+                )
         return lines
 
     def _remember(
@@ -948,9 +972,7 @@ class Orchestrator:
 
     @staticmethod
     def _prompt_bytes(messages: list[dict[str, str]]) -> int:
-        return len(
-            json.dumps(messages, ensure_ascii=False).encode("utf-8")
-        )
+        return len(json.dumps(messages, ensure_ascii=False).encode("utf-8"))
 
     @staticmethod
     def _json_object(text: str) -> dict[str, Any]:
@@ -1029,7 +1051,9 @@ class Orchestrator:
             return []
 
         results: list[tuple[str, dict[str, Any]]] = []
-        workers = min(len(wanted), max(1, int(getattr(self.config, "max_tool_parallel", 3) or 3)))
+        workers = min(
+            len(wanted), max(1, int(getattr(self.config, "max_tool_parallel", 3) or 3))
+        )
 
         def _run(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
             name, args = item
@@ -1067,7 +1091,9 @@ class Orchestrator:
         # starts with the governed facts already in hand and the first provider
         # call can usually answer directly instead of spending a whole
         # provider-call + tool-step pair just to discover what to ask for.
-        prefetched = self._prefetch_context(agent, user_id, permissions, request_id, route)
+        prefetched = self._prefetch_context(
+            agent, user_id, permissions, request_id, route
+        )
         for tool_id, result in prefetched:
             tools_used.append(tool_id)
             tool_results.append(self._compact_result(tool_id, result))
@@ -1105,7 +1131,8 @@ class Orchestrator:
 
                 provider_calls += 1
                 response = self.provider.complete(
-                    messages, {"response_format": "json_object"}
+                    messages,
+                    {"response_format": "json_object", "task": "chat"},
                 )
                 if not isinstance(response, dict):
                     raise ProviderError(
@@ -1116,7 +1143,10 @@ class Orchestrator:
                 if action != "tool":
                     answer = self._validate_answer(response.get("answer") or response)
                     break
-                if tool_steps >= MAX_TOOL_STEPS or len(tools_used) >= MAX_TOOL_EXECUTIONS:
+                if (
+                    tool_steps >= MAX_TOOL_STEPS
+                    or len(tools_used) >= MAX_TOOL_EXECUTIONS
+                ):
                     answer = self._fallback_answer(tools_used, tool_results)
                     break
 
@@ -1204,7 +1234,7 @@ class Orchestrator:
                         "content": json.dumps(envelope, ensure_ascii=False),
                     },
                 ],
-                {"response_format": "json_object"},
+                {"response_format": "json_object", "task": "triage"},
             )
         except ProviderError:
             return None
