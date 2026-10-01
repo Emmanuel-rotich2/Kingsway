@@ -348,6 +348,12 @@ class OnboardingWorkflow extends WorkflowHandler
 
             $userResult = $usersApi->create($userPayload);
             if (!isset($userResult['success']) || !$userResult['success']) {
+                // A person_exists envelope is a confirmation request, not a
+                // failure (see StaffAPI): propagate it so the operator decides.
+                if (($userResult['status'] ?? '') === 'person_exists') {
+                    $this->db->rollBack();
+                    return formatResponse(false, $userResult, (string)($userResult['message'] ?? 'This person already exists'));
+                }
                 $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to create user account: ' . ($userResult['error'] ?? json_encode($userResult)));
             }

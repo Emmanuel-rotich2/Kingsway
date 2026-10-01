@@ -1681,6 +1681,7 @@ const ENDPOINT_PERMISSIONS = {
   "/system/ai-provider-health": "system_view",
   "/dashboard/ai-assistant-catalog": null,
   "/dashboard/agent-assist": null,
+  "/dashboard/workspace-briefing": null,
   "/system/ai-security-review-queue": "system_view",
   "/attendance/ai-exception-summary-queue": { POST: "attendance_view" },
   "/attendance/ai-exception-summaries": { GET: "attendance_view" },
@@ -7465,6 +7466,11 @@ window.API = {
     // structured answer). Server owns routing and per-tool authorization.
     agentAssist: async (question, route = "", module = "dashboard") =>
       apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
+
+    // Proactive workspace co-worker: cached scan findings for the current
+    // route; "generating" means a background job is preparing them.
+    getWorkspaceBriefing: async (route = "dashboard") =>
+      apiCall("/dashboard/workspace-briefing", "GET", { route }),
 
     // System Administrator (role 2): infrastructure only, no School Domain data.
     getAuthEvents: async () =>

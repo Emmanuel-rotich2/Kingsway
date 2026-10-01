@@ -1670,6 +1670,21 @@ return $this->serverError('An internal error occurred.');
         // Fix double-nesting: StaffAPI already returns {status, data, status_code}
         // Don't wrap it again with $this->success()
         if (is_array($result)) {
+            // A person_exists result is a CONFIRMATION REQUEST, not a plain
+            // error: the client must receive the message AND the matched
+            // existing person (roles, match score, matched-on fields) so the
+            // operator can decide whether to link onto the existing record.
+            // The flag may sit on the envelope or inside the nested
+            // formatResponse data.
+            $nested = is_array($result['data'] ?? null) ? $result['data'] : [];
+            $resultStatus = $result['status'] ?? null;
+            if (($nested['status'] ?? null) === 'person_exists') {
+                $resultStatus = 'person_exists';
+                $result = $nested;
+            }
+            if ($resultStatus === 'person_exists') {
+                return $this->respond($result['data'] ?? $result, (string)($result['message'] ?? 'This person already exists'), 409, false);
+            }
             // If StaffAPI returns {status: 'success', data: ...}
             if (isset($result['status'])) {
                 if ($result['status'] === 'success') {

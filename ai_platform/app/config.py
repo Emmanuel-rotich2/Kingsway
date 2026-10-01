@@ -79,3 +79,7 @@ class Config:
                 pass
 
         self.production = _env_bool("KINGSWAY_AI_PRODUCTION", True)
+
+        # TLS verification for calls back into the PHP edge. Default ON.
+        # Set to false ONLY for local development with a self-signed cert.
+        self.php_verify_tls = _env_bool("KINGSWAY_PHP_VERIFY_TLS", True)

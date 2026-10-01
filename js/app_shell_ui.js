@@ -1193,6 +1193,7 @@
       "show.bs.offcanvas",
       () => {
         void loadAiAssistantCatalog();
+        void loadWorkspaceBriefing();
         initAiAssistantQuery();
       }
     );

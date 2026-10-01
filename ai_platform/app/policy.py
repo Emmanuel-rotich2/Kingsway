@@ -22,6 +22,13 @@ FIELDS: dict[str, list[str]] = {
         "tools",
         "tool_results",
     ],
+    "system.workspace_briefing": [
+        "route",
+        "module",
+        "audience",
+        "scan",
+        "behavior_hints",
+    ],
 }
 
 MAX_CONTEXT_BYTES = 10_000

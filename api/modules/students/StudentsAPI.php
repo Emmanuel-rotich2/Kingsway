@@ -7,6 +7,7 @@ use App\API\Modules\academic\AcademicYearManager;
 use App\API\Modules\students\PromotionManager;
 use App\API\Services\AdmissionNumberService;
 use App\API\Services\FieldCleaner;
+use App\API\Services\PhoneNumberNormalizer;
 use PDO;
 use Exception;
 
@@ -1642,6 +1643,195 @@ class StudentsAPI extends BaseAPI
         return $createdCount;
     }
 
+    /**
+     * Complete annual billing for an EXISTING student being migrated into the
+     * system.
+     *
+     * Deliberately separate from new-admission billing — the two concepts are
+     * different and must never be mixed:
+     *
+     *   - A migrated learner has been in school for the WHOLE academic year, so
+     *     obligations are generated for EVERY term (T1 → T3) and the supplied
+     *     annual paid figure allocates across the complete ledger: previous
+     *     terms settle first, the recorded current-term amount then settles any
+     *     carried balance before applying to the current term itself, and the
+     *     annual balance (annual billed − annual paid) carries forward. That is
+     *     how the school knows where the balance comes from.
+     *
+     *   - A NEW admission is billed from the term it joined (see
+     *     generateStudentFeeObligationsForCurrentYear / the onboarding
+     *     procedure): total-per-year prorated to the terms remaining, and
+     *     terms before the join must never exist for it.
+     *
+     * This method must never be used for new admissions.
+     */
+    private function generateMigrationStudentFeeObligations(int $studentId, ?int $academicYearId = null): int
+    {
+        $academicYearRecord = null;
+
+        if ($academicYearId !== null) {
+            $stmt = $this->db->prepare("
+                SELECT id, year_code, year_name, start_date, end_date
+                FROM academic_years
+                WHERE id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$academicYearId]);
+            $academicYearRecord = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } else {
+            $academicYearRecord = $this->getCurrentAcademicYearRecord();
+            $academicYearId = (int) ($academicYearRecord['id'] ?? 0);
+        }
+
+        if (!$academicYearRecord || !$academicYearId) {
+            return 0;
+        }
+
+        $academicYear = $this->extractAcademicYearNumber($academicYearRecord);
+        if ($academicYear === null) {
+            return 0;
+        }
+
+        $studentStmt = $this->db->prepare("
+            SELECT s.student_type_id,
+                   c.level_id AS level_id,
+                   ayc.id AS academic_year_class_id
+            FROM students s
+            LEFT JOIN student_academic_enrollments sae
+                ON sae.student_id = s.id
+               AND sae.academic_year_id = ?
+               AND sae.enrollment_status IN ('active', 'pending')
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            WHERE s.id = ?
+            ORDER BY sae.id DESC
+            LIMIT 1
+        ");
+        $studentStmt->execute([$academicYearId, $studentId]);
+        $studentMeta = $studentStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$studentMeta || empty($studentMeta['student_type_id']) || empty($studentMeta['academic_year_class_id'])) {
+            return 0;
+        }
+
+        // THE migration difference: billing starts at TERM 1 — the complete
+        // academic-year ledger. New admissions start at their join term; this
+        // must never be applied to them.
+        $startTermNumber = 1;
+
+        $structureStmt = $this->db->prepare("
+            SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount,
+                   ayt.opening_date AS term_opening_date, ayt.closing_date AS term_closing_date,
+                   COALESCE(ayfs.due_date, ayt.closing_date) AS due_date
+            FROM academic_year_fee_schedules ayfs
+            JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ayfs.academic_year_class_id = ?
+              AND ayfs.academic_year_id = ?
+              AND ayfs.student_type_id = ?
+              AND ayfs.status = 'active'
+              AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) >= ?
+            ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED) ASC, ayfs.id ASC
+        ");
+        $structureStmt->execute([
+            (int) $studentMeta['academic_year_class_id'],
+            $academicYearId,
+            (int) $studentMeta['student_type_id'],
+            $startTermNumber
+        ]);
+        $feeStructures = $structureStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        if (empty($feeStructures)) {
+            return 0;
+        }
+
+        $awardStmt = $this->db->prepare(
+            "SELECT coverage_type, coverage_percentage, coverage_amount, starts_on, ends_on
+             FROM student_scholarship_awards
+             WHERE student_id=? AND academic_year_id=? AND status='active'
+             LIMIT 1"
+        );
+        $awardStmt->execute([$studentId, $academicYearId]);
+        $annualAward = $awardStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $createdCount = 0;
+
+        foreach ($feeStructures as $row) {
+            $existsStmt = $this->db->prepare("
+                SELECT sfo.id
+                FROM student_fee_obligations sfo
+                JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+                WHERE sae.student_id = ?
+                  AND sfo.academic_year_fee_schedule_id = ?
+                LIMIT 1
+            ");
+            $existsStmt->execute([
+                $studentId,
+                (int) $row['id']
+            ]);
+
+            if ($existsStmt->fetchColumn()) {
+                continue;
+            }
+
+            $amountDue = (float) $row['amount'];
+            $waivedAmount = 0.0;
+            if ($annualAward &&
+                (!$annualAward['starts_on'] || $row['term_closing_date'] >= $annualAward['starts_on']) &&
+                (!$annualAward['ends_on'] || $row['term_opening_date'] <= $annualAward['ends_on'])) {
+                $waivedAmount = match ($annualAward['coverage_type']) {
+                    'full' => $amountDue,
+                    'percentage' => round($amountDue * (float) ($annualAward['coverage_percentage'] ?? 0) / 100, 2),
+                    default => min($amountDue, (float) ($annualAward['coverage_amount'] ?? 0)),
+                };
+            }
+            $waivedAmount = min($waivedAmount, $amountDue);
+            $netBalance = max(0, $amountDue - $waivedAmount);
+            $status = $netBalance <= 0 ? 'paid' : 'pending';
+            $dueDate = !empty($row['due_date']) ? $row['due_date'] : date('Y-m-d', strtotime('+30 days'));
+
+            // Resolve active enrollment id for this student+year
+            $enrStmt = $this->db->prepare("
+                SELECT id FROM student_academic_enrollments
+                WHERE student_id = ? AND academic_year_id = ? AND enrollment_status = 'active'
+                LIMIT 1
+            ");
+            $enrStmt->execute([$studentId, $academicYearId]);
+            $enrollmentId = $enrStmt->fetchColumn() ?: null;
+            if (!$enrollmentId) {
+                continue;
+            }
+
+            $insertStmt = $this->db->prepare("
+                INSERT INTO student_fee_obligations (
+                    student_academic_enrollment_id,
+                    academic_year_id,
+                    academic_year_term_id,
+                    academic_year_fee_schedule_id,
+                    amount_due,
+                    status,
+                    due_date,
+                    is_sponsored,
+                    sponsored_waiver_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $insertStmt->execute([
+                $enrollmentId,
+                $academicYearId,
+                (int) $row['term_id'],
+                (int) $row['id'],
+                $amountDue,
+                $status,
+                $dueDate,
+                $annualAward ? 1 : 0,
+                $waivedAmount
+            ]);
+            $createdCount++;
+        }
+
+        return $createdCount;
+    }
+
     private function recordInternalClassTransferAudit(
         int $studentId,
         int $fromStreamId,
@@ -2314,6 +2504,10 @@ class StudentsAPI extends BaseAPI
      */
     private function createParentRecord(array $parentData): int
     {
+        // Canonical Kenyan form at write time (2547…/2541…): future imports
+        // and adds must never store unprefixed 07/01 or bare 7/1 values —
+        // matching compares canonical values, so a raw value would not match
+        // an already-canonical parent.
         $stmt = $this->db->prepare("
             INSERT INTO persons (first_name, middle_name, last_name, dob, gender, national_id_no, email, phone, data_scope)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'live')
@@ -2326,7 +2520,7 @@ class StudentsAPI extends BaseAPI
             $parentData['gender'] ?? 'other',
             $parentData['id_number'] ?? null,
             $parentData['email'] ?? null,
-            $parentData['phone_1'] ?? null
+            PhoneNumberNormalizer::normalize($parentData['phone_1'] ?? null)
         ]);
         $personId = (int) $this->db->lastInsertId();
 
@@ -2339,6 +2533,17 @@ class StudentsAPI extends BaseAPI
             $parentData['occupation'] ?? null,
             $parentData['address'] ?? null
         ]);
+
+        // Store the secondary phone as a contact point so swapped
+        // primary/secondary pairs in the migration sheet both resolve on the
+        // next import row (persons.phone holds only the primary).
+        $secondaryPhone = PhoneNumberNormalizer::normalize($parentData['phone_2'] ?? '');
+        if ($secondaryPhone !== null) {
+            $this->db->prepare("
+                INSERT INTO person_contact_points (person_id, channel, purpose, contact_value, is_primary)
+                VALUES (?, 'phone', 'communication', ?, 0)
+            ")->execute([$personId, $secondaryPhone]);
+        }
 
         return (int) $this->db->lastInsertId();
     }
@@ -2397,10 +2602,18 @@ class StudentsAPI extends BaseAPI
             $stmt->execute($parentParams);
         }
 
-        $parentUser = $this->db->prepare('SELECT id FROM users WHERE person_id=? LIMIT 1');
-        $parentUser->execute([$personId]);
-        $parentUserId = $parentUser->fetchColumn();
-        if ($parentUserId !== false) (new \App\API\Modules\users\UserRoleManager($this->db))->assignRole((int)$parentUserId, 73, false);
+        // Resolve the parent's person id explicitly — $personId is not in this
+        // scope, and the undefined-variable warning silently skipped the
+        // parent-role assignment on every existing-parent update.
+        $parentPersonStmt = $this->db->prepare('SELECT person_id FROM parents WHERE id = ? LIMIT 1');
+        $parentPersonStmt->execute([$parentId]);
+        $personId = (int) $parentPersonStmt->fetchColumn();
+        if ($personId > 0) {
+            $parentUser = $this->db->prepare('SELECT id FROM users WHERE person_id=? LIMIT 1');
+            $parentUser->execute([$personId]);
+            $parentUserId = $parentUser->fetchColumn();
+            if ($parentUserId !== false) (new \App\API\Modules\users\UserRoleManager($this->db))->assignRole((int)$parentUserId, 73, false);
+        }
     }
 
     private function getStudentParents($studentId)
@@ -5853,8 +6066,13 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Required fields for existing students
-            $required = ['first_name', 'last_name', 'date_of_birth', 'gender', 'class_id'];
+            // TEMPORAL (2026-10): date_of_birth and gender are accepted as
+            // absent from the real migration sheet (all rows lack a usable DOB;
+            // 348 lack gender) — the school admin or the parent captures them
+            // later through the parents portal. Restore the original list and
+            // the unconditional gender validation once collected.
+            // $required = ['first_name', 'last_name', 'date_of_birth', 'gender', 'class_id'];
+            $required = ['first_name', 'last_name', 'class_id'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -5864,9 +6082,17 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Validate gender
+            // Validate gender (TEMPORAL: only when provided).
+            // Original unconditional validation:
+            // $validGenders = ['male', 'female', 'other'];
+            // if (!in_array($data['gender'], $validGenders)) {
+            //     return $this->response([
+            //         'status' => 'error',
+            //         'message' => 'Invalid gender value. Must be: male, female, or other'
+            //     ], 400);
+            // }
             $validGenders = ['male', 'female', 'other'];
-            if (!in_array($data['gender'], $validGenders)) {
+            if (!empty($data['gender']) && !in_array($data['gender'], $validGenders)) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Invalid gender value. Must be: male, female, or other'
@@ -5948,33 +6174,23 @@ class StudentsAPI extends BaseAPI
             $enrollmentId = $this->ensureClassEnrollment($studentId, $streamId);
 
             // The enrollment trigger may run before the application method
-            // returns and seed all annual rows. For a newly imported learner
-            // there is no historical ledger to protect, so normalize that
-            // trigger output to the current term and future terms only.
-            if ($enrollmentId) {
-                $termStmt = $this->db->query(
-                    "SELECT COALESCE(
-                        MAX(CASE WHEN ayt.status = 'current' THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
-                        MAX(CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
-                        MIN(CASE WHEN ayt.opening_date >= CURDATE() THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
-                        1
-                    )
-                     FROM academic_year_terms ayt
-                     JOIN terms t ON t.id = ayt.term_id
-                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                     WHERE ay.is_current = 1"
-                );
-                $currentTermNumber = (int) ($termStmt ? $termStmt->fetchColumn() : 1);
-                $cleanStmt = $this->db->prepare(
-                    "DELETE sfo
-                     FROM student_fee_obligations sfo
-                     JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
-                     JOIN terms t ON t.id = ayt.term_id
-                     WHERE sfo.student_academic_enrollment_id = ?
-                       AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) < ?"
-                );
-                $cleanStmt->execute([(int) $enrollmentId, $currentTermNumber]);
-            }
+            // returns and seed all annual rows. TEMPORAL (2026-10): the real
+            // import happens in Term 3 for learners who have been in school the
+            // WHOLE year, so the prior-term obligations must SURVIVE — the
+            // annual paid figure allocates across the complete T1/T2/T3 ledger
+            // and that is how the school knows where the balance comes from.
+            // Deleting prior terms here destroyed the historical position and
+            // made the year's collection invisible. Restore the original
+            // normalisation once the real register has been migrated.
+            // $cleanStmt = $this->db->prepare(
+            //     "DELETE sfo
+            //      FROM student_fee_obligations sfo
+            //      JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+            //      JOIN terms t ON t.id = ayt.term_id
+            //      WHERE sfo.student_academic_enrollment_id = ?
+            //        AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) < ?"
+            // );
+            // $cleanStmt->execute([(int) $enrollmentId, $currentTermNumber]);
 
             // The enrollment trigger creates the obligations before returning.
             // Apply this learner's active school award to those rows so the
@@ -6392,10 +6608,22 @@ class StudentsAPI extends BaseAPI
                     // parent contact. Optional service arrangements are added
                     // later by the responsible school staff.
                     $row = $this->normalizeExistingStudentImportRow($row);
+                    // TEMPORAL (2026-10): the real migration sheet has no usable
+                    // dates of birth (all 454 rows), 348 rows without a gender,
+                    // 17 parents without any phone number and 16 rows without a
+                    // complete guardian name, so these are accepted as absent
+                    // until the school collects them and the parents portal
+                    // captures them per child. Restore the original required
+                    // list once the real DOB, gender, parent phones and names
+                    // have been gathered.
+                    // $requiredFields = [
+                    //     'first_name', 'last_name', 'date_of_birth', 'gender',
+                    //     'class_name', 'student_type', 'status', 'parent_relationship',
+                    //     'parent_first_name', 'parent_last_name', 'parent_phone'
+                    // ];
                     $requiredFields = [
-                        'first_name', 'last_name', 'date_of_birth', 'gender',
-                        'class_name', 'student_type', 'status', 'parent_relationship',
-                        'parent_first_name', 'parent_last_name', 'parent_phone'
+                        'first_name', 'last_name',
+                        'class_name', 'student_type', 'status', 'parent_relationship'
                     ];
                     $missingFields = [];
 
@@ -6481,7 +6709,30 @@ class StudentsAPI extends BaseAPI
                     $hasFinancialSnapshot = $annualPaidRaw !== '' || $termPaidRaw !== '';
                     if ($hasFinancialSnapshot) {
                         foreach (['academic_year_paid_amount'=>$annualPaidRaw, 'current_term_paid_amount'=>$termPaidRaw] as $field=>$value) {
-                            if ($value !== '' && (!is_numeric($value) || (float) $value < 0)) {
+                            // TEMPORAL (2026-10): the real sheet's own formula
+                            // computes paid-this-term as term fees minus
+                            // balance, which goes NEGATIVE for 18 rows whose
+                            // balance carries other arrears. Clamping to 0 with
+                            // a warning keeps the row importable; the school
+                            // reconciles the figures afterwards. Restore the
+                            // original rejection once the amounts are cleaned.
+                            // if ($value !== '' && (!is_numeric($value) || (float) $value < 0)) {
+                            //     throw new \InvalidArgumentException("{$field} must be a non-negative amount");
+                            // }
+                            if ($value !== '' && is_numeric($value) && (float) $value < 0) {
+                                $results['warnings'][] = [
+                                    'row' => $rowNum,
+                                    'message' => "{$field} was negative ({$value}); clamped to 0"
+                                ];
+                                $value = '0';
+                                if ($field === 'academic_year_paid_amount') {
+                                    $annualPaidRaw = '0';
+                                } else {
+                                    $termPaidRaw = '0';
+                                }
+                                continue;
+                            }
+                            if ($value !== '' && !is_numeric($value)) {
                                 throw new \InvalidArgumentException("{$field} must be a non-negative amount");
                             }
                         }
@@ -6532,6 +6783,9 @@ class StudentsAPI extends BaseAPI
                         'error' => $e->getMessage()
                     ];
                 } catch (Exception $e) {
+                    // Log the real failure — the client only ever receives the
+                    // generic message, so without this the row is undebuggable.
+                    \App\API\Services\Logger::legacyError('[StudentsAPI] existing-student import row ' . $rowNum . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
                     $results['failed']++;
                     $results['errors'][] = [
                         'row' => $rowNum,
@@ -6700,7 +6954,8 @@ class StudentsAPI extends BaseAPI
             "SELECT c.id
              FROM classes c
              JOIN academic_year_classes ayc ON ayc.class_id = c.id
-             WHERE ayc.academic_year_id = ? AND LOWER(TRIM(c.name)) = LOWER(TRIM(?))
+             WHERE ayc.academic_year_id = ?
+               AND LOWER(REPLACE(TRIM(c.name), ' ', '')) = LOWER(REPLACE(TRIM(?), ' ', ''))
              LIMIT 1"
         );
         $stmt->execute([(int) $year, $className]);
@@ -6929,10 +7184,14 @@ class StudentsAPI extends BaseAPI
         $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);
         if ($academicYearId <= 0) return;
 
-        // A migration may happen in Term 2 or Term 3. Rebuild missing prior
-        // term obligations so the annual paid figure can be applied to the
-        // complete academic-year ledger.
-        $this->generateStudentFeeObligationsForCurrentYear($studentId, $academicYearId);
+        // A migration may happen in Term 2 or Term 3. Billing for an EXISTING
+        // student being migrated is the complete annual ledger — every term
+        // (T1 → T3) — so the supplied annual paid figure can allocate across
+        // it and the school knows where the balance comes from. This is the
+        // dedicated migration generator (never used for new admissions, which
+        // bill from their join term) and serves BOTH the bulk import and the
+        // single existing-student add.
+        $this->generateMigrationStudentFeeObligations($studentId, $academicYearId);
         // Apply awards before allocating the migrated credit. This also
         // repairs records where the snapshot was created after enrollment.
         $this->applyExistingStudentSponsorshipToObligations($studentId);
@@ -7138,15 +7397,57 @@ class StudentsAPI extends BaseAPI
         $phone = trim((string) ($parentData['phone_1'] ?? $parentData['phone'] ?? ''));
         $email = trim((string) ($parentData['email'] ?? ''));
 
-        if ($phone !== '') {
+        // TEMPORAL (2026-10): the real migration sheet contains guardians that
+        // share one phone number across different family ids, and pairs whose
+        // primary and secondary phones are swapped between rows. Matching on
+        // the phone alone merged the wrong guardian and missed swapped
+        // secondaries, so the match now requires BOTH a phone (primary or
+        // secondary, stored on persons or as a contact point) AND the guardian
+        // name; a phone collision with a different name creates a separate
+        // parent record instead of merging. Restore the original phone-only
+        // match once the family data has been cleaned.
+        //
+        // Original phone-only match:
+        // if ($phone !== '') {
+        //     $stmt = $this->db->prepare("
+        //         SELECT p.id
+        //         FROM parents p
+        //         JOIN persons pp ON pp.id = p.person_id
+        //         WHERE pp.phone = ?
+        //         LIMIT 1
+        //     ");
+        //     $stmt->execute([$phone]);
+        //     $parentId = (int) ($stmt->fetchColumn() ?: 0);
+        // }
+        $phone2 = trim((string) ($parentData['phone_2'] ?? ''));
+        $parentFirstName = trim((string) ($parentData['first_name'] ?? ''));
+        $parentLastName = trim((string) ($parentData['last_name'] ?? ''));
+        if (($phone !== '' || $phone2 !== '') && $parentFirstName !== '' && $parentLastName !== '') {
             $stmt = $this->db->prepare("
                 SELECT p.id
                 FROM parents p
                 JOIN persons pp ON pp.id = p.person_id
-                WHERE pp.phone = ?
+                WHERE (
+                        (? <> '' AND pp.phone = ?)
+                     OR (? <> '' AND pp.phone = ?)
+                     OR (? <> '' AND EXISTS (SELECT 1 FROM person_contact_points pcp
+                                              WHERE pcp.person_id = pp.id AND pcp.channel = 'phone'
+                                                AND pcp.contact_value = ?))
+                     OR (? <> '' AND EXISTS (SELECT 1 FROM person_contact_points pcp
+                                              WHERE pcp.person_id = pp.id AND pcp.channel = 'phone'
+                                                AND pcp.contact_value = ?))
+                      )
+                  AND LOWER(TRIM(pp.first_name)) = LOWER(?)
+                  AND LOWER(TRIM(pp.last_name)) = LOWER(?)
                 LIMIT 1
             ");
-            $stmt->execute([$phone]);
+            $stmt->execute([
+                $phone, PhoneNumberNormalizer::normalize($phone) ?? '',
+                $phone2, PhoneNumberNormalizer::normalize($phone2) ?? '',
+                $phone, PhoneNumberNormalizer::normalize($phone) ?? '',
+                $phone2, PhoneNumberNormalizer::normalize($phone2) ?? '',
+                $parentFirstName, $parentLastName,
+            ]);
             $parentId = (int) ($stmt->fetchColumn() ?: 0);
         }
 
@@ -7166,9 +7467,12 @@ class StudentsAPI extends BaseAPI
         if (!$parentId) {
             $firstName = trim((string) ($parentData['first_name'] ?? ''));
             $lastName = trim((string) ($parentData['last_name'] ?? ''));
-            if ($firstName === '' || $lastName === '') {
-                throw new Exception('Parent first_name and last_name are required when creating a new parent record');
-            }
+            // TEMPORAL (2026-10): one migration row carries a guardian with no
+            // names at all; the record is created and the school completes it
+            // later. Restore the original rejection once names are collected.
+            // if ($firstName === '' || $lastName === '') {
+            //     throw new Exception('Parent first_name and last_name are required when creating a new parent record');
+            // }
             $parentId = $this->createParentRecord($parentData);
         }
 

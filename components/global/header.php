@@ -243,7 +243,7 @@
 </div>
 
 <div
-    class="offcanvas offcanvas-end"
+    class="offcanvas offcanvas-end ai-assistant-panel"
     tabindex="-1"
     id="globalAiAssistantPanel"
     aria-labelledby="globalAiAssistantPanelLabel"
@@ -258,6 +258,7 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
+        <div id="global-ai-assistant-briefing" class="mb-3" aria-live="polite"></div>
         <div class="alert alert-info small">
             The assistant prepares explanations, recommendations, and drafts for staff review. It does not approve admissions, post finance entries, change grades, or send messages by itself.
         </div>
