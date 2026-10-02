@@ -1,0 +1,10 @@
+flask>=3.0,<4
+PyMySQL>=1.1,<2
+polars[rtcompat]==1.44.2
+python-calamine==0.8.2
+openpyxl==3.1.5
+odfpy==1.4.1
+pypdfium2==5.13.0
+pytesseract==0.3.13
+Pillow==12.3.0
+defusedxml==0.7.1

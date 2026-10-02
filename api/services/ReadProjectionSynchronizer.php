@@ -6,6 +6,7 @@ namespace App\API\Services;
 
 use App\Database\ConnectionManager;
 use App\Database\Database;
+use App\API\Includes\FileLogger;
 use PDO;
 use RuntimeException;
 
@@ -20,6 +21,52 @@ use RuntimeException;
 final class ReadProjectionSynchronizer
 {
     private const STAGE_PREFIX = '__stage_';
+
+    /**
+     * Indexes required by the read APIs after each atomic rebuild. MySQL's
+     * CREATE TABLE ... AS SELECT does not copy indexes, so without this
+     * allowlist every refresh silently turns the read model back into a full
+     * scan. Keep names and columns code-owned; never accept them from a job.
+     *
+     * @var array<string,array<string,array<int,string>>>
+     */
+    private const READ_INDEXES = [
+        'collection_rate_by_class' => [
+            'idx_level_term' => ['level_code', 'academic_term'],
+        ],
+        'class_learning_area_performance' => [
+            'idx_year_class_term' => ['academic_year_class_id', 'term_number'],
+            'idx_academic_year' => ['academic_year'],
+            'idx_term_number' => ['term_number'],
+            'idx_class_name' => ['class_name'],
+            'idx_stream_name' => ['stream_name'],
+            'idx_learning_area' => ['learning_area'],
+        ],
+        'budget_utilization' => [
+            'idx_budget' => ['budget_id'],
+            'idx_year_term' => ['academic_year', 'term'],
+        ],
+        'dormitory_occupancy' => [
+            'idx_dormitory_year' => ['dormitory_id', 'academic_year'],
+            'idx_academic_year' => ['academic_year'],
+            'idx_gender' => ['gender'],
+        ],
+        'fee_collection_monthly_trend' => [
+            'idx_month' => ['month'],
+        ],
+        'fee_status_summary' => [
+            'idx_year_term_class_stream' => ['academic_year', 'term_number', 'class_id', 'stream_id'],
+            'idx_class_stream' => ['class_id', 'stream_id'],
+            'idx_academic_year' => ['academic_year'],
+            'idx_term_number' => ['term_number'],
+            'idx_student_period' => ['student_id', 'academic_year', 'term_number'],
+            'idx_admission_no' => ['admission_no'],
+            'idx_payment_status' => ['payment_status'],
+            'idx_current_balance' => ['current_balance'],
+            'idx_student_type' => ['student_type_id'],
+            'idx_level' => ['level_id'],
+        ],
+    ];
 
     private function __construct()
     {
@@ -51,40 +98,118 @@ final class ReadProjectionSynchronizer
         $stage = self::STAGE_PREFIX . $target . '_' . substr(bin2hex(random_bytes(8)), 0, 12);
         $pdo = Database::getInstance()->getConnection();
         $started = microtime(true);
+        $sourceQueryMs = 0;
+        $indexBuildMs = 0;
+        $rows = 0;
+        $lockName = 'KingswayProjection:' . $projection;
+        $lock = ConnectionManager::run(static function (PDO $active) use ($lockName): int {
+            $stmt = $active->prepare('SELECT GET_LOCK(?, 0)');
+            $stmt->execute([$lockName]);
+            return (int) $stmt->fetchColumn();
+        }, ConnectionManager::NS_READS);
+        if ($lock !== 1) {
+            throw new RuntimeException('This read projection is already being refreshed.');
+        }
 
         try {
-            ConnectionManager::run(static function (PDO $active) use ($reads, $source, $stage): void {
+            ConnectionManager::run(static function (PDO $active) use ($reads, $source, $stage, $projection, &$sourceQueryMs, &$indexBuildMs, &$rows): void {
                 self::assertSourceExists($active, $source);
                 self::createStage($active, $reads, $source, $stage);
-                $active->exec('INSERT INTO ' . self::qid($reads, $stage) . ' SELECT * FROM ' . self::qualified($source));
+                $queryStarted = microtime(true);
+                $insert = $active->exec('INSERT INTO ' . self::qid($reads, $stage) . ' SELECT * FROM ' . self::qualified($source));
+                $sourceQueryMs = (int) round((microtime(true) - $queryStarted) * 1000);
+                $rows = max(0, (int) $insert);
+
+                $indexStarted = microtime(true);
+                self::createReadIndexes($active, $reads, $stage, $projection);
+                $indexBuildMs = (int) round((microtime(true) - $indexStarted) * 1000);
             }, ConnectionManager::NS_READS);
 
-            $result = ConnectionManager::run(static function (PDO $active) use ($reads, $target, $stage, $source, $projection): array {
+            $result = ConnectionManager::run(static function (PDO $active) use ($reads, $target, $stage, $source, $projection, $rows): array {
                 self::publish($active, $reads, $target, $stage);
-                $rows = (int) $active->query('SELECT COUNT(*) FROM ' . self::qid($reads, $target))->fetchColumn();
                 $watermark = self::watermark($active, $source);
                 self::writeMeta($active, $reads, $projection, $source, $rows, $watermark, null);
                 return ['rows_count' => $rows, 'source_watermark' => $watermark];
             }, ConnectionManager::NS_READS);
 
-            return [
+            $report = [
                 'status' => 'published',
                 'projection' => $projection,
                 'target' => $target,
                 'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+                'source_query_ms' => $sourceQueryMs,
+                'index_build_ms' => $indexBuildMs,
             ] + $result;
+            FileLogger::write('reads', ['event' => 'projection_refreshed'] + $report);
+            return $report;
         } catch (\Throwable $e) {
+            FileLogger::write('reads', [
+                'event' => 'projection_refresh_failed',
+                'projection' => $projection,
+                'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+                'error_class' => get_class($e),
+            ], 'error');
             try {
                 ConnectionManager::run(static function (PDO $active) use ($reads, $stage, $projection, $source, $e): void {
                     self::dropIfExists($active, $reads, $stage);
-                    self::writeMeta($active, $reads, $projection, $source, 0, null, self::redactError($e->getMessage()));
+                    $target = self::targetTable($projection);
+                    if (self::objectExists($active, $reads, $target)) {
+                        // Keep serving the last known good snapshot until its
+                        // normal freshness limit expires; a failed refresh must
+                        // not force every reader back onto the heavy source view.
+                        $meta = $active->prepare('UPDATE ' . self::qid($reads, 'reads_meta') . ' SET last_error = ? WHERE projection = ?');
+                        $meta->execute([self::redactError($e->getMessage()), $projection]);
+                    } else {
+                        self::writeMeta($active, $reads, $projection, $source, 0, null, self::redactError($e->getMessage()));
+                    }
                 }, ConnectionManager::NS_READS);
             } catch (\Throwable $metaError) {
                 // Preserve the original synchronization failure.
             }
             throw new RuntimeException('Read projection synchronization failed: ' . self::redactError($e->getMessage()), 0, $e);
         } finally {
+            try {
+                ConnectionManager::run(static function (PDO $active) use ($lockName): void {
+                    $stmt = $active->prepare('SELECT RELEASE_LOCK(?)');
+                    $stmt->execute([$lockName]);
+                }, ConnectionManager::NS_READS);
+            } catch (\Throwable $releaseError) {
+                FileLogger::write('reads', [
+                    'event' => 'projection_lock_release_failed',
+                    'projection' => $projection,
+                    'error_class' => get_class($releaseError),
+                ], 'warning');
+            }
             unset($pdo);
+        }
+    }
+
+    /** Recreate the indexed read shape on the staging snapshot before publish. */
+    private static function createReadIndexes(PDO $pdo, string $reads, string $stage, string $projection): void
+    {
+        $indexes = self::READ_INDEXES[$projection] ?? [];
+        if ($indexes === []) {
+            throw new RuntimeException("Projection '{$projection}' has no registered read indexes.");
+        }
+
+        $stmt = $pdo->prepare(
+            'SELECT COLUMN_NAME FROM information_schema.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+        );
+        $stmt->execute([$reads, $stage]);
+        $columns = array_fill_keys(array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []), true);
+
+        foreach ($indexes as $name => $indexColumns) {
+            foreach ($indexColumns as $column) {
+                if (!isset($columns[$column])) {
+                    throw new RuntimeException("Registered read index column '{$column}' is missing from '{$projection}'.");
+                }
+            }
+            $quotedColumns = array_map(static fn (string $column): string => '`' . str_replace('`', '', $column) . '`', $indexColumns);
+            $pdo->exec(
+                'ALTER TABLE ' . self::qid($reads, $stage)
+                . ' ADD INDEX `' . str_replace('`', '', $name) . '` (' . implode(',', $quotedColumns) . ')'
+            );
         }
     }
 

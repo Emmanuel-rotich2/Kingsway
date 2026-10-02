@@ -164,9 +164,11 @@ final class ReportCardReleaseService
         $term = $data['term'] ?? [];
         $name = trim(implode(' ', array_filter([$student['first_name'] ?? '', $student['last_name'] ?? '']))) ?: 'your child';
         $ranking = $data['ranking'] ?? [];
-        $average = isset($ranking['overall_percentage']) ? number_format((float) $ranking['overall_percentage'], 1) . '%' : 'available in the report';
+        $average = isset($ranking['overall_percentage']) ? number_format((float) $ranking['overall_percentage'], 1) . '%' : 'see report';
         $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
-        $message = "Kingsway: {$name}'s {$term['name']} report is ready. Overall: {$average}. View it in the parent portal: {$portalUrl}";
+        $termName = (string)($term['name'] ?? 'term');
+        $templateVariables = ['student_name' => $name, 'term_name' => $termName, 'average' => $average, 'portal_url' => $portalUrl];
+        $message = "Kingsway: {$name} {$termName} results ready. Overall {$average}. Parent portal: {$portalUrl}";
         $publicUrl = $this->publicUrl((string) $release['pdf_path']);
         $platform = new CommunicationPlatformService($this->db);
         $outcomes = [];
@@ -187,13 +189,15 @@ final class ReportCardReleaseService
                         'public_url' => $publicUrl,
                     ]];
                 }
-                $outcomes[$channel] = $platform->queueRenderedForStudentParents(
-                    (int) $release['student_id'],
-                    $channel,
-                    "{$term['name']} report card — {$name}",
-                    $message,
-                    $options
-                );
+                if (in_array($channel, ['sms', 'email'], true)) {
+                    $outcomes[$channel] = $platform->queueForStudentParents(
+                        (int)$release['student_id'], $channel, 'results_ready', $templateVariables, $options
+                    );
+                } else {
+                    $outcomes[$channel] = $platform->queueRenderedForStudentParents(
+                        (int)$release['student_id'], $channel, "{$termName} report card for {$name}", $message, $options
+                    );
+                }
                 $this->recordDeliveries($releaseId, (int) $release['student_id'], $channel, $outcomes[$channel]);
             } catch (\Throwable $e) {
                 $outcomes[$channel] = ['status' => 'failed', 'message' => $e->getMessage()];

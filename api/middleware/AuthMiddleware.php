@@ -143,6 +143,11 @@ class AuthMiddleware
             'realtime/worker',
             'realtime/cleanup',
             'realtime/sync-projection',
+            'realtime/python-job-claim',
+            'realtime/python-job-input',
+            'realtime/python-job-heartbeat',
+            'realtime/python-job-complete',
+            'realtime/python-job-fail',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'dashboard/agent-digest-worker',
             // Governed data-tool execution for the Python AI platform's

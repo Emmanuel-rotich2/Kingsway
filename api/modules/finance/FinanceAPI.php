@@ -2221,7 +2221,8 @@ class FinanceAPI extends BaseAPI
                 $existingStmt = $this->db->prepare(
                     'SELECT id, payslip_status FROM payslips
                      WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                       AND data_scope = (SELECT data_scope FROM staff WHERE id = ?)
+                       AND data_scope COLLATE utf8mb4_unicode_ci =
+                           (SELECT staff.data_scope COLLATE utf8mb4_unicode_ci FROM staff WHERE id = ?)
                      LIMIT 1'
                 );
                 $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year, (int) $staff['id']]);
@@ -3534,7 +3535,8 @@ class FinanceAPI extends BaseAPI
                     $existingStmt = $this->db->prepare(
                         'SELECT id, payslip_status FROM payslips
                          WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                           AND data_scope = (SELECT data_scope FROM staff WHERE id = ?)
+                           AND data_scope COLLATE utf8mb4_unicode_ci =
+                               (SELECT staff.data_scope COLLATE utf8mb4_unicode_ci FROM staff WHERE id = ?)
                          LIMIT 1'
                     );
                     $existingStmt->execute([(int) $staffId, (int) $month, (int) $year, (int) $staffId]);

@@ -1,6 +1,44 @@
 const ExamResultsController = {
   initialized: false,
   state: { exams: [], filteredExams: [], context: null, selectedExamId: null },
+  autosaveTimer: null,
+
+  draftKey() {
+    const user = window.AuthContext?.getUser?.() || {};
+    const uid = Number(user.id || user.user_id || 0);
+    return `kingsway:exam-marks:v1:u${uid}:a${Number(this.state.context?.exam?.assessment_id || 0)}`;
+  },
+
+  persistLocalDraft() {
+    if (!this.state.context?.editable) return;
+    const rows = [...document.querySelectorAll("#resultsTableBody tr[data-student-id]")].map((row) => ({
+      student_id: Number(row.dataset.studentId),
+      entry_status: row.querySelector(".entry-status")?.value || "present",
+      marks_obtained: row.querySelector(".score-input")?.value ?? "",
+      remarks: row.querySelector(".remarks-input")?.value || "",
+    }));
+    try { localStorage.setItem(this.draftKey(), JSON.stringify({ saved_at: Date.now(), rows })); } catch (_) { /* Storage may be disabled or full. */ }
+  },
+
+  restoreLocalDraft() {
+    if (!this.state.context?.editable) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(this.draftKey()) || "null");
+      if (!stored || !Array.isArray(stored.rows)) return;
+      const byId = new Map(stored.rows.map((row) => [Number(row.student_id), row]));
+      document.querySelectorAll("#resultsTableBody tr[data-student-id]").forEach((row) => {
+        const saved = byId.get(Number(row.dataset.studentId));
+        if (!saved) return;
+        row.querySelector(".entry-status").value = saved.entry_status || "present";
+        const score = row.querySelector(".score-input");
+        score.disabled = row.querySelector(".entry-status").value !== "present";
+        score.value = saved.marks_obtained ?? "";
+        row.querySelector(".remarks-input").value = saved.remarks || "";
+        this.renderGrade(row);
+      });
+      window.showNotification?.("Unsubmitted marks restored from this device.", "info");
+    } catch (_) { /* Ignore malformed stale browser state. */ }
+  },
 
   escape(value) {
     const node = document.createElement("span");
@@ -19,6 +57,8 @@ const ExamResultsController = {
     await window.GradingScale?.preload?.();
     if (window.AcademicContext && !AcademicContext.isLoaded()) await AcademicContext.init();
     this.initialized = true;
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) document.getElementById('examRegisterCsv')?.classList.add('d-none');
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('academic')) document.getElementById('examRegisterPrint')?.classList.add('d-none');
     this.setupEventListeners();
     await this.loadExams();
   },
@@ -30,9 +70,13 @@ const ExamResultsController = {
     document.getElementById("refreshExamsBtn")?.addEventListener("click", () => this.loadExams());
     document.getElementById("saveDraftBtn")?.addEventListener("click", () => this.save(false));
     document.getElementById("submitResultsBtn")?.addEventListener("click", () => this.save(true));
+    document.getElementById("examRegisterCsv")?.addEventListener("click", () => this.exportRegister());
+    document.getElementById("examRegisterPrint")?.addEventListener("click", () => window.print());
     document.getElementById("resultsTableBody")?.addEventListener("input", (event) => {
       if (event.target.matches(".score-input")) this.renderGrade(event.target.closest("tr"));
       this.updateProgress();
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = setTimeout(() => this.persistLocalDraft(), 250);
     });
     document.getElementById("resultsTableBody")?.addEventListener("change", (event) => {
       if (!event.target.matches(".entry-status")) return;
@@ -43,6 +87,7 @@ const ExamResultsController = {
       if (!present) score.value = "";
       this.renderGrade(row);
       this.updateProgress();
+      this.persistLocalDraft();
     });
     window.AcademicContext?.subscribe?.((_context, event) => {
       if (["yearChanged", "termChanged", "initialized", "refreshed"].includes(event)) this.loadExams();
@@ -63,6 +108,15 @@ const ExamResultsController = {
       );
       this.populateFilters();
       this.applyFilters();
+      const requestedScheduleId = Number(new URLSearchParams(window.location.search).get("exam_schedule_id") || 0);
+      if (requestedScheduleId) {
+        const requested = this.state.filteredExams.find((exam) => Number(exam.exam_schedule_id) === requestedScheduleId || Number(exam.id) === requestedScheduleId);
+        if (requested) {
+          const examSelect = document.getElementById("examFilter");
+          examSelect.value = String(requested.id);
+          await this.loadEntry(Number(requested.id));
+        }
+      }
       document.getElementById("examAcademicContext").textContent =
         window.AcademicContext?.getContextLabel?.() || "Current academic context";
     } catch (error) {
@@ -164,6 +218,7 @@ const ExamResultsController = {
     }).join("") || '<tr><td colspan="8" class="text-center text-muted py-4">No active learners are enrolled in this class stream.</td></tr>';
 
     document.querySelectorAll("#resultsTableBody tr[data-student-id]").forEach((row) => this.renderGrade(row));
+    this.restoreLocalDraft();
     document.getElementById("saveDraftBtn").disabled = !editable;
     document.getElementById("submitResultsBtn").disabled = !editable || !students.length;
     const lifecycle = document.getElementById("resultLifecycleMessage");
@@ -217,6 +272,8 @@ const ExamResultsController = {
       await window.API.academic.markAndGrade({
         assessment_id: Number(this.state.context.exam.assessment_id), grading_data: rows, is_final: submit,
       });
+      if (submit) localStorage.removeItem(this.draftKey());
+      else this.persistLocalDraft();
       window.showNotification?.(submit ? "Scores submitted for moderation" : "Score draft saved", "success");
       await this.loadEntry(this.state.selectedExamId);
     } catch (error) {
@@ -231,6 +288,18 @@ const ExamResultsController = {
       return entryStatus !== "present" || row.querySelector(".score-input").value !== "";
     }).length;
     document.getElementById("entryProgress").textContent = `${complete} of ${rows.length} complete`;
+  },
+
+  exportRegister() {
+    const rows = [...document.querySelectorAll("#resultsTableBody tr[data-student-id]")].map((row) => {
+      const cells = [...row.querySelectorAll("td")];
+      return [cells[0]?.innerText, cells[1]?.innerText, cells[2]?.innerText,
+        row.querySelector(".entry-status")?.value, row.querySelector(".score-input")?.value,
+        cells[5]?.innerText, row.querySelector(".remarks-input")?.value].map((value) => `"${String(value ?? "").replaceAll('"','""')}"`).join(",");
+    });
+    const csv = ['"#","Admission no.","Learner","Status","Marks","Grade","Comment"', ...rows].join("\r\n");
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport("academic")) return;
+    window.KingswayFileLifecycle?.exportText(csv, `exam-register-${this.state.selectedExamId || 'draft'}.csv`, "text/csv");
   },
 };
 

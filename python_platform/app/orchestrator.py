@@ -13,7 +13,7 @@ import json
 import time
 from typing import Any
 
-from . import agents, guard, policy
+from . import agents, guard, output_guard, policy
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
@@ -1305,7 +1305,7 @@ class Orchestrator:
         body = body or (
             "The assistant could not prepare a complete answer. Open the related workspace or rephrase the question."
         )
-        return {
+        answer = {
             "title": self._clean(draft.get("title"), 120) or "Assistant",
             "body": body,
             "next_steps": [
@@ -1320,6 +1320,22 @@ class Orchestrator:
             ],
             "escalation_required": bool(draft.get("escalation_required")),
         }
+
+        # Response-side confidentiality choke point. guard.py refuses a question
+        # that probes internals; this removes internal detail a model volunteers
+        # unasked. Every model answer passes through here, so no agent can bypass
+        # it. Mirrors App\API\Services\AiOutputGuard on the PHP edge.
+        answer = output_guard.scrub(answer)
+
+        if output_guard.contains_internal_reference(answer):
+            # Diagnostic only: no operator identity is in scope here, and the
+            # journal must never carry answer text.
+            self.journal.write(
+                "ai_generation",
+                {"type": "answer_output_guard_residual"},
+            )
+
+        return answer
 
     @staticmethod
     def _fallback_answer(

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Summative Results Ready",
+    "template_type": "email",
+    "category": "results_ready",
+    "subject": "{{term_name}} report card for {{student_name}}",
+    "template_body": "Dear Parent/Guardian,\n\nThe {{term_name}} report card for {{student_name}} is ready. The approved report card PDF is attached to this email.\n\nYou can also view the report in the parent portal: {{portal_url}}\n\nPlease contact the school office if you need help accessing the portal.\n\nKingsway Preparatory School",
+    "variables_json": "{\"student_name\":\"string\",\"term_name\":\"string\",\"portal_url\":\"string\"}",
+    "example_output": "Subject: Term 2 report card for Amina K.\n\nDear Parent/Guardian,\n\nThe Term 2 report card for Amina K. is ready. The approved report card PDF is attached to this email.\n\nYou can also view the report in the parent portal: https://school.example/parent_portal.php\n\nPlease contact the school office if you need help accessing the portal.\n\nKingsway Preparatory School"
+  }
+]

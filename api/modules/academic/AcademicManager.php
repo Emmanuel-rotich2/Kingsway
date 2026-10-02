@@ -2443,9 +2443,11 @@ class AcademicManager extends BaseAPI
 
     // ==================== CBC: REPORT CARD DATA ====================
 
-    public function getReportCardData(int $studentId, int $termId): array
+    public function getReportCardData(int $studentId, int $termId, string $resultMode = 'both'): array
     {
         try {
+            $resultMode = strtolower(trim($resultMode));
+            if (!in_array($resultMode, ['summative','formative','both'], true)) return $this->errorResponse('Choose formative, summative, or both report sources.', 422);
             $termWhere  = $termId ? 'WHERE ayt.id=:tid LIMIT 1' : "WHERE ayt.status='current' LIMIT 1";
             $termParams = $termId ? [':tid' => $termId] : [];
             $term = $this->dbQuery(
@@ -2553,9 +2555,29 @@ class AcademicManager extends BaseAPI
                    AND sla.status IN ('planned','active','in_progress','covered')",
                 [':stream_id' => (int) $student['class_stream_id']]
             )->fetchColumn();
-            $completeAreas = count(array_filter($scores, static function (array $score): bool {
-                return $score['overall_percentage'] !== null;
-            }));
+            $scoreField = $resultMode === 'summative' ? 'summative_percentage' : ($resultMode === 'formative' ? 'formative_percentage' : 'overall_percentage');
+            $completeAreas = count(array_filter($scores, static fn(array $score): bool => $score[$scoreField] !== null));
+            if ($resultMode !== 'both') {
+                $available = array_values(array_filter(array_map(static fn(array $score): ?float => $score[$scoreField] === null ? null : (float)$score[$scoreField], $scores), static fn($v): bool => $v !== null));
+                $selectedAverage = $available ? round(array_sum($available) / count($available), 2) : null;
+                $ranking = $ranking ?: [];
+                $ranking['overall_percentage'] = $selectedAverage;
+                $ranking['class_position'] = $ranking['cohort_position'] = null;
+                foreach ($scores as &$score) {
+                    $score['selected_percentage'] = $score[$scoreField];
+                    $score['overall_percentage'] = $score[$scoreField];
+                    $score['overall_grade'] = $score[$resultMode . '_grade'] ?? null;
+                    $score['overall_points'] = null;
+                    if ($resultMode === 'summative') {
+                        $score['formative_total']=$score['formative_max']=$score['formative_percentage']=$score['formative_grade']=null;
+                        $score['formative_count']=0;
+                    } else {
+                        $score['summative_total']=$score['summative_max']=$score['summative_percentage']=$score['summative_grade']=null;
+                        $score['summative_count']=0;
+                    }
+                }
+                unset($score);
+            }
 
             return $this->successResponse([
                 'student'      => $student,
@@ -2566,6 +2588,8 @@ class AcademicManager extends BaseAPI
                 'attendance'   => $attendance,
                 'ranking'      => $ranking,
                 'result_policy'=> $resultPolicy,
+                'result_mode' => $resultMode,
+                'result_mode_label' => $resultMode === 'both' ? 'Formative and summative (school policy weighting)' : ucfirst($resultMode) . ' only',
                 'completeness' => [
                     'expected_learning_areas' => $expectedAreas,
                     'complete_learning_areas' => $completeAreas,

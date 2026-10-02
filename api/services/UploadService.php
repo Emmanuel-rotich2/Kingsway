@@ -168,11 +168,11 @@ final class UploadService
             'import_file' => [
                 'root' => (string) UPLOAD_PATH . '/imports',
                 'public_segment' => null,
-                'extensions' => ['csv','xls','xlsx','ods'],
+                'extensions' => ['csv','xls','xlsx','ods','pdf'],
                 // finfo sniffs a plain CSV as text/plain, so text/plain is required
                 // here or CSV import can never pass. ODS is the school's own
                 // spreadsheet format and StaffMigrationController accepts it.
-                'mime_types' => ['text/csv','text/plain','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','application/octet-stream'],
+                'mime_types' => ['text/csv','text/plain','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','application/pdf','application/octet-stream'],
                 'max_bytes' => 26214400,
             ],
             'system_storage' => [

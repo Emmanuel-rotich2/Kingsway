@@ -26,6 +26,9 @@ use RuntimeException;
  */
 final class JobQueue
 {
+    /** Job families reserved for Python's internal worker endpoint. */
+    public const PYTHON_JOB_TYPES = ['reads.projection.refresh', 'automation.run'];
+
     public const STATUS_PENDING = 'pending';
     public const STATUS_PROCESSING = 'processing';
     public const STATUS_DONE = 'done';
@@ -130,20 +133,22 @@ final class JobQueue
      *
      * @return int[] Claimed (now processing) job ids.
      */
-    public static function claimBatch(int $limit = 10): array
+    public static function claimBatch(int $limit = 10, array $excludeJobTypes = []): array
     {
         $limit = max(1, min(500, $limit));
+        $excludeJobTypes = self::normalizeJobTypes($excludeJobTypes);
 
-        return ConnectionManager::run(static function (PDO $pdo) use ($limit): array {
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit, $excludeJobTypes): array {
             $ids = [];
+            $exclusion = $excludeJobTypes === [] ? '' : ' AND job_type NOT IN (' . implode(',', array_fill(0, count($excludeJobTypes), '?')) . ')';
             // LIMIT is bound as a prepared literal ($limit is already int-clamped).
             $stmt = $pdo->prepare(
                 "SELECT id FROM jobs_queue
-                 WHERE status = ? AND available_at <= NOW()
+                 WHERE status = ? AND available_at <= NOW(){$exclusion}
                  ORDER BY id ASC
                  LIMIT {$limit}"
             );
-            $stmt->execute([self::STATUS_PENDING]);
+            $stmt->execute(array_merge([self::STATUS_PENDING], $excludeJobTypes));
             $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
             foreach ($rows as $rawId) {
@@ -157,6 +162,36 @@ final class JobQueue
                 if ($claim->rowCount() === 1) {
                     $ids[] = $id;
                 }
+            }
+            return $ids;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /** Claim one or more jobs exclusively from an allowlisted runtime family. */
+    public static function claimBatchForTypes(array $jobTypes, int $limit = 1): array
+    {
+        $jobTypes = self::normalizeJobTypes($jobTypes);
+        if ($jobTypes === []) {
+            throw new \InvalidArgumentException('At least one valid job type is required.');
+        }
+        $limit = max(1, min(50, $limit));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($limit, $jobTypes): array {
+            $ids = [];
+            $marks = implode(',', array_fill(0, count($jobTypes), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT id FROM jobs_queue
+                 WHERE status = ? AND available_at <= NOW() AND job_type IN ({$marks})
+                 ORDER BY id ASC LIMIT {$limit}"
+            );
+            $stmt->execute(array_merge([self::STATUS_PENDING], $jobTypes));
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $rawId) {
+                $id = (int) $rawId;
+                $claim = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, updated_at = NOW() WHERE id = ? AND status = ?'
+                );
+                $claim->execute([self::STATUS_PROCESSING, $id, self::STATUS_PENDING]);
+                if ($claim->rowCount() === 1) $ids[] = $id;
             }
             return $ids;
         }, ConnectionManager::NS_BUFFERS);
@@ -208,6 +243,31 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+    /** Complete only the exact processing attempt returned to a Python worker. */
+    public static function markDoneForAttempt(int $id, int $attempts): bool
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts): bool {
+            $stmt = $pdo->prepare(
+                'UPDATE jobs_queue SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
+                . 'WHERE id = ? AND status = ? AND attempts = ?'
+            );
+            $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            return $stmt->rowCount() === 1;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /** Extend a Python job lease only while the same attempt remains active. */
+    public static function touchProcessingAttempt(int $id, int $attempts): bool
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts): bool {
+            $stmt = $pdo->prepare(
+                'UPDATE jobs_queue SET updated_at = NOW() WHERE id = ? AND status = ? AND attempts = ?'
+            );
+            $stmt->execute([$id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            return $stmt->rowCount() === 1;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /**
      * Record a job failure. While attempts remain the job returns to 'pending'
      * with exponential backoff; at exhaustion it becomes 'failed' and a copy is
@@ -244,20 +304,61 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+    /** Fail only the exact processing attempt returned to a Python worker. */
+    public static function markFailedForAttempt(int $id, int $expectedAttempts, string $reason = ''): ?string
+    {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $expectedAttempts, $reason): ?string {
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare(
+                    'SELECT id, job_type, payload, status, attempts, max_attempts, backoff_seconds '
+                    . 'FROM jobs_queue WHERE id = ? FOR UPDATE'
+                );
+                $stmt->execute([$id]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row || $row['status'] !== self::STATUS_PROCESSING
+                    || (int) $row['attempts'] !== max(0, $expectedAttempts)) {
+                    $pdo->commit();
+                    return null;
+                }
+                $attempts = (int) $row['attempts'] + 1;
+                $reason = self::truncate((string) $reason);
+                if ($attempts >= self::clampAttempts((int) $row['max_attempts'])) {
+                    $status = self::finishAsFailed($pdo, $row, $attempts, $reason);
+                } else {
+                    $delay = min(self::MAX_BACKOFF, self::clampBackoff((int) $row['backoff_seconds']) * (int) pow(2, $attempts - 1));
+                    $update = $pdo->prepare(
+                        'UPDATE jobs_queue SET attempts = ?, status = ?, available_at = DATE_ADD(NOW(), INTERVAL ? SECOND), '
+                        . 'failed_reason = ?, dead_letter_reason = NULL, updated_at = NOW() WHERE id = ? AND status = ?'
+                    );
+                    $update->execute([$attempts, self::STATUS_PENDING, $delay, $reason, $id, self::STATUS_PROCESSING]);
+                    $status = self::STATUS_PENDING;
+                }
+                $pdo->commit();
+                return $status;
+            } catch (\Throwable $error) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $error;
+            }
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /**
      * Recover jobs abandoned by a worker crash or hosting timeout. A failed job
      * lease re-queues until its attempt budget is exhausted, then dead-letters.
      */
-    public static function recoverStale(int $leaseMinutes = 15): int
+    public static function recoverStale(int $leaseMinutes = 15, array $excludeJobTypes = []): int
     {
         $leaseMinutes = max(5, min(1440, $leaseMinutes));
+        $excludeJobTypes = self::normalizeJobTypes($excludeJobTypes);
 
-        return ConnectionManager::run(static function (PDO $pdo) use ($leaseMinutes): int {
+        return ConnectionManager::run(static function (PDO $pdo) use ($leaseMinutes, $excludeJobTypes): int {
+            $exclusion = $excludeJobTypes === [] ? '' : ' AND job_type NOT IN (' . implode(',', array_fill(0, count($excludeJobTypes), '?')) . ')';
             $stmt = $pdo->prepare(
                 "SELECT id FROM jobs_queue
-                 WHERE status = ? AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE"
+                 WHERE status = ? AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE{$exclusion}"
             );
-            $stmt->execute([self::STATUS_PROCESSING]);
+            $stmt->execute(array_merge([self::STATUS_PROCESSING], $excludeJobTypes));
             $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
             $recovered = 0;
@@ -291,6 +392,60 @@ final class JobQueue
             }
             return $recovered;
         }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /** Recover stale jobs owned by a specific worker runtime. */
+    public static function recoverStaleForTypes(array $jobTypes, int $leaseMinutes = 15): int
+    {
+        $jobTypes = self::normalizeJobTypes($jobTypes);
+        if ($jobTypes === []) return 0;
+        $leaseMinutes = max(5, min(1440, $leaseMinutes));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($leaseMinutes, $jobTypes): int {
+            $marks = implode(',', array_fill(0, count($jobTypes), '?'));
+            $pdo->beginTransaction();
+            try {
+                $stmt = $pdo->prepare(
+                    "SELECT id, job_type, payload, status, attempts, max_attempts, backoff_seconds
+                     FROM jobs_queue
+                     WHERE status = ? AND job_type IN ({$marks})
+                       AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE
+                     ORDER BY updated_at ASC LIMIT 50 FOR UPDATE"
+                );
+                $stmt->execute(array_merge([self::STATUS_PROCESSING], $jobTypes));
+                $staleRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $recovered = 0;
+                foreach ($staleRows as $row) {
+                    $id = (int) $row['id'];
+                    $attempts = (int) $row['attempts'] + 1;
+                    if ($attempts >= self::clampAttempts((int) $row['max_attempts'])) {
+                        self::finishAsFailed($pdo, $row, $attempts, 'Recovered after Python worker lease expired too many times');
+                    } else {
+                        $update = $pdo->prepare(
+                            'UPDATE jobs_queue SET attempts = ?, status = ?, available_at = NOW(), failed_reason = ?, dead_letter_reason = NULL, updated_at = NOW() WHERE id = ? AND status = ?'
+                        );
+                        $update->execute([$attempts, self::STATUS_PENDING, 'Recovered after Python worker lease expired', $id, self::STATUS_PROCESSING]);
+                    }
+                    $recovered++;
+                }
+                $pdo->commit();
+                return $recovered;
+            } catch (\Throwable $error) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $error;
+            }
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /** @return list<string> */
+    private static function normalizeJobTypes(array $jobTypes): array
+    {
+        $valid = [];
+        foreach ($jobTypes as $jobType) {
+            $jobType = is_string($jobType) ? trim($jobType) : '';
+            if ($jobType !== '' && preg_match('/^[a-z][a-z0-9_.-]{2,99}$/', $jobType) === 1) $valid[] = $jobType;
+        }
+        return array_values(array_unique($valid));
     }
 
     /**

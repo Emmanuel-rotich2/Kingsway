@@ -45,6 +45,13 @@ class Config:
         self.php_base_url = _env(
             "KINGSWAY_PHP_BASE_URL", "https://kingswaypreparatoryschool.sc.ke"
         )
+        # Internal loopback address for the same PHP logic. When both services
+        # share a host the call never needs the public edge, so this is tried
+        # first and the public base URL stays the fallback. Left empty, the
+        # public URL is used directly. Loopback carries no TLS because the
+        # packet never leaves the machine; the worker secret is the identity.
+        self.php_internal_base_url = _env("KINGSWAY_PHP_INTERNAL_BASE_URL")
+        self.php_internal_host = _env("KINGSWAY_PHP_INTERNAL_HOST")
         self.php_worker_secret = _env(
             "KINGSWAY_PHP_WORKER_SECRET", _env("COMMUNICATION_WORKER_SECRET")
         )
@@ -97,3 +104,17 @@ class Config:
         # TLS verification for calls back into the PHP edge. Default ON.
         # Set to false ONLY for local development with a self-signed cert.
         self.php_verify_tls = _env_bool("KINGSWAY_PHP_VERIFY_TLS", True)
+
+        # Deterministic read-model worker. Disabled until deployment installs
+        # PyMySQL and supplies a least-privilege account for the source and
+        # reads schemas. These credentials are never forwarded to an LLM.
+        self.read_models_enabled = _env_bool("KINGSWAY_PYTHON_READ_MODELS_ENABLED", False)
+        self.db_host = _env("KINGSWAY_DB_HOST")
+        self.db_port = _env_int("KINGSWAY_DB_PORT", 3306)
+        self.db_user = _env("KINGSWAY_DB_USER")
+        self.db_password = _env("KINGSWAY_DB_PASSWORD")
+        self.db_ssl_ca = _env("KINGSWAY_DB_SSL_CA")
+        self.db_master_schema = _env("KINGSWAY_DB_MASTER_SCHEMA", "KingsWayAcademy")
+        self.db_reads_schema = _env("KINGSWAY_DB_READS_SCHEMA", "KingsWayReads")
+        self.db_connect_timeout = max(1, min(15, _env_int("KINGSWAY_DB_CONNECT_TIMEOUT", 5)))
+        self.db_read_timeout = max(30, min(900, _env_int("KINGSWAY_DB_READ_TIMEOUT", 300)))

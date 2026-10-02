@@ -19,6 +19,7 @@ final class AssessmentResultsService
     private int $userId;
     private ?int $staffId = null;
     private ?array $roleNames = null;
+    private ?bool $classReviewSchema = null;
     private CbcGradingService $grading;
 
     public function __construct(PDO $db, int $userId)
@@ -123,10 +124,12 @@ final class AssessmentResultsService
                     is_submitted = VALUES(is_submitted),
                     is_approved = 0,
                     responder_type = 'teacher',
-                    responder_id = VALUES(responder_id)"
+                    responder_id = VALUES(responder_id),
+                    deleted_at = NULL,
+                    deleted_by = NULL"
             );
             $existingStmt = $this->db->prepare(
-                'SELECT * FROM assessment_results WHERE assessment_id = ? AND student_academic_enrollment_id = ? LIMIT 1'
+                'SELECT * FROM assessment_results WHERE assessment_id = ? AND student_academic_enrollment_id = ? AND deleted_at IS NULL LIMIT 1'
             );
 
             $saved = 0;
@@ -174,15 +177,15 @@ final class AssessmentResultsService
             }
 
             $status = $submit ? 'submitted' : 'pending_submission';
-            $stmt = $this->db->prepare(
-                'UPDATE assessments SET status = ?, submitted_by = ?, submitted_at = ? WHERE id = ?'
-            );
-            $stmt->execute([
-                $status,
-                $submit ? $this->staffId() : null,
-                $submit ? date('Y-m-d H:i:s') : null,
-                $assessmentId,
-            ]);
+            $reviewRequired = $this->classTeacherReviewRequired((int)$assessment['academic_year_class_stream_id']);
+            if($submit && $reviewRequired && !$this->hasClassReviewSchema())throw new RuntimeException('Class-teacher review needs the summative-assessment migration before Grade 4–9 results can be submitted.',409);
+            if($this->hasClassReviewSchema()){
+                $stmt = $this->db->prepare('UPDATE assessments SET status = ?, submitted_by = ?, submitted_at = ?, class_review_status = ?, class_reviewed_by = NULL, class_reviewed_at = NULL, class_review_note = NULL WHERE id = ?');
+                $stmt->execute([$status,$submit ? $this->staffId() : null,$submit ? date('Y-m-d H:i:s') : null,$submit && $reviewRequired ? 'pending' : 'not_required',$assessmentId]);
+            }else{
+                $stmt=$this->db->prepare('UPDATE assessments SET status=?,submitted_by=?,submitted_at=? WHERE id=?');
+                $stmt->execute([$status,$submit ? $this->staffId() : null,$submit ? date('Y-m-d H:i:s') : null,$assessmentId]);
+            }
             if ($submit) (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
 
             $this->db->commit();
@@ -200,11 +203,121 @@ final class AssessmentResultsService
         }
     }
 
+    /** Convert an explicit staff-mapped document preview into one validated score register. */
+    public function saveImported(int $assessmentId, array $documentRows, array $columnMap, bool $submit): array
+    {
+        $assessment=$this->assessment($assessmentId,false);
+        $this->assertCanAccessAssessment($assessment);
+        $this->assertPeriodAllowsEntry($assessmentId);
+        $required=['admission_no','marks'];
+        foreach($required as $key){if(!isset($columnMap[$key])||!is_numeric($columnMap[$key])||(int)$columnMap[$key]<0)throw new RuntimeException('Map an admission-number column and a marks column before importing.',422);}
+        $indexes=[];
+        foreach(['admission_no','marks','entry_status','remarks'] as $key){
+            if(isset($columnMap[$key])){
+                if(!is_numeric($columnMap[$key])||(int)$columnMap[$key]<0)throw new RuntimeException('A mapped document column is invalid.',422);
+                $indexes[$key]=(int)$columnMap[$key];
+            }
+        }
+        $roster=$this->roster((int)$assessment['academic_year_class_stream_id'],$assessmentId);
+        $byAdmission=[];
+        foreach($roster as $learner){$key=strtoupper(trim((string)$learner['admission_no']));if($key!=='')$byAdmission[$key]=(int)$learner['student_id'];}
+        $rows=[];
+        foreach(array_slice($documentRows,0,5000) as $documentRow){
+            if(!is_array($documentRow))continue;
+            $admission=strtoupper(trim((string)($documentRow[$indexes['admission_no']]??'')));
+            if($admission==='')continue;
+            if(!isset($byAdmission[$admission]))throw new RuntimeException('The file contains an admission number that is not enrolled in this exam register: '.$admission,422);
+            $rawMarks=trim((string)($documentRow[$indexes['marks']]??''));
+            $status=isset($indexes['entry_status'])?strtolower(trim((string)($documentRow[$indexes['entry_status']]??''))):'present';
+            $statusMap=['present'=>'present','absent'=>'absent','a'=>'absent','exempted'=>'exempted','exempt'=>'exempted'];
+            if($status===''&&$rawMarks!=='')$status='present';
+            if(!isset($statusMap[$status]))throw new RuntimeException('The file contains an unsupported learner status: '.$status,422);
+            if($statusMap[$status]==='present'&&$rawMarks==='' )continue;
+            $rows[]=[
+                'student_id'=>$byAdmission[$admission],
+                'entry_status'=>$statusMap[$status],
+                'marks_obtained'=>$rawMarks,
+                'remarks'=>isset($indexes['remarks'])?trim((string)($documentRow[$indexes['remarks']]??'')): '',
+            ];
+        }
+        if(!$rows)throw new RuntimeException('No learner marks matched the selected result register.',422);
+        return $this->save($assessmentId,$rows,$submit,'Imported from a staff-reviewed document preview.');
+    }
+
+    public function adminUpdateResult(int $resultId, array $data): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to edit a result.', 403);
+        $stmt=$this->db->prepare('SELECT ar.*,a.max_marks,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL');
+        $stmt->execute([$resultId]); $old=$stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$old) throw new RuntimeException('Result record not found.',404);
+        $status=strtolower(trim((string)($data['entry_status']??$old['entry_status']??'present')));
+        if(!in_array($status,['present','absent','exempted'],true)) throw new RuntimeException('Invalid result status.',422);
+        $score=null;$grade=null;$points=null;
+        if($status==='present'){
+            $raw=$data['marks_obtained']??$old['marks_obtained'];
+            if(!is_numeric($raw)||(float)$raw<0||(float)$raw>(float)$old['max_marks']) throw new RuntimeException('Marks must be between zero and the assessment maximum.',422);
+            $graded=$this->grading->grade((float)$raw,(float)$old['max_marks']);$score=(float)$raw;$grade=$graded['grade_code']??null;$points=$graded['points']??null;
+        }
+        $remarks=trim((string)($data['remarks']??$old['remarks']??''));
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare('UPDATE assessment_results SET marks_obtained=?,entry_status=?,grade=?,points=?,remarks=? WHERE id=?')->execute([$score,$status,$grade,$points,$remarks,$resultId]);
+            $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'admin_updated',$old,['marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade,'remarks'=>$remarks],(string)($data['reason']??'Administrative correction'));
+            (new TermResultsService($this->db))->compute((int)$old['academic_year_class_stream_id'],(int)$old['academic_year_term_id'],(int)$old['learning_area_id']);
+            $this->db->commit(); return ['id'=>$resultId,'marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade];
+        } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    public function softDeleteResult(int $resultId): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to delete a result.',403);
+        $this->db->beginTransaction();
+        try {
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL FOR UPDATE');
+            $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
+            if(!$old) throw new RuntimeException('Active result record not found.',404);
+            $this->db->prepare('UPDATE assessment_results SET deleted_at=NOW(),deleted_by=? WHERE id=?')->execute([$this->userId,$resultId]);
+            $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'deleted',$old,['deleted'=>true],'Administrative result deletion');
+            (new TermResultsService($this->db))->compute((int)$old['academic_year_class_stream_id'],(int)$old['academic_year_term_id'],(int)$old['learning_area_id']);
+            $this->db->commit();
+            return ['id'=>$resultId,'deleted'=>true];
+        } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    public function restoreResult(int $resultId): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to restore a result.',403);
+        $this->db->beginTransaction();
+        try {
+            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NOT NULL FOR UPDATE');
+            $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
+            if(!$old) throw new RuntimeException('Deleted result record not found.',404);
+            $this->db->prepare('UPDATE assessment_results SET deleted_at=NULL,deleted_by=NULL WHERE id=?')->execute([$resultId]);
+            $this->recordEvent((int)$old['assessment_id'],$resultId,(int)$old['student_academic_enrollment_id'],'restored',$old,['deleted'=>false],'Administrative result restoration');
+            (new TermResultsService($this->db))->compute((int)$old['academic_year_class_stream_id'],(int)$old['academic_year_term_id'],(int)$old['learning_area_id']);
+            $this->db->commit();
+            return ['id'=>$resultId,'restored'=>true];
+        } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    /** Mark a validated register official and journal every result transition. */
+    public function publishAssessment(int $assessmentId): int
+    {
+        $stmt=$this->db->prepare('SELECT * FROM assessment_results WHERE assessment_id=? AND deleted_at IS NULL FOR UPDATE');
+        $stmt->execute([$assessmentId]);$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        if(!$rows) throw new RuntimeException('A submitted register has no active learner results.',409);
+        $update=$this->db->prepare('UPDATE assessment_results SET is_approved=1,is_submitted=1 WHERE id=?');
+        foreach($rows as $row){
+            $update->execute([(int)$row['id']]);
+            $this->recordEvent($assessmentId,(int)$row['id'],(int)$row['student_academic_enrollment_id'],'published',$row,['is_approved'=>true,'is_submitted'=>true],'School Administrator published official summative results.');
+        }
+        return count($rows);
+    }
+
     public function moderate(int $assessmentId, bool $approve, ?int $studentId, string $reason): array
     {
-        if (!$this->isAcademicLeader()) {
-            throw new RuntimeException('Academic leadership access is required for moderation', 403);
-        }
+        $isLeader=$this->isAcademicLeader();
+        if (!$isLeader && !$this->isClassTeacher()) throw new RuntimeException('Class-teacher review or academic leadership access is required.',403);
         if (!$approve && trim($reason) === '') {
             throw new RuntimeException('A rejection reason is required', 422);
         }
@@ -215,6 +328,23 @@ final class AssessmentResultsService
             if (!in_array($assessment['assessment_status'], ['submitted', 'pending_approval'], true)) {
                 throw new RuntimeException('Only submitted results can be moderated', 409);
             }
+            if (!$isLeader) {
+                if(!$this->hasClassReviewSchema())throw new RuntimeException('Class-teacher review is unavailable until the summative-assessment migration is applied.',409);
+                if ($assessment['class_review_status'] !== 'pending' || !$this->classTeacherReviewRequired((int)$assessment['academic_year_class_stream_id'])) throw new RuntimeException('This register is not waiting for class-teacher review.',409);
+                $this->assertClassTeacherScope((int)$assessment['academic_year_class_stream_id'],(int)$assessment['academic_year_term_id']);
+                if (!empty($assessment['submitted_by']) && (int)$assessment['submitted_by'] === (int)$this->staffId()) throw new RuntimeException('The person who submitted these marks cannot review the same register.',403);
+                if ($studentId !== null) throw new RuntimeException('Class teachers review a complete learning-area register at once.',422);
+                $nextReview=$approve?'approved':'returned';
+                $this->db->prepare('UPDATE assessments SET class_review_status=?,class_reviewed_by=?,class_reviewed_at=NOW(),class_review_note=?,status=? WHERE id=?')
+                    ->execute([$nextReview,$this->staffId(),$approve?null:trim($reason),$approve?'submitted':'pending_submission',$assessmentId]);
+                if (!$approve) $this->db->prepare('UPDATE assessment_results SET is_submitted=0,is_approved=0,moderation_note=? WHERE assessment_id=? AND deleted_at IS NULL')->execute([trim($reason),$assessmentId]);
+                $this->db->commit();
+                return ['assessment_id'=>$assessmentId,'status'=>$approve?'awaiting_school_publication':'returned','class_review_status'=>$nextReview];
+            }
+            if ($approve && (int)($assessment['exam_period_id'] ?? 0) > 0) {
+                throw new RuntimeException('Summative exam results must be published through the School Administrator’s exam-period publication action.',409);
+            }
+            if ($assessment['class_review_status'] === 'pending') throw new RuntimeException('The class teacher must review this register before academic moderation.',409);
 
             $params = [$assessmentId];
             $studentSql = '';
@@ -225,7 +355,7 @@ final class AssessmentResultsService
             $stmt = $this->db->prepare(
                 "SELECT ar.* FROM assessment_results ar
                  JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
-                 WHERE ar.assessment_id = ? AND ar.is_submitted = 1{$studentSql}
+                 WHERE ar.assessment_id = ? AND ar.is_submitted = 1 AND ar.deleted_at IS NULL{$studentSql}
                  FOR UPDATE"
             );
             $stmt->execute($params);
@@ -272,12 +402,12 @@ final class AssessmentResultsService
                 $nextStatus = 'pending_submission';
             } else {
                 $remaining = $this->db->prepare(
-                    'SELECT COUNT(*) FROM assessment_results WHERE assessment_id = ? AND (is_submitted = 0 OR is_approved = 0)'
+                    'SELECT COUNT(*) FROM assessment_results WHERE assessment_id = ? AND deleted_at IS NULL AND (is_submitted = 0 OR is_approved = 0)'
                 );
                 $remaining->execute([$assessmentId]);
                 if ((int) $remaining->fetchColumn() === 0) {
                     $expected = count($this->rosterMap((int) $assessment['academic_year_class_stream_id']));
-                    $actual = $this->db->prepare('SELECT COUNT(*) FROM assessment_results WHERE assessment_id = ? AND is_approved = 1');
+                    $actual = $this->db->prepare('SELECT COUNT(*) FROM assessment_results WHERE assessment_id = ? AND deleted_at IS NULL AND is_approved = 1');
                     $actual->execute([$assessmentId]);
                     if ((int) $actual->fetchColumn() === $expected && $expected > 0) {
                         $nextStatus = 'approved';
@@ -363,10 +493,22 @@ final class AssessmentResultsService
 
     private function assessment(int $assessmentId, bool $lock): array
     {
+        $reviewStatus=$this->hasClassReviewSchema()?'a.class_review_status':'\'not_required\' AS class_review_status';
         $sql = "SELECT a.id AS assessment_id, a.academic_year_class_stream_id,
                        a.academic_year_term_id, a.learning_area_id, a.max_marks,
-                       a.assigned_by, a.status AS assessment_status
-                FROM assessments a WHERE a.id = ?" . ($lock ? ' FOR UPDATE' : '');
+                       a.assigned_by, a.status AS assessment_status,
+                       {$reviewStatus}, a.submitted_by, c.name AS class_name,
+                       (SELECT epc.exam_period_id
+                        FROM exam_schedule_assessments esa
+                        JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id=esa.exam_schedule_id
+                        JOIN exam_period_class_learning_areas epcla ON epcla.id=ept.exam_period_class_learning_area_id
+                        JOIN exam_period_classes epc ON epc.id=epcla.exam_period_class_id
+                        WHERE esa.assessment_id=a.id LIMIT 1) AS exam_period_id
+                FROM assessments a
+                JOIN academic_year_class_streams aycs ON aycs.id=a.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+                JOIN classes c ON c.id=ayc.class_id
+                WHERE a.id = ?" . ($lock ? ' FOR UPDATE' : '');
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$assessmentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -388,7 +530,7 @@ final class AssessmentResultsService
              JOIN students s ON s.id = sae.student_id AND s.status = 'active'
              JOIN persons p ON p.id = s.person_id
              LEFT JOIN assessment_results ar
-               ON ar.student_academic_enrollment_id = sae.id AND ar.assessment_id = ?
+               ON ar.student_academic_enrollment_id = sae.id AND ar.assessment_id = ? AND ar.deleted_at IS NULL
              WHERE sae.academic_year_class_stream_id = ?
                AND sae.enrollment_status IN ('pending','active')
              ORDER BY p.first_name, p.middle_name, p.last_name, s.admission_no"
@@ -468,6 +610,34 @@ final class AssessmentResultsService
             }
         }
         return false;
+    }
+
+    private function isClassTeacher(): bool
+    {
+        foreach ($this->roleNames() as $role) if (preg_match('/class teacher/i',$role)) return true;
+        return false;
+    }
+
+    private function hasClassReviewSchema(): bool
+    {
+        if($this->classReviewSchema!==null)return $this->classReviewSchema;
+        $stmt=$this->db->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='assessments' AND COLUMN_NAME='class_review_status'");
+        $this->classReviewSchema=(int)$stmt->fetchColumn()>0;
+        return $this->classReviewSchema;
+    }
+
+    private function classTeacherReviewRequired(int $streamId): bool
+    {
+        $stmt=$this->db->prepare('SELECT c.name FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id JOIN classes c ON c.id=ayc.class_id WHERE aycs.id=?');
+        $stmt->execute([$streamId]);
+        $name=(string)$stmt->fetchColumn();
+        return preg_match('/(?:grade|class)\\s*[4-9]\\b/i',$name)===1;
+    }
+
+    private function assertClassTeacherScope(int $streamId,int $termId): void
+    {
+        $scope=(new TeacherScopeService($this->db))->forUser(['user_id'=>$this->userId,'staff_id'=>$this->staffId()],null,$termId);
+        if (!in_array($streamId,$scope['class_teacher_stream_ids']??[],true)) throw new RuntimeException('Only the assigned class teacher may review this register.',403);
     }
 
     private function roleNames(): array

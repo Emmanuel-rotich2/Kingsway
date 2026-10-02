@@ -66,11 +66,19 @@ final class ExamPeriodService
         return ['terms'=>$terms, 'selected_term'=>$term, 'classes'=>$classes];
     }
 
-    public function list(): array
+    public function list(bool $includeDeleted = false): array
     {
+        $where = $includeDeleted ? '' : "WHERE ep.status <> 'cancelled'";
+        $extended=$this->hasColumn('exam_periods','assessment_kind');
+        $kindSelect=$extended?'ep.assessment_kind, ep.assessment_authority, ep.national_assessment_code,':'\'school_based\' AS assessment_kind, NULL AS assessment_authority, NULL AS national_assessment_code,';
+        $publicationSelect=$this->hasColumn('exam_periods','results_published_at')?'ep.results_published_by, ep.results_published_at, ep.results_release_mode,':'NULL AS results_published_by, NULL AS results_published_at, NULL AS results_release_mode,';
         return $this->db->query(
             "SELECT ep.id, ep.title, ep.academic_year_term_id, ayt.term_id, ay.year_name AS academic_year_name,
-                    ep.starts_on, ep.ends_on, ep.status, ep.created_at, ep.published_at, ep.results_opened_at,
+                    ep.starts_on, ep.ends_on, ep.status, ep.kind, ep.entry_mode,
+                    {$kindSelect}
+                    ep.created_at, ep.published_at, ep.results_opened_at, ep.completed_at,
+                    {$publicationSelect}
+                    ep.deleted_at, ep.deleted_by,
                     COUNT(DISTINCT epc.id) AS class_count,
                     COUNT(DISTINCT epcla.id) AS learning_area_count,
                     COUNT(DISTINCT CASE WHEN es.status <> 'cancelled' THEN ept.id END) AS scheduled_count,
@@ -85,7 +93,8 @@ final class ExamPeriodService
              LEFT JOIN exam_schedules es ON es.id=ept.exam_schedule_id
              LEFT JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id
              LEFT JOIN assessments a ON a.id=esa.assessment_id
-             GROUP BY ep.id, ayt.term_id, ay.year_name ORDER BY ep.created_at DESC"
+             {$where}
+             GROUP BY ep.id ORDER BY ep.created_at DESC"
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -96,8 +105,10 @@ final class ExamPeriodService
             "SELECT epcla.id AS exam_period_class_learning_area_id, ayc.id AS academic_year_class_id,
                     c.name AS class_name, la.id AS learning_area_id, la.name AS learning_area_name,
                     es.id AS exam_schedule_id, es.exam_date, es.start_time, es.end_time, es.max_marks,
-                    es.venue, es.room_id, es.invigilator_id, es.notes,
-                    (SELECT COUNT(*) FROM exam_schedule_assessments esa WHERE esa.exam_schedule_id=es.id) AS stream_assessment_count
+                    es.venue, es.room_id, es.invigilator_id, es.notes, es.status AS schedule_status,
+                    (SELECT COUNT(*) FROM exam_schedule_assessments esa WHERE esa.exam_schedule_id=es.id) AS stream_assessment_count,
+                    (SELECT COUNT(*) FROM assessment_results ar JOIN exam_schedule_assessments esa2 ON esa2.assessment_id=ar.assessment_id
+                       WHERE esa2.exam_schedule_id=es.id AND ar.deleted_at IS NULL) AS result_count
              FROM exam_period_classes epc
              JOIN academic_year_classes ayc ON ayc.id=epc.academic_year_class_id
              JOIN classes c ON c.id=ayc.class_id
@@ -237,18 +248,42 @@ final class ExamPeriodService
         $termId=(int)($data['academic_year_term_id']??0);
         $title=trim((string)($data['title']??''));
         $starts=(string)($data['starts_on']??''); $ends=(string)($data['ends_on']??'');
+        $kind=strtolower(trim((string)($data['kind']??'upcoming')));
+        if(!in_array($kind,['upcoming','past'],true))$kind='upcoming';
+        $entryMode=strtolower(trim((string)($data['entry_mode']??'timetable')));
+        if(!in_array($entryMode,['timetable','results_only'],true))$entryMode='timetable';
+        $assessmentKind=strtolower(trim((string)($data['assessment_kind']??'school_based')));
+        if(!in_array($assessmentKind,['school_based','national','mock','other'],true))throw new RuntimeException('Choose a valid summative assessment type.',422);
+        $authority=trim((string)($data['assessment_authority']??'')) ?: null;
+        $nationalCode=strtoupper(trim((string)($data['national_assessment_code']??''))) ?: null;
+        if(!$this->hasColumn('exam_periods','assessment_kind') && $assessmentKind!=='school_based')throw new RuntimeException('Apply the summative-assessment migration before creating this assessment type.',409);
+        if($assessmentKind==='national'){
+            if(!$this->hasColumn('exam_periods','assessment_kind'))throw new RuntimeException('The summative-assessment migration must be applied before creating national assessments.',409);
+            if(!$authority)$authority='KNEC';
+            if(!$nationalCode)throw new RuntimeException('Select the national assessment (KPSEA, KJSEA, or other).',422);
+            if(!in_array($nationalCode,['KPSEA','KJSEA','OTHER'],true))throw new RuntimeException('Choose KPSEA, KJSEA, or another national assessment.',422);
+            if($nationalCode==='KPSEA' && count(array_filter($classIds,fn(int $id):bool=>$this->classMatchesGrade($id,'6')))!==count($classIds))throw new RuntimeException('KPSEA is configured for Grade 6 classes only.',422);
+            if($nationalCode==='KJSEA' && count(array_filter($classIds,fn(int $id):bool=>$this->classMatchesGrade($id,'9')))!==count($classIds))throw new RuntimeException('KJSEA is configured for Grade 9 classes only.',422);
+        } else { $nationalCode=null; }
         $classIds=array_values(array_unique(array_filter(array_map('intval',(array)($data['academic_year_class_ids']??$data['class_ids']??[])))));
         if (!$termId || $title==='' || !$starts || !$ends || !$classIds) throw new RuntimeException('Term, exam name, dates, and at least one class are required',422);
         if ($this->date($starts)>$this->date($ends)) throw new RuntimeException('The exam period end date must be on or after its start date',422);
         $term=$this->term($termId);
         if (!empty($term['opening_date']) && $starts<(string)$term['opening_date']) throw new RuntimeException('The exam period starts before the selected term',422);
         if (!empty($term['closing_date']) && $ends>(string)$term['closing_date']) throw new RuntimeException('The exam period ends after the selected term',422);
+        if ($kind==='past' && $this->date($ends)>new DateTimeImmutable('today')) throw new RuntimeException('A previous exam record must end on or before today',422);
         $valid=$this->classesForTerm($termId,$classIds);
         if (count($valid)!==count($classIds)) throw new RuntimeException('One or more selected classes do not belong to the selected academic year',422);
         $this->db->beginTransaction();
         try {
-            $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,created_by) VALUES (?,?,?,?,'draft',?)");
-            $insert->execute([$termId,$title,$starts,$ends,$this->userId]); $periodId=(int)$this->db->lastInsertId();
+            if($this->hasColumn('exam_periods','assessment_kind')){
+                $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,kind,entry_mode,assessment_kind,assessment_authority,national_assessment_code,created_by) VALUES (?,?,?,?,'draft',?,?,?,?,?,?)");
+                $insert->execute([$termId,$title,$starts,$ends,$kind,$entryMode,$assessmentKind,$authority,$nationalCode,$this->userId]);
+            } else {
+                $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,kind,entry_mode,created_by) VALUES (?,?,?,?,'draft',?,?,?)");
+                $insert->execute([$termId,$title,$starts,$ends,$kind,$entryMode,$this->userId]);
+            }
+            $periodId=(int)$this->db->lastInsertId();
             $addClass=$this->db->prepare('INSERT INTO exam_period_classes (exam_period_id,academic_year_class_id) VALUES (?,?)');
             $addArea=$this->db->prepare('INSERT INTO exam_period_class_learning_areas (exam_period_class_id,academic_year_class_learning_area_id) VALUES (?,?)');
             $lookup=$this->db->prepare("SELECT cla.id FROM academic_year_class_learning_areas cla WHERE cla.academic_year_class_id=? AND cla.status <> 'skipped'");
@@ -261,16 +296,114 @@ final class ExamPeriodService
                 if (!$areas) throw new RuntimeException('A selected class has no configured learning areas',409);
                 foreach ($areas as $areaId) $addArea->execute([$periodClassId,$areaId]);
             }
+            $sittings=0;
+            if ($entryMode==='results_only') {
+                // Record-keeping mode: create one nominal sitting per class learning area
+                // and open result entry immediately, so teachers can submit marks without
+                // a published timetable.
+                $sittings=$this->writeRecordOnlySittings(['id'=>$periodId,'title'=>$title,'academic_year_term_id'=>$termId,'starts_on'=>$starts]);
+                $open=$this->db->prepare("UPDATE exam_periods SET status='results_open',results_opened_by=?,results_opened_at=NOW() WHERE id=? AND status='draft'");
+                $open->execute([$this->userId,$periodId]);
+            }
             $this->db->commit();
-            return ['id'=>$periodId,'status'=>'draft','classes'=>count($classIds)];
+            return ['id'=>$periodId,'status'=>$entryMode==='results_only'?'results_open':'draft','kind'=>$kind,'entry_mode'=>$entryMode,'assessment_kind'=>$assessmentKind,'assessment_authority'=>$authority,'national_assessment_code'=>$nationalCode,'classes'=>count($classIds),'sittings'=>$sittings];
         } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
+    private function classMatchesGrade(int $academicYearClassId, string $grade): bool
+    {
+        $stmt=$this->db->prepare('SELECT c.name FROM academic_year_classes ayc JOIN classes c ON c.id=ayc.class_id WHERE ayc.id=?');
+        $stmt->execute([$academicYearClassId]);
+        return preg_match('/(?:^|\\D)'.preg_quote($grade,'/').'(?:\\D|$)/', (string)$stmt->fetchColumn())===1;
+    }
+
+    private function staffId(): int
+    {
+        $stmt=$this->db->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id=s.person_id WHERE u.id=? AND s.status='active' LIMIT 1");
+        $stmt->execute([$this->userId]);
+        $staffId=(int)($stmt->fetchColumn()?:0);
+        if($staffId<1)throw new RuntimeException('An active staff profile is required to publish results.',403);
+        return $staffId;
+    }
+
+    private function hasColumn(string $table,string $column): bool
+    {
+        $allowed=['exam_periods'=>['assessment_kind','results_published_at'],'assessments'=>['class_review_status']];
+        if(!in_array($column,$allowed[$table]??[],true))return false;
+        $stmt=$this->db->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?');
+        $stmt->execute([$table,$column]);return (int)$stmt->fetchColumn()>0;
+    }
+
+    public function update(int $periodId, array $data): array
+    {
+        $period = $this->period($periodId, true);
+        if (!empty($period['deleted_at'])) throw new RuntimeException('Restore this exam period before editing it.', 409);
+        $title = trim((string)($data['title'] ?? $period['title']));
+        $starts = (string)($data['starts_on'] ?? $period['starts_on']);
+        $ends = (string)($data['ends_on'] ?? $period['ends_on']);
+        if ($title === '' || $this->date($starts) > $this->date($ends)) throw new RuntimeException('Enter a name and a valid date range.', 422);
+        $term=$this->term((int)$period['academic_year_term_id']);
+        if ((!empty($term['opening_date']) && $starts<(string)$term['opening_date']) || (!empty($term['closing_date']) && $ends>(string)$term['closing_date'])) throw new RuntimeException('Exam dates must remain within the selected academic term.',422);
+        if (($period['kind']??'upcoming')==='past' && $this->date($ends)>new DateTimeImmutable('today')) throw new RuntimeException('A previous exam record must end on or before today.',422);
+        $this->db->prepare('UPDATE exam_periods SET title=?,starts_on=?,ends_on=? WHERE id=?')->execute([$title,$starts,$ends,$periodId]);
+        return ['id'=>$periodId,'title'=>$title,'starts_on'=>$starts,'ends_on'=>$ends];
+    }
+
+    public function softDelete(int $periodId): array
+    {
+        $this->period($periodId, true);
+        $this->db->prepare('UPDATE exam_periods SET deleted_at=NOW(),deleted_by=? WHERE id=? AND deleted_at IS NULL')->execute([$this->userId,$periodId]);
+        return ['id'=>$periodId,'deleted'=>true];
+    }
+
+    public function restore(int $periodId): array
+    {
+        $this->period($periodId, true);
+        $this->db->prepare('UPDATE exam_periods SET deleted_at=NULL,deleted_by=NULL WHERE id=?')->execute([$periodId]);
+        return ['id'=>$periodId,'restored'=>true];
+    }
+
+    public function reopen(int $periodId, string $target): array
+    {
+        $period = $this->period($periodId, true);
+        $target = $target === 'timetable' ? 'draft' : 'results_open';
+        if ($target === 'results_open' && $period['status'] === 'results_open') return ['id'=>$periodId,'status'=>'results_open'];
+        $allowed = $target === 'draft' ? ['published','results_open','moderation','completed'] : ['published','moderation','completed'];
+        $marks = implode(',', array_fill(0,count($allowed),'?'));
+        $stmt=$this->db->prepare("UPDATE exam_periods SET status=?,completed_at=NULL WHERE id=? AND status IN ({$marks})");
+        $stmt->execute(array_merge([$target,$periodId],$allowed));
+        if (!$stmt->rowCount()) throw new RuntimeException('This exam period cannot be reopened from its current state.',409);
+        return ['id'=>$periodId,'status'=>$target];
+    }
+
+    /** Build nominal completed sittings + stream assessments for a results-only period. */
+    private function writeRecordOnlySittings(array $period): int
+    {
+        $areas=$this->periodAreas((int)$period['id']);
+        if(!$areas) throw new RuntimeException('This exam period has no selected class learning areas.',409);
+        $normalized=[];
+        foreach($areas as $area){
+            $area['exam_period_class_learning_area_id']=(int)$area['exam_period_class_learning_area_id'];
+            $normalized[]=[
+                'area'=>$area,
+                'date'=>(string)$period['starts_on'],
+                'start'=>'08:00:00',
+                'end'=>'09:00:00',
+                'max_marks'=>100.0,
+                'venue'=>null,'room_id'=>null,'invigilator_id'=>null,'notes'=>'Record-only entry (no published timetable)',
+            ];
+        }
+        return $this->writeSittings($period,$normalized,true,true);
     }
 
     public function saveTimetable(int $periodId,array $entries):array
     {
         $period=$this->period($periodId,true);
-        if ($period['status']!=='draft') throw new RuntimeException('Only a draft exam period can be scheduled',409);
+        if (!empty($period['deleted_at'])) throw new RuntimeException('Restore this exam period before editing its timetable.',409);
+        if (!in_array($period['status'],['draft','published','results_open','moderation','completed'],true)) throw new RuntimeException('This exam period cannot be scheduled in its current state.',409);
         if (!$entries) throw new RuntimeException('Add timetable entries before saving',422);
+        $oldDatesStmt=$this->db->prepare('SELECT DISTINCT es.exam_date FROM exam_period_classes epc JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedules es ON es.id=ept.exam_schedule_id WHERE epc.exam_period_id=? AND es.status<>\'cancelled\'');
+        $oldDatesStmt->execute([$periodId]);$previousDates=array_map('strval',$oldDatesStmt->fetchAll(PDO::FETCH_COLUMN));
         $areas=$this->periodAreas($periodId); $byId=[];
         foreach($areas as $area)$byId[(int)$area['exam_period_class_learning_area_id']]=$area;
         $seen=[];$normalized=[];
@@ -298,14 +431,17 @@ final class ExamPeriodService
             $insertAssessment=$this->db->prepare("INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_id,title,max_marks,assessment_date,assigned_by,status) VALUES (?,?,?,?,?,?,?,?,'pending_submission')");
             $insertAssessmentLink=$this->db->prepare('INSERT INTO exam_schedule_assessments (exam_schedule_id,academic_year_class_stream_id,assessment_id) VALUES (?,?,?)');
             $updateAssessment=$this->db->prepare("UPDATE assessments SET title=?,max_marks=?,assessment_date=?,assigned_by=? WHERE id=? AND status='pending_submission'");
-            $markCount=$this->db->prepare('SELECT COUNT(*) FROM assessment_results WHERE assessment_id=?');
+            $markCount=$this->db->prepare('SELECT COUNT(*) FROM assessment_results WHERE assessment_id=? AND deleted_at IS NULL');
             $saved=0;
             foreach($normalized as $item){
                 $area=$item['area'];$label=$period['title'].' - '.$area['class_name'].' - '.$area['learning_area_name'];
                 $existingLink->execute([$area['exam_period_class_learning_area_id']]);$scheduleId=(int)($existingLink->fetchColumn()?:0);
                 if($scheduleId){
-                    $checkResults=$this->db->prepare('SELECT COUNT(*) FROM assessment_results ar JOIN exam_schedule_assessments esa ON esa.assessment_id=ar.assessment_id WHERE esa.exam_schedule_id=?');$checkResults->execute([$scheduleId]);
-                    if((int)$checkResults->fetchColumn()>0)throw new RuntimeException('A timetable entry with saved learner results cannot be replaced',409);
+                    $checkResults=$this->db->prepare('SELECT COUNT(*) FROM assessment_results ar JOIN exam_schedule_assessments esa ON esa.assessment_id=ar.assessment_id WHERE esa.exam_schedule_id=? AND ar.deleted_at IS NULL');$checkResults->execute([$scheduleId]);
+                    if((int)$checkResults->fetchColumn()>0){
+                        $oldMarks=$this->db->prepare('SELECT max_marks FROM exam_schedules WHERE id=?');$oldMarks->execute([$scheduleId]);
+                        if((float)$oldMarks->fetchColumn()!==(float)$item['max_marks']) throw new RuntimeException('Changing maximum marks would affect existing learner results. Reopen results and resolve those records first.',409);
+                    }
                     $updateSchedule->execute([$label,$item['max_marks'],$item['date'],$item['start'],$item['end'],$this->duration($item['start'],$item['end']),$item['room_id'],$item['venue'],$item['invigilator_id'],$item['notes'],$scheduleId]);
                 }else{
                     $insertSchedule->execute([(int)$area['academic_year_class_id'],(int)$period['academic_year_term_id'],(int)$area['learning_area_id'],$item['max_marks'],$label,$item['date'],$item['start'],$item['end'],$this->duration($item['start'],$item['end']),$item['room_id'],$item['venue'],$item['invigilator_id'],$item['notes'],$this->userId]);
@@ -324,13 +460,39 @@ final class ExamPeriodService
                 }
                 $saved++;
             }
+            $this->syncExamCalendarDays($periodId,$period,$normalized,$previousDates);
             $this->db->commit();return ['saved'=>$saved,'expected'=>count($areas)];
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
 
+    private function syncExamCalendarDays(int $periodId,array $period,array $entries,array $previousDates): void
+    {
+        $newDates=array_values(array_unique(array_map(static fn(array $entry):string=>(string)$entry['date'],$entries)));
+        $examType=(int)$this->db->query("SELECT id FROM calendar_day_types WHERE code='exam_day' LIMIT 1")->fetchColumn();
+        $schoolType=(int)$this->db->query("SELECT id FROM calendar_day_types WHERE code='school_day' LIMIT 1")->fetchColumn();
+        if(!$examType||!$schoolType)throw new RuntimeException('The academic calendar is missing its exam-day or school-day type.',409);
+        $find=$this->db->prepare('SELECT d.id,cdt.code FROM academic_year_calendar_days d JOIN academic_year_calendar ac ON ac.id=d.academic_year_calendar_id LEFT JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id WHERE ac.academic_year_term_id=? AND d.date=? LIMIT 1');
+        $update=$this->db->prepare('UPDATE academic_year_calendar_days SET calendar_day_type_id=?,title=?,is_manual=1 WHERE id=?');
+        $sync=new CalendarSyncService($this->db);
+        foreach($newDates as $date){
+            $find->execute([(int)$period['academic_year_term_id'],$date]);$day=$find->fetch(PDO::FETCH_ASSOC);
+            if(!$day)throw new RuntimeException("The exam date {$date} is not present in the generated academic calendar.",422);
+            if(!in_array((string)$day['code'],['school_day','exam_day'],true))throw new RuntimeException("The exam date {$date} is not a school or exam day in the academic calendar.",422);
+            $update->execute([$examType,'Exam day: '.$period['title'],(int)$day['id']]);
+            $sync->syncDay((int)$day['id'],false);
+        }
+        foreach(array_diff(array_unique($previousDates),$newDates) as $date){
+            $find->execute([(int)$period['academic_year_term_id'],(string)$date]);$day=$find->fetch(PDO::FETCH_ASSOC);
+            if(!$day||(string)$day['code']!=='exam_day')continue;
+            $this->db->prepare('UPDATE academic_year_calendar_days SET calendar_day_type_id=?,title=NULL,is_manual=0 WHERE id=? AND title=?')
+                ->execute([$schoolType,(int)$day['id'],'Exam day: '.$period['title']]);
+            $sync->syncDay((int)$day['id'],false);
+        }
+    }
+
     public function publish(int $periodId):array
     {
-        $period=$this->period($periodId,true);if($period['status']!=='draft')throw new RuntimeException('Only a draft period can be published',409);
+        $period=$this->period($periodId,true);if(!empty($period['deleted_at']))throw new RuntimeException('Restore this exam period before publishing it.',409);if($period['status']!=='draft')throw new RuntimeException('Only a draft period can be published',409);
         $areas=$this->periodAreas($periodId);$count=$this->db->prepare("SELECT COUNT(*) FROM exam_period_timetable_entries ept JOIN exam_schedules es ON es.id=ept.exam_schedule_id WHERE ept.exam_period_class_learning_area_id IN (SELECT epcla.id FROM exam_period_class_learning_areas epcla JOIN exam_period_classes epc ON epc.id=epcla.exam_period_class_id WHERE epc.exam_period_id=?) AND es.status<>'cancelled'");$count->execute([$periodId]);
         if((int)$count->fetchColumn()!==count($areas))throw new RuntimeException('Schedule every selected class learning area before publishing the timetable',409);
         $this->db->beginTransaction();try{
@@ -342,13 +504,51 @@ final class ExamPeriodService
 
     public function openResults(int $periodId):array
     {
-        $stmt=$this->db->prepare("UPDATE exam_periods SET status='results_open',results_opened_by=?,results_opened_at=NOW() WHERE id=? AND status='published'");$stmt->execute([$this->userId,$periodId]);if($stmt->rowCount()!==1)throw new RuntimeException('Only a published exam period can be opened for result entry',409);return ['id'=>$periodId,'status'=>'results_open'];
+        $stmt=$this->db->prepare("UPDATE exam_periods SET status='results_open',results_opened_by=?,results_opened_at=NOW() WHERE id=? AND status='published' AND deleted_at IS NULL");$stmt->execute([$this->userId,$periodId]);if($stmt->rowCount()!==1)throw new RuntimeException('Only a published, active exam period can be opened for result entry',409);return ['id'=>$periodId,'status'=>'results_open'];
     }
 
-    public function results(int $periodId):array
+    /** School Administrator publication gate for reviewed summative registers. */
+    public function publishResults(int $periodId): array
+    {
+        if(!$this->hasColumn('exam_periods','results_published_at')||!$this->hasColumn('exam_periods','assessment_kind')||!$this->hasColumn('assessments','class_review_status'))throw new RuntimeException('The summative-assessment workflow migration has not been applied.',409);
+        $period=$this->period($periodId,true);
+        if(!empty($period['deleted_at'])) throw new RuntimeException('Restore this exam period before publishing results.',409);
+        if(!empty($period['results_published_at'])) throw new RuntimeException('Results have already been published for this exam period.',409);
+        $stmt=$this->db->prepare("SELECT DISTINCT a.id,a.status,a.class_review_status,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id,c.name AS class_name
+            FROM exam_period_classes epc
+            JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id
+            JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id
+            JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=ept.exam_schedule_id
+            JOIN assessments a ON a.id=esa.assessment_id
+            JOIN academic_year_class_streams aycs ON aycs.id=a.academic_year_class_stream_id
+            JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+            JOIN classes c ON c.id=ayc.class_id WHERE epc.exam_period_id=?");
+        $stmt->execute([$periodId]);$assessments=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        if(!$assessments) throw new RuntimeException('This exam period has no result registers to publish.',409);
+        foreach($assessments as $a){
+            if($a['status']!=='submitted') throw new RuntimeException('Every learning-area register must be submitted before school publication.',409);
+            if(preg_match('/(?:grade|class)\\s*[4-9]\\b/i',(string)$a['class_name'])===1 && $a['class_review_status']!=='approved') throw new RuntimeException('Every Grade 4–9 register must be approved by its class teacher before school publication.',409);
+        }
+        $this->db->beginTransaction();
+        try{
+            $assessmentIds=array_map(static fn(array $a):int=>(int)$a['id'],$assessments);
+            $marks=implode(',',array_fill(0,count($assessmentIds),'?'));
+            $resultsService=new AssessmentResultsService($this->db,$this->userId);
+            foreach($assessmentIds as $assessmentId)$resultsService->publishAssessment($assessmentId);
+            $staffId=$this->staffId();
+            $this->db->prepare("UPDATE assessments SET status='approved',approved_by=?,moderated_by=?,moderated_at=NOW() WHERE id IN ({$marks}) AND status='submitted'")->execute(array_merge([$staffId,$staffId],$assessmentIds));
+            $this->db->prepare('UPDATE exam_periods SET results_published_by=?,results_published_at=NOW() WHERE id=? AND results_published_at IS NULL')->execute([$this->userId,$periodId]);
+            $seen=[];
+            foreach($assessments as $a){$key=(int)$a['academic_year_class_stream_id'].':'.(int)$a['academic_year_term_id'].':'.(int)$a['learning_area_id'];if(isset($seen[$key]))continue;$seen[$key]=true;(new \App\API\Services\TermResultsService($this->db))->compute((int)$a['academic_year_class_stream_id'],(int)$a['academic_year_term_id'],(int)$a['learning_area_id']);}
+            $this->db->commit();
+            return ['id'=>$periodId,'status'=>'results_published','published_at'=>date('Y-m-d H:i:s'),'registers'=>count($assessments),'official_parent_view'=>'Results are now part of the official term results; generate/release report cards to deliver a corrected PDF by email and result messages through configured parent channels.'];
+        }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+    }
+
+    public function results(int $periodId, bool $includeDeleted = false):array
     {
         if(!$this->isAcademicLeader())throw new RuntimeException('School-wide exam results require academic leadership access',403);
-        return ['period'=>$this->period($periodId),'items'=>$this->resultRows($periodId,null)];
+        return ['period'=>$this->period($periodId),'items'=>$this->resultRows($periodId,null,$includeDeleted)];
     }
 
     public function resultsForTeacher(int $periodId):array
@@ -358,10 +558,11 @@ final class ExamPeriodService
         return ['period'=>$this->period($periodId),'items'=>$this->resultRows($periodId,$staffId)];
     }
 
-    private function resultRows(int $periodId,?int $staffId):array
+    private function resultRows(int $periodId,?int $staffId,bool $includeDeleted=false):array
     {
         $scope=$staffId===null?'':' AND (aycs.class_teacher_id=? OR EXISTS (SELECT 1 FROM academic_year_class_stream_learning_area_teachers x WHERE x.academic_year_class_stream_id=aycs.id AND x.academic_year_term_id=ep.academic_year_term_id AND x.learning_area_id=es.learning_area_id AND x.staff_id=?) OR EXISTS (SELECT 1 FROM academic_year_class_learning_area_teachers legacy JOIN academic_year_class_learning_areas cla ON cla.id=legacy.academic_year_class_learning_area_id WHERE cla.academic_year_class_id=ayc.id AND cla.learning_area_id=es.learning_area_id AND legacy.academic_year_term_id=ep.academic_year_term_id AND legacy.staff_id=?))';
-        $stmt=$this->db->prepare("SELECT es.id AS exam_schedule_id,es.exam_date,es.start_time,es.end_time,c.name AS class_name,sn.name AS stream_name,la.name AS learning_area,a.id AS assessment_id,a.status AS assessment_status,a.max_marks,s.admission_no,CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name) AS learner_name,ar.marks_obtained,ar.grade,ar.entry_status,ar.is_submitted,ar.is_approved FROM exam_periods ep JOIN academic_year_terms ayt ON ayt.id=ep.academic_year_term_id JOIN exam_period_classes epc ON epc.exam_period_id=ep.id JOIN academic_year_classes ayc ON ayc.id=epc.academic_year_class_id JOIN classes c ON c.id=ayc.class_id JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN academic_year_class_learning_areas cla ON cla.id=epcla.academic_year_class_learning_area_id JOIN learning_areas la ON la.id=cla.learning_area_id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedules es ON es.id=ept.exam_schedule_id JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id JOIN assessments a ON a.id=esa.assessment_id JOIN academic_year_class_streams aycs ON aycs.id=esa.academic_year_class_stream_id AND aycs.academic_year_class_id=ayc.id LEFT JOIN streams sn ON sn.id=aycs.stream_id JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id=aycs.id AND sae.academic_year_id=ayt.academic_year_id JOIN students s ON s.id=sae.student_id JOIN persons p ON p.id=s.person_id LEFT JOIN assessment_results ar ON ar.assessment_id=a.id AND ar.student_academic_enrollment_id=sae.id WHERE ep.id=?{$scope} ORDER BY c.name,sn.name,la.name,p.first_name,p.last_name");
+        $deletedFilter=$includeDeleted?'':' AND ar.deleted_at IS NULL';
+        $stmt=$this->db->prepare("SELECT es.id AS exam_schedule_id,es.exam_date,es.start_time,es.end_time,c.name AS class_name,sn.name AS stream_name,la.name AS learning_area,a.id AS assessment_id,a.status AS assessment_status,a.max_marks,s.admission_no,CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name) AS learner_name,ar.id AS result_id,ar.deleted_at AS result_deleted_at,ar.marks_obtained,ar.grade,ar.entry_status,ar.is_submitted,ar.is_approved FROM exam_periods ep JOIN academic_year_terms ayt ON ayt.id=ep.academic_year_term_id JOIN exam_period_classes epc ON epc.exam_period_id=ep.id JOIN academic_year_classes ayc ON ayc.id=epc.academic_year_class_id JOIN classes c ON c.id=ayc.class_id JOIN exam_period_class_learning_areas epcla ON epcla.exam_period_class_id=epc.id JOIN academic_year_class_learning_areas cla ON cla.id=epcla.academic_year_class_learning_area_id JOIN learning_areas la ON la.id=cla.learning_area_id JOIN exam_period_timetable_entries ept ON ept.exam_period_class_learning_area_id=epcla.id JOIN exam_schedules es ON es.id=ept.exam_schedule_id JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id JOIN assessments a ON a.id=esa.assessment_id JOIN academic_year_class_streams aycs ON aycs.id=esa.academic_year_class_stream_id AND aycs.academic_year_class_id=ayc.id LEFT JOIN streams sn ON sn.id=aycs.stream_id JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id=aycs.id AND sae.academic_year_id=ayt.academic_year_id JOIN students s ON s.id=sae.student_id JOIN persons p ON p.id=s.person_id LEFT JOIN assessment_results ar ON ar.assessment_id=a.id AND ar.student_academic_enrollment_id=sae.id{$deletedFilter} WHERE ep.id=?{$scope} ORDER BY c.name,sn.name,la.name,p.first_name,p.last_name");
         $bindings=[$periodId];if($staffId!==null)array_push($bindings,$staffId,$staffId,$staffId);$stmt->execute($bindings);return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

@@ -112,8 +112,9 @@ class RealtimeController extends BaseAPI
         }
 
         $limit = max(1, min(50, (int) ($data['limit'] ?? 10)));
-        JobQueue::recoverStale();
-        $ids = JobQueue::claimBatch($limit);
+        $pythonTypes = $this->activePythonJobTypes();
+        JobQueue::recoverStale(15, $pythonTypes);
+        $ids = JobQueue::claimBatch($limit, $pythonTypes);
         $done = 0;
         $failed = 0;
         $retried = 0;
@@ -212,15 +213,140 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Projection is not enabled for synchronization', 422);
         }
         try {
+            /** @var \App\API\Services\ReadProjectionBridge $bridge */
+            $bridge = $this->contract(\App\API\Services\ReadProjectionBridge::class);
+            if (!$bridge->enabled()) {
+                $result = ReadProjectionSynchronizer::synchronize($projection);
+                $result['engine'] = 'php_fallback';
+                return $this->successResponse($result, 'Read projection synchronized', 200);
+            }
+            $jobId = JobQueue::push('reads.projection.refresh', [
+                'projection' => $projection,
+                'requested_by' => 'worker-cron',
+                'idempotency_key' => 'projection:' . $projection . ':' . date('YmdHi'),
+            ], 0, 5, 60);
             return $this->successResponse(
-                ReadProjectionSynchronizer::synchronize($projection),
-                'Read projection synchronized',
-                200
+                ['job_id' => $jobId, 'projection' => $projection, 'status' => 'queued'],
+                'Read projection refresh queued',
+                202
             );
         } catch (\Throwable $e) {
-            \App\API\Services\Logger::legacyError('[RealtimeController] projection sync failed: ' . $e->getMessage());
-            return $this->errorResponse('Read projection synchronization failed', 500);
+            \App\API\Services\Logger::legacyError('[RealtimeController] projection refresh enqueue failed: ' . $e->getMessage());
+            return $this->errorResponse('Read projection refresh could not be queued', 500);
         }
+    }
+
+    /** Python worker claim; payloads are returned only for registered Python job types. */
+    public function postPythonJobClaim($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) return $this->errorResponse('Invalid worker credential', 403);
+        $pythonTypes = $this->activePythonJobTypes();
+        if ($pythonTypes === []) return $this->successResponse(['job' => null], 'No Python handlers are enabled', 200);
+        JobQueue::recoverStaleForTypes($pythonTypes, 60);
+        $ids = JobQueue::claimBatchForTypes($pythonTypes, 1);
+        if ($ids === []) return $this->successResponse(['job' => null], 'No Python jobs available', 200);
+        $job = JobQueue::fetchJob((int) $ids[0]);
+        if ($job === null || !in_array($job['job_type'], JobQueue::PYTHON_JOB_TYPES, true)) {
+            return $this->errorResponse('Claimed Python job could not be loaded', 500);
+        }
+        return $this->successResponse([
+            'job' => [
+                'id' => (int) $job['id'],
+                'job_type' => $job['job_type'],
+                'payload' => $job['payload'],
+                'attempts' => (int) $job['attempts'],
+            ],
+        ], 'Python job claimed', 200);
+    }
+
+    /** Return input only after rechecking the operator and exact queue lease in PHP. */
+    public function postPythonJobInput($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) return $this->errorResponse('Invalid worker credential', 403);
+        $jobId = max(0, (int) ($data['job_id'] ?? 0));
+        $attempts = max(-1, (int) ($data['attempts'] ?? -1));
+        $job = $jobId > 0 ? JobQueue::fetchJob($jobId) : null;
+        if ($job === null || $job['status'] !== JobQueue::STATUS_PROCESSING
+            || ($job['job_type'] ?? '') !== 'automation.run'
+            || !in_array('automation.run', $this->activePythonJobTypes(), true)
+            || $attempts !== (int) $job['attempts']) {
+            return $this->errorResponse('Python job lease is not valid for input access', 409);
+        }
+        try {
+            $input = (new \App\API\Services\automations\AutomationArtifacts())
+                ->preparePythonJob($job['payload'], $this->db);
+            return $this->successResponse($input, 'Authorized automation input', 200);
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] Python input preparation failed: ' . get_class($error));
+            return $this->errorResponse('Automation input is unavailable or no longer authorized', 422);
+        }
+    }
+
+    /** Python worker acknowledges completion through the PHP-owned queue lifecycle. */
+    public function postPythonJobComplete($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) return $this->errorResponse('Invalid worker credential', 403);
+        $jobId = max(0, (int) ($data['job_id'] ?? 0));
+        $claimedAttempts = max(-1, (int) ($data['attempts'] ?? -1));
+        $job = $jobId > 0 ? JobQueue::fetchJob($jobId) : null;
+        if ($job === null || $job['status'] !== JobQueue::STATUS_PROCESSING
+            || !in_array($job['job_type'], JobQueue::PYTHON_JOB_TYPES, true)
+            || $claimedAttempts !== (int) $job['attempts']) {
+            return $this->errorResponse('Python job is not owned by this worker', 409);
+        }
+        $descriptor = null;
+        if ($job['job_type'] === 'automation.run') {
+            if (!in_array('automation.run', $this->activePythonJobTypes(), true) || !is_array($data['result'] ?? null)) {
+                return $this->errorResponse('Automation result is not available to this worker', 422);
+            }
+            try {
+                $descriptor = (new \App\API\Services\automations\AutomationArtifacts())
+                    ->stagePythonResult($job['payload'], $data['result'], $this->db);
+            } catch (\Throwable $error) {
+                \App\API\Services\Logger::legacyError('[RealtimeController] Python artifact validation failed: ' . get_class($error));
+                return $this->errorResponse('Python automation artifact failed validation', 422);
+            }
+        }
+        if (!JobQueue::markDoneForAttempt($jobId, $claimedAttempts)) {
+            return $this->errorResponse('Python job lease has been recovered', 409);
+        }
+        if ($descriptor !== null) {
+            (new \App\API\Services\automations\AutomationArtifacts())->finishPythonJob($job['payload'], $descriptor);
+        }
+        return $this->successResponse(['job_id' => $jobId, 'status' => JobQueue::STATUS_DONE, 'artifact' => $descriptor], 'Python job completed', 200);
+    }
+
+    /** Keep a long-running Python job lease alive without allowing lease takeover. */
+    public function postPythonJobHeartbeat($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) return $this->errorResponse('Invalid worker credential', 403);
+        $jobId = max(0, (int) ($data['job_id'] ?? 0));
+        $attempts = max(-1, (int) ($data['attempts'] ?? -1));
+        $job = $jobId > 0 ? JobQueue::fetchJob($jobId) : null;
+        if ($job === null || !in_array($job['job_type'], JobQueue::PYTHON_JOB_TYPES, true)
+            || $attempts !== (int) $job['attempts']
+            || !JobQueue::touchProcessingAttempt($jobId, $attempts)) {
+            return $this->errorResponse('Python job lease is no longer active', 409);
+        }
+        return $this->successResponse(['job_id' => $jobId, 'status' => JobQueue::STATUS_PROCESSING], 'Python job lease renewed', 200);
+    }
+
+    /** Python worker failures use the same retry/backoff/dead-letter policy as PHP jobs. */
+    public function postPythonJobFail($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) return $this->errorResponse('Invalid worker credential', 403);
+        $jobId = max(0, (int) ($data['job_id'] ?? 0));
+        $claimedAttempts = max(-1, (int) ($data['attempts'] ?? -1));
+        $job = $jobId > 0 ? JobQueue::fetchJob($jobId) : null;
+        if ($job === null || $job['status'] !== JobQueue::STATUS_PROCESSING
+            || !in_array($job['job_type'], JobQueue::PYTHON_JOB_TYPES, true)
+            || $claimedAttempts !== (int) $job['attempts']) {
+            return $this->errorResponse('Python job is not owned by this worker', 409);
+        }
+        $reason = substr(trim((string) ($data['reason'] ?? 'Python worker failed')), 0, 500);
+        $status = JobQueue::markFailedForAttempt($jobId, $claimedAttempts, $reason !== '' ? $reason : 'Python worker failed');
+        if ($status === null) return $this->errorResponse('Python job lease has been recovered', 409);
+        return $this->successResponse(['job_id' => $jobId, 'status' => $status], 'Python failure recorded', 200);
     }
 
     private function hasValidWorkerCredential(): bool
@@ -231,6 +357,28 @@ class RealtimeController extends BaseAPI
         return $expected !== ''
             && is_string($provided)
             && hash_equals($expected, $provided);
+    }
+
+    /** Python may claim only job families whose service configuration is active. */
+    private function activePythonJobTypes(): array
+    {
+        $types = [];
+        try {
+            if ((new \App\API\Services\ReadProjectionBridge())->enabled()) {
+                $types[] = 'reads.projection.refresh';
+            }
+        } catch (\Throwable $error) {
+            // A disabled/misconfigured runtime must leave that family to its
+            // safe PHP fallback rather than strand queue rows as processing.
+        }
+        try {
+            if ((new \App\API\Services\AutomationBridge())->available()) {
+                $types[] = 'automation.run';
+            }
+        } catch (\Throwable $error) {
+            // See the read projection fallback above.
+        }
+        return $types;
     }
 
     /**

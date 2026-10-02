@@ -244,6 +244,14 @@ final class ReadReplicaService
             self::$refState[$projection] = $fresh
                 ? 'materialized_fresh'
                 : ($exists ? 'stale_master_fallback' : 'unavailable_master_fallback');
+            if (!$fresh && $policy['storage_mode'] === 'materialized_table') {
+                \App\API\Includes\FileLogger::write('reads', [
+                    'event' => 'projection_master_fallback',
+                    'projection' => $projection,
+                    'reason' => self::$refState[$projection],
+                    'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                ], 'warning');
+            }
         }
         return self::$refCache[$projection];
     }

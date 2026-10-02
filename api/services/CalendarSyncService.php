@@ -61,7 +61,7 @@ class CalendarSyncService
     /**
      * Reconcile a single calendar day against school_events + exam_schedules.
      */
-    public function syncDay(int $dayId): array
+    public function syncDay(int $dayId, bool $createExamScheduleRows = true): array
     {
         $day = $this->fetchDay($dayId);
         if (!$day) {
@@ -82,7 +82,7 @@ class CalendarSyncService
         $eventType = self::DAY_TYPE_TO_EVENT[$dayType] ?? 'special_event';
         $this->upsertMirrorEvent($day, $eventType);
 
-        if ($dayType === 'exam_day' && $day['academic_year_term_id']) {
+        if ($createExamScheduleRows && $dayType === 'exam_day' && $day['academic_year_term_id']) {
             $exams = $this->syncExamSchedules($day['date'], (int) $day['academic_year_term_id'], $day['title']);
         }
 

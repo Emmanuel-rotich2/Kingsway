@@ -1453,8 +1453,13 @@ class DashboardController extends BaseController
             }
 
             // Standard financial dashboard
+            // Pass the academic-year filter through UNRESOLVED: the service's
+            // canonical resolver (FeeLedgerFilter::academicYear) handles the
+            // id / stored "2026/2027" code / bare "2026" forms against the
+            // context tables. Forcing a bare date('Y') here matched nothing —
+            // the view stores "2026/2027".
             $safeFilters = [];
-            $safeFilters['academic_year'] = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+            $safeFilters['academic_year'] = trim((string) ($filters['academic_year'] ?? ''));
             foreach (['date_from', 'date_to'] as $dateKey) {
                 if (!empty($filters[$dateKey]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters[$dateKey])) {
                     $safeFilters[$dateKey] = $filters[$dateKey];

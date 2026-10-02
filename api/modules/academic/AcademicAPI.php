@@ -2467,7 +2467,31 @@ class AcademicAPI extends BaseAPI
     public function getAcademicTerms($params = [])
     {
         try {
-            // Get academic terms with related information
+            // Get academic terms with related information.
+            // The academic-year scope is optional: with no parameter this
+            // returns every configured year (what the generic pickers expect),
+            // and with one it returns only that year. The year may be given as
+            // an id, a year_code ("2026/2027") or a year_name — the same three
+            // forms the finance workspace accepts, so a filter driven by
+            // either surface resolves identically.
+            $yearParam = null;
+            foreach (['academic_year', 'academic_year_id', 'year', 'year_code'] as $candidate) {
+                if (!empty($params[$candidate])) {
+                    $yearParam = trim((string) $params[$candidate]);
+                    break;
+                }
+            }
+
+            $params_ = [];
+            $yearClause = '';
+            if ($yearParam !== null) {
+                $numericId = ctype_digit($yearParam) ? (int) $yearParam : 0;
+                $yearClause = ' AND (ay.id = ? OR ay.year_code = ? OR ay.year_name = ?)';
+                $params_[] = $numericId ?: 0;
+                $params_[] = $yearParam;
+                $params_[] = $yearParam;
+            }
+
             $sql = "
                 SELECT 
                     ayt.id,
@@ -2491,12 +2515,13 @@ class AcademicAPI extends BaseAPI
                 JOIN terms t ON t.id = ayt.term_id
                 LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
                 LEFT JOIN academic_year_classes ayc ON ayc.academic_year_id = ayt.academic_year_id AND ayc.status = 'active'
+                WHERE 1=1 " . $yearClause . "
                 GROUP BY ayt.id, t.id, ay.id
                 ORDER BY ayt.opening_date DESC, t.id
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute($params_);
             $terms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return successResponse($terms);
@@ -4792,6 +4817,16 @@ return errorResponse($e->getMessage(), 400);
 
             // Exclude cancelled by default
             $where[] = "es.status != 'cancelled'";
+            $where[] = '(ep.id IS NULL OR ep.deleted_at IS NULL)';
+            if (!$this->isAcademicLeader()) {
+                $staffId = (int)($this->getCurrentStaffId() ?? 0);
+                if ($staffId < 1) {
+                    $where[] = '1 = 0';
+                } else {
+                    $where[] = "(EXISTS (SELECT 1 FROM academic_year_class_streams scope_aycs WHERE scope_aycs.id=COALESCE(esa.academic_year_class_stream_id,es.academic_year_class_stream_id) AND scope_aycs.class_teacher_id=?) OR EXISTS (SELECT 1 FROM academic_year_class_stream_learning_area_teachers scope_x JOIN academic_year_class_stream_learning_areas scope_sla ON scope_sla.id=scope_x.academic_year_class_stream_learning_area_id WHERE scope_x.academic_year_class_stream_id=COALESCE(esa.academic_year_class_stream_id,es.academic_year_class_stream_id) AND scope_sla.academic_year_class_learning_area_id=(SELECT cla_scope.id FROM academic_year_class_learning_areas cla_scope WHERE cla_scope.academic_year_class_id=COALESCE(es.academic_year_class_id,(SELECT aycs_scope.academic_year_class_id FROM academic_year_class_streams aycs_scope WHERE aycs_scope.id=COALESCE(esa.academic_year_class_stream_id,es.academic_year_class_stream_id))) AND cla_scope.learning_area_id=es.learning_area_id LIMIT 1) AND scope_x.staff_id=? AND scope_x.status='active') OR EXISTS (SELECT 1 FROM academic_year_class_learning_area_teachers legacy_x JOIN academic_year_class_learning_areas legacy_cla ON legacy_cla.id=legacy_x.academic_year_class_learning_area_id WHERE legacy_cla.academic_year_class_id=COALESCE(es.academic_year_class_id,aycs.academic_year_class_id) AND legacy_cla.learning_area_id=es.learning_area_id AND legacy_x.academic_year_term_id=es.academic_year_term_id AND legacy_x.staff_id=?))";
+                    array_push($bindings,$staffId,$staffId,$staffId);
+                }
+            }
 
             $whereClause = implode(' AND ', $where);
 

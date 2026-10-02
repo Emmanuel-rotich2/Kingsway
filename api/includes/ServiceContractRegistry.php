@@ -168,6 +168,10 @@ class ServiceContractRegistry
         self::govern('App\API\Services\DeputyAcademicAnalyticsService', '', 'deputyacademicanalyticsservice');
         self::govern('App\API\Services\OTPDeliveryService', '', 'otpdeliveryservice');
         self::govern('App\API\Services\EnvironmentPhaseService', '', 'environmentphaseservice');
+        self::govern('App\API\Services\AutomationRegistry', '', 'automationregistry');
+        self::govern('App\API\Services\AutomationBridge', '', 'automationbridge');
+        self::govern('App\API\Services\ReadProjectionBridge', '', 'readprojectionbridge');
+        self::govern('App\API\Services\automations\AutomationArtifacts', '', 'automationartifacts');
         self::govern('App\API\Services\HeadteacherAnalyticsService', '', 'headteacheranalyticsservice');
         self::govern('App\API\Services\payments\SupplierDisbursementService', 'payments', 'payments.supplierdisbursementservice');
         self::govern('App\API\Services\payments\TransportPaymentService', 'payments', 'payments.transportpaymentservice');

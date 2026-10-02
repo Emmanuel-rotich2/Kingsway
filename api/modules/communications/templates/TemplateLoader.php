@@ -5,11 +5,13 @@ class TemplateLoader
 {
     private $smsTemplates;
     private $whatsappTemplates;
+    private $emailTemplates;
 
     public function __construct()
     {
         $this->smsTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_sms.json');
         $this->whatsappTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_whatsapp.json');
+        $this->emailTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_email.json');
     }
 
     private function loadTemplates($file)
@@ -22,7 +24,12 @@ class TemplateLoader
 
     public function getTemplate($type, $category)
     {
-        $templates = $type === 'sms' ? $this->smsTemplates : $this->whatsappTemplates;
+        $templates = match (strtolower((string)$type)) {
+            'sms' => $this->smsTemplates,
+            'email' => $this->emailTemplates,
+            'whatsapp' => $this->whatsappTemplates,
+            default => [],
+        };
         foreach ($templates as $tpl) {
             if ($tpl['category'] === $category) {
                 return $tpl;

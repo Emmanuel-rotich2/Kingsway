@@ -35,14 +35,24 @@ final class AiPythonBridge
     /** @var callable|null Injectable transport for hermetic tests: fn(string $url, string $method, array $headers, string $body, int $timeout): array{0:string|false,1:int,2:string} */
     private $transport;
 
+    /** @var InterServiceClient */
+    private $client;
+
     public function __construct(?callable $transport = null)
     {
         $this->transport = $transport;
+        $this->client = new InterServiceClient($transport);
     }
 
     public function available(): bool
     {
-        return trim((string) Config::get('AI_PYTHON_URL', '')) !== '';
+        return $this->client->isConfigured('python_ai');
+    }
+
+    /** Which link carried the last call: internal loopback or public HTTPS. */
+    private function linkInUse(): string
+    {
+        return $this->client->linkInUse('python_ai');
     }
 
     /**
@@ -203,19 +213,14 @@ final class AiPythonBridge
      */
     private function call(string $endpoint, array $payload): array
     {
-        $baseUrl = rtrim((string) Config::get('AI_PYTHON_URL', ''), '/');
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
-        if ($baseUrl === '' || $secret === '') {
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
             throw new AiProviderException('The Python AI platform is not configured.');
-        }
-        if (Config::isProduction() && stripos($baseUrl, 'https://') !== 0) {
-            throw new AiProviderException('The Python AI platform must use HTTPS in production.');
         }
         $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($body === false) {
             throw new AiProviderException('The AI relay request could not be encoded.');
         }
-        $url = $baseUrl . $endpoint;
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json',
@@ -224,13 +229,14 @@ final class AiPythonBridge
         $timeout = min(60, max(5, (int) Config::get('AI_PYTHON_TIMEOUT', 45)));
         $started = microtime(true);
 
-        [$raw, $status, $error] = $this->request($url, 'POST', $headers, $body, $timeout);
+        [$raw, $status, $error] = $this->client->post('python_ai', $endpoint, $headers, $body, $timeout);
 
         FileLogger::write('ai_generation', [
             'type' => 'python_bridge_call',
             'endpoint' => $endpoint,
             'http_status' => (int) $status,
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'link' => $this->linkInUse(),
         ]);
 
         if ($raw === false || $error !== '') {
@@ -244,7 +250,11 @@ final class AiPythonBridge
         if (!is_array($data)) {
             throw new AiProviderException('The Python AI platform returned an unusable response.');
         }
-        return $data;
+
+        // The Python platform is the primary agent engine, so it is a second
+        // response side that must not be trusted to self-filter. Apply the same
+        // output guard used for direct provider calls.
+        return AiOutputGuard::scrub($data);
     }
 
     /**
@@ -261,13 +271,9 @@ final class AiPythonBridge
      */
     public function streamAssist(array $context, string $question, callable $onChunk, int $timeout = 0): array
     {
-        $baseUrl = rtrim((string) Config::get('AI_PYTHON_URL', ''), '/');
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
-        if ($baseUrl === '' || $secret === '') {
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
             throw new AiProviderException('The Python AI platform is not configured.');
-        }
-        if (Config::isProduction() && stripos($baseUrl, 'https://') !== 0) {
-            throw new AiProviderException('The Python AI platform must use HTTPS in production.');
         }
         $body = json_encode(
             ['context' => $context, 'question' => $question],
@@ -286,17 +292,22 @@ final class AiPythonBridge
         if ($executionLimit > 0) {
             $timeout = min($timeout, max(10, $executionLimit - 5));
         }
-        $url = $baseUrl . '/api/agents/assist/stream';
+        $link = $this->client->resolve('python_ai');
+        $url = rtrim($link['base'], '/') . '/api/agents/assist/stream';
         $headers = [
             'Content-Type: application/json',
             'Accept: text/event-stream',
             'Authorization: Bearer ' . $secret,
             'Cache-Control: no-cache',
         ];
+        if ($link['host'] !== null) {
+            $headers[] = 'Host: ' . $link['host'];
+        }
 
         $started = microtime(true);
         $completed = false;
         $status = 0;
+        $streamBuffer = '';
 
         if (function_exists('curl_init')) {
             $ch = curl_init($url);
@@ -305,8 +316,8 @@ final class AiPythonBridge
                 CURLOPT_POSTFIELDS => $body,
                 CURLOPT_HTTPHEADER => $headers,
                 CURLOPT_RETURNTRANSFER => false,
-                CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use ($onChunk): int {
-                    $onChunk($chunk);
+                CURLOPT_WRITEFUNCTION => function ($handle, string $chunk) use ($onChunk, &$streamBuffer): int {
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
                     return strlen($chunk);
                 },
                 CURLOPT_CONNECTTIMEOUT => 10,
@@ -349,7 +360,7 @@ final class AiPythonBridge
                     if ($chunk === false || $chunk === '') {
                         continue;
                     }
-                    $onChunk($chunk);
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
                 }
                 $completed = true;
                 foreach ((stream_get_meta_data($stream)['wrapper_data'] ?? []) as $responseHeader) {
@@ -363,66 +374,78 @@ final class AiPythonBridge
             }
         }
 
+        $this->flushStreamChunk($streamBuffer, $onChunk);
+
         FileLogger::write('ai_generation', [
             'type' => 'python_bridge_stream',
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
             'http_status' => $status,
             'completed' => $completed,
-            'transport' => function_exists('curl_init') ? 'curl' : 'stream',
+            'http_client' => function_exists('curl_init') ? 'curl' : 'stream',
+            'link' => $link['transport'],
         ]);
 
         return [$completed, $status];
     }
 
     /**
-     * @return array{0:string|false,1:int,2:string}
+     * Streamed assistant text reaches the browser without passing through the
+     * buffered relay, so the output guard has to run here as well. Events are
+     * filtered line by line: a partial line is held back until its newline
+     * arrives, which keeps the SSE framing valid while still streaming.
      */
-    private function request(string $url, string $method, array $headers, string $body, int $timeout): array
+    private function pushStreamChunk(string &$buffer, string $chunk, callable $onChunk): void
     {
-        if ($this->transport !== null) {
-            $result = call_user_func($this->transport, $url, $method, $headers, $body, $timeout);
-            return [is_string($result[0] ?? null) ? $result[0] : false, (int) ($result[1] ?? 0), (string) ($result[2] ?? '')];
+        $buffer .= $chunk;
+        while (($position = strpos($buffer, "\n")) !== false) {
+            $line = substr($buffer, 0, $position);
+            $buffer = substr($buffer, $position + 1);
+            $onChunk($this->scrubStreamLine($line) . "\n");
         }
-        if (!function_exists('curl_init')) {
-            $context = stream_context_create([
-                'http' => [
-                    'method' => $method,
-                    'header' => implode("\r\n", $headers),
-                    'content' => $body,
-                    'timeout' => $timeout,
-                    'ignore_errors' => true,
-                    'protocol_version' => 1.1,
-                ],
-                'ssl' => ['verify_peer' => true, 'verify_peer_name' => true, 'allow_self_signed' => false],
-            ]);
-            $raw = @file_get_contents($url, false, $context);
-            $status = 0;
-            foreach (($http_response_header ?? []) as $responseHeader) {
-                if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string) $responseHeader, $match)) {
-                    $status = (int) $match[1];
-                    break;
-                }
-            }
-            return [$raw === false ? false : $raw, $status, $raw === false ? 'stream HTTPS request failed' : ''];
-        }
-        $ch = curl_init($url);
-        if ($ch === false) {
-            return [false, 0, 'curl unavailable'];
-        }
-        curl_setopt_array($ch, [
-            CURLOPT_CUSTOMREQUEST => $method,
-            CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
-        $raw = curl_exec($ch);
-        $error = curl_error($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        return [$raw, $status, $error];
     }
+
+    /** Emit any final line that arrived without a trailing newline. */
+    private function flushStreamChunk(string &$buffer, callable $onChunk): void
+    {
+        if ($buffer === '') {
+            return;
+        }
+        $onChunk($this->scrubStreamLine($buffer) . "\n");
+        $buffer = '';
+    }
+
+    /**
+     * Scrub one SSE line. Framing (comments, event names, [DONE]) is passed
+     * through untouched; only the data payload is filtered, so the client can
+     * still parse the event.
+     */
+    private function scrubStreamLine(string $line): string
+    {
+        $carriageReturn = '';
+        if (str_ends_with($line, "\r")) {
+            $line = substr($line, 0, -1);
+            $carriageReturn = "\r";
+        }
+
+        if ($line === '' || str_starts_with($line, ':') || str_starts_with($line, 'event:')) {
+            return $line . $carriageReturn;
+        }
+        if (!str_starts_with($line, 'data:')) {
+            return AiOutputGuard::scrubText($line) . $carriageReturn;
+        }
+
+        $payload = ltrim(substr($line, 5));
+        if ($payload === '' || $payload === '[DONE]') {
+            return $line . $carriageReturn;
+        }
+
+        $decoded = json_decode($payload, true);
+        if (is_array($decoded)) {
+            $encoded = json_encode(AiOutputGuard::scrub($decoded), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return 'data: ' . ($encoded === false ? '[redacted]' : $encoded) . $carriageReturn;
+        }
+
+        return 'data: ' . AiOutputGuard::scrubText($payload) . $carriageReturn;
+    }
+
 }

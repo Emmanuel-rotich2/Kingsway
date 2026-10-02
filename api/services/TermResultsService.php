@@ -197,7 +197,8 @@ final class TermResultsService
              JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_summative = 1
              JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
-               AND a.status = 'approved' AND ar.is_submitted = 1 AND ar.is_approved = 1{$areaFilter}"
+               AND a.status = 'approved' AND ar.deleted_at IS NULL
+               AND ar.is_submitted = 1 AND ar.is_approved = 1{$areaFilter}"
         );
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

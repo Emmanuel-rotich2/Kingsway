@@ -411,6 +411,82 @@ final class AnalyticsReportRegistryService
         return $row;
     }
 
+    /**
+     * Client-facing report definition allowlist.
+     *
+     * The registry rows are read with `SELECT rd.*`, so they carry internal
+     * implementation detail that must never reach a browser: the execution key
+     * (an internal handler name), the source type and source view name (schema
+     * disclosure), the full column mapping and filter definitions (a data
+     * dictionary), and the internal approval/author user IDs.
+     *
+     * This is an ALLOWLIST rather than a denylist so a column added to
+     * analytics_report_definitions later cannot silently start leaking.
+     * Server-side execution uses accessibleDefinition() directly and is
+     * unaffected; official PDF/CSV output carries report code, version, as-of
+     * date and the confidentiality classification as the reporting standard
+     * requires.
+     */
+    public function publicDefinition(array $definition): array
+    {
+        return array_intersect_key($definition, array_flip([
+            'id',
+            'code',
+            'version',
+            'title',
+            'description',
+            'decision_purpose',
+            'domain',
+            'category',
+            'grain',
+            'allowed_filters',
+            'required_filters',
+            'visualizations',
+            'export_formats',
+            'sensitivity',
+            'freshness_minutes',
+            'minimum_aggregation_size',
+            'status',
+            'is_current',
+            'scope_types',
+            'capabilities',
+        ]));
+    }
+
+    /**
+     * Client-facing metric definition allowlist.
+     *
+     * Drops the source view name, the source column map and the raw metric
+     * definition document, which together describe how the metric is computed
+     * against the database. The business-facing contract (name, purpose,
+     * formula, grain, freshness, sensitivity) is retained because the reporting
+     * standard requires every KPI to expose its definition, population and
+     * denominator.
+     */
+    public function publicMetric(array $metric): array
+    {
+        return array_intersect_key($metric, array_flip([
+            'id',
+            'code',
+            'version',
+            'name',
+            'description',
+            'business_purpose',
+            'domain',
+            'formula_text',
+            'grain',
+            'dimensions',
+            'calculation_mode',
+            'freshness_minutes',
+            'minimum_aggregation_size',
+            'sensitivity',
+            'status',
+            'is_current',
+            'is_primary',
+            'display_order',
+        ]));
+    }
+
     private function userId(array $user): ?int
     {
         $id = $user['user_id'] ?? $user['id'] ?? null;

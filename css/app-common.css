@@ -752,11 +752,34 @@ table.table thead th[scope="col"] {
 }
 
 /* Staff assistant (AI co-worker) panel: wider than the default offcanvas so
-   workspace scans, findings and suggested actions stay readable. */
+   workspace scans, findings and suggested actions stay readable. The width was
+   raised from 500px after trimming the panel's explanatory chrome, so the
+   briefing data area gets the reclaimed horizontal room instead of the prose. */
 .offcanvas.ai-assistant-panel {
-  --bs-offcanvas-width: 500px;
-  width: 500px;
+  --bs-offcanvas-width: 580px;
+  width: 580px;
   max-width: 94vw;
+}
+/* Collapsed governance scope note: keeps the boundary visible in one line and
+   the detail one click away, instead of an always-open paragraph. */
+.ai-assistant-scope-note summary {
+  cursor: pointer;
+  list-style: none;
+}
+.ai-assistant-scope-note summary::-webkit-details-marker {
+  display: none;
+}
+.ai-assistant-scope-note summary:hover {
+  color: var(--bs-secondary-color, #475467);
+}
+/* The briefing widget renders alerts and metrics as two halves. On the
+   full-width dashboard that is correct, but inside the narrow assistant
+   offcanvas each half is ~270px and forces horizontal cramping, so give each
+   one the full panel width. Scoped to the panel's briefing container so the
+   dashboard layout is untouched. */
+.offcanvas.ai-assistant-panel #global-ai-assistant-briefing .row > [class*="col-"] {
+  flex: 0 0 100%;
+  max-width: 100%;
 }
 .ai-briefing-finding {
   border-left: 3px solid var(--bs-info);

@@ -1051,6 +1051,30 @@ return $this->serverError('An internal error occurred.');
         return $this->examPeriodCall(fn($service) => $service->create($data), 'Exam period created.', true);
     }
 
+    public function putExamPeriods($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only academic leadership can update an exam period.');
+        return $this->examPeriodCall(fn($service) => $service->update((int)$id, (array)$data));
+    }
+
+    public function deleteExamPeriods($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only academic leadership can delete an exam period.');
+        return $this->examPeriodCall(fn($service) => $service->softDelete((int)$id));
+    }
+
+    public function postExamPeriodsRestore($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only academic leadership can restore an exam period.');
+        return $this->examPeriodCall(fn($service) => $service->restore((int)$id));
+    }
+
+    public function postExamPeriodsReopen($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only academic leadership can reopen an exam period.');
+        return $this->examPeriodCall(fn($service) => $service->reopen((int)$id, (string)($data['target'] ?? 'timetable')));
+    }
+
     public function putExamPeriodsTimetable($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher'])) return $this->forbidden('Only the School Administrator or Headteacher can manage the exam timetable.');
@@ -1124,16 +1148,47 @@ return $this->serverError('An internal error occurred.');
         return $this->examPeriodCall(fn($service) => $service->openResults((int) $id));
     }
 
+    public function postExamPeriodsPublishResults($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny([], [1,4], ['system administrator','school administrator'])) return $this->forbidden('Only the School Administrator can publish official summative results.');
+        return $this->examPeriodCall(fn($service) => $service->publishResults((int)$id), 'Official summative results published.');
+    }
+
     public function getExamPeriodsResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['academic_view', 'academic_manage', 'assessments_view'], [1, 4, 5, 6, 7, 8], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'deputy head - discipline'])) return $this->forbidden('School-wide result access requires academic leadership permission.');
-        return $this->examPeriodCall(fn($service) => $service->results((int) $id));
+        return $this->examPeriodCall(fn($service) => $service->results((int) $id, filter_var($data['include_deleted'] ?? false, FILTER_VALIDATE_BOOLEAN)));
     }
 
     public function getExamPeriodsMyResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['academic_view', 'assessments_view', 'results_view'], [], ['class teacher', 'subject teacher', 'teacher'])) return $this->forbidden('Teacher results are limited to streams and learning areas assigned to you for that term.');
         return $this->examPeriodCall(fn($service) => $service->resultsForTeacher((int) $id));
+    }
+
+    public function putExamPeriodResult($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage','academic_edit'], [1,4,5], ['system administrator','school administrator','headteacher','deputy head - academic'])) return $this->forbidden('Academic leadership access is required to edit exam results.');
+        return $this->examResultAdminCall(fn($service) => $service->adminUpdateResult((int)$id,(array)$data));
+    }
+
+    public function deleteExamPeriodResult($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage','academic_edit'], [1,4,5], ['system administrator','school administrator','headteacher','deputy head - academic'])) return $this->forbidden('Academic leadership access is required to delete exam results.');
+        return $this->examResultAdminCall(fn($service) => $service->softDeleteResult((int)$id));
+    }
+
+    public function postExamPeriodResultRestore($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage','academic_edit'], [1,4,5], ['system administrator','school administrator','headteacher','deputy head - academic'])) return $this->forbidden('Academic leadership access is required to restore exam results.');
+        return $this->examResultAdminCall(fn($service) => $service->restoreResult((int)$id));
+    }
+
+    private function examResultAdminCall(callable $operation)
+    {
+        try { $service=$this->contract(\App\API\Services\AssessmentResultsService::class,$this->db->getConnection(),(int)($this->getUserId()??0)); return $this->success($operation($service),'Exam result updated.'); }
+        catch (RuntimeException $e) { $status=(int)$e->getCode(); return $this->respond(null,$e->getMessage(),in_array($status,[400,403,404,409,422],true)?$status:400,false); }
+        catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[AcademicController] admin exam result: '.$e->getMessage()); return $this->serverError('Unable to update the exam result.'); }
     }
 
     private function examPeriodCall(callable $operation, string $message = 'Exam period data loaded.', bool $isCreated = false)
@@ -1469,7 +1524,7 @@ return $this->serverError('An internal error occurred.');
         $failed = [];
         foreach ($studentIds as $studentId) {
             try {
-                $payload = $this->academicManager->getReportCardData($studentId, $termId);
+                $payload = $this->academicManager->getReportCardData($studentId, $termId, (string)($data['result_mode'] ?? 'both'));
                 if (($payload['status'] ?? '') !== 'success' || !is_array($payload['data'] ?? null)) {
                     throw new RuntimeException($payload['message'] ?? 'Report card data is unavailable');
                 }
@@ -4298,7 +4353,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/approve-assessment — approve individual assessment results */
     public function postApproveAssessment($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        if (!$this->userHasAny(['academic_manage', 'academic_approve', 'results_review'], [], ['class teacher', 'system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Only the assigned class teacher or academic leadership may approve this result register.');
         try {
             $assessmentId = (int)($data['assessment_id'] ?? 0);
             $studentId = isset($data['student_id']) ? (int)$data['student_id'] : null;
@@ -4319,7 +4374,7 @@ return $this->serverError('An internal error occurred.');
     /** POST /api/academic/reject-assessment — reject individual result */
     public function postRejectAssessment($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        if (!$this->userHasAny(['academic_manage', 'academic_approve', 'results_review'], [], ['class teacher', 'system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Only the assigned class teacher or academic leadership may return this result register.');
         try {
             $assessmentId = (int)($data['assessment_id'] ?? 0);
             $studentId = (int)($data['student_id'] ?? 0);

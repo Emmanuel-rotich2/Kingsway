@@ -250,20 +250,27 @@
 >
     <div class="offcanvas-header border-bottom">
         <div>
-            <h5 class="mb-1" id="globalAiAssistantPanelLabel">
+            <h5 class="mb-0" id="globalAiAssistantPanelLabel">
                 <i class="bi bi-stars text-success me-2"></i>Staff assistant
             </h5>
-            <small class="text-muted">Contextual help from the existing school workflows</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
         <div id="global-ai-assistant-briefing" class="mb-3" aria-live="polite"></div>
-        <div class="alert alert-info small">
-            The assistant prepares explanations, recommendations, and drafts for staff review. It does not approve admissions, post finance entries, change grades, or send messages by itself.
-        </div>
+        <details class="ai-assistant-scope-note mb-2">
+            <summary class="small text-muted">
+                <i class="bi bi-shield-check me-1"></i>Explains and drafts only &mdash; nothing is posted
+            </summary>
+            <div class="small text-muted mt-1">
+                The assistant prepares explanations, recommendations and drafts for staff review
+                within your role and permissions. It does not approve admissions, post finance
+                entries, change grades, or send messages by itself. Every suggestion needs a
+                human decision.
+            </div>
+        </details>
         <form id="global-ai-assistant-query" class="mb-3" autocomplete="off" hidden>
-            <label class="form-label small text-muted" for="global-ai-assistant-question">Ask the staff assistant</label>
+            <label class="visually-hidden" for="global-ai-assistant-question">Ask the staff assistant</label>
             <div class="input-group input-group-sm">
                 <input
                     type="text"
@@ -275,7 +282,6 @@
                 >
                 <button class="btn btn-success" type="submit">Ask</button>
             </div>
-            <div class="form-text">The assistant routes your question to the right governed agent using only data you are authorized to see.</div>
             <div id="global-ai-assistant-suggestions" class="d-flex flex-wrap gap-1 mt-2" aria-label="Suggested questions"></div>
         </form>
         <div id="global-ai-assistant-answer" class="mb-3" aria-live="polite"></div>

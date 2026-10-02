@@ -58,16 +58,12 @@
                     <option value="partial">Partial</option>
                     <option value="pending">Pending</option>
                     <option value="credit">Overpaid (Credit)</option>
-                    <option value="arrears">Arrears</option>
                 </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1" for="termFilter">Term</label>
                 <select class="form-select" id="termFilter">
-                    <option value="">All</option>
-                    <option value="1">Term 1</option>
-                    <option value="2">Term 2</option>
-                    <option value="3">Term 3</option>
+                    <option value="">Whole Year (All Terms)</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -154,12 +150,10 @@
             </table>
         </div>
 
-        <!-- Pagination -->
-        <nav>
-            <ul class="pagination justify-content-center" id="pagination">
-                <!-- Dynamic pagination -->
-            </ul>
-        </nav>
+        <!-- Pagination — table footer, staff-table style -->
+        <div id="pagination" class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-3 border-top">
+            <!-- Dynamic pagination -->
+        </div>
     </div>
 </div>
 

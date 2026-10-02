@@ -308,7 +308,8 @@ const reportCardsCtrl = (() => {
             const response = await api('academic/reports-generate-student-reports', 'POST', {
                 student_ids: [studentId],
                 term_id: termId,
-                academic_year_id: state.currentYear?.id
+                academic_year_id: state.currentYear?.id,
+                result_mode: document.getElementById('reportResultMode')?.value || 'both'
             });
             const result = response.data?.data || response.data || {};
             if (Number(result.failed_count || 0) > 0) {
@@ -327,7 +328,8 @@ const reportCardsCtrl = (() => {
         try {
             const response = await api('academic/reports-generate-student-reports', 'POST', {
                 term_id: termId, class_id: classId || undefined,
-                academic_year_id: state.currentYear?.id
+                academic_year_id: state.currentYear?.id,
+                result_mode: document.getElementById('reportResultMode')?.value || 'both'
             });
             const result = response.data?.data || response.data || {};
             const generated = Number(result.generated_count || 0);

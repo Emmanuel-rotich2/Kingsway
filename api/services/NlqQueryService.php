@@ -389,7 +389,7 @@ class NlqQueryService
             'report_title' => $this->boundedText((string) ($result['report']['title'] ?? ''), 200),
             'decision_purpose' => $this->boundedText((string) ($result['report']['decision_purpose'] ?? ''), 300),
             'as_of' => (string) ($result['as_of'] ?? ''),
-            'freshness_minutes' => (int) ($result['report']['source']['freshness_minutes'] ?? 0),
+            'freshness_minutes' => (int) ($result['report']['data_currency']['freshness_minutes'] ?? 0),
             'filters' => is_array($result['filters'] ?? null) ? $result['filters'] : $filters,
             'row_count' => (int) ($result['row_count'] ?? count($rows)),
             'summary' => $this->boundSummary($summary),

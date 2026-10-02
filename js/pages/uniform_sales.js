@@ -12,6 +12,20 @@ const UniformSalesController = {
     viewSizesModal: null,
 
     /**
+     * Render account names and identifiers into the receiving-account picker.
+     *
+     * This controller rendered those options with `this.escapeHtml(...)` but
+     * never defined the helper, so the call threw
+     * "this.escapeHtml is not a function" and the picker was left empty
+     * whenever any active uniform account existed.
+     */
+    escapeHtml: function(value) {
+        const node = document.createElement('div');
+        node.textContent = value == null ? '' : String(value);
+        return node.innerHTML;
+    },
+
+    /**
      * Initialize the controller
      */
     init: function() {

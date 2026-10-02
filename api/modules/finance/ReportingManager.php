@@ -47,7 +47,16 @@ class ReportingManager extends FileLifecycleBase
     public function getFinancialDashboard($filters = [])
     {
         try {
-            $academicYear = $filters['academic_year'] ?? date('Y');
+            // The academic-year context tables are the source of truth: resolve
+            // the filter (an id, a stored "2026/2027" code, or a bare "2026")
+            // to the STORED year code via the canonical resolver. date('Y')
+            // alone matches nothing — the view stores "2026/2027".
+            $feeLedgerFilter = new \App\API\Services\payments\FeeLedgerFilter();
+            $academicYear = $feeLedgerFilter->academicYear($filters['academic_year'] ?? null);
+            if ($academicYear === '') {
+                $ayStmt = $this->db->query("SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
+                $academicYear = (string) ($ayStmt->fetchColumn() ?: date('Y'));
+            }
             $filterStart = $filters['date_from'] ?? ($academicYear . '-01-01');
             $filterEnd = $filters['date_to'] ?? ($academicYear . '-12-31');
 
@@ -311,6 +320,15 @@ class ReportingManager extends FileLifecycleBase
                     'term_outstanding' => (float) ($termFees['outstanding'] ?? 0),
                     'term_collection_rate' => round($termCollectionRate, 2),
                     'current_term_name' => $currentTermName,
+                    // From the database: the learners with a payment recorded
+                    // in the current term — the count card's term value.
+                    'term_collected_count' => (int) ($this->db->query(
+                        "SELECT COUNT(DISTINCT f.student_id)
+                         FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f
+                         WHERE f.academic_year = '" . $academicYear . "'
+                           AND f.academic_year_term_id = " . (int) ($currentTermId ?? 0) . "
+                           AND f.amount_paid > 0"
+                    )->fetchColumn() ?: 0),
                     // Student metrics
                     'defaulters_count' => (int) ($defaulters['count'] ?? 0),
                     'full_payment_count' => $fullPaymentCount
