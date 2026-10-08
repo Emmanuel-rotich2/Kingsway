@@ -2562,6 +2562,15 @@ class FinanceAPI extends BaseAPI
 
             $payrollPeriod = sprintf('%04d-%02d', $payrollYear, $payrollMonth);
 
+            // Resolve the financial read model before opening the payroll
+            // transaction. If its scheduled snapshot is stale, the shared
+            // read boundary can repair it through Python without holding
+            // payroll locks during the inter-service request. Later balance
+            // reads in this transaction reuse the validated projection ref.
+            if (!$isTestWorkspace && !$preparationOnly && !empty($childrenDeductions)) {
+                ReadReplicaService::qualifiedRef('student_fee_balances');
+            }
+
             // Start transaction
             $this->db->beginTransaction();
 
@@ -3044,7 +3053,7 @@ class FinanceAPI extends BaseAPI
             $totalStaff = $staffStmt->fetchColumn();
 
             // Staff with children
-            $childrenStmt = $this->db->prepare("SELECT COUNT(DISTINCT sc.staff_id) FROM " . ReadReplicaService::qualifiedRef("staff_children") . " JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=sc.staff_id WHERE $sScope");
+            $childrenStmt = $this->db->prepare("SELECT COUNT(DISTINCT sc.staff_id) FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=sc.staff_id WHERE $sScope");
             $childrenStmt->execute($sParams);
             $staffWithChildren = $childrenStmt->fetchColumn();
 

@@ -146,7 +146,7 @@
                     <div class="mb-2" id="pfClassPickerWrap">
                         <label class="form-label small fw-semibold">Class</label>
                         <select class="form-select form-select-sm" id="pfClassFilter">
-                            <option value="">Select a class...</option>
+                            <option value="">All assigned classes</option>
                         </select>
                     </div>
                     <div class="mb-2" id="pfStudentPickerWrap">
@@ -163,7 +163,7 @@
             <div id="portfolioContent">
                 <div class="text-center text-muted py-5 bg-white rounded shadow-sm">
                     <i class="bi bi-folder2-open" style="font-size:3rem"></i>
-                    <p class="mt-2">Select a student to view their cumulative portfolio</p>
+                    <p class="mt-2">Loading the first learner in your authorized scope…</p>
                 </div>
             </div>
         </div>

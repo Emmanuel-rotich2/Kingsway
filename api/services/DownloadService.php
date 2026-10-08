@@ -438,18 +438,37 @@ final class DownloadService
         }
         $safeFilename = str_replace(['"', "\r", "\n"], '', basename($filename ?: $resolved));
         $resolvedMime = $mimeType ?: $this->detectMimeType($resolved);
+        $fileSize = (int) filesize($resolved);
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
         http_response_code(200);
         header('Content-Type: ' . $resolvedMime);
-        header('Content-Length: ' . (string) filesize($resolved));
+        header('Content-Length: ' . (string) $fileSize);
         header('Content-Disposition: ' . $disposition . '; filename="' . $safeFilename . '"');
         header('X-Content-Type-Options: nosniff');
-        header('X-Frame-Options: SAMEORIGIN');
+        if ($disposition === 'inline' && strtolower($resolvedMime) === 'application/pdf') {
+            // The authenticated in-app document viewer embeds this temporary
+            // print URL in a same-origin iframe. api/index.php sets a strict
+            // global no-frame policy; replace it only for this short-lived,
+            // token-authorized PDF response. Other API and download responses
+            // retain their no-embedding policy.
+            header('X-Frame-Options: SAMEORIGIN');
+            header("Content-Security-Policy: default-src 'none'; frame-ancestors 'self'; object-src 'none'; base-uri 'none'");
+        } else {
+            header('X-Frame-Options: DENY');
+        }
         header('Referrer-Policy: same-origin');
         header('Cache-Control: private, no-store, max-age=0');
-        readfile($resolved);
+        $streamStartedAt = hrtime(true);
+        $streamedBytes = readfile($resolved);
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'document_file_streamed',
+            'duration_ms' => (int) round((hrtime(true) - $streamStartedAt) / 1_000_000),
+            'file_bytes' => $fileSize,
+            'streamed_bytes' => is_int($streamedBytes) ? $streamedBytes : 0,
+            'disposition' => $disposition,
+        ]);
         exit;
     }
 

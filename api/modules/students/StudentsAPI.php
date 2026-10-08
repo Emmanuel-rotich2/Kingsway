@@ -34,7 +34,6 @@ class StudentsAPI extends BaseAPI
         try {
             [$page, $limit, $offset] = $this->getPaginationParams();
             [$search, $sort, $order] = $this->getSearchParams();
-            $currentAcademicYear = $this->getCurrentAcademicYearValue();
             $visibilityScope = $this->buildStudentVisibilityScope();
 
             $conditions = [];
@@ -51,13 +50,13 @@ class StudentsAPI extends BaseAPI
 
                 if (!empty($visibilityScope['stream_ids'])) {
                     $placeholders = implode(',', array_fill(0, count($visibilityScope['stream_ids']), '?'));
-                    $scopeClauses[] = "aycs.id IN ($placeholders)";
+                    $scopeClauses[] = "lp.aycs_id IN ($placeholders)";
                     $bindings = array_merge($bindings, $visibilityScope['stream_ids']);
                 }
 
                 if (!empty($visibilityScope['class_ids'])) {
                     $placeholders = implode(',', array_fill(0, count($visibilityScope['class_ids']), '?'));
-                    $scopeClauses[] = "ayc.class_id IN ($placeholders)";
+                    $scopeClauses[] = "lp.class_id IN ($placeholders)";
                     $bindings = array_merge($bindings, $visibilityScope['class_ids']);
                 }
 
@@ -106,6 +105,20 @@ class StudentsAPI extends BaseAPI
             }
 
             $feeStatus = $params['fee_status'] ?? $_GET['fee_status'] ?? null;
+            $feeBalancesAvailable = true;
+            $feeBalancesView = null;
+            try {
+                $feeBalancesView = ReadReplicaService::qualifiedRef('student_fee_balances');
+            } catch (\RuntimeException $e) {
+                // Fee balances enrich this directory, but are not required to
+                // identify or place learners. Keep the student register usable
+                // during a read-model outage; fee filters still require a
+                // current financial projection and must fail closed.
+                if (!empty($feeStatus)) {
+                    throw $e;
+                }
+                $feeBalancesAvailable = false;
+            }
             if (!empty($feeStatus)) {
                 switch ($feeStatus) {
                     case 'fully_paid':
@@ -133,39 +146,55 @@ class StudentsAPI extends BaseAPI
                 $where = "WHERE " . implode(' AND ', $conditions);
             }
 
-            $feeSummaryWhere = '';
-            $joinBindings = [];
-            if ($currentAcademicYear !== null) {
-                $feeSummaryWhere = "WHERE CAST(SUBSTRING(academic_year, 1, 4) AS UNSIGNED) = ?";
-                $joinBindings[] = $currentAcademicYear;
-            }
+            $feeJoin = $feeBalancesAvailable ? "
+                LEFT JOIN (
+                    SELECT student_academic_enrollment_id,
+                           SUM(amount_due) AS amount_due,
+                           SUM(amount_paid) AS amount_paid,
+                           SUM(balance) AS balance,
+                           MAX(latest_due_date) AS latest_due_date
+                    FROM {$feeBalancesView}
+                    GROUP BY student_academic_enrollment_id
+                ) fb ON fb.student_academic_enrollment_id = lp.enrollment_id
+            " : '';
+            $feeColumns = $feeBalancesAvailable
+                ? "COALESCE(fb.amount_due, 0) AS total_fees,
+                   COALESCE(fb.amount_paid, 0) AS total_paid,
+                   COALESCE(fb.balance, 0) AS fee_balance"
+                : "NULL AS total_fees, NULL AS total_paid, NULL AS fee_balance";
 
             $joins = "
-                LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp
+                    ON lp.student_id = s.id
+                    AND lp.academic_year_id = (
+                        SELECT ay_current.id
+                        FROM academic_years ay_current
+                        WHERE ay_current.is_current = 1
+                        ORDER BY ay_current.id DESC
+                        LIMIT 1
+                )
                 LEFT JOIN student_types st ON s.student_type_id = st.id
-                LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb ON fb.student_academic_enrollment_id = lp.enrollment_id
-                LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('learner_guardian') . " lg ON lg.student_id = s.id
+                {$feeJoin}
+                LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_guardian') . " lg
+                    ON lg.student_id = s.id AND lg.is_primary_contact = 1
             ";
 
             // Get total count
             $sql = "
-                SELECT COUNT(*) 
+                SELECT COUNT(DISTINCT s.id)
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
                 {$joins}
                 $where
             ";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($joinBindings, $bindings));
+            $stmt->execute($bindings);
             $total = $stmt->fetchColumn();
 
             // Get paginated results
             $sql = "
-                SELECT 
+                SELECT DISTINCT
                     s.*,
-                    ayc.class_id as class_id,
-                    c.name as class_name,
-                    cs.name AS stream_name,
                     CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                     per.first_name AS first_name,
                     per.middle_name AS middle_name,
@@ -187,9 +216,7 @@ class StudentsAPI extends BaseAPI
                         WHEN st.code = 'BOARD' THEN 'boarding'
                         ELSE 'day'
                     END AS boarding_status,
-                    COALESCE(fb.amount_due, 0) AS total_fees,
-                    COALESCE(fb.amount_paid, 0) AS total_paid,
-                    COALESCE(fb.balance, 0) AS fee_balance,
+                    {$feeColumns},
                     lg.parent_full_name AS parent_name,
                     lg.parent_phone AS parent_phone,
                     lg.parent_phone AS guardian_contact,
@@ -204,7 +231,7 @@ class StudentsAPI extends BaseAPI
                 LIMIT ? OFFSET ?
             ";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($joinBindings, $bindings, [$limit, $offset]));
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($students as &$student) {
                 $student['photo_url'] = $this->normalizePublicAssetPath($student['photo_url'] ?? '');
@@ -217,6 +244,7 @@ class StudentsAPI extends BaseAPI
                 'status' => 'success',
                 'data' => [
                     'students' => $students,
+                    'fee_balances_available' => $feeBalancesAvailable,
                     'pagination' => [
                         'page' => $page,
                         'limit' => $limit,
@@ -5399,67 +5427,105 @@ private function getCurrentStudentTransport(int $studentId): array
     public function getStudentStatistics($params = [])
     {
         try {
-            $year = $this->db->query("SELECT year_code FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn();
+            $yearRow = $this->db->query(
+                "SELECT id, year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") .
+                " WHERE is_current=1 ORDER BY id DESC LIMIT 1"
+            )->fetch(PDO::FETCH_ASSOC) ?: [];
+            $yearId = (int)($yearRow['id'] ?? 0);
+
             $termStmt = $this->db->query(
                 "SELECT ayt.opening_date, ayt.closing_date
-                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ayt.academic_year_id
                  WHERE ay.is_current=1 AND ayt.status='current'
                  ORDER BY ayt.id DESC LIMIT 1"
             );
             $term = $termStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+            $scopeBindings = [];
             $conditions = [];
-            $bindings = [];
             $scope = $this->buildStudentVisibilityScope();
             if (!empty($scope['restricted'])) {
                 $scopeParts = [];
-                if (!empty($scope['student_ids'])) {
-                    $scopeParts[] = 's.id IN (' . implode(',', array_fill(0, count($scope['student_ids']), '?')) . ')';
-                    $bindings = array_merge($bindings, $scope['student_ids']);
-                }
-                if (!empty($scope['stream_ids'])) {
-                    $scopeParts[] = 'aycs.id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
-                    $bindings = array_merge($bindings, $scope['stream_ids']);
-                }
-                if (!empty($scope['class_ids'])) {
-                    $scopeParts[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
-                    $bindings = array_merge($bindings, $scope['class_ids']);
+                foreach ([
+                    'student_ids' => 's.id',
+                    'stream_ids' => 'lp.stream_id',
+                    'class_ids' => 'lp.class_id',
+                ] as $key => $column) {
+                    if (!empty($scope[$key])) {
+                        $scopeParts[] = $column . ' IN (' . implode(',', array_fill(0, count($scope[$key]), '?')) . ')';
+                        $scopeBindings = array_merge($scopeBindings, $scope[$key]);
+                    }
                 }
                 $conditions[] = $scopeParts ? '(' . implode(' OR ', $scopeParts) . ')' : '1=0';
             }
-
             $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
-            $feeYear = $year ? 'WHERE CAST(SUBSTRING(academic_year,1,4) AS UNSIGNED)=?' : '';
-            $feeParams = $year ? [(int)preg_replace('/[^0-9].*$/', '', (string)$year)] : [];
-            $feeView = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances');
-            $joins = "
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id=s.id
-                    AND sae.enrollment_status='active'
-                    AND sae.id=(SELECT MAX(x.id) FROM student_academic_enrollments x
-                                WHERE x.student_id=s.id AND x.enrollment_status='active')
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+
+            $placementView = ReadReplicaService::qualifiedRef('learner_placement');
+            // Fee totals are supplementary to student counts. Keep the
+            // directory statistics available during a fee projection outage,
+            // and explicitly mark those figures unavailable instead of
+            // failing the entire endpoint or presenting stale balances.
+            $feeView = null;
+            try {
+                $feeView = ReadReplicaService::qualifiedRef('student_fee_balances');
+            } catch (\RuntimeException $projectionError) {
+                \App\API\Includes\FileLogger::write('reads', [
+                    'event' => 'student_statistics_fee_totals_unavailable',
+                    'projection' => 'student_fee_balances',
+                    'error_class' => get_class($projectionError),
+                    'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                ], 'warning');
+            }
+            $currentPlacement = "
                 LEFT JOIN (
+                    SELECT lp_latest.student_id, MAX(lp_latest.enrollment_id) AS enrollment_id
+                    FROM {$placementView} lp_latest
+                    WHERE lp_latest.academic_year_id = ?
+                    GROUP BY lp_latest.student_id
+                ) latest_lp ON latest_lp.student_id = s.id
+                LEFT JOIN {$placementView} lp ON lp.enrollment_id = latest_lp.enrollment_id";
+            $feeJoin = $feeView !== null
+                ? "LEFT JOIN (
                     SELECT student_id, SUM(balance) AS total_balance, SUM(amount_due) AS total_due
-                    FROM {$feeView} {$feeYear} GROUP BY student_id
-                ) fees ON fees.student_id=s.id";
-            $sql = "SELECT COUNT(*) AS total,
-                           SUM(s.status='active') AS active,
-                           SUM(s.status<>'active') AS inactive,
-                           SUM(CASE WHEN ? IS NOT NULL AND COALESCE(s.admission_date, sae.enrolled_on, s.created_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS new_this_term,
-                           SUM(CASE WHEN COALESCE(fees.total_balance,0)>0 THEN 1 ELSE 0 END) AS with_outstanding_fees,
-                           SUM(CASE WHEN COALESCE(fees.total_due,0)>0 AND COALESCE(fees.total_balance,0)<=0 THEN 1 ELSE 0 END) AS fully_paid,
-                           COALESCE(SUM(GREATEST(COALESCE(fees.total_balance,0),0)),0) AS total_outstanding
-                    FROM " . ReadReplicaService::qualifiedRef("person_directory") . " {$joins} {$where}";
+                    FROM {$feeView}
+                    WHERE academic_year_id = ?
+                    GROUP BY student_id
+                ) fees ON fees.student_id = s.id"
+                : '';
+            $feeSummary = $feeView !== null
+                ? "COUNT(DISTINCT CASE WHEN COALESCE(fees.total_balance,0)>0 THEN s.id END) AS with_outstanding_fees,
+                   COUNT(DISTINCT CASE WHEN COALESCE(fees.total_due,0)>0 AND COALESCE(fees.total_balance,0)<=0 THEN s.id END) AS fully_paid,
+                   COALESCE(SUM(GREATEST(COALESCE(fees.total_balance,0),0)),0) AS total_outstanding"
+                : 'NULL AS with_outstanding_fees, NULL AS fully_paid, NULL AS total_outstanding';
+            $joins = "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
+                {$currentPlacement}
+                {$feeJoin}";
+
+            $sql = "SELECT COUNT(DISTINCT s.id) AS total,
+                           COUNT(DISTINCT CASE WHEN s.status='active' THEN s.id END) AS active,
+                           COUNT(DISTINCT CASE WHEN s.status<>'active' THEN s.id END) AS inactive,
+                           COUNT(DISTINCT CASE WHEN ? IS NOT NULL AND COALESCE(s.admission_date, s.created_at) BETWEEN ? AND ? THEN s.id END) AS new_this_term,
+                           {$feeSummary}
+                    FROM " . ReadReplicaService::qualifiedRef('students') . " s {$joins} {$where}";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge([$term['opening_date'] ?? null, $term['opening_date'] ?? null, $term['closing_date'] ?? null], $feeParams, $bindings));
+            $stmt->execute(array_merge(
+                [$term['opening_date'] ?? null, $term['opening_date'] ?? null, $term['closing_date'] ?? null],
+                $feeView !== null ? [$yearId, $yearId] : [$yearId],
+                $scopeBindings
+            ));
             $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-            $byGenderStmt = $this->db->prepare("SELECT per.gender, COUNT(*) AS count FROM " . ReadReplicaService::qualifiedRef("person_directory") . " GROUP BY per.gender");
-            $byGenderStmt->execute(array_merge($feeParams, $bindings));
+            $byGenderStmt = $this->db->prepare(
+                "SELECT per.gender, COUNT(DISTINCT s.id) AS count
+                 FROM " . ReadReplicaService::qualifiedRef('students') . " s
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
+                 {$currentPlacement} {$where}
+                 GROUP BY per.gender"
+            );
+            $byGenderStmt->execute(array_merge([$yearId], $scopeBindings));
             $byGender = $byGenderStmt->fetchAll(PDO::FETCH_ASSOC);
-            $byClass = [];
 
             return $this->response([
                 'status' => 'success',
@@ -5468,11 +5534,12 @@ private function getCurrentStudentTransport(int $studentId): array
                     'active' => (int)($summary['active'] ?? 0),
                     'inactive' => (int)($summary['inactive'] ?? 0),
                     'new_this_term' => (int)($summary['new_this_term'] ?? 0),
-                    'with_outstanding_fees' => (int)($summary['with_outstanding_fees'] ?? 0),
-                    'fully_paid' => (int)($summary['fully_paid'] ?? 0),
-                    'total_outstanding' => (float)($summary['total_outstanding'] ?? 0),
+                    'with_outstanding_fees' => $feeView !== null ? (int)($summary['with_outstanding_fees'] ?? 0) : null,
+                    'fully_paid' => $feeView !== null ? (int)($summary['fully_paid'] ?? 0) : null,
+                    'total_outstanding' => $feeView !== null ? (float)($summary['total_outstanding'] ?? 0) : null,
+                    'fee_balances_available' => $feeView !== null,
                     'by_gender' => $byGender,
-                    'by_class' => $byClass
+                    'by_class' => []
                 ]
             ]);
         } catch (Exception $e) {

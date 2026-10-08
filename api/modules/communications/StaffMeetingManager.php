@@ -38,13 +38,13 @@ class StaffMeetingManager
     public function listStaffForPicker(): array
     {
         $stmt = $this->db->query(
-            "SELECT s.id, s.staff_no,
-                    CONCAT(p.first_name, ' ', p.last_name) AS name,
-                    s.position,
-                    d.name AS department_name
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-             WHERE s.status = 'active'
-             ORDER BY p.first_name, p.last_name"
+            "SELECT sd.staff_id AS id, sd.staff_no,
+                    sd.full_name AS name,
+                    sd.position,
+                    sd.department_name
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+             WHERE sd.staff_status = 'active'
+             ORDER BY sd.first_name, sd.last_name"
         );
         return [
             'staff' => $stmt->fetchAll(PDO::FETCH_ASSOC),

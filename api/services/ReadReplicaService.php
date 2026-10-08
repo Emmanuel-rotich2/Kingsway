@@ -1008,8 +1008,9 @@ final class ReadReplicaService
      * or stale materializations fail closed; request reads never evaluate a
      * source view on the master.
      *
-     * Memoized per projection; first use checks target presence and refresh
-     * metadata once per request.
+     * Memoized per projection; first use checks target presence and freshness
+     * once per request. The financial balance projection gets one bounded
+     * Python refresh attempt before an ordinary read is rejected.
      *
      * @throws \DomainException unknown projection
      */
@@ -1027,24 +1028,24 @@ final class ReadReplicaService
             $replicaSchema = ConnectionManager::schemaFor(ConnectionManager::NS_READS);
             $view = self::table($projection);
             $policy = self::policy($projection);
-            // Route only to a successfully refreshed materialized table. The
-            // metadata and target checks run on the same configured connection.
+            // Route only to a successfully refreshed materialized table. These
+            // checks use fully qualified schema names on the existing PDO so
+            // they remain safe inside a caller's transaction; switching the
+            // connection namespace would be rejected while that transaction is
+            // open.
             $exists = false;
             $fresh = false;
             try {
                 if ($policy['storage_mode'] === 'materialized_table') {
-                    [$exists, $fresh] = ConnectionManager::run(static function (PDO $pdo) use ($replicaSchema, $view, $projection, $policy): array {
-                        $stmt = $pdo->prepare(
-                            'SELECT COUNT(*) FROM information_schema.TABLES '
-                            . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
-                            . 'AND TABLE_TYPE = ?'
-                        );
-                        $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
-                        $exists = (int) $stmt->fetchColumn() > 0;
-                        if (!$exists) {
-                            return [false, false];
-                        }
-
+                    $pdo = \App\Database\Database::getInstance()->getConnection();
+                    $stmt = $pdo->prepare(
+                        'SELECT COUNT(*) FROM information_schema.TABLES '
+                        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
+                        . 'AND TABLE_TYPE = ?'
+                    );
+                    $stmt->execute([$replicaSchema, $view, 'BASE TABLE']);
+                    $exists = (int) $stmt->fetchColumn() > 0;
+                    if ($exists) {
                         $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
                         $meta = $pdo->prepare(
                             "SELECT status, refreshed_at, TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds "
@@ -1057,12 +1058,69 @@ final class ReadReplicaService
                             && !empty($row['refreshed_at'])
                             && $age >= 0
                             && $age <= (int) $policy['max_age_seconds'];
-                        return [$exists, $fresh];
-                    }, ConnectionManager::NS_MASTER);
+                    }
                 }
             } catch (\Throwable $e) {
                 $exists = false;
                 $fresh = false;
+            }
+            // Any materialized projection can drift stale when its scheduled
+            // refresh is missed (worker down, queue jam, cron gap). A stale
+            // snapshot must not fail every consuming page when the refresh
+            // engine can repair it safely: attempt one bounded refresh per
+            // projection per request before rejecting an ordinary read.
+            // Never wait on the refresh engine while this request holds a
+            // database transaction: transactional callers (fee posting,
+            // payment processing, payroll) stay fail-closed rather than
+            // using stale financial data or holding locks across an
+            // inter-service call.
+            if (!$fresh
+                && $policy['storage_mode'] === 'materialized_table'
+                && isset($pdo)
+                && !$pdo->inTransaction()
+                && !isset(self::$repairAttempted[$projection])) {
+                self::$repairAttempted[$projection] = true;
+                $refreshStarted = microtime(true);
+                try {
+                    $bridge = new \App\API\Services\ReadProjectionBridge();
+                    $refresh = $bridge->refreshForRead($projection);
+
+                    $tableCheck = $pdo->prepare(
+                        'SELECT COUNT(*) FROM information_schema.TABLES '
+                        . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND TABLE_TYPE = ?'
+                    );
+                    $tableCheck->execute([$replicaSchema, $view, 'BASE TABLE']);
+                    $exists = (int) $tableCheck->fetchColumn() > 0;
+                    if ($exists) {
+                        $metaTable = '`' . str_replace('`', '', $replicaSchema) . '`.`reads_meta`';
+                        $meta = $pdo->prepare(
+                            "SELECT status, refreshed_at, TIMESTAMPDIFF(SECOND, refreshed_at, NOW()) AS age_seconds "
+                            . "FROM {$metaTable} WHERE projection = ? LIMIT 1"
+                        );
+                        $meta->execute([$projection]);
+                        $row = $meta->fetch(PDO::FETCH_ASSOC) ?: [];
+                        $age = isset($row['age_seconds']) ? (int) $row['age_seconds'] : -1;
+                        $fresh = ($row['status'] ?? null) === 'live'
+                            && !empty($row['refreshed_at'])
+                            && $age >= 0
+                            && $age <= (int) $policy['max_age_seconds'];
+                    }
+                    \App\API\Includes\FileLogger::write('reads', [
+                        'event' => $fresh ? 'projection_auto_refreshed_for_read' : 'projection_auto_refresh_not_fresh',
+                        'projection' => $projection,
+                        'engine' => $refresh['engine'] ?? 'python',
+                        'duration_ms' => (int) round((microtime(true) - $refreshStarted) * 1000),
+                        'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                    ], $fresh ? 'info' : 'warning');
+                } catch (\Throwable $e) {
+                    \App\API\Includes\FileLogger::write('reads', [
+                        'event' => 'projection_auto_refresh_failed',
+                        'projection' => $projection,
+                        'error_class' => get_class($e),
+                        'duration_ms' => (int) round((microtime(true) - $refreshStarted) * 1000),
+                        'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                    ], 'error');
+                }
             }
             if (!$fresh) {
                 self::$refState[$projection] = $exists ? 'stale' : 'unavailable';
@@ -1089,6 +1147,9 @@ final class ReadReplicaService
 
     /** @var array<string,string> Per-request resolution state for freshness reporting. */
     private static $refState = [];
+
+    /** @var array<string,bool> Per-request memo of projections whose on-demand repair was already attempted (succeeded or failed). */
+    private static $repairAttempted = [];
 
     /**
      * Verify a reachable materialized projection using row-count parity.

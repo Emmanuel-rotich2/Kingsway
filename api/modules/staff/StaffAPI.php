@@ -834,11 +834,13 @@ class StaffAPI extends BaseAPI {
         $stmt = $this->db->prepare("
             SELECT
                 COUNT(*) AS scheduled_periods,
-                COUNT(DISTINCT subject_id) AS scheduled_learning_areas,
-                COUNT(DISTINCT class_id) AS scheduled_classes
-            FROM vw_timetable_entries
-            WHERE teacher_id = ?
-              AND status = 'scheduled'
+                COUNT(DISTINCT te.learning_area_id) AS scheduled_learning_areas,
+                COUNT(DISTINCT ayc.class_id) AS scheduled_classes
+            FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = te.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE te.teacher_id = ?
+              AND te.status = 'scheduled'
         ");
         $stmt->execute([$staffId]);
         $schedule = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -959,7 +961,7 @@ class StaffAPI extends BaseAPI {
     {
         $stmt = $this->db->prepare("
             SELECT a.title, ac.name AS category, a.status, asp.joined_at
-            FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . "
+            FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " asp
             INNER JOIN activities a ON a.id = asp.activity_id
             LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = a.category_id
             WHERE asp.staff_id = ?
@@ -980,7 +982,7 @@ class StaffAPI extends BaseAPI {
                 SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS submitted,
                 SUM(CASE WHEN lp.status = 'draft' THEN 1 ELSE 0 END) AS drafts,
                 MAX(acd.date) AS latest_lesson_date
-            FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . "
+            FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " acd ON acd.id = lp.academic_year_calendar_day_id
             WHERE lp.teacher_id = ?
         ");
@@ -1000,7 +1002,7 @@ class StaffAPI extends BaseAPI {
     {
         $stmt = $this->db->prepare("
             SELECT COUNT(*) AS total, AVG(rating) AS average_rating, MAX(observation_date) AS latest_observation_date
-            FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+            FROM lesson_observations
             WHERE teacher_id = ?
         ");
         $stmt->execute([$staffId]);
@@ -2783,7 +2785,7 @@ class StaffAPI extends BaseAPI {
         }
 
         if ($personId && !empty($data['leadership_position_name'])) {
-            $position = $this->db->prepare("SELECT lp.id FROM " . ReadReplicaService::qualifiedRef("leadership_positions") . " JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
+            $position = $this->db->prepare("SELECT lp.id FROM " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
             $position->execute([trim((string)$data['leadership_position_name'])]);
             $positionId = (int)$position->fetchColumn();
             $yearId = (int)$this->db->query('SELECT id FROM academic_years ORDER BY is_current DESC,id DESC LIMIT 1')->fetchColumn();

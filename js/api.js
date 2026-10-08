@@ -2378,6 +2378,19 @@ function validatePermission(endpoint, method) {
   const hasPermission = [...aliases].some((permissionCode) =>
     AuthContext.hasPermission(permissionCode),
   );
+  const leadershipManagerRole = [
+    "school administrator",
+    "headteacher",
+    "deputy head - academic",
+    "deputy head - discipline",
+  ].some((roleName) => AuthContext.hasRole?.(roleName));
+  const isLeadershipManagementRequest =
+    (normalizedEndpoint === "/students/leadership" || normalizedEndpoint.startsWith("/students/leadership/")) &&
+    ["POST", "PUT", "DELETE"].includes(String(method).toUpperCase());
+
+  if (!hasPermission && leadershipManagerRole && isLeadershipManagementRequest) {
+    return;
+  }
 
   if (!hasPermission) {
     const isAdmissionEndpoint =
@@ -4095,6 +4108,10 @@ window.API = {
         apiCall("/students/leadership", "GET", null, params),
       positions: async (params = {}) =>
         apiCall("/students/leadership/positions", "GET", null, params),
+      createPosition: async (data) =>
+        apiCall("/students/leadership/positions", "POST", data),
+      updatePosition: async (id, data) =>
+        apiCall(`/students/leadership/positions/${Number(id)}`, "PUT", data),
       history: async (studentId) =>
         apiCall(`/students/leadership/history/${studentId}`, "GET"),
       create: async (data) => apiCall("/students/leadership", "POST", data),

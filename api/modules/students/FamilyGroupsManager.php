@@ -60,6 +60,25 @@ class FamilyGroupsManager
 
             $whereClause = !empty($conditions) ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
+            // A parent directory is still useful when the separately
+            // materialized finance projection is unavailable. Never block
+            // names/contact rows on fee totals or substitute stale values.
+            $feeBalanceExpression = 'NULL';
+            try {
+                $feeView = ReadReplicaService::qualifiedRef('student_fee_balances');
+                $feeBalanceExpression = "COALESCE((SELECT SUM(vfb.balance)
+                    FROM {$feeView} vfb
+                    JOIN " . ReadReplicaService::qualifiedRef('student_parents') . " sp2 ON sp2.student_id = vfb.student_id
+                    WHERE sp2.parent_id = p.id), 0)";
+            } catch (\RuntimeException $projectionError) {
+                \App\API\Includes\FileLogger::write('reads', [
+                    'event' => 'parent_directory_fee_totals_unavailable',
+                    'projection' => 'student_fee_balances',
+                    'error_class' => get_class($projectionError),
+                    'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                ], 'warning');
+            }
+
             $sql = "
                 SELECT 
                     p.id,
@@ -78,13 +97,7 @@ class FamilyGroupsManager
                     p.status,
                     p.created_at,
                     COUNT(DISTINCT sp.student_id) AS children_count,
-                    COALESCE(
-                        (SELECT SUM(vfb.balance)
-                         FROM " . ReadReplicaService::qualifiedRef("student_fee_balances") . " vfb
-                         JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp2 ON sp2.student_id = vfb.student_id
-                         WHERE sp2.parent_id = p.id),
-                        0
-                    ) AS total_fee_balance
+                    {$feeBalanceExpression} AS total_fee_balance
                 FROM " . ReadReplicaService::qualifiedRef("parents") . " p
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON p.id = sp.parent_id
@@ -200,23 +213,29 @@ class FamilyGroupsManager
     public function searchFamilyGroups(string $searchTerm = '', int $limit = 50, int $offset = 0): array
     {
         try {
+            // Native prepares (emulation off) cannot bind one named
+            // placeholder to several positions: each occurrence needs its
+            // own parameter, otherwise PDO raises HY093.
             $stmt = $this->pdo->prepare("
                 SELECT
                     gl.parent_id,
                     CONCAT_WS(' ', gl.parent_first_name, gl.parent_middle_name, gl.parent_last_name) AS parent_name,
+                    gl.parent_phone AS phone_1,
                     gl.parent_email AS email,
-                    COUNT(DISTINCT gl.student_id) AS child_count
+                    COUNT(DISTINCT gl.student_id) AS students_count
                 FROM " . ReadReplicaService::qualifiedRef('guardian_link') . " gl
                 WHERE (
-                    gl.parent_first_name LIKE :search OR
-                    gl.parent_last_name LIKE :search OR
-                    gl.parent_email LIKE :search
+                    gl.parent_first_name LIKE :search_1 OR
+                    gl.parent_last_name LIKE :search_2 OR
+                    gl.parent_email LIKE :search_3
                 )
-                GROUP BY gl.parent_id, gl.parent_first_name, gl.parent_middle_name, gl.parent_last_name, gl.parent_email
+                GROUP BY gl.parent_id, gl.parent_first_name, gl.parent_middle_name, gl.parent_last_name, gl.parent_phone, gl.parent_email
                 ORDER BY gl.parent_first_name, gl.parent_last_name
                 LIMIT :limit OFFSET :offset
             ");
-            $stmt->bindValue(':search', "%{$searchTerm}%");
+            $stmt->bindValue(':search_1', "%{$searchTerm}%");
+            $stmt->bindValue(':search_2', "%{$searchTerm}%");
+            $stmt->bindValue(':search_3', "%{$searchTerm}%");
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
             $stmt->execute();
@@ -227,12 +246,14 @@ class FamilyGroupsManager
                 SELECT COUNT(DISTINCT gl.parent_id) AS total_count
                 FROM " . ReadReplicaService::qualifiedRef('guardian_link') . " gl
                 WHERE (
-                    gl.parent_first_name LIKE :search OR
-                    gl.parent_last_name LIKE :search OR
-                    gl.parent_email LIKE :search
+                    gl.parent_first_name LIKE :search_1 OR
+                    gl.parent_last_name LIKE :search_2 OR
+                    gl.parent_email LIKE :search_3
                 )
             ");
-            $stmt->bindValue(':search', "%{$searchTerm}%");
+            $stmt->bindValue(':search_1', "%{$searchTerm}%");
+            $stmt->bindValue(':search_2', "%{$searchTerm}%");
+            $stmt->bindValue(':search_3', "%{$searchTerm}%");
             $stmt->execute();
             $total = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total_count'] ?? count($results);
 
@@ -247,6 +268,7 @@ class FamilyGroupsManager
                 ]
             ];
         } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FamilyGroupsManager] family group search failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -697,15 +719,23 @@ class FamilyGroupsManager
         try {
             $stats = [];
 
+            // All aggregates run on the replica projections; the previous
+            // statement filtered p.status over the student_directory table
+            // without defining that alias and could never prepare.
+            $parents = ReadReplicaService::qualifiedRef('parents');
+            $guardianLink = ReadReplicaService::qualifiedRef('guardian_link');
+            $students = ReadReplicaService::qualifiedRef('students');
+            $studentParents = ReadReplicaService::qualifiedRef('student_parents');
+
             // Total parents
-            $stmt = $this->pdo->query("SELECT COUNT(*) as total FROM parents WHERE status = 'active'");
+            $stmt = $this->pdo->query("SELECT COUNT(*) as total FROM {$parents} WHERE status = 'active'");
             $stats['total_parents'] = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
             // Parents with children
             $stmt = $this->pdo->query("
-                SELECT COUNT(DISTINCT parent_id) as total 
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  
-                WHERE p.status = 'active'
+                SELECT COUNT(DISTINCT gl.parent_id) as total
+                FROM {$guardianLink} gl
+                WHERE gl.parent_status = 'active'
             ");
             $stats['parents_with_children'] = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
@@ -714,9 +744,9 @@ class FamilyGroupsManager
 
             // Students without parents
             $stmt = $this->pdo->query("
-                SELECT COUNT(*) as total 
-                FROM " . ReadReplicaService::masterRef("students") . " s 
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON s.id = sp.student_id 
+                SELECT COUNT(*) as total
+                FROM {$students} s
+                LEFT JOIN {$studentParents} sp ON s.id = sp.student_id
                 WHERE sp.student_id IS NULL AND s.status = 'active'
             ");
             $stats['students_without_parents'] = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -726,7 +756,7 @@ class FamilyGroupsManager
                 SELECT AVG(child_count) as avg_children
                 FROM (
                     SELECT COUNT(*) as child_count
-                    FROM student_parents
+                    FROM {$studentParents}
                     GROUP BY parent_id
                 ) as counts
             ");
@@ -734,7 +764,7 @@ class FamilyGroupsManager
             $stats['avg_children_per_parent'] = round((float) ($result['avg_children'] ?? 0), 1);
 
             // Total linked students
-            $stmt = $this->pdo->query("SELECT COUNT(DISTINCT student_id) as total FROM student_parents");
+            $stmt = $this->pdo->query("SELECT COUNT(DISTINCT student_id) as total FROM {$studentParents}");
             $stats['total_linked_students'] = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
             return [
@@ -742,6 +772,7 @@ class FamilyGroupsManager
                 'data' => $stats
             ];
         } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FamilyGroupsManager] family group stats failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -843,19 +874,28 @@ class FamilyGroupsManager
         }
 
         try {
+            // The guardian_link projection carries both parent and student
+            // identity per linked row, so the family directory is one
+            // self-contained aggregate read on the replica - no master-table
+            // joins. The previous statement selected p./pp. aliases over a
+            // single-table FROM and could never prepare.
+            $guardianLink = ReadReplicaService::qualifiedRef('guardian_link');
             $stmt = $this->pdo->prepare("
                 SELECT
-                    p.id AS parent_id,
-                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS parent_name,
-                    pp.phone AS phone_1,
-                    pp.email,
-                    p.status AS parent_status,
-                    COUNT(sp.student_id) AS students_count,
-                    GROUP_CONCAT(CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) ORDER BY ps.first_name SEPARATOR ', ') AS student_names
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-                WHERE p.status = 'active'
-                GROUP BY p.id, pp.first_name, pp.middle_name, pp.last_name, pp.phone, pp.email, p.status
-                ORDER BY pp.first_name, pp.last_name
+                    gl.parent_id,
+                    gl.parent_full_name AS parent_name,
+                    gl.parent_phone AS phone_1,
+                    gl.parent_email AS email,
+                    gl.parent_status AS parent_status,
+                    COUNT(DISTINCT gl.student_id) AS students_count,
+                    GROUP_CONCAT(
+                        DISTINCT gl.student_full_name
+                        ORDER BY gl.student_first_name SEPARATOR ', '
+                    ) AS student_names
+                FROM {$guardianLink} gl
+                WHERE gl.parent_status = 'active'
+                GROUP BY gl.parent_id, gl.parent_full_name, gl.parent_phone, gl.parent_email, gl.parent_status
+                ORDER BY gl.parent_first_name, gl.parent_last_name
                 LIMIT :limit OFFSET :offset
             ");
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
@@ -863,16 +903,25 @@ class FamilyGroupsManager
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            $totalStmt = $this->pdo->prepare("
+                SELECT COUNT(DISTINCT gl.parent_id) AS total
+                FROM {$guardianLink} gl
+                WHERE gl.parent_status = 'active'
+            ");
+            $totalStmt->execute();
+            $total = (int) ($totalStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? count($rows));
+
             return [
                 'success' => true,
                 'data' => $rows,
                 'pagination' => [
                     'limit' => $limit,
                     'offset' => $offset,
-                    'total' => count($rows),
+                    'total' => $total,
                 ],
             ];
         } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[FamilyGroupsManager] family groups list failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.',

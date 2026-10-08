@@ -168,7 +168,8 @@ class FinanceController extends BaseController
 
     private function financeCrud(): \App\API\Services\FinanceCrudService
     {
-        return $this->contract('App\API\Services\FinanceCrudService', $this->db);
+        // FinanceCrudService takes the PDO connection, not the Database wrapper.
+        return $this->contract('App\API\Services\FinanceCrudService', $this->db->getConnection());
     }
 
     private function supplierManager(): \App\API\Modules\inventory\SuppliersManager
@@ -178,7 +179,8 @@ class FinanceController extends BaseController
 
     private function parentRefundService(): \App\API\Services\payments\ParentRefundService
     {
-        return $this->contract('App\API\Services\payments\ParentRefundService', $this->db);
+        // ParentRefundService takes the PDO connection, not the Database wrapper.
+        return $this->contract('App\API\Services\payments\ParentRefundService', $this->db->getConnection());
     }
 
     private function canConfigurePaymentIntegrations(): bool

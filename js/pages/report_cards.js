@@ -443,7 +443,7 @@ const reportCardsCtrl = (() => {
     async function downloadCard(studentId) {
         const release = state.students.find((row) => Number(row.id) === Number(studentId));
         if (release?.download_url) {
-            window.open(release.download_url, '_blank', 'noopener');
+            window.PrintManager?.openDocument(release.download_url, { title: 'Student report card' });
             return;
         }
         toast('Generate and approve the official PDF before downloading it', 'error');
@@ -455,7 +455,7 @@ const reportCardsCtrl = (() => {
             toast('Generate and approve the official PDF before printing it', 'error');
             return;
         }
-        window.open(student.download_url, '_blank', 'noopener');
+        window.PrintManager?.openDocument(student.download_url, { title: 'Student report card' });
     }
 
     async function downloadAll() {

@@ -277,6 +277,75 @@ final class JobQueue
     }
 
     /**
+     * Claim Python-routed jobs that have waited past the takeover window.
+     *
+     * The Python worker keeps first claim on its job families, but when that
+     * runtime is down or draining slower than the refresh cadence, its rows
+     * would otherwise sit pending forever while every projection they own
+     * drifts stale and consuming pages fail. The PHP worker may take over a
+     * starved job only when a registered PHP handler exists for its type
+     * (e.g. the ReadProjectionSynchronizer fallback for
+     * reads.projection.refresh), so a dead runtime can never strand the
+     * pipeline again. Claims are atomic on the same pending->processing
+     * transition Python uses, so a job can never execute twice.
+     *
+     * @return int[] Claimed (now processing) job ids.
+     */
+    public static function claimStarvedForTypes(array $jobTypes, int $starveSeconds = 120, int $limit = 5): array
+    {
+        $jobTypes = self::normalizeJobTypes($jobTypes);
+        if ($jobTypes === []) {
+            return [];
+        }
+        $starveSeconds = max(30, min(3600, $starveSeconds));
+        $limit = max(1, min(50, $limit));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($jobTypes, $starveSeconds, $limit): array {
+            $ids = [];
+            $marks = implode(',', array_fill(0, count($jobTypes), '?'));
+            // $starveSeconds and $limit are int-clamped prepared literals.
+            $stmt = $pdo->prepare(
+                "SELECT id FROM jobs_queue
+                 WHERE status = ? AND job_type IN ({$marks})
+                   AND available_at <= NOW() - INTERVAL {$starveSeconds} SECOND
+                 ORDER BY priority ASC, id ASC
+                 LIMIT {$limit}"
+            );
+            $stmt->execute(array_merge([self::STATUS_PENDING], $jobTypes));
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $rawId) {
+                $id = (int) $rawId;
+                $claim = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, updated_at = NOW() WHERE id = ? AND status = ?'
+                );
+                $claim->execute([self::STATUS_PROCESSING, $id, self::STATUS_PENDING]);
+                if ($claim->rowCount() === 1) $ids[] = $id;
+            }
+            return $ids;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Whether an outstanding job has sat untouched longer than the given
+     * window. Schedulers use this to break the "already queued"
+     * short-circuit when a previous job was never drained by its owning
+     * runtime. A job row that no longer exists counts as stale so the
+     * caller re-queues fresh work instead of stalling on a phantom.
+     */
+    public static function activeJobOlderThan(int $id, int $seconds): bool
+    {
+        $seconds = max(1, min(86400, $seconds));
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $seconds): bool {
+            $stmt = $pdo->prepare(
+                'SELECT updated_at < NOW() - INTERVAL ' . $seconds . ' SECOND FROM jobs_queue WHERE id = ?'
+            );
+            $stmt->execute([$id]);
+            $aged = $stmt->fetchColumn();
+            return $aged === false ? true : (bool) $aged;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
      * Fetch one queued job for dispatch.
      *
      * @return array{id:int, job_type:string, priority:int, payload:array, status:string,

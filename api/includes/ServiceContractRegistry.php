@@ -90,6 +90,7 @@ class ServiceContractRegistry
         self::govern('App\API\Modules\health\HealthAPI', 'health', 'health.healthapi');
         self::govern('App\API\Modules\boarding\BoardingManager', 'boarding', 'boarding.boardingmanager');
         self::govern('App\API\Modules\inventory\UniformSalesManager', 'inventory', 'inventory.uniformsalesmanager');
+        self::govern('App\API\Modules\inventory\SuppliersManager', 'inventory', 'inventory.suppliersmanager');
         self::govern('App\API\Modules\inventory\InventoryAPI', 'inventory', 'inventory.inventoryapi');
         self::govern('App\API\Modules\activities\SportsManager', 'activities', 'activities.sportsmanager');
         self::govern('App\API\Modules\activities\ActivitiesAPI', 'activities', 'activities.activitiesapi');

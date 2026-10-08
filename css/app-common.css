@@ -795,3 +795,78 @@ table.table thead th[scope="col"] {
     display: none !important;
   }
 }
+/* Compact, keyboard friendly navigation for the student register. */
+.students-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 0.75rem;
+  background: var(--bg-card, #fff);
+}
+
+.students-table-range {
+  font-size: 0.9rem;
+}
+
+.students-table-range strong {
+  color: var(--text-primary, #1f2937);
+  font-weight: 600;
+}
+
+.students-table-controls,
+.students-page-size,
+.students-page-navigation {
+  display: flex;
+  align-items: center;
+}
+
+.students-table-controls {
+  gap: 1.25rem;
+}
+
+.students-page-size {
+  gap: 0.55rem;
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.students-page-size select {
+  width: 5rem;
+}
+
+.students-page-navigation {
+  gap: 0.6rem;
+}
+
+.students-page-navigation .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+}
+
+.students-page-indicator {
+  min-width: 5.5rem;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.875rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .students-table-footer,
+  .students-table-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .students-page-navigation {
+    justify-content: space-between;
+  }
+}

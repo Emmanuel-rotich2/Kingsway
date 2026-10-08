@@ -17,6 +17,7 @@ const StudentIdCardsController = {
     },
     initialized: false,
     dom: {},
+    pagination: { page: 1, limit: 25, total: 0, pages: 0 },
 
     init: async function() {
         if (this.initialized) return;
@@ -37,6 +38,7 @@ const StudentIdCardsController = {
             }
 
             this.cacheDom();
+            this.renderTableHeader();
             this.setupEventListeners();
             await this.loadMetadata();
             await this.loadStudents();
@@ -74,6 +76,20 @@ const StudentIdCardsController = {
             return response;
         }
         return response || {};
+    },
+
+    extractPagination: function(response) {
+        const pending = [response];
+        const seen = new Set();
+        while (pending.length) {
+            const current = pending.shift();
+            if (!current || typeof current !== 'object' || seen.has(current)) continue;
+            seen.add(current);
+            if (current.pagination && typeof current.pagination === 'object') return current.pagination;
+            if (current.data && typeof current.data === 'object') pending.push(current.data);
+            if (current.raw && typeof current.raw === 'object') pending.push(current.raw);
+        }
+        return {};
     },
 
     extractList: function(response) {
@@ -123,6 +139,7 @@ const StudentIdCardsController = {
             refreshBtn: document.getElementById("refreshBtn"),
             generateSelectedBtn: document.getElementById("generateSelectedBtn"),
             printSelectedBtn: document.getElementById("printSelectedBtn"),
+            printListBtn: document.getElementById("printListBtn"),
             exportBtn: document.getElementById("exportBtn"),
 
             filterAcademicYear: document.getElementById("filterAcademicYear"),
@@ -138,6 +155,9 @@ const StudentIdCardsController = {
             selectAll: document.getElementById("selectAll"),
             headerCheckbox: document.getElementById("headerCheckbox"),
             tableBody: document.getElementById("tableBody"),
+            pageSize: document.getElementById("idCardPageSize"),
+            paginationSummary: document.getElementById("idCardPaginationSummary"),
+            paginationControls: document.getElementById("idCardPaginationControls"),
 
             loadingState: document.getElementById("loadingState"),
             errorState: document.getElementById("errorState"),
@@ -180,23 +200,38 @@ const StudentIdCardsController = {
         this.safeListen("refreshBtn", "click", () => this.loadStudents());
         this.safeListen("generateSelectedBtn", "click", () => this.generateSelected());
         this.safeListen("printSelectedBtn", "click", () => this.printSelected());
+        this.safeListen("printListBtn", "click", () => this.printStudentList());
         this.safeListen("exportBtn", "click", () => this.exportData());
 
         this.safeListen("applyFiltersBtn", "click", () => this.loadStudents());
         this.safeListen("resetFiltersBtn", "click", () => this.resetFilters());
+        this.safeListen("idCardPageSize", "change", (event) => {
+            this.pagination.limit = Math.max(1, parseInt(event.target.value, 10) || 25);
+            this.pagination.page = 1;
+            this.loadStudents();
+        });
+        this.safeListen("idCardPaginationControls", "click", (event) => {
+            const button = event.target.closest("[data-page-delta]");
+            if (button && !button.disabled) this.changePage(Number(button.dataset.pageDelta));
+        });
 
         this.safeListen("filterClass", "change", () => {
             this.updateStreamsFilter();
+            this.pagination.page = 1;
             this.loadStudents();
         });
 
-        this.safeListen("filterAcademicYear", "change", () => this.loadStudents());
-        this.safeListen("filterStream", "change", () => this.loadStudents());
-        this.safeListen("filterGender", "change", () => this.loadStudents());
-        this.safeListen("filterStudentStatus", "change", () => this.loadStudents());
-        this.safeListen("filterCardStatus", "change", () => this.loadStudents());
+        ["filterAcademicYear", "filterStream", "filterGender", "filterStudentStatus", "filterCardStatus"].forEach(id => {
+            this.safeListen(id, "change", () => {
+                this.pagination.page = 1;
+                this.loadStudents();
+            });
+        });
 
-        this.safeListen("searchStudents", "input", this.debounce(() => this.loadStudents(), 400));
+        this.safeListen("searchStudents", "input", this.debounce(() => {
+            this.pagination.page = 1;
+            this.loadStudents();
+        }, 400));
 
         this.safeListen("selectAll", "change", (e) => this.toggleSelectAll(e.target.checked));
         this.safeListen("headerCheckbox", "change", (e) => this.toggleSelectAll(e.target.checked));
@@ -298,13 +333,25 @@ const StudentIdCardsController = {
 
             const students = this.extractList(response);
             this.students = students;
+            const pagination = this.extractPagination(response);
+            this.pagination = {
+                page: Math.max(1, Number(pagination.page) || this.pagination.page || 1),
+                limit: Math.max(1, Number(pagination.limit) || this.pagination.limit || 25),
+                total: Math.max(0, Number(pagination.total) || 0),
+                pages: Math.max(0, Number(pagination.pages) || 0),
+            };
+            if (this.dom.pageSize) this.dom.pageSize.value = String(this.pagination.limit);
             this.renderSummary();
             this.renderTable();
+            this.renderPagination();
         } catch (error) {
             console.error('Failed to load students:', error);
             this.dom.errorState.textContent = error.message || "Failed to load students";
             this.dom.errorState.classList.remove("d-none");
             this.dom.tableBody.innerHTML = '';
+            this.pagination.total = 0;
+            this.pagination.pages = 0;
+            this.renderPagination();
         } finally {
             this.setLoading(false);
         }
@@ -312,6 +359,8 @@ const StudentIdCardsController = {
 
     getFilterParams: function() {
         const params = new URLSearchParams();
+        params.set("page", String(this.pagination.page || 1));
+        params.set("limit", String(this.pagination.limit || 25));
 
         const filters = {
             academic_year: this.dom.filterAcademicYear?.value || "",
@@ -328,6 +377,38 @@ const StudentIdCardsController = {
         });
 
         return params;
+    },
+
+    changePage: function(delta) {
+        const target = this.pagination.page + delta;
+        if (target < 1 || target > this.pagination.pages) return;
+        this.pagination.page = target;
+        this.loadStudents();
+    },
+
+    renderPagination: function() {
+        if (!this.dom.paginationSummary || !this.dom.paginationControls) return;
+        const { page, limit, total, pages } = this.pagination;
+        const from = total ? ((page - 1) * limit) + 1 : 0;
+        const to = Math.min(page * limit, total);
+        this.dom.paginationSummary.textContent = `Showing ${from}–${to} of ${total} students`;
+        this.dom.paginationControls.innerHTML = `
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-page-delta="-1" ${page <= 1 ? "disabled" : ""} aria-label="Previous page"><i class="bi bi-chevron-left"></i><span class="ms-1">Previous</span></button>
+            <span class="small text-muted px-2">Page ${pages ? page : 0} of ${pages}</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-page-delta="1" ${page >= pages ? "disabled" : ""} aria-label="Next page"><span class="me-1">Next</span><i class="bi bi-chevron-right"></i></button>`;
+    },
+
+    renderTableHeader: function() {
+        const header = document.querySelector('#idCardTablePrintArea thead tr');
+        if (!header) return;
+        header.innerHTML = `
+            <th scope="col"><input type="checkbox" id="headerCheckbox"></th>
+            <th scope="col">Photo</th><th scope="col">Adm No</th>
+            <th scope="col">Student Name</th><th scope="col">Class</th>
+            <th scope="col">Stream</th><th scope="col">Gender</th>
+            <th scope="col">ID Card No</th><th scope="col">Issue Date</th>
+            <th scope="col">Expiry Year</th><th scope="col">Actions</th>`;
+        this.dom.headerCheckbox = header.querySelector('#headerCheckbox');
     },
 
     updateStreamsFilter: function() {
@@ -352,7 +433,7 @@ const StudentIdCardsController = {
     renderSummary: function() {
         const summary = this.calculateSummary();
 
-        if (this.dom.statTotalStudents) this.dom.statTotalStudents.textContent = summary.total;
+        if (this.dom.statTotalStudents) this.dom.statTotalStudents.textContent = this.pagination.total;
         if (this.dom.statWithIDs) this.dom.statWithIDs.textContent = summary.withIDs;
         if (this.dom.statWithoutIDs) this.dom.statWithoutIDs.textContent = summary.withoutIDs;
         if (this.dom.statPrinted) this.dom.statPrinted.textContent = summary.printed;
@@ -384,7 +465,7 @@ const StudentIdCardsController = {
         if (!this.students.length) {
             this.dom.tableBody.innerHTML = `
                 <tr>
-                    <td colspan="15" class="text-center py-4">
+                    <td colspan="11" class="text-center py-4">
                         <div class="text-muted">
                             <i class="bi bi-inbox fs-1 d-block mb-2"></i>
                             No students found
@@ -397,8 +478,6 @@ const StudentIdCardsController = {
         this.dom.tableBody.innerHTML = this.students.map(student => {
             const studentId = student.id || student.student_id;
             const fullName = this.getFullName(student);
-            const statusBadge = this.getStatusBadge(student.card_status);
-            const qrBadge = this.getQRBadge(student.qr_token);
             const actions = this.getRowActions(student);
 
             return `
@@ -411,11 +490,8 @@ const StudentIdCardsController = {
                     <td>${this.escapeHtml(student.stream_name || '—')}</td>
                     <td>${this.escapeHtml(student.gender || '—')}</td>
                     <td>${this.escapeHtml(student.card_number || '—')}</td>
-                    <td>${qrBadge}</td>
-                    <td>${statusBadge}</td>
                     <td>${this.escapeHtml(student.issue_date || '—')}</td>
                     <td>${this.escapeHtml(student.expiry_year || '—')}</td>
-                    <td>${this.escapeHtml(student.generated_at || '—')}</td>
                     <td>${actions}</td>
                 </tr>
             `;
@@ -434,96 +510,49 @@ const StudentIdCardsController = {
         });
     },
 
-    getStatusBadge: function(status) {
-        const badges = {
-            'not_generated': '<span class="badge bg-secondary">No ID</span>',
-            'generated': '<span class="badge bg-success">Generated</span>',
-            'printed': '<span class="badge bg-primary">Printed</span>',
-            'issued': '<span class="badge bg-info">Issued</span>',
-            'lost': '<span class="badge bg-danger">Lost</span>',
-            'damaged': '<span class="badge bg-warning">Damaged</span>',
-            'expired': '<span class="badge bg-dark">Expired</span>',
-            'replaced': '<span class="badge bg-secondary">Replaced</span>',
-            'revoked': '<span class="badge bg-dark">Revoked</span>',
-        };
-        return badges[status] || badges['not_generated'];
-    },
-
-    getQRBadge: function(qrToken) {
-        if (qrToken) {
-            return '<span class="badge bg-success">QR Generated</span>';
-        }
-        return '<span class="badge bg-secondary">QR Missing</span>';
-    },
-
     getRowActions: function(student) {
-        const studentId = student.id || student.student_id;
+        const studentId = parseInt(student.id || student.student_id, 10);
         const cardId = student.card_id;
         const status = student.card_status || 'not_generated';
 
-        let actions = '';
+        const actions = [];
 
         if (status === 'not_generated') {
-            actions += `
-                <button class="btn btn-sm btn-outline-success" onclick="StudentIdCardsController.showGenerateModalForStudent(${studentId})">
-                    <i class="bi bi-plus-circle"></i> Generate
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showGenerateModalForStudent(${studentId})"><i class="bi bi-plus-circle me-2"></i>Generate card</button>`);
         } else {
-            actions += `
-                <button class="btn btn-sm btn-outline-primary" onclick="StudentIdCardsController.previewCard(${studentId})">
-                    <i class="bi bi-eye"></i> View
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.previewCard(${studentId})"><i class="bi bi-eye me-2"></i>View card</button>`);
         }
 
         if (status === 'generated') {
-            actions += `
-                <button class="btn btn-sm btn-outline-info" onclick="StudentIdCardsController.printCard(${studentId})">
-                    <i class="bi bi-printer"></i> Print
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="StudentIdCardsController.markPrintedForStudent(${studentId})">
-                    <i class="bi bi-check-circle"></i> Mark Printed
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.printCard(${studentId})"><i class="bi bi-printer me-2"></i>Print card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.markPrintedForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark printed</button>`);
         }
 
         if (status === 'printed') {
-            actions += `
-                <button class="btn btn-sm btn-outline-info" onclick="StudentIdCardsController.showIssueModalForStudent(${studentId})">
-                    <i class="bi bi-check-circle"></i> Mark Issued
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showIssueModalForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark issued</button>`);
         }
 
         if (status === 'issued') {
-            actions += `
-                <button class="btn btn-sm btn-outline-warning" onclick="StudentIdCardsController.markLostForStudent(${studentId})">
-                    <i class="bi bi-exclamation-triangle"></i> Mark Lost
-                </button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="StudentIdCardsController.showRenewModalForStudent(${studentId})">
-                    <i class="bi bi-arrow-repeat"></i> Renew
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.markLostForStudent(${studentId})"><i class="bi bi-exclamation-triangle me-2"></i>Mark lost</button>`);
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showRenewModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Renew card</button>`);
         }
 
         if (status === 'lost' || status === 'damaged' || status === 'expired') {
-            actions += `
-                <button class="btn btn-sm btn-outline-danger" onclick="StudentIdCardsController.showReplaceModalForStudent(${studentId})">
-                    <i class="bi bi-arrow-repeat"></i> Replace
-                </button>
-            `;
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showReplaceModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Replace card</button>`);
         }
 
         if (cardId && status !== 'not_generated') {
-            actions += `
-                <button class="btn btn-sm btn-outline-dark" onclick="StudentIdCardsController.viewHistory(${studentId})">
-                    <i class="bi bi-clock-history"></i> History
-                </button>
-            `;
+            if (actions.length) actions.push('<div class="dropdown-divider"></div>');
+            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.viewHistory(${studentId})"><i class="bi bi-clock-history me-2"></i>Card history</button>`);
         }
 
-        return actions;
+        const admission = this.escapeAttr(student.admission_no || String(studentId));
+        return `<div class="dropdown text-end">
+            <button type="button" class="btn btn-sm btn-light border" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false" aria-label="Actions for ${admission}">
+                <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+            </button>
+            <div class="dropdown-menu dropdown-menu-end shadow-sm">${actions.join('')}</div>
+        </div>`;
     },
 
     toggleSelectAll: function(checked) {
@@ -539,6 +568,7 @@ const StudentIdCardsController = {
     },
 
     resetFilters: function() {
+        this.pagination.page = 1;
         this.dom.filterAcademicYear.value = "";
         this.dom.filterClass.value = "";
         this.dom.filterStream.value = "";
@@ -847,8 +877,12 @@ const StudentIdCardsController = {
                     if (bootstrapModal) bootstrapModal.hide();
                 }
 
-                // Open PDF in new tab
-                window.open(data.pdf_url, '_blank');
+                // Keep generated school PDFs inside the application viewer.
+                if (window.PrintManager?.openDocument) {
+                    window.PrintManager.openDocument(data.pdf_url, { title: 'Student ID cards' });
+                } else {
+                    window.KingswayFileLifecycle?.open?.(data.pdf_url);
+                }
                 
                 // Reload students to update status
                 await this.loadStudents();
@@ -899,15 +933,31 @@ const StudentIdCardsController = {
     },
 
     printCard: async function(studentId) {
-        // Single-card print: fetch server-rendered HTML (CR80, QR as data URI,
-        // front|back side-by-side) and open the OS print dialog.
         const modeSelect = document.getElementById('printModeDirect');
         const printMode = modeSelect?.value || 'direct_card';
-        await this.openServerPrintHtml(
-            '/students/id-card/print-single',
-            { student_id: studentId, side: 'both', print_mode: printMode },
-            `ID Card - ${studentId}`
-        );
+        this.setPrintBusy(true, "Preparing the student ID card…");
+        try {
+            await window.PrintManager.printSingleStudentIdCard(studentId, {
+                printerMode: printMode === "a4_sheet" ? "a4_pdf" : printMode,
+                side: "both",
+                filename: `student_id_${studentId}`,
+            });
+            this.notify("success", "Student ID-card document is ready.");
+        } catch (error) {
+            console.error("Student ID-card printing failed:", error);
+            this.notify("error", error.message || "Unable to generate the student ID card.");
+        } finally {
+            this.setPrintBusy(false);
+        }
+    },
+
+    printStudentList: function() {
+        if (window.AuthContext && typeof window.AuthContext.canPrint === "function"
+            && !window.AuthContext.canPrint("students")) {
+            this.notify("warning", "You do not have permission to print student records.");
+            return;
+        }
+        window.print();
     },
 
     renderCardPreview: function(data) {
@@ -1073,6 +1123,7 @@ const StudentIdCardsController = {
             : (includeFront ? "front" : "back");
 
         try {
+            this.setPrintBusy(true, `Preparing ID cards for ${studentIds.length} selected student(s)…`);
             await window.PrintManager.printBulkStudentIdCards(
                 studentIds,
                 {
@@ -1094,7 +1145,16 @@ const StudentIdCardsController = {
                 "error",
                 error.message || "Unable to generate ID cards.",
             );
+        } finally {
+            this.setPrintBusy(false);
         }
+    },
+
+    setPrintBusy: function(busy, message = "Preparing print document…") {
+        [this.dom.printSelectedBtn].filter(Boolean).forEach(button => {
+            button.disabled = busy;
+            button.setAttribute("aria-busy", busy ? "true" : "false");
+        });
     },
 
     /**

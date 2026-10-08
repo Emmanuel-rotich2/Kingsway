@@ -188,14 +188,26 @@
             </table>
         </div>
 
-        <!-- Pagination -->
-        <div class="d-flex justify-content-between align-items-center mt-3">
-            <div>
-                <span class="text-muted">Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span id="totalRecords">0</span> students</span>
+        <!-- Table controls -->
+        <div class="students-table-footer mt-3">
+            <div class="students-table-range text-muted" aria-live="polite">
+                Showing <strong id="showingFrom">0</strong>–<strong id="showingTo">0</strong>
+                of <strong id="totalRecords">0</strong> students
             </div>
-            <nav>
-                <ul class="pagination mb-0" id="pagination"></ul>
-            </nav>
+            <div class="students-table-controls">
+                <label class="students-page-size" for="studentsPageSize">
+                    Rows per page
+                    <select class="form-select form-select-sm" id="studentsPageSize"
+                            onchange="studentsManagementController.changePageSize(this.value)"
+                            aria-label="Rows per page">
+                        <option value="10" selected>10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </label>
+                <nav id="pagination" aria-label="Student table pages"></nav>
+            </div>
         </div>
     </div>
 </div>

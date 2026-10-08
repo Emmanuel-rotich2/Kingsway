@@ -70,7 +70,16 @@ const AllParentsController = {
         // parent without it.
         children_count: Number(p.children_count || (Array.isArray(p.children) ? p.children.length : 0)),
         class_ids: Array.isArray(p.class_ids) ? p.class_ids : [],
-        fee_status: p.fee_status || (Number(p.total_fee_balance || 0) > 0 ? "owing" : "clear"),
+        // A null balance means the fee projection is unavailable, not that
+        // the parent owes nothing. Keep that state distinct from "clear" so
+        // the fee-status filter never hides actually-owing parents.
+        fee_status:
+          p.fee_status ||
+          (p.total_fee_balance === null || p.total_fee_balance === undefined
+            ? "unknown"
+            : Number(p.total_fee_balance) > 0
+              ? "owing"
+              : "clear"),
       }));
 
       this.state.allParents = parentData;

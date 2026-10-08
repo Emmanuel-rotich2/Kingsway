@@ -14,11 +14,11 @@ class DirectorAnalyticsService
      */
     public function getEnrollmentStats()
     {
-        $query = "SELECT COUNT(*) as total, 
-                         SUM(CASE WHEN pd.gender = 'male' THEN 1 ELSE 0 END) as male,
-                         SUM(CASE WHEN pd.gender = 'female' THEN 1 ELSE 0 END) as female
-                  FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                  WHERE s.status = 'active'";
+        $query = "SELECT COUNT(*) as total,
+                         SUM(CASE WHEN sd.gender = 'male' THEN 1 ELSE 0 END) as male,
+                         SUM(CASE WHEN sd.gender = 'female' THEN 1 ELSE 0 END) as female
+                  FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                  WHERE sd.student_status = 'active'";
         $stmt = $this->db->query($query);
         $row = $stmt->fetch();
         return [
@@ -442,7 +442,7 @@ class DirectorAnalyticsService
 
         // Students by gender (for pie chart)
         try {
-            $stmt = $this->db->query("SELECT pd.gender, COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE s.status = 'active' GROUP BY pd.gender");
+            $stmt = $this->db->query("SELECT sd.gender, COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd WHERE sd.student_status = 'active' GROUP BY sd.gender");
             $genderRows = $stmt->fetchAll();
             $result['students_by_gender'] = array_map(function ($r) {
                 return ['source' => ucfirst($r['gender'] ?? 'Unknown'), 'amount' => (int) $r['cnt']];
@@ -496,14 +496,14 @@ class DirectorAnalyticsService
             // Student age distribution (school-age buckets)
             $studentAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, pd.dob, CURDATE()) < 10 THEN '0-9'
-                    WHEN TIMESTAMPDIFF(YEAR, pd.dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
-                    WHEN TIMESTAMPDIFF(YEAR, pd.dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) < 10 THEN '0-9'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
                     ELSE '18+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                WHERE pd.dob IS NOT NULL AND s.status = 'active'
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                WHERE sd.dob IS NOT NULL AND sd.student_status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '0-9', '10-13', '14-17', '18+')";
             $stmt = $this->db->query($studentAgeQuery);
@@ -519,8 +519,8 @@ class DirectorAnalyticsService
                     ELSE '55+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                WHERE sd.dob IS NOT NULL AND s.status = 'active'
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+                WHERE sd.dob IS NOT NULL AND sd.staff_status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '18-24', '25-34', '35-44', '45-54', '55+')";
             $stmt2 = $this->db->query($staffAgeQuery);

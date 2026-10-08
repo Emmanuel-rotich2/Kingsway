@@ -165,6 +165,22 @@ class RealtimeController extends BaseAPI
         $pythonTypes = $this->activePythonJobTypes();
         JobQueue::recoverStale(15, $pythonTypes);
         $ids = JobQueue::claimBatch($limit, $pythonTypes);
+        // A dead or slow Python runtime must never strand its job families.
+        // The Python-side lease recovery only runs while Python itself is
+        // reachable, so backstop it here, and take over jobs that have
+        // starved past the takeover window whenever a registered PHP
+        // handler can execute them safely (the projection refresh family
+        // has a first-class PHP fallback by design).
+        if ($pythonTypes !== []) {
+            JobQueue::recoverStaleForTypes($pythonTypes, 15);
+            $takeoverTypes = array_values(array_filter(
+                $pythonTypes,
+                static fn (string $type): bool => JobHandlerRegistry::resolve($type) !== null
+            ));
+            if ($takeoverTypes !== []) {
+                $ids = array_merge($ids, JobQueue::claimStarvedForTypes($takeoverTypes, 120, max(1, min(5, $limit))));
+            }
+        }
         $done = 0;
         $failed = 0;
         $retried = 0;
@@ -269,6 +285,16 @@ class RealtimeController extends BaseAPI
             $report['local_buffers'] = ['status' => 'degraded'];
         }
 
+        // Sweep every materialized projection on the same hourly schedule so
+        // staleness, missing targets, and never-synced views are surfaced by
+        // the scheduler instead of by a user's broken page.
+        try {
+            $report['projection_health'] = \App\API\Services\ReadProjectionHealthService::sweep();
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] projection health sweep failed: ' . $error->getMessage());
+            $report['projection_health'] = ['status' => 'degraded'];
+        }
+
         return $this->successResponse($report, 'Cleanup completed', 200);
     }
 
@@ -290,9 +316,17 @@ class RealtimeController extends BaseAPI
                 // every-5-minute batch enqueue grows an unbounded duplicate
                 // backlog whenever the worker drains slower than the batch
                 // cadence, and duplicate jobs collide on the projection lock.
-                if (JobQueue::findActiveByTypeAndPayload('reads.projection.refresh', 'projection', $projection) !== null) {
+                // A job that has sat undrained for five minutes is jammed,
+                // not pending: cancel it so the queue can accept fresh work
+                // instead of short-circuiting every sync to "already queued"
+                // while the projection drifts stale.
+                $activeJobId = JobQueue::findActiveByTypeAndPayload('reads.projection.refresh', 'projection', $projection);
+                if ($activeJobId !== null && !JobQueue::activeJobOlderThan($activeJobId, 300)) {
                     $skipped++;
                     continue;
+                }
+                if ($activeJobId !== null) {
+                    JobQueue::cancelJob($activeJobId);
                 }
                 $queued[] = JobQueue::push('reads.projection.refresh', [
                     'projection' => $projection,
@@ -319,12 +353,17 @@ class RealtimeController extends BaseAPI
                 return $this->successResponse($result, 'Read projection synchronized', 200);
             }
             $activeJobId = JobQueue::findActiveByTypeAndPayload('reads.projection.refresh', 'projection', $projection);
-            if ($activeJobId !== null) {
+            if ($activeJobId !== null && !JobQueue::activeJobOlderThan($activeJobId, 300)) {
                 return $this->successResponse(
                     ['job_id' => $activeJobId, 'projection' => $projection, 'status' => 'already_queued'],
                     'Read projection refresh already queued',
                     200
                 );
+            }
+            if ($activeJobId !== null) {
+                // Same anti-jam guard as the batch path: an undrained job is
+                // cancelled and replaced rather than blocking new syncs.
+                JobQueue::cancelJob($activeJobId);
             }
             $jobId = JobQueue::push('reads.projection.refresh', [
                 'projection' => $projection,

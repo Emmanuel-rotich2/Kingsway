@@ -4304,7 +4304,7 @@ class FeeManager
             $db = Database::getInstance()->getConnection();
             $stmt = $db->query(
                 "SELECT coa.id, coa.account_code, coa.account_name, cat.code AS account_type
-                 FROM " . ReadReplicaService::qualifiedRef("chart_of_accounts") . "
+                 FROM " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa
                  JOIN accounting_account_types cat ON cat.id = coa.account_type_id
                  WHERE coa.is_postable = 1 AND coa.status = 'active'
                  ORDER BY coa.account_code"

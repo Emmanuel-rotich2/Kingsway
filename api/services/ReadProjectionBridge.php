@@ -27,7 +27,7 @@ final class ReadProjectionBridge
     }
 
     /** @return array<string,mixed> */
-    public function refresh(string $projection): array
+    public function refresh(string $projection, int $timeoutSeconds = 900): array
     {
         if (!ReadProjectionSynchronizer::supports($projection)) {
             throw new RuntimeException('Read projection is not allowlisted.');
@@ -42,7 +42,15 @@ final class ReadProjectionBridge
             'Content-Type: application/json',
             'Accept: application/json',
             'Authorization: Bearer ' . $secret,
-        ], $body, 900);
+        ], $body, max(1, min(900, $timeoutSeconds)));
+
+        if ($status === 503) {
+            $failure = json_decode((string) $raw, true);
+            if (is_array($failure)
+                && str_contains(strtolower((string) ($failure['message'] ?? '')), 'already being refreshed')) {
+                throw new RuntimeException('Read projection refresh is already in progress.', 409);
+            }
+        }
 
         if (!is_string($raw) || $status < 200 || $status >= 300) {
             throw new RuntimeException('Python read-model refresh failed.');
@@ -58,5 +66,29 @@ final class ReadProjectionBridge
             throw new RuntimeException('Python read-model refresh returned an unexpected result.');
         }
         return $data + ['engine' => 'python'];
+    }
+
+    /**
+     * Refresh a stale projection before an ordinary read. Concurrent callers
+     * wait briefly for the single Python refresh already holding its lock.
+     * The short timeout keeps an ordinary page request bounded.
+     *
+     * @return array<string,mixed>
+     */
+    public function refreshForRead(string $projection): array
+    {
+        $attempts = 10;
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                return $this->refresh($projection, 12);
+            } catch (RuntimeException $error) {
+                if ($error->getCode() !== 409 || $attempt === $attempts) {
+                    throw $error;
+                }
+                usleep(350000);
+            }
+        }
+
+        throw new RuntimeException('Read projection refresh did not complete.');
     }
 }

@@ -59,7 +59,15 @@ class StudentRepository
             FROM students s
             INNER JOIN persons p ON p.id = s.person_id
             LEFT JOIN student_types st ON st.id = s.student_type_id
-            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp
+                ON lp.student_id = s.id
+                AND lp.academic_year_id = (
+                    SELECT ay_current.id
+                    FROM academic_years ay_current
+                    WHERE ay_current.is_current = 1
+                    ORDER BY ay_current.id DESC
+                    LIMIT 1
+                )
             LEFT JOIN academic_years ay ON ay.id = lp.academic_year_id
             LEFT JOIN (
                 SELECT
@@ -178,9 +186,13 @@ class StudentRepository
             array_push($bindings, $term, $term, $term, $term);
         }
 
+        if (filter_var($filters['enrolled_only'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $conditions[] = 'lp.enrollment_id IS NOT NULL';
+        }
+
         // Normalized placement filters: class_id and stream_id resolve through
         // the year-scoped enrollment context, never students.stream_id.
-        foreach (['class_id' => 'ayc.class_id', 'stream_id' => 'aycs.stream_id', 'status' => 's.status', 'gender' => 'p.gender', 'student_type_id' => 's.student_type_id', 'academic_year_id' => 'sae.academic_year_id'] as $param => $column) {
+        foreach (['class_id' => 'lp.class_id', 'stream_id' => 'lp.stream_id', 'status' => 's.status', 'gender' => 'p.gender', 'student_type_id' => 's.student_type_id', 'academic_year_id' => 'lp.academic_year_id'] as $param => $column) {
             if (!empty($filters[$param])) {
                 $conditions[] = "{$column} = ?";
                 $bindings[] = $filters[$param];

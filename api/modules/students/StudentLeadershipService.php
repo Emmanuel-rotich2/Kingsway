@@ -431,18 +431,104 @@ class StudentLeadershipService
      * POSITIONS & CATEGORIES (lookup)
      * =================================================================== */
 
-    public function positions(): array
+    public function positions(array $filters = []): array
     {
-        $stmt = $this->db->query("
+        $where = "lc.code = 'STUDENT_ORG'";
+        if (empty($filters['include_inactive'])) {
+            $where .= ' AND lp.is_active = 1';
+        }
+        $stmt = $this->db->prepare("
             SELECT lp.id, lp.name, lp.description, lp.display_order, lp.is_active,
                    lp.department_id, lp.max_holders,
                    lc.id AS leadership_category_id, lc.code AS leadership_category_code,
                    lc.name AS leadership_category_name, lc.holder_scope
-            FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-            WHERE lp.is_active = 1
+            FROM " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp
+            JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
+            WHERE {$where}
             ORDER BY lc.display_order, lp.display_order
         ");
+        $stmt->execute();
         return $this->ok($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function createPosition(array $data): array
+    {
+        $name = trim((string)($data['name'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 150) {
+            return $this->fail(422, 'Position name is required and must be 150 characters or fewer');
+        }
+        $maxHolders = $data['max_holders'] ?? null;
+        if ($maxHolders !== null && $maxHolders !== '' && (filter_var($maxHolders, FILTER_VALIDATE_INT) === false || (int)$maxHolders < 1)) {
+            return $this->fail(422, 'Maximum holders must be a positive whole number');
+        }
+        $stmt = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE leadership_category_id = ? AND LOWER(name) = LOWER(?)");
+        $stmt->execute([self::STUDENT_ORGANISATION_CATEGORY_ID, $name]);
+        if ($stmt->fetchColumn()) {
+            return $this->fail(409, 'A student leadership position with this name already exists');
+        }
+        $stmt = $this->db->prepare("INSERT INTO leadership_positions
+            (leadership_category_id, name, description, max_holders, display_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            self::STUDENT_ORGANISATION_CATEGORY_ID,
+            $name,
+            trim((string)($data['description'] ?? '')) ?: null,
+            $maxHolders === null || $maxHolders === '' ? null : (int)$maxHolders,
+            (int)($data['display_order'] ?? 0),
+            array_key_exists('is_active', $data) ? (int)(bool)$data['is_active'] : 1,
+        ]);
+        return $this->created(['id' => (int)$this->db->lastInsertId()], 'Student leadership position created');
+    }
+
+    public function updatePosition(int $id, array $data): array
+    {
+        $check = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE id = ? AND leadership_category_id = ?");
+        $check->execute([$id, self::STUDENT_ORGANISATION_CATEGORY_ID]);
+        if (!$check->fetchColumn()) {
+            return $this->fail(404, 'Student leadership position not found');
+        }
+
+        $fields = [];
+        $params = [];
+        if (array_key_exists('name', $data)) {
+            $name = trim((string)$data['name']);
+            if ($name === '' || mb_strlen($name) > 150) {
+                return $this->fail(422, 'Position name is required and must be 150 characters or fewer');
+            }
+            $duplicate = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE leadership_category_id = ? AND LOWER(name) = LOWER(?) AND id <> ?");
+            $duplicate->execute([self::STUDENT_ORGANISATION_CATEGORY_ID, $name, $id]);
+            if ($duplicate->fetchColumn()) {
+                return $this->fail(409, 'A student leadership position with this name already exists');
+            }
+            $fields[] = 'name = ?';
+            $params[] = $name;
+        }
+        foreach (['description', 'display_order', 'is_active', 'max_holders'] as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+            $value = $data[$field];
+            if ($field === 'description') {
+                $value = trim((string)$value) ?: null;
+            } elseif ($field === 'display_order') {
+                $value = (int)$value;
+            } elseif ($field === 'is_active') {
+                $value = (int)(bool)$value;
+            } elseif ($field === 'max_holders') {
+                if ($value !== null && $value !== '' && (filter_var($value, FILTER_VALIDATE_INT) === false || (int)$value < 1)) {
+                    return $this->fail(422, 'Maximum holders must be a positive whole number');
+                }
+                $value = ($value === null || $value === '') ? null : (int)$value;
+            }
+            $fields[] = "{$field} = ?";
+            $params[] = $value;
+        }
+        if (!$fields) {
+            return $this->ok(['id' => $id], 'Nothing to update');
+        }
+        $params[] = $id;
+        $this->db->prepare('UPDATE leadership_positions SET ' . implode(', ', $fields) . ' WHERE id = ?')->execute($params);
+        return $this->ok(['id' => $id], 'Student leadership position updated');
     }
 
     /* =====================================================================
@@ -537,7 +623,7 @@ class StudentLeadershipService
     {
         $stmt = $this->db->prepare("
             SELECT c.id, c.code, c.name, c.description, c.sort_order
-            FROM " . ReadReplicaService::qualifiedRef("student_award_types") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . " c
             WHERE c.is_active = 1
             ORDER BY c.sort_order, c.name
         ");
@@ -549,7 +635,7 @@ class StudentLeadershipService
                    t.description, t.number_prefix, t.signatory_label,
                    t.secondary_signatory_label, t.requires_certificate,
                    d.name AS department_name
-            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . "
+            FROM " . ReadReplicaService::qualifiedRef("student_award_types") . " t
             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = t.department_id
             WHERE t.is_active = 1
             ORDER BY t.sort_order, t.name

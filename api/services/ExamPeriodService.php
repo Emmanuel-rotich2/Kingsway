@@ -58,9 +58,10 @@ final class ExamPeriodService
         $areasStmt = $this->db->prepare(
             "SELECT cla.id AS academic_year_class_learning_area_id, cla.academic_year_class_id,
                     cla.learning_area_id, la.name AS learning_area_name
-             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=cla.learning_area_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_year_class_learning_areas') . " cla
+             JOIN " . ReadReplicaService::qualifiedRef('learning_areas') . " la ON la.id=cla.learning_area_id
              WHERE cla.academic_year_class_id IN (
-                 SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE academic_year_id=?
+                 SELECT id FROM " . ReadReplicaService::qualifiedRef('academic_year_classes') . " WHERE academic_year_id=?
              ) AND cla.status <> 'skipped' ORDER BY la.name"
         );
         $areasStmt->execute([(int)$term['academic_year_id']]);
@@ -984,7 +985,7 @@ private function resultRows(int $periodId,?int $staffId,bool $includeDeleted=fal
     }
     private function term(int $termId):array
     {
-        $stmt=$this->db->prepare('SELECT * FROM academic_year_terms WHERE id=?');$stmt->execute([$termId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Academic-year term not found',404);return $row;
+        $stmt=$this->db->prepare('SELECT *, id AS academic_year_term_id FROM academic_year_terms WHERE id=?');$stmt->execute([$termId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Academic-year term not found',404);return $row;
     }
     private function classesForTerm(int $termId,array $ids):array
     {

@@ -75,8 +75,9 @@
                 <div class="col-md-3">
                     <select class="form-select" id="filterByFeeStatus">
                         <option value="">All Fee Status</option>
-                        <option value="cleared">Cleared</option>
-                        <option value="balance">Has Balance</option>
+                        <option value="clear">Cleared</option>
+                        <option value="owing">Has Balance</option>
+                        <option value="unknown">Fee Data Unavailable</option>
                     </select>
                 </div>
                 <div class="col-md-2">

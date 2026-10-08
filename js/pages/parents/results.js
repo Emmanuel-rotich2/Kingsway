@@ -123,7 +123,7 @@
     el.innerHTML = html;
     var printBtn = document.getElementById('btnPrintReportCard');
     if (printBtn && official.download_url) {
-      printBtn.addEventListener('click', function () { window.open(official.download_url, '_blank', 'noopener'); });
+      printBtn.addEventListener('click', function () { window.PrintManager?.openDocument(official.download_url, { title: 'Student report card' }); });
     }
   }
 

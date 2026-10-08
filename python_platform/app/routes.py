@@ -14,6 +14,9 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -36,12 +39,23 @@ from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefr
 from .queue_worker import PythonQueueWorker
 
 
+def _render_document_html(html: str) -> bytes:
+    """Render one PHP-authorized HTML document in an isolated pool task."""
+    from weasyprint import HTML, default_url_fetcher
+
+    def safe_url_fetcher(url: str):
+        if url.startswith("data:"):
+            return default_url_fetcher(url)
+        raise ValueError("external document resources are not allowed")
+
+    return HTML(string=html, url_fetcher=safe_url_fetcher).write_pdf()
+
+
 def create_app(config: Config | None = None) -> Flask:
     app = Flask(__name__)
-    # The largest supported internal document preview is a 4 MB file encoded
-    # as base64 plus JSON overhead. Reject oversized bodies before Flask parses
-    # them so an authenticated service caller cannot force unbounded buffering.
-    app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+    # Bound service payloads before Flask parses them. This accommodates the
+    # Bound renderer payloads. Batch requests contain only PHP-authorized HTML.
+    app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
     cfg = config or Config()
     journal = Journal(cfg.log_dir)
     behavior = BehaviorStore(cfg.data_dir, journal)
@@ -53,6 +67,17 @@ def create_app(config: Config | None = None) -> Flask:
     # PHP's queue; lease fencing prevents duplicate acknowledgements and a
     # cross-process MySQL lock caps expensive projection refreshes.
     queue_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kingsway-python-queue")
+    # PDF rendering has its own small, bounded pool. The queue executor above
+    # is intentionally reserved for PHP-owned background jobs; it must not
+    # serialize unrelated documents behind projection refresh work.
+    try:
+        render_workers = max(1, min(4, int(os.environ.get("DOCUMENT_RENDER_WORKERS", "2"))))
+    except (TypeError, ValueError):
+        render_workers = 2
+    render_executor = ThreadPoolExecutor(
+        max_workers=render_workers,
+        thread_name_prefix="kingsway-document-render",
+    )
     queue_state = {"active": False}
     queue_state_lock = Lock()
 
@@ -78,6 +103,183 @@ def create_app(config: Config | None = None) -> Flask:
         if not bearer_authorized(request.headers, cfg.secret):
             return jsonify({"success": False, "message": "unauthorized"}), 401
         return None
+
+    @app.post("/api/documents/student-id-cards/render")
+    def render_student_id_cards():
+        """Convert PHP-authorized, PHP-templated ID-card HTML into a PDF.
+
+        This service never queries school records and only accepts calls over
+        the existing bearer-authenticated PHP-to-Python service boundary.
+        Embedded data images are allowed; file and network fetches are denied.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        html = payload.get("html")
+        if not isinstance(html, str) or not html.strip():
+            return jsonify({"success": False, "message": "rendered document is required"}), 422
+        if len(html.encode("utf-8")) > 8 * 1024 * 1024:
+            return jsonify({"success": False, "message": "rendered document exceeds the size limit"}), 413
+
+        try:
+            from weasyprint import HTML, default_url_fetcher
+
+            def safe_url_fetcher(url: str):
+                if url.startswith("data:"):
+                    return default_url_fetcher(url)
+                raise ValueError("external document resources are not allowed")
+
+            started = time.monotonic()
+            pdf = HTML(string=html, url_fetcher=safe_url_fetcher).write_pdf()
+            if not pdf.startswith(b"%PDF-") or len(pdf) > 9 * 1024 * 1024:
+                raise ValueError("rendered PDF is invalid or exceeds the size limit")
+            journal.write("document_generation", {
+                "type": "student_id_card_pdf_rendered",
+                "html_sha256": hashlib.sha256(html.encode("utf-8")).hexdigest(),
+                "input_bytes": len(html.encode("utf-8")),
+                "output_bytes": len(pdf),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            })
+            return jsonify({
+                "success": True,
+                "data": {"pdf_base64": base64.b64encode(pdf).decode("ascii")},
+            })
+        except Exception as error:  # noqa: BLE001 - never expose renderer internals
+            journal.write("document_generation", {
+                "type": "student_id_card_pdf_render_failed",
+                "error_class": type(error).__name__,
+            })
+            return jsonify({"success": False, "message": "ID-card PDF rendering failed"}), 503
+
+    @app.post("/api/documents/render-batch")
+    def render_document_batch():
+        """Render pre-authorized document HTML and optionally assemble one PDF.
+
+        PHP resolves records, authorization, and custom template variables.
+        This endpoint only renders the supplied HTML. ``combined`` merges all
+        documents into one PDF and resets page numbering for every source
+        document; ``individual`` returns one PDF per source document.
+        """
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        documents = payload.get("documents")
+        mode = payload.get("output_mode", "combined")
+        numbering = payload.get("page_numbering", "local")
+        if (not isinstance(mode, str) or mode not in {"combined", "individual"}
+                or not isinstance(numbering, str) or numbering not in {"local", "none"}):
+            return jsonify({"success": False, "message": "invalid document output options"}), 422
+        if not isinstance(documents, list) or not 1 <= len(documents) <= 100:
+            return jsonify({"success": False, "message": "batch must contain between 1 and 100 documents"}), 422
+
+        html_docs: list[tuple[str, str]] = []
+        total_input = 0
+        for index, item in enumerate(documents):
+            if not isinstance(item, dict):
+                return jsonify({"success": False, "message": "invalid document entry"}), 422
+            html = item.get("html")
+            document_id = item.get("document_id", str(index + 1))
+            if not isinstance(html, str) or not html.strip() or not isinstance(document_id, str):
+                return jsonify({"success": False, "message": "document HTML and identifier are required"}), 422
+            encoded_size = len(html.encode("utf-8"))
+            total_input += encoded_size
+            if encoded_size > 8 * 1024 * 1024 or total_input > 18 * 1024 * 1024:
+                return jsonify({"success": False, "message": "batch document payload exceeds the size limit"}), 413
+            html_docs.append((document_id[:80], html))
+
+        started = time.monotonic()
+        try:
+            from io import BytesIO
+            from pypdf import PdfReader, PdfWriter
+            from reportlab.pdfgen import canvas
+            rendered: list[tuple[str, bytes, int]] = []
+            # map() keeps source order while independent chunks render
+            # concurrently; final merge order therefore remains deterministic.
+            rendered_pdfs = render_executor.map(
+                _render_document_html,
+                (html for _document_id, html in html_docs),
+            )
+            for (document_id, _html), pdf in zip(html_docs, rendered_pdfs):
+                if not pdf.startswith(b"%PDF-") or len(pdf) > 9 * 1024 * 1024:
+                    raise ValueError("rendered PDF is invalid or exceeds the per-document size limit")
+                reader = PdfReader(BytesIO(pdf), strict=True)
+                if len(reader.pages) < 1 or len(reader.pages) > 500:
+                    raise ValueError("document page count is outside allowed limits")
+                rendered.append((document_id, pdf, len(reader.pages)))
+
+            if numbering == "local":
+                for document_index, (document_id, pdf, page_count) in enumerate(rendered):
+                    reader = PdfReader(BytesIO(pdf), strict=True)
+                    for page_number, page in enumerate(reader.pages, start=1):
+                        overlay_buffer = BytesIO()
+                        page_width = float(page.mediabox.width)
+                        page_height = float(page.mediabox.height)
+                        layer = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+                        layer.setFont("Helvetica", 8)
+                        layer.drawCentredString(page_width / 2, 12, f"{page_number} / {page_count}")
+                        layer.save()
+                        overlay_buffer.seek(0)
+                        page.merge_page(PdfReader(overlay_buffer).pages[0])
+                    output = BytesIO()
+                    writer = PdfWriter()
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    writer.write(output)
+                    rendered[document_index] = (document_id, output.getvalue(), page_count)
+
+            output_documents = []
+            if mode == "individual":
+                for document_id, pdf, page_count in rendered:
+                    output_documents.append({
+                        "document_id": document_id,
+                        "page_count": page_count,
+                        "pdf_base64": base64.b64encode(pdf).decode("ascii"),
+                    })
+                response_data = {"output_mode": mode, "documents": output_documents}
+                output_bytes = sum(len(item["pdf_base64"]) for item in output_documents)
+                if output_bytes > 42 * 1024 * 1024:
+                    return jsonify({"success": False, "message": "individual PDFs exceed the response size limit"}), 413
+            else:
+                writer = PdfWriter()
+                for _document_id, pdf, _page_count in rendered:
+                    for page in PdfReader(BytesIO(pdf), strict=True).pages:
+                        writer.add_page(page)
+                output = BytesIO()
+                writer.write(output)
+                combined_pdf = output.getvalue()
+                if len(combined_pdf) > 30 * 1024 * 1024:
+                    return jsonify({"success": False, "message": "assembled PDF exceeds the size limit"}), 413
+                response_data = {
+                    "output_mode": mode,
+                    "document_count": len(rendered),
+                    "page_count": sum(item[2] for item in rendered),
+                    "pdf_base64": base64.b64encode(combined_pdf).decode("ascii"),
+                }
+                output_bytes = len(combined_pdf)
+
+            journal.write("document_generation", {
+                "type": "document_batch_rendered",
+                "document_count": len(rendered),
+                "output_mode": mode,
+                "page_numbering": numbering,
+                "input_bytes": total_input,
+                "output_bytes": output_bytes,
+                "page_count": sum(item[2] for item in rendered),
+                "render_workers": render_workers,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            })
+            return jsonify({"success": True, "data": response_data})
+        except Exception as error:  # noqa: BLE001 - do not expose template/data internals
+            journal.write("document_generation", {
+                "type": "document_batch_render_failed",
+                "document_count": len(html_docs),
+                "output_mode": mode,
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "error_class": type(error).__name__,
+            })
+            return jsonify({"success": False, "message": "document batch rendering failed"}), 503
 
     @app.errorhandler(413)
     def payload_too_large(_error):

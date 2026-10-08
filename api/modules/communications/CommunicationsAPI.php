@@ -1054,7 +1054,7 @@ class CommunicationsAPI extends BaseAPI
         return [
             'parents' => $fetch($this->db, "SELECT DISTINCT pr.parent_id AS id, CONCAT_WS(' ', pr.first_name, pr.last_name) AS name, pr.phone FROM " . $personDirectory . " pr WHERE pr.parent_status = 'active' AND pr.phone IS NOT NULL ORDER BY name"),
             'students' => $fetch($this->db, "SELECT s.student_id AS id, CONCAT_WS(' ', s.first_name, s.last_name) AS name, s.admission_no FROM " . $personDirectory . " s WHERE s.student_status = 'active' ORDER BY name"),
-            'classes' => $fetch($this->db, "SELECT c.id, c.name, sl.name AS school_level FROM " . ReadReplicaService::qualifiedRef("classes") . " JOIN school_levels sl ON sl.id = c.level_id ORDER BY sl.id, c.name"),
+            'classes' => $fetch($this->db, "SELECT c.id, c.name, sl.name AS school_level FROM " . ReadReplicaService::qualifiedRef("classes") . " c JOIN school_levels sl ON sl.id = c.level_id ORDER BY sl.id, c.name"),
             'student_types' => $fetch($this->db, "SELECT id, code, name FROM student_types WHERE status = 'active' ORDER BY name"),
             'school_levels' => $fetch($this->db, "SELECT id, code, name FROM school_levels WHERE status = 'active' ORDER BY name"),
             'vendors' => $fetch($this->db, "SELECT id, name, phone FROM suppliers WHERE status = 'active' ORDER BY name"),

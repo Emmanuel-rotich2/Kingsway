@@ -74,10 +74,9 @@ class StudentScopeService
     }
 
     /**
-     * Visibility WHERE-clause fragments built against the normalized projection
-     * (students s, persons p, academic_year_class_streams aycs, academic_year_classes
-     * ayc, student_types st, student_transport_assignments sta). Caller owns the
-     * FROM/JOINs and must alias them consistently with StudentRepository::joins().
+     * Visibility WHERE-clause fragments built against StudentRepository's
+     * normalized aliases (students s, persons p, student_types st, learner
+     * placement lp, and transport_scope). Caller owns the FROM/JOINs.
      */
     public function whereClause(array $scope): array
     {
@@ -95,21 +94,21 @@ class StudentScopeService
                 $bindings = array_merge($bindings, $scope['student_ids']);
             }
             if (!empty($scope['stream_ids']) && empty($scope['class_stream_pairs'])) {
-                $clauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
+                $clauses[] = 'lp.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['stream_ids']);
             }
             if (!empty($scope['class_ids'])) {
-                $clauses[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
+                $clauses[] = 'lp.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['class_ids']);
             }
             if (!empty($scope['transport_route_ids'])) {
-                $clauses[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+                $clauses[] = 'transport_scope.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['transport_route_ids']);
             }
             if (!empty($scope['class_stream_pairs'])) {
                 $pairClauses = [];
                 foreach ($scope['class_stream_pairs'] as $pair) {
-                    $pairClauses[] = '(ayc.class_id = ? AND aycs.stream_id = ?)';
+                    $pairClauses[] = '(lp.class_id = ? AND lp.stream_id = ?)';
                     $bindings[] = (int) $pair['class_id'];
                     $bindings[] = (int) $pair['stream_id'];
                 }
@@ -117,7 +116,7 @@ class StudentScopeService
             }
             $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
         } elseif (!empty($scope['transport_route_ids'])) {
-            $conditions[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+            $conditions[] = 'transport_scope.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
             $bindings = array_merge($bindings, $scope['transport_route_ids']);
         }
 

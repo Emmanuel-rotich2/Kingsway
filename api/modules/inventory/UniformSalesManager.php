@@ -191,7 +191,7 @@ return $this->formatError('An internal error occurred.', 500);
                     us.sale_date,
                     us.received_date,
                     us.notes
-                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . "
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.student_id = ?
                 ORDER BY us.sale_date DESC
@@ -286,7 +286,7 @@ return $this->formatError('An internal error occurred.', 500);
                     COUNT(us.id) as sales_count,
                     SUM(us.quantity) as total_quantity,
                     SUM(us.quantity * us.unit_price) as total_amount
-                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . "
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE MONTH(us.sale_date) = MONTH(CURDATE())
                 AND YEAR(us.sale_date) = YEAR(CURDATE())
@@ -611,7 +611,7 @@ return $this->formatError('An internal error occurred.', 500);
                         WHEN us.quantity_available <= 20 THEN 'low'
                         ELSE 'adequate'
                     END as stock_status
-                FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . "
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us
                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.quantity_available <= 20
                 ORDER BY us.quantity_available ASC, ii.name ASC, 

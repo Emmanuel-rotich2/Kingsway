@@ -166,6 +166,26 @@ class StudentsController extends BaseController
         return null;
     }
 
+    private function authorizeLeadershipManagement(string $message)
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $managementRoles = [
+            'school administrator',
+            'headteacher',
+            'deputy head academic',
+            'deputy head discipline',
+        ];
+        $normalizeRole = static fn($role) => trim(preg_replace('/[^a-z0-9]+/i', ' ', strtolower((string)$role)));
+        $userRoles = array_map($normalizeRole, $this->getUserRoleNames());
+        $hasManagementRole = (bool)array_intersect($managementRoles, $userRoles);
+        if (!$this->userHasAny(self::LEADERSHIP_MANAGE_PERMS) && !$hasManagementRole) {
+            return $this->forbidden($message);
+        }
+        return null;
+    }
+
     /**
      * GET /api/students
      */
@@ -282,12 +302,12 @@ class StudentsController extends BaseController
 
     public function postStudent($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to create students')) {
-            return $auth;
-        }
-
         if (!empty($segments)) {
             return $this->routeNestedPost(array_shift($segments), $id, $data, $segments);
+        }
+
+        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to create students')) {
+            return $auth;
         }
 
         return $this->handleResponse($this->api->create($data));
@@ -323,16 +343,16 @@ class StudentsController extends BaseController
 
     public function putStudent($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update students')) {
-            return $auth;
-        }
-
         if (!$id) {
             return $this->badRequest('Student ID is required');
         }
 
         if (!empty($segments)) {
             return $this->routeNestedPut(array_shift($segments), $id, $data, $segments);
+        }
+
+        if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update students')) {
+            return $auth;
         }
 
         return $this->handleResponse($this->api->update($id, $data));
@@ -1565,7 +1585,28 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view leadership positions')) {
             return $auth;
         }
-        return $this->handleResponse($this->leadershipService->positions());
+        return $this->handleResponse($this->leadershipService->positions($data));
+    }
+
+    /** POST /api/students/leadership/positions */
+    public function postLeadershipPositions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to create a student leadership position')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->createPosition($data));
+    }
+
+    /** PUT /api/students/leadership/positions/{id} */
+    public function putLeadershipPositions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to edit a student leadership position')) {
+            return $auth;
+        }
+        if (!$id) {
+            return $this->badRequest('Leadership position ID is required');
+        }
+        return $this->handleResponse($this->leadershipService->updatePosition((int)$id, $data));
     }
 
     /**
@@ -1584,7 +1625,7 @@ class StudentsController extends BaseController
      */
     public function postLeadership($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to assign leadership')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to assign leadership')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->create($data));
@@ -1595,7 +1636,7 @@ class StudentsController extends BaseController
      */
     public function putLeadership($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit leadership')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to edit leadership')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->update((int) $id, $data));
@@ -1606,7 +1647,7 @@ class StudentsController extends BaseController
      */
     public function deleteLeadership($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove leadership')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to remove leadership')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->delete((int) $id));
@@ -1628,7 +1669,7 @@ class StudentsController extends BaseController
      */
     public function postHouses($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to create a house')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to create a house')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->createHouse($data));
@@ -1639,7 +1680,7 @@ class StudentsController extends BaseController
      */
     public function putHouses($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit a house')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to edit a house')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->updateHouse((int) $id, $data));
@@ -1672,7 +1713,7 @@ class StudentsController extends BaseController
      */
     public function postAwards($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to issue an award')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to issue an award')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->createAward($data));
@@ -1683,7 +1724,7 @@ class StudentsController extends BaseController
      */
     public function putAwards($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit an award')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to edit an award')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->updateAward((int) $id, $data));
@@ -1694,7 +1735,7 @@ class StudentsController extends BaseController
      */
     public function deleteAwards($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove an award')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to remove an award')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->deleteAward((int) $id));
@@ -1739,7 +1780,7 @@ class StudentsController extends BaseController
      */
     public function postAwardsTypes($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to create an award type')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to create an award type')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->createAwardType($data));
@@ -1750,7 +1791,7 @@ class StudentsController extends BaseController
      */
     public function putAwardsTypes($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit an award type')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to edit an award type')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->updateAwardType((int) $id, $data));
@@ -1761,7 +1802,7 @@ class StudentsController extends BaseController
      */
     public function deleteAwardsTypes($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove an award type')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to remove an award type')) {
             return $auth;
         }
         return $this->handleResponse($this->leadershipService->deleteAwardType((int) $id));
@@ -1776,7 +1817,7 @@ class StudentsController extends BaseController
      */
     public function postAwardsCertificate($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to print certificates')) {
+        if ($auth = $this->authorizeLeadershipManagement('Insufficient permission to print certificates')) {
             return $auth;
         }
         $service = $this->contract('App\API\Modules\students\AwardCertificateService', $this->db->getConnection());
@@ -2618,7 +2659,7 @@ return $this->badRequest('An internal error occurred.');
             }
 
             return $this->success($payload);
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+        } catch (\RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }
@@ -2714,7 +2755,7 @@ return $this->badRequest('An internal error occurred.');
         try {
             $this->studentInsightsService->updateDisciplineCase($caseId, $data, (int)$this->user['id']);
             return $this->success(['message' => 'Discipline case updated successfully']);
-        } catch (RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+        } catch (\RuntimeException $e) { \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
         }

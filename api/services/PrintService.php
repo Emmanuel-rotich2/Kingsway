@@ -163,6 +163,80 @@ final class PrintService
     }
 
     /**
+     * Render the existing trusted PHP ID-card templates into bounded HTML
+     * chunks for the authenticated Python PDF renderer.
+     *
+     * @param array<int, array<string, mixed>> $cards
+     * @return array<int, array{filename:string,html:string}>
+     */
+    public function renderStudentIdCardHtmlChunks(array $cards, array $options = []): array
+    {
+        if ($cards === []) {
+            throw new InvalidArgumentException('No student ID cards were supplied.');
+        }
+
+        $options = array_merge([
+            'printerMode' => 'a4_pdf',
+            'side' => 'both',
+            'chunkSize' => 20,
+            'filename' => 'student_id_cards_' . date('Ymd_His'),
+        ], $options);
+        $printerMode = strtolower(trim((string) $options['printerMode']));
+        $side = strtolower(trim((string) $options['side']));
+        if (!in_array($printerMode, ['direct_card', 'a4_pdf'], true)) {
+            throw new InvalidArgumentException('Invalid printer mode.');
+        }
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            throw new InvalidArgumentException('Invalid ID-card side.');
+        }
+
+        $chunkSize = max(1, min(20, (int) $options['chunkSize']));
+        $normalizedCards = array_map(
+            fn (array $card): array => $this->normalizeStudentIdCard($card),
+            $cards
+        );
+        $chunks = array_chunk($normalizedCards, $chunkSize);
+        $rendered = [];
+        foreach ($chunks as $index => $chunk) {
+            $chunkNumber = $index + 1;
+            $suffix = count($chunks) > 1
+                ? '_' . str_pad((string) $chunkNumber, 3, '0', STR_PAD_LEFT)
+                : '';
+            $filename = $this->safeFilename((string) $options['filename'] . $suffix);
+            $frontTemplatePath = $this->idCardTemplatesPath . 'student_id_front.php';
+            $backTemplatePath = $this->idCardTemplatesPath . 'student_id_back.php';
+            $layoutTemplatePath = $this->idCardTemplatesPath . (
+                $printerMode === 'direct_card'
+                    ? 'student_id_both_two_pages.php'
+                    : 'student_id_both_single_row.php'
+            );
+            foreach ([$frontTemplatePath, $backTemplatePath, $layoutTemplatePath] as $templatePath) {
+                if (!is_file($templatePath)) {
+                    throw new RuntimeException('A required student ID-card template is unavailable.');
+                }
+            }
+
+            $body = $this->renderPhpTemplate($layoutTemplatePath, [
+                'cards' => $chunk,
+                'side' => $side,
+                'frontTemplatePath' => $frontTemplatePath,
+                'backTemplatePath' => $backTemplatePath,
+                'chunkNumber' => $chunkNumber,
+                'totalChunks' => count($chunks),
+            ]);
+            $css = $this->loadStudentIdCardStyles($printerMode);
+            $rendered[] = [
+                'filename' => $filename . '.pdf',
+                'html' => '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Student ID Cards</title><style>'
+                    . $css . '</style></head><body class="id-print-body id-print-'
+                    . $this->escape($printerMode) . '">' . $body . '</body></html>',
+            ];
+        }
+
+        return $rendered;
+    }
+
+    /**
      * Generate a table-based report.
      *
      * @param array<int, array<string, mixed>> $data
@@ -687,6 +761,8 @@ final class PrintService
         string $html,
         array $options = []
     ): string {
+        $renderStartedAt = hrtime(true);
+        try {
         $options = array_merge(
             [
                 'orientation' => 'portrait',
@@ -798,7 +874,24 @@ final class PrintService
             );
         }
 
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'php_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+            'output_bytes' => (int) $written,
+            'page_count' => $pageCount,
+            'paper_size' => (string) $options['paperSize'],
+            'orientation' => (string) $options['orientation'],
+        ]);
+
         return $filepath;
+        } catch (\Throwable $exception) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'php_pdf_render_failed',
+                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+                'error_class' => get_class($exception),
+            ], 'error');
+            throw $exception;
+        }
     }
 
 

@@ -43,6 +43,76 @@ const PrintManager = (() => {
     "sports_achievement",
     "graduation",
   ]);
+  let activePrintRun = null;
+
+  function beginPrintProgress(endpoint) {
+    finishPrintProgress(false, null, true);
+    const startedAt = performance.now();
+    let overlay = document.getElementById("kingswayPrintProgress");
+    if (!overlay) {
+      const style = document.createElement("style");
+      style.id = "kingswayPrintProgressStyles";
+      style.textContent = `
+        #kingswayPrintProgress { position:fixed; inset:0; z-index:20000; display:grid; place-items:center; padding:1rem; background:rgba(12,31,45,.42); }
+        #kingswayPrintProgress[hidden] { display:none; }
+        #kingswayPrintProgress .print-progress-panel { width:min(420px,100%); padding:1.5rem; border-radius:1rem; background:#fff; color:#243746; box-shadow:0 1rem 3rem rgba(0,0,0,.2); text-align:center; }
+        #kingswayPrintProgress .print-progress-spinner { width:2.25rem; height:2.25rem; border:.24rem solid #dce7eb; border-top-color:#168397; border-radius:50%; animation:kwPrintSpin .8s linear infinite; margin:0 auto 1rem; }
+        #kingswayPrintProgress .print-progress-time { color:#5b6872; font-size:.875rem; font-variant-numeric:tabular-nums; }
+        @keyframes kwPrintSpin { to { transform:rotate(360deg); } }
+        @media (prefers-reduced-motion:reduce) { #kingswayPrintProgress .print-progress-spinner { animation-duration:2s; } }
+      `;
+      document.head.appendChild(style);
+      overlay = document.createElement("div");
+      overlay.id = "kingswayPrintProgress";
+      overlay.hidden = true;
+      overlay.setAttribute("role", "status");
+      overlay.setAttribute("aria-live", "polite");
+      overlay.innerHTML = `<div class="print-progress-panel"><div class="print-progress-spinner" aria-hidden="true"></div><div data-print-progress-message>Preparing your document…</div><div class="print-progress-time mt-2" data-print-progress-time>0.0 seconds</div></div>`;
+      document.body.appendChild(overlay);
+    }
+    overlay.hidden = false;
+    overlay.querySelector("[data-print-progress-message]").textContent = "Preparing your document…";
+    activePrintRun = { endpoint, startedAt, timer: window.setInterval(() => {
+      const elapsed = Math.max(0, performance.now() - startedAt) / 1000;
+      const time = overlay.querySelector("[data-print-progress-time]");
+      if (time) time.textContent = `${elapsed.toFixed(1)} seconds elapsed`;
+    }, 100) };
+  }
+
+  function finishPrintProgress(success, message = null, silent = false) {
+    const run = activePrintRun;
+    if (!run) return;
+    window.clearInterval(run.timer);
+    const durationMs = Math.round(performance.now() - run.startedAt);
+    const measurement = {
+      endpoint: run.endpoint,
+      duration_ms: durationMs,
+      http_status: run.http_status || null,
+      outcome: success ? "success" : (message ? "failed" : "interrupted"),
+    };
+    if (window.AppLogger?.info) {
+      window.AppLogger.info("printing", "Document request completed", measurement);
+    }
+    const overlay = document.getElementById("kingswayPrintProgress");
+    activePrintRun = null;
+    if (!overlay) return;
+    if (success) {
+      overlay.querySelector("[data-print-progress-message]").textContent = "Document ready. Opening preview…";
+      window.setTimeout(() => { if (!activePrintRun) overlay.hidden = true; }, 650);
+    } else if (message && !silent) {
+      overlay.querySelector(".print-progress-spinner").hidden = true;
+      overlay.querySelector("[data-print-progress-message]").textContent = "Document could not be prepared.";
+      overlay.querySelector("[data-print-progress-time]").textContent = message;
+      window.setTimeout(() => {
+        if (!activePrintRun) {
+          overlay.hidden = true;
+          overlay.querySelector(".print-progress-spinner").hidden = false;
+        }
+      }, 2400);
+    } else {
+      overlay.hidden = true;
+    }
+  }
 
   const SCHOOL_COLORS = Object.freeze({
     primary: "#0f5b3b",
@@ -283,7 +353,7 @@ const PrintManager = (() => {
       "The print request failed.";
 
     const error = new Error(message);
-    error.status = response?.status;
+    error.status = response?.status ?? payload?.code ?? null;
     error.payload = payload;
 
     return error;
@@ -305,41 +375,39 @@ const PrintManager = (() => {
 
   async function request(endpoint, payload, options = {}) {
     const config = normalizeConfig(options);
-
-    if (
-      window.API &&
-      typeof window.API.callAPI === "function" &&
-      options.preferApiHelper !== false
-    ) {
-      return window.API.callAPI(endpoint, "POST", payload);
+    beginPrintProgress(endpoint);
+    try {
+      let result;
+      if (window.API && typeof window.API.callAPI === "function" && options.preferApiHelper !== false) {
+        result = await window.API.callAPI(endpoint, "POST", payload);
+      } else if (window.API && typeof window.API.apiCall === "function" && options.preferApiHelper !== false) {
+        result = await window.API.apiCall(endpoint, "POST", payload);
+      } else {
+        const response = await fetch(buildUrl(endpoint, config), {
+          method: "POST",
+          credentials: config.credentials,
+          headers: {
+            Accept: "application/json, application/pdf",
+            "Content-Type": "application/json",
+            ...config.requestHeaders,
+          },
+          body: JSON.stringify(payload),
+        });
+        result = await parseResponse(response);
+        if (!response.ok) throw normalizeApiError(response, result);
+      }
+      const payloadResult = normalizeServerPayload(result);
+      if (payloadResult?.success === false || payloadResult?.status === "error") {
+        throw normalizeApiError(null, payloadResult);
+      }
+      return result;
+    } catch (error) {
+      if (activePrintRun && Number.isFinite(Number(error.status))) {
+        activePrintRun.http_status = Number(error.status);
+      }
+      finishPrintProgress(false, error.message || "Request failed");
+      throw error;
     }
-
-    if (
-      window.API &&
-      typeof window.API.apiCall === "function" &&
-      options.preferApiHelper !== false
-    ) {
-      return window.API.apiCall(endpoint, "POST", payload);
-    }
-
-    const response = await fetch(buildUrl(endpoint, config), {
-      method: "POST",
-      credentials: config.credentials,
-      headers: {
-        Accept: "application/json, application/pdf",
-        "Content-Type": "application/json",
-        ...config.requestHeaders,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await parseResponse(response);
-
-    if (!response.ok) {
-      throw normalizeApiError(response, result);
-    }
-
-    return result;
   }
 
   function normalizeServerPayload(response) {
@@ -366,17 +434,166 @@ const PrintManager = (() => {
   }
 
   function openUrl(url, target = "_blank") {
-    const popup = window.open(url, target);
+    if (/\.pdf(?:$|[?#])/i.test(String(url))) {
+      return openDocumentViewer(url);
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_self";
+    link.rel = "noopener";
+    link.click();
+    return null;
+  }
 
-    if (!popup) {
-      notify(
-        "error",
-        "The browser blocked the print window. Allow popups and try again.",
-      );
-      return null;
+  function openDocumentViewer(source, options = {}) {
+    const sourceUrl = String(source || "").trim();
+    if (!sourceUrl) throw new Error("The generated document URL is missing.");
+    const sourceObjectUrl = sourceUrl.startsWith("blob:") ? sourceUrl : "";
+
+    document.getElementById("kingswayPrintDocumentViewer")?.remove();
+    const stylesId = "kingswayPrintDocumentViewerStyles";
+    if (!document.getElementById(stylesId)) {
+      const style = document.createElement("style");
+      style.id = stylesId;
+      style.textContent = `
+        #kingswayPrintDocumentViewer { position:fixed; inset:0; z-index:20010; display:grid; place-items:center; padding:clamp(8px,2vw,24px); background:rgba(8,24,31,.72); }
+        #kingswayPrintDocumentViewer .kw-viewer-panel { width:min(1440px,100%); height:min(94vh,1100px); display:flex; flex-direction:column; overflow:hidden; background:#e8eef0; border:1px solid rgba(255,255,255,.45); border-radius:12px; box-shadow:0 24px 80px rgba(0,0,0,.36); }
+        #kingswayPrintDocumentViewer .kw-viewer-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:#123d4b; color:#fff; }
+        #kingswayPrintDocumentViewer .kw-viewer-title { min-width:0; margin:0; font-size:1rem; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        #kingswayPrintDocumentViewer .kw-viewer-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+        #kingswayPrintDocumentViewer .kw-viewer-zoom { display:flex; align-items:center; gap:5px; margin-right:4px; }
+        #kingswayPrintDocumentViewer .kw-viewer-zoom button { min-width:36px; min-height:36px; padding:5px 9px; border:1px solid rgba(255,255,255,.5); border-radius:6px; background:#fff; color:#123d4b; font:inherit; cursor:pointer; }
+        #kingswayPrintDocumentViewer .kw-viewer-zoom output { min-width:48px; color:#fff; text-align:center; font-size:.85rem; font-variant-numeric:tabular-nums; }
+        #kingswayPrintDocumentViewer .kw-viewer-actions button, #kingswayPrintDocumentViewer .kw-viewer-actions a { min-height:36px; padding:6px 12px; border:1px solid rgba(255,255,255,.5); border-radius:6px; background:#fff; color:#123d4b; font:inherit; font-size:.875rem; text-decoration:none; cursor:pointer; }
+        #kingswayPrintDocumentViewer .kw-viewer-actions button:focus-visible, #kingswayPrintDocumentViewer .kw-viewer-actions a:focus-visible { outline:3px solid #f2ca54; outline-offset:2px; }
+        #kingswayPrintDocumentViewer .kw-viewer-stage { position:relative; flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; background:#626b70; }
+        #kingswayPrintDocumentViewer iframe { display:block; width:100%; height:100%; min-width:100%; min-height:100%; border:0; background:#7d898d; }
+        #kingswayPrintDocumentViewer .kw-viewer-state { position:absolute; inset:0; z-index:2; display:grid; place-content:center; gap:12px; padding:24px; color:#263a42; text-align:center; pointer-events:none; }
+        #kingswayPrintDocumentViewer .kw-viewer-state button, #kingswayPrintDocumentViewer .kw-viewer-state a { pointer-events:auto; }
+        #kingswayPrintDocumentViewer[hidden] { display:none; }
+        @media(max-width:600px) { #kingswayPrintDocumentViewer { padding:0; } #kingswayPrintDocumentViewer .kw-viewer-panel { width:100%; height:100%; border-radius:0; } #kingswayPrintDocumentViewer .kw-viewer-head { align-items:flex-start; } #kingswayPrintDocumentViewer .kw-viewer-actions { width:100%; } }
+        @media(prefers-reduced-motion:reduce) { #kingswayPrintDocumentViewer * { scroll-behavior:auto !important; } }
+      `;
+      document.head.appendChild(style);
     }
 
-    return popup;
+    const wrapper = document.createElement("div");
+    wrapper.id = "kingswayPrintDocumentViewer";
+    wrapper.setAttribute("role", "dialog");
+    wrapper.setAttribute("aria-modal", "true");
+    wrapper.setAttribute("aria-label", options.title || "Document preview");
+    wrapper.innerHTML = `
+      <section class="kw-viewer-panel">
+        <header class="kw-viewer-head">
+          <h2 class="kw-viewer-title" data-viewer-title></h2>
+          <nav class="kw-viewer-actions" aria-label="Document actions">
+            <div class="kw-viewer-zoom" role="group" aria-label="PDF zoom controls">
+              <button type="button" data-viewer-zoom-out aria-label="Zoom out">−</button>
+              <output data-viewer-zoom-value aria-live="polite">100%</output>
+              <button type="button" data-viewer-zoom-in aria-label="Zoom in">+</button>
+              <button type="button" data-viewer-fit>Fit</button>
+            </div>
+            <button type="button" data-viewer-refresh>Refresh preview</button>
+            <button type="button" data-viewer-print disabled>Print</button>
+            <a data-viewer-download download>Download PDF</a>
+            <button type="button" data-viewer-close aria-label="Close document preview">Close</button>
+          </nav>
+        </header>
+        <div class="kw-viewer-stage" tabindex="0" role="region" aria-label="Scrollable PDF preview"><div class="kw-viewer-state" role="status" aria-live="polite">Loading the latest generated PDF…</div></div>
+      </section>`;
+    document.body.appendChild(wrapper);
+    wrapper.querySelector("[data-viewer-title]").textContent = options.title || "Document preview";
+
+    let requestVersion = 0;
+    let loadTimer = 0;
+    let zoom = 1;
+    const updateZoom = (nextZoom) => {
+      zoom = Math.max(0.5, Math.min(3, Math.round(nextZoom * 100) / 100));
+      wrapper.querySelector("[data-viewer-zoom-value]").textContent = `${Math.round(zoom * 100)}%`;
+      const frame = wrapper.querySelector(".kw-viewer-stage iframe");
+      if (frame) {
+        frame.style.width = `${zoom * 100}%`;
+        frame.style.height = `${zoom * 100}%`;
+      }
+    };
+    const close = () => {
+      requestVersion += 1;
+      window.clearTimeout(loadTimer);
+      if (sourceObjectUrl) URL.revokeObjectURL(sourceObjectUrl);
+      wrapper.remove();
+      document.removeEventListener("keydown", onKeydown);
+    };
+    const onKeydown = (event) => { if (event.key === "Escape") close(); };
+    document.addEventListener("keydown", onKeydown);
+    wrapper.querySelector("[data-viewer-close]").addEventListener("click", close);
+    wrapper.addEventListener("click", (event) => { if (event.target === wrapper) close(); });
+    wrapper.querySelector("[data-viewer-refresh]").addEventListener("click", load);
+    wrapper.querySelector("[data-viewer-zoom-in]").addEventListener("click", () => updateZoom(zoom + 0.25));
+    wrapper.querySelector("[data-viewer-zoom-out]").addEventListener("click", () => updateZoom(zoom - 0.25));
+    wrapper.querySelector("[data-viewer-fit]").addEventListener("click", () => {
+      updateZoom(1);
+      wrapper.querySelector(".kw-viewer-stage").scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+    wrapper.querySelector("[data-viewer-print]").addEventListener("click", () => {
+      const frame = wrapper.querySelector("iframe");
+      if (frame?.contentWindow) frame.contentWindow.print();
+    });
+
+    async function load() {
+      const version = ++requestVersion;
+      window.clearTimeout(loadTimer);
+      const stage = wrapper.querySelector(".kw-viewer-stage");
+      const oldFrame = stage.querySelector("iframe");
+      if (oldFrame) oldFrame.remove();
+      const state = document.createElement("div");
+      state.className = "kw-viewer-state";
+      state.setAttribute("role", "status");
+      state.textContent = "Loading the latest generated PDF…";
+      stage.appendChild(state);
+      wrapper.querySelector("[data-viewer-print]").disabled = true;
+      const frame = document.createElement("iframe");
+      frame.title = options.title || "PDF document preview";
+      frame.style.width = `${zoom * 100}%`;
+      frame.style.height = `${zoom * 100}%`;
+      const showEmbedFallback = () => {
+        if (version !== requestVersion || !wrapper.isConnected || !state.isConnected) return;
+        state.textContent = "The embedded preview did not respond. Download the PDF or open it separately.";
+        const open = document.createElement("a");
+        open.href = sourceUrl;
+        open.target = "_blank";
+        open.rel = "noopener";
+        open.className = "btn btn-outline-primary";
+        open.textContent = "Open PDF separately";
+        state.appendChild(open);
+      };
+      frame.addEventListener("load", () => {
+        if (version !== requestVersion || !wrapper.isConnected) return;
+        window.clearTimeout(loadTimer);
+        state.remove();
+        wrapper.querySelector("[data-viewer-print]").disabled = false;
+      }, { once: true });
+      frame.addEventListener("error", () => {
+        if (version !== requestVersion || !wrapper.isConnected) return;
+        window.clearTimeout(loadTimer);
+        showEmbedFallback();
+      }, { once: true });
+      const url = new URL(sourceUrl, window.location.href);
+      if (version > 1 && url.origin === window.location.origin) {
+        url.searchParams.set("_preview_refresh", String(Date.now()));
+      }
+      frame.src = url.href;
+      stage.appendChild(frame);
+      // Some browsers suppress iframe load/error events when a response's
+      // frame policy blocks it. Never leave the status layer spinning forever.
+      loadTimer = window.setTimeout(showEmbedFallback, 12000);
+      const download = wrapper.querySelector("[data-viewer-download]");
+      download.href = sourceUrl;
+      download.target = "_blank";
+      download.rel = "noopener";
+    }
+
+    load();
+    return wrapper;
   }
 
   function resolveFileUrl(file, config = defaults) {
@@ -426,7 +643,7 @@ const PrintManager = (() => {
 
   async function handleGeneratedFiles(response, options = {}) {
     const config = normalizeConfig(options);
-
+    try {
     if (isBlob(response)) {
       const filename =
         options.filename ||
@@ -435,9 +652,10 @@ const PrintManager = (() => {
       if (options.download === true) {
         downloadBlob(response, filename);
       } else {
-        KingswayFileLifecycle.openBlob(response);
+        openDocumentViewer(URL.createObjectURL(response), { title: filename });
       }
 
+      finishPrintProgress(true);
       return {
         files: [filename],
         total_files: 1,
@@ -491,17 +709,22 @@ const PrintManager = (() => {
         link.click();
         link.remove();
       } else {
-        openUrl(fileUrls[0]);
+        openDocumentViewer(fileUrls[0], { title: options.title || "Document preview" });
       }
     } else {
       showGeneratedFilesDialog(fileUrls, payload, config);
     }
 
+    finishPrintProgress(true);
     return {
       ...payload,
       files: fileUrls,
       total_files: fileUrls.length,
     };
+    } catch (error) {
+      finishPrintProgress(false, error.message || "File delivery failed");
+      throw error;
+    }
   }
 
   function showGeneratedFilesDialog(fileUrls, payload = {}, options = {}) {
@@ -578,7 +801,7 @@ const PrintManager = (() => {
           ${fileUrls
             .map(
               (url, index) => `
-                <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
+                <button type="button" data-preview-url="${escapeHtml(url)}"
                   style="
                     display:flex;
                     justify-content:space-between;
@@ -589,11 +812,11 @@ const PrintManager = (() => {
                     border:1px solid #c7d3cc;
                     border-radius:8px;
                     color:${options.colors.primaryDark};
-                    text-decoration:none;
+                    text-align:left;
                   ">
                   <span>PDF ${String(index + 1).padStart(3, "0")}</span>
-                  <strong>Open / Download</strong>
-                </a>
+                  <strong>Preview / Download</strong>
+                </button>
               `,
             )
             .join("")}
@@ -606,6 +829,12 @@ const PrintManager = (() => {
     wrapper
       .querySelector("[data-close-print-files]")
       ?.addEventListener("click", () => wrapper.remove());
+
+    wrapper.querySelectorAll("[data-preview-url]").forEach((button, index) => {
+      button.addEventListener("click", () => openDocumentViewer(button.dataset.previewUrl, {
+        title: `PDF ${String(index + 1).padStart(3, "0")}`,
+      }));
+    });
 
     wrapper.addEventListener("click", (event) => {
       if (event.target === wrapper) {
@@ -1691,6 +1920,7 @@ const PrintManager = (() => {
     exportToServerCSV,
 
     handleGeneratedFiles,
+    openDocument: openDocumentViewer,
     showGeneratedFilesDialog,
     createReportCode,
 

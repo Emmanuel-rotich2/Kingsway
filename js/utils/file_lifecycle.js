@@ -101,6 +101,10 @@ window.KingswayFileLifecycle = Object.freeze({
   open(file) {
     const url = typeof file === 'string' ? file : file?.preview_url || file?.download_url || file?.url;
     if (!url) throw new Error('File URL unavailable');
+    const isPdf = /\.pdf(?:$|[?#])/i.test(url) || /\/api\/download\/(?:print|public)/i.test(url);
+    if (isPdf && typeof window.PrintManager?.openDocument === 'function') {
+      return window.PrintManager.openDocument(url, { title: (typeof file === 'object' && (file.title || file.filename)) || 'Document preview' });
+    }
     window.open(url, '_blank', 'noopener,noreferrer');
   },
   download(file) {
