@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\students;
 
+use App\API\Services\ReadReplicaService;
+
 use App\Config;
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -102,7 +104,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get student details first to get admission number
             $stmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, sic.qr_token
-                 FROM students s
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                  LEFT JOIN student_id_cards sic ON sic.student_id = s.id
                     AND sic.status NOT IN ('lost', 'replaced')
                  WHERE s.id = ?
@@ -271,13 +273,13 @@ return formatResponse(false, null, 'An internal error occurred.');
                     c.name AS class_name,
                     sm.name AS stream_name,
                     ay.year_name AS academic_year
-                 FROM students s
-                 JOIN persons per ON per.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.id = (
                         SELECT sae_current.id
-                        FROM student_academic_enrollments sae_current
-                        INNER JOIN academic_years ay_current
+                        FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_current
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay_current
                             ON ay_current.id = sae_current.academic_year_id
                         WHERE sae_current.student_id = s.id
                           AND sae_current.enrollment_status = 'active'
@@ -286,14 +288,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                                  sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN academic_year_class_streams aycs
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
-                 LEFT JOIN academic_year_classes ayc
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                     ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c
                     ON c.id = ayc.class_id
-                 LEFT JOIN academic_years ay
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay
                     ON ay.id = sae.academic_year_id
                  WHERE s.id IN ({$placeholders})
                    AND s.status = 'active'
@@ -460,13 +462,13 @@ return formatResponse(false, null, 'An internal error occurred.');
                     c.name AS class_name,
                     sm.name AS stream_name,
                     ay.year_name AS academic_year
-                 FROM students s
-                 JOIN persons per ON per.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.id = (
                         SELECT sae_current.id
-                        FROM student_academic_enrollments sae_current
-                        INNER JOIN academic_years ay_current
+                        FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_current
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay_current
                             ON ay_current.id = sae_current.academic_year_id
                         WHERE sae_current.student_id = s.id
                           AND sae_current.enrollment_status = 'active'
@@ -475,14 +477,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                                  sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN academic_year_class_streams aycs
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
-                 LEFT JOIN academic_year_classes ayc
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                     ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c
                     ON c.id = ayc.class_id
-                 LEFT JOIN academic_years ay
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay
                     ON ay.id = sae.academic_year_id
                  WHERE s.id = ?
                  LIMIT 1"
@@ -617,13 +619,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     ) {
         try {
             $sql = "SELECT s.id
-                    FROM students s
-                    JOIN persons per ON per.id = s.person_id
-                    INNER JOIN student_academic_enrollments sae
+                    FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                         ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                    INNER JOIN academic_year_class_streams aycs
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                         ON aycs.id = sae.academic_year_class_stream_id
-                    INNER JOIN academic_year_classes ayc
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                         ON ayc.id = aycs.academic_year_class_id
                     WHERE ayc.class_id = ?
                       AND s.status = 'active'";
@@ -741,8 +743,8 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->prepare("
                 SELECT ay.year_code AS academic_year
-                FROM student_academic_enrollments sae
-                LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON sae.academic_year_id = ay.id
                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                 ORDER BY ay.year_code DESC
                 LIMIT 1
@@ -764,7 +766,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get headteacher from staff table
             $headteacher = '';
             try {
-                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM " . ReadReplicaService::qualifiedRef("staff") . " s JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
                 $headteacher = $hStmt->fetchColumn() ?: '';
             } catch (\Exception $e) { /* fallback below */ }
 

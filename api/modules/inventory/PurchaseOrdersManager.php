@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Purchase Orders Manager
@@ -58,9 +59,9 @@ class PurchaseOrdersManager extends BaseAPI
                     s.contact_person,
                     s.email as supplier_email,
                     COUNT(DISTINCT t.id) as item_count
-                FROM purchase_orders po
-                LEFT JOIN suppliers s ON po.supplier_id = s.id
-                LEFT JOIN inventory_transactions t ON t.reference_type = 'purchase' AND t.reference_id = po.id
+                FROM " . ReadReplicaService::qualifiedRef("purchase_orders") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON po.supplier_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t ON t.reference_type = 'purchase' AND t.reference_id = po.id
                 $whereClause
                 GROUP BY po.id
                 ORDER BY po.order_date DESC
@@ -96,8 +97,8 @@ class PurchaseOrdersManager extends BaseAPI
                     s.email,
                     s.phone,
                     s.address
-                FROM purchase_orders po
-                LEFT JOIN suppliers s ON po.supplier_id = s.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON po.supplier_id = s.id
                 WHERE po.id = ?
             ");
             $stmt->execute([$id]);
@@ -117,8 +118,8 @@ class PurchaseOrdersManager extends BaseAPI
                     t.notes,
                     i.item_name,
                     i.code AS item_code
-                FROM inventory_transactions t
-                LEFT JOIN inventory_items i ON t.item_id = i.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON t.item_id = i.id
                 WHERE t.reference_type = 'purchase' AND t.reference_id = ?
             ");
             $stmt->execute([$id]);

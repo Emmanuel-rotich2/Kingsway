@@ -95,6 +95,7 @@ class AuthMiddleware
             'website/events',
             'website/gallery',
             'website/downloads',
+            'website/testimonials',
             // Public fee structures and academic calendars are generated on
             // demand and return short-lived encrypted download URLs.
             'website/printable-downloads',
@@ -313,9 +314,13 @@ class AuthMiddleware
             // employment assignment. Client-side redirects alone are not an
             // access-control boundary.
             try {
-                if ((new \App\API\Services\StaffProfileCompletionService(
-                    \App\Database\Database::getInstance()->getConnection()
-                ))->isRequired($userId)) {
+                $domainAccess = new \App\API\Services\StaffDomainAccessService($authUser);
+                if (
+                    !$domainAccess->isSystemDomainAccount()
+                    && (new \App\API\Services\StaffProfileCompletionService(
+                        \App\Database\Database::getInstance()->getConnection()
+                    ))->isRequired($userId)
+                ) {
                     $requestPath = self::normalizeApiPath(
                         strtolower((string)parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH))
                     );

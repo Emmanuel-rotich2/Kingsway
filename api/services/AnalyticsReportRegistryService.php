@@ -146,7 +146,7 @@ final class AnalyticsReportRegistryService
         $stmt = $this->db->prepare(
             "SELECT DISTINCT md.*, owner.name AS owner_role_name
              FROM analytics_metric_definitions md
-             JOIN analytics_report_metrics arm ON arm.metric_definition_id = md.id
+             JOIN " . ReadReplicaService::qualifiedRef("analytics_report_metrics") . " arm ON arm.metric_definition_id = md.id
              JOIN analytics_report_definitions rd ON rd.id = arm.report_definition_id
              JOIN analytics_report_role_access ara
                ON ara.report_definition_id = rd.id
@@ -164,7 +164,7 @@ final class AnalyticsReportRegistryService
     {
         $stmt = $this->db->prepare(
             "SELECT md.*, arm.display_order, arm.is_primary
-             FROM analytics_report_metrics arm
+             FROM " . ReadReplicaService::qualifiedRef("analytics_report_metrics") . "
              JOIN analytics_metric_definitions md ON md.id = arm.metric_definition_id
              WHERE arm.report_definition_id = ?
                AND md.status = 'approved'
@@ -274,7 +274,7 @@ final class AnalyticsReportRegistryService
                        rr.completed_at, rr.as_of_at, rr.row_count, rr.duration_ms,
                        rr.warning_count, rr.warnings_json, rr.failure_code,
                        rr.failure_message, rr.result_summary_json
-                FROM analytics_report_runs rr
+                FROM " . ReadReplicaService::qualifiedRef("analytics_report_runs") . "
                 JOIN analytics_report_definitions rd ON rd.id = rr.report_definition_id
                 WHERE rr.id = ?";
         $params = [$runId];

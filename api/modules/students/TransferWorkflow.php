@@ -3,6 +3,7 @@ namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -180,9 +181,9 @@ class TransferWorkflow extends WorkflowHandler
                     NULL AS dept_description,
                     NULL AS is_mandatory,
                     p.first_name as cleared_by_name
-                FROM student_clearances sc
+                FROM " . ReadReplicaService::qualifiedRef("student_clearances") . " sc
                 LEFT JOIN users u ON sc.checked_by = u.id
-                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                 WHERE sc.transfer_request_id = ?
                 ORDER BY sc.id
             ");
@@ -560,6 +561,7 @@ class TransferWorkflow extends WorkflowHandler
     public function getTransferDetails($transferId)
     {
         try {
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
             $stmt = $this->db->prepare("
                 SELECT
                     tr.id,
@@ -571,28 +573,23 @@ class TransferWorkflow extends WorkflowHandler
                     tr.executed_at AS approval_date,
                     per.first_name, per.last_name, s.admission_no,
                     ay.year_code AS academic_year,
-                    ayc.class_id AS current_class_id,
-                    c.name as current_class_name,
-                    sm.name as current_stream_name,
+                    lp.class_id AS current_class_id,
+                    lp.class_name AS current_class_name,
+                    lp.stream_name AS current_stream_name,
                     NULL AS new_class_name,
                     NULL AS new_stream_name,
                     rq.first_name AS requested_by_name,
                     ap.first_name AS approved_by_name,
                     CASE WHEN tr.executed_at IS NOT NULL THEN 'completed' ELSE 'pending' END AS status
-                FROM student_transitions tr
-                JOIN students s ON tr.student_id = s.id
-                JOIN persons per ON per.id = s.person_id
-                LEFT JOIN academic_years ay ON ay.id = tr.academic_year_id
-                LEFT JOIN student_academic_enrollments sae
-                    ON sae.student_id = s.id AND sae.academic_year_id = tr.academic_year_id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " tr
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON tr.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = tr.academic_year_id
+                LEFT JOIN {$lp} lp ON lp.student_id = s.id AND lp.academic_year_id = tr.academic_year_id
                 LEFT JOIN users ur ON tr.decided_by = ur.id
-                LEFT JOIN persons rq ON rq.id = ur.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rq ON rq.id = ur.person_id
                 LEFT JOIN users ua ON tr.decided_by = ua.id
-                LEFT JOIN persons ap ON ap.id = ua.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = ua.person_id
                 WHERE tr.id = ?
             ");
             $stmt->execute([$transferId]);

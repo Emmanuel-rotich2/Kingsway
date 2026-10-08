@@ -445,6 +445,22 @@ const DataStore = (() => {
 
   const CACHE_INVALIDATION_KEY = 'kingsway_cache_invalidation';
 
+  /**
+   * Another tab changed these targets: drop our cached copies AND refresh the
+   * loaders that read them, so this tab does not sit on stale data until the
+   * next user action.
+   *
+   * Both cross-tab channels (BroadcastChannel and the storage-event fallback)
+   * go through here so they cannot drift apart.
+   */
+  function scheduleRefresh(keys, source) {
+    const targets = (Array.isArray(keys) ? keys : []).filter((k) => typeof k === 'string' && k);
+    window.APIRealtime?.schedule?.(targets);
+    window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
+      detail: { source, targets }
+    }));
+  }
+
   function initCrossTabInvalidation() {
     if (typeof BroadcastChannel !== 'undefined') {
       try {
@@ -452,9 +468,7 @@ const DataStore = (() => {
         channel.onmessage = (event) => {
           if (event.data?.type === 'CACHE_INVALIDATED' && Array.isArray(event.data?.keys)) {
             event.data.keys.forEach((key) => invalidate(key));
-            window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
-              detail: { source: 'cross-tab', targets: event.data.keys }
-            }));
+            scheduleRefresh(event.data.keys, 'cross-tab');
           }
         };
       } catch (_) {}
@@ -465,10 +479,9 @@ const DataStore = (() => {
         try {
           const message = JSON.parse(event.newValue);
           if (message?.type === 'CACHE_INVALIDATED' && Array.isArray(message?.keys)) {
-            message.keys.filter((k) => typeof k === 'string').forEach((key) => invalidate(key));
-            window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
-              detail: { source: 'cross-tab', targets: message.keys }
-            }));
+            const keys = message.keys.filter((k) => typeof k === 'string');
+            keys.forEach((key) => invalidate(key));
+            scheduleRefresh(keys, 'cross-tab');
           }
         } catch (_) {}
       }

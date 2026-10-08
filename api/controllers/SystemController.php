@@ -763,11 +763,7 @@ class SystemController extends BaseController
             }
             $userIds = array_values($userIds);
             if ($userIds) {
-                $placeholders = implode(',', array_fill(0, count($userIds), '?'));
-                $stmt = $this->db->getConnection()->prepare("SELECT u.id,u.username,CONCAT_WS(' ',p.first_name,p.last_name) AS full_name FROM users u LEFT JOIN persons p ON p.id=u.person_id WHERE u.id IN ($placeholders)");
-                $stmt->execute($userIds);
-                $names = [];
-                foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) $names[(int) $row['id']] = ['username' => $row['username'], 'full_name' => $row['full_name']];
+                $names = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $this->db->getConnection())->displayNamesById($userIds);
                 if (isset($result['analytics']['users'])) {
                     foreach ($result['analytics']['users'] as &$row) $row = array_merge($row, $names[(int) $row['user_id']] ?? []);
                     unset($row);
@@ -1967,6 +1963,7 @@ class SystemController extends BaseController
         if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
+        \App\API\Services\StickyMasterService::clear();
         return $this->handleApiResponse($this->systemAdminManager->getAccountStatus());
     }
 

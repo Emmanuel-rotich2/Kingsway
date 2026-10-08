@@ -4,6 +4,7 @@ namespace App\API\Modules\library;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * LibraryAPI
@@ -58,8 +59,8 @@ return $this->errorResponse('An internal error occurred.');
         try {
             $rows = $this->db->query(
                 "SELECT c.*, COUNT(b.id) AS book_count
-                 FROM library_categories c
-                 LEFT JOIN library_books b ON b.category_id = c.id AND b.deleted_at IS NULL
+                 FROM " . ReadReplicaService::qualifiedRef("library_categories") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("library_books") . " b ON b.category_id = c.id AND b.deleted_at IS NULL
                  WHERE c.deleted_at IS NULL
                  GROUP BY c.id
                  ORDER BY c.name"
@@ -118,8 +119,8 @@ return $this->errorResponse('An internal error occurred.');
             }
 
             $sql = "SELECT b.*, c.name AS category_name
-                    FROM library_books b
-                    LEFT JOIN library_categories c ON c.id = b.category_id
+                    FROM " . ReadReplicaService::qualifiedRef("library_books") . "
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("library_categories") . " c ON c.id = b.category_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY b.title
                     LIMIT 500";
@@ -140,8 +141,8 @@ return $this->errorResponse('An internal error occurred.');
         try {
             $stmt = $this->db->prepare(
                 "SELECT b.*, c.name AS category_name
-                 FROM library_books b
-                 LEFT JOIN library_categories c ON c.id = b.category_id
+                 FROM " . ReadReplicaService::qualifiedRef("library_books") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("library_categories") . " c ON c.id = b.category_id
                  WHERE b.id = :id AND b.deleted_at IS NULL LIMIT 1"
             );
             $stmt->execute([':id' => $id]);
@@ -276,12 +277,12 @@ return $this->errorResponse('An internal error occurred.');
                             WHEN 'staff'   THEN st.staff_no
                         END AS borrower_ref,
                         DATEDIFF(CURDATE(), li.due_date) AS days_overdue
-                    FROM library_issues li
-                    JOIN library_books b ON b.id = li.book_id
-                    LEFT JOIN students s  ON li.borrower_type='student' AND s.id=li.borrower_id
-                    LEFT JOIN persons sp  ON sp.id = s.person_id
-                    LEFT JOIN staff st    ON li.borrower_type='staff'   AND st.id=li.borrower_id
-                    LEFT JOIN persons stp ON stp.id = st.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("library_issues") . " li
+                    JOIN " . ReadReplicaService::qualifiedRef("library_books") . " b ON b.id = li.book_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s  ON li.borrower_type='student' AND s.id=li.borrower_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp  ON sp.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st    ON li.borrower_type='staff'   AND st.id=li.borrower_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY li.issued_date DESC
                     LIMIT 500";
@@ -348,7 +349,7 @@ return $this->errorResponse('An internal error occurred.');
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT li.*, b.id AS book_id FROM library_issues li
+                "SELECT li.*, b.id AS book_id FROM " . ReadReplicaService::qualifiedRef("library_issues") . "
                  JOIN library_books b ON b.id = li.book_id
                  WHERE li.id=:id AND li.status IN ('issued','overdue')"
             );
@@ -406,12 +407,12 @@ return $this->errorResponse('An internal error occurred.');
                             WHEN 'staff'   THEN CONCAT(stp.first_name,' ',stp.last_name)
                         END AS borrower_name
                     FROM library_fines f
-                    JOIN library_issues li ON li.id = f.issue_id
-                    JOIN library_books b   ON b.id  = li.book_id
-                    LEFT JOIN students s   ON li.borrower_type='student' AND s.id=li.borrower_id
-                    LEFT JOIN persons sp   ON sp.id = s.person_id
-                    LEFT JOIN staff st     ON li.borrower_type='staff'   AND st.id=li.borrower_id
-                    LEFT JOIN persons stp  ON stp.id = st.person_id
+                    JOIN " . ReadReplicaService::qualifiedRef("library_issues") . " li ON li.id = f.issue_id
+                    JOIN " . ReadReplicaService::qualifiedRef("library_books") . " b   ON b.id  = li.book_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s   ON li.borrower_type='student' AND s.id=li.borrower_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp   ON sp.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st     ON li.borrower_type='staff'   AND st.id=li.borrower_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp  ON stp.id = st.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY f.created_at DESC LIMIT 500";
 

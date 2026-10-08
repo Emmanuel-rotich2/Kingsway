@@ -4,6 +4,7 @@ namespace App\API\Modules\inventory;
 use App\API\Includes\BaseAPI;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Inventory API - Central Coordinator
@@ -541,8 +542,8 @@ class InventoryAPI extends BaseAPI
                     wd.name as workflow_name,
                     wd.code as workflow_type,
                     u.username as initiated_by_name
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
+                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = ?
             ";
@@ -560,7 +561,7 @@ class InventoryAPI extends BaseAPI
                 SELECT 
                     wh.*,
                     u.username as performed_by_name
-                FROM workflow_stage_history wh
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
                 LEFT JOIN users u ON wh.processed_by = u.id
                 WHERE wh.instance_id = ?
                 ORDER BY wh.processed_at ASC
@@ -640,11 +641,11 @@ class InventoryAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT us.*, ii.name AS item_name, ii.code AS item_code,
                         (us.unit_price * us.quantity) AS total_amount,
-                        COALESCE((SELECT SUM(up.amount) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0) AS amount_paid,
+                        COALESCE((SELECT SUM(up.amount) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " WHERE up.sale_id = us.id), 0) AS amount_paid,
                         (us.unit_price * us.quantity)
-                            - COALESCE((SELECT SUM(up.amount) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0) AS outstanding
-                 FROM uniform_sales us
-                 LEFT JOIN inventory_items ii ON us.item_id = ii.id
+                            - COALESCE((SELECT SUM(up.amount) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id), 0) AS outstanding
+                 FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                  WHERE us.student_id = ?
                  ORDER BY us.sale_date DESC"
             );
@@ -683,10 +684,10 @@ class InventoryAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT COUNT(*) AS total_sales,
                         SUM(us.unit_price * us.quantity) AS total_revenue,
-                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id)), 0) AS total_collected,
+                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id)), 0) AS total_collected,
                         SUM((us.unit_price * us.quantity)
-                            - COALESCE((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0)) AS total_outstanding
-                 FROM uniform_sales us WHERE {$ws}"
+                            - COALESCE((SELECT COALESCE(SUM(up.amount),0) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " up WHERE up.sale_id = us.id), 0)) AS total_outstanding
+                 FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us WHERE {$ws}"
             );
             foreach ($params as $i => $v) $stmt->bindValue($i + 1, $v);
             $stmt->execute();
@@ -696,9 +697,9 @@ class InventoryAPI extends BaseAPI
                 "SELECT ii.name AS item_name, ii.code AS item_code,
                         COUNT(*) AS qty_sold, SUM(us.quantity) AS units_sold,
                         SUM(us.unit_price * us.quantity) AS revenue,
-                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id)), 0) AS collected
-                 FROM uniform_sales us
-                 LEFT JOIN inventory_items ii ON us.item_id = ii.id
+                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " WHERE up.sale_id = us.id)), 0) AS collected
+                 FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                  WHERE {$ws}
                  GROUP BY us.item_id, ii.name, ii.code ORDER BY revenue DESC"
             );
@@ -728,10 +729,10 @@ class InventoryAPI extends BaseAPI
                 $stmt = $this->db->prepare(
                     "SELECT fa.*, ac.name AS category_name, ac.depreciation_method, ac.useful_life_years AS cat_life,
                             CONCAT(p.first_name, ' ', p.last_name) AS added_by_name
-                     FROM fixed_assets fa
+                     FROM " . ReadReplicaService::qualifiedRef("fixed_assets") . " fa
                      LEFT JOIN asset_categories ac ON ac.id = fa.category_id
                      LEFT JOIN users u ON u.id = fa.added_by
-                     LEFT JOIN persons p ON p.id = u.person_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                      WHERE fa.id = ? AND fa.deleted_at IS NULL"
                 );
                 $stmt->execute([$id]);
@@ -754,9 +755,9 @@ class InventoryAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life,
                         sup.name AS supplier_name
-                 FROM fixed_assets fa
+                 FROM " . ReadReplicaService::qualifiedRef("fixed_assets") . " fa
                  LEFT JOIN asset_categories ac ON ac.id = fa.category_id
-                 LEFT JOIN suppliers sup ON sup.id = fa.supplier_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " sup ON sup.id = fa.supplier_id
                  WHERE " . implode(' AND ', $where) . " ORDER BY fa.purchase_date DESC LIMIT 500"
             );
             $stmt->execute($params);
@@ -882,7 +883,7 @@ class InventoryAPI extends BaseAPI
             }
             $stmt = $this->db->prepare(
                 "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
-                 FROM fixed_assets fa
+                 FROM " . ReadReplicaService::qualifiedRef("fixed_assets") . "
                  LEFT JOIN asset_categories ac ON ac.id = fa.category_id
                  WHERE " . implode(' AND ', $where) . " ORDER BY ac.name, fa.name"
             );

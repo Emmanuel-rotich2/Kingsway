@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\users;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use App\API\Includes\ValidationHelper;
@@ -328,12 +329,12 @@ class UsersAPI extends BaseAPI
                     g.expires_at AS test_access_expires_at,
                     g.status AS test_access_status
              FROM users u
-             LEFT JOIN persons p ON p.id = u.person_id
-             LEFT JOIN test_account_access_grants g ON g.id = (
-                 SELECT tg.id FROM test_account_access_grants tg
-                 WHERE tg.user_id=u.id AND tg.environment=?
-                 ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
-             )
+             JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+             LEFT JOIN test_account_access_grants g
+               ON g.user_id = u.id
+              AND g.environment = ?
+              AND g.status IN ('scheduled','active')
+              AND g.revoked_at IS NULL
              LEFT JOIN roles r ON r.id = (
                  SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.is_primary DESC, ur.id LIMIT 1
              )
@@ -364,12 +365,12 @@ class UsersAPI extends BaseAPI
                        g.expires_at AS test_access_expires_at,
                        g.status AS test_access_status
                 FROM users u
-                LEFT JOIN persons p ON p.id = u.person_id
-                LEFT JOIN test_account_access_grants g ON g.id = (
-                    SELECT tg.id FROM test_account_access_grants tg
-                    WHERE tg.user_id=u.id AND tg.environment=?
-                    ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
-                )
+                JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+                LEFT JOIN test_account_access_grants g
+                  ON g.user_id = u.id
+                 AND g.environment = ?
+                 AND g.status IN ('scheduled','active')
+                 AND g.revoked_at IS NULL
                 LEFT JOIN roles r ON r.id = (
                     SELECT ur.role_id
                     FROM user_roles ur
@@ -407,7 +408,7 @@ class UsersAPI extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT ur.user_id, r.id AS role_id, r.name AS role_name, r.is_active, ur.is_primary
              FROM user_roles ur
-             INNER JOIN roles r ON r.id = ur.role_id
+             JOIN roles r ON r.id = ur.role_id
              WHERE ur.user_id IN ($in)
              ORDER BY ur.user_id, ur.is_primary DESC, ur.id"
         );
@@ -1808,6 +1809,7 @@ class UsersAPI extends BaseAPI
 
     public function login($data, bool $issueAccessToken = true)
     {
+        \App\API\Services\StickyMasterService::clear();
         $username = trim((string) ($data['username'] ?? ''));
         $password = (string) ($data['password'] ?? '');
 
@@ -1864,7 +1866,7 @@ class UsersAPI extends BaseAPI
                     ELSE 0
                 END AS is_locked
              FROM users u
-             LEFT JOIN persons p ON p.id = u.person_id
+             LEFT JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = u.person_id
              WHERE u.username = ? OR p.email = ?' . $phoneIn . '
              LIMIT 1'
         );
@@ -1926,6 +1928,25 @@ class UsersAPI extends BaseAPI
                 'account_inactive'
             );
             return ['success' => false, 'error' => 'Account is not active'];
+        }
+
+        // Login is allowed for invited staff so they can reach the profile
+        // completion flow. Only a previously completed staff profile that was
+        // later deactivated by administrators is blocked here. SYSTEM-domain
+        // accounts and parent-only accounts have no staff row and are not
+        // subject to this school-employment check.
+        $staffContext = \App\API\Services\StaffRecordsService::staffContextForUserId(
+            $this->db,
+            (int) $user['id']
+        );
+        if (($staffContext['state'] ?? '') === 'deactivated') {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'staff_deactivated'
+            );
+            return ['success' => false, 'error' => 'This staff account has been deactivated by an administrator'];
         }
 
         try {
@@ -2246,7 +2267,7 @@ class UsersAPI extends BaseAPI
         }
 
         // Resolve the user from the reset email via persons
-        $userStmt = $this->db->prepare('SELECT u.id FROM users u JOIN persons p ON p.id = u.person_id WHERE p.email = ? LIMIT 1');
+        $userStmt = $this->db->prepare("SELECT u.id FROM users u JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id WHERE p.email = ? LIMIT 1");
         $userStmt->execute([$reset['email']]);
         $user = $userStmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
@@ -2331,14 +2352,14 @@ class UsersAPI extends BaseAPI
     {
         try {
             // Check if staff record already exists (via the shared person)
-            $checkStmt = $this->db->prepare('SELECT id FROM staff WHERE person_id = (SELECT person_id FROM users WHERE id = ?)');
+            $checkStmt = $this->db->prepare('SELECT id FROM ' . ReadReplicaService::masterRef('staff') . ' WHERE person_id = (SELECT person_id FROM users WHERE id = ?)');
             $checkStmt->execute([$userId]);
             if ($checkStmt->fetch()) {
                 return true;
             }
 
             // Get user data (identity lives on the person record)
-            $userStmt = $this->db->prepare('SELECT u.person_id, u.data_scope, u.is_test_user, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
+            $userStmt = $this->db->prepare('SELECT u.person_id, u.data_scope, u.is_test_user, p.first_name, p.last_name, p.email FROM users u JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = u.person_id WHERE u.id = ?');
             $userStmt->execute([$userId]);
             $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -2381,7 +2402,7 @@ class UsersAPI extends BaseAPI
             $departmentCheck->execute([$departmentId]);
             if (!$departmentCheck->fetchColumn()) throw new Exception('Choose an active department for the staff assignment.');
             $classificationCheck = $this->db->prepare(
-                'SELECT 1 FROM staff_types st JOIN staff_categories sc ON sc.staff_type_id=st.id
+                'SELECT 1 FROM ' . ReadReplicaService::qualifiedRef('staff_types') . ' st JOIN staff_categories sc ON sc.staff_type_id=st.id
                  WHERE st.id=? AND sc.id=? AND st.is_active=1 AND sc.is_active=1 LIMIT 1'
             );
             $classificationCheck->execute([$staffTypeId, $staffCategoryId]);

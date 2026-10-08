@@ -238,7 +238,7 @@
                             </div>
 
                             <div class="alert alert-info mb-0 py-2">
-                                <small><i class="bi bi-info-circle"></i> SMS sent via Africa's Talking. Standard rates apply.</small>
+                                <small><i class="bi bi-info-circle"></i> SMS sent via Talksasa. Standard rates apply.</small>
                             </div>
                         </div>
                     </div>

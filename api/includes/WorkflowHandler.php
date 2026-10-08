@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Includes;
 
+use App\API\Services\ReadReplicaService;
 use App\Config\Database;
 use PDO;
 use Exception;
@@ -32,9 +33,9 @@ class WorkflowHandler extends BaseAPI
     public function listWorkflows($filters = [])
     {
         $sql = "SELECT wi.*, wd.code as workflow_code, wd.name as workflow_name, ws.name as current_stage_name, ws.description as stage_description, u.username as started_by_username
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-                LEFT JOIN workflow_stages ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
+                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.workflow_id = :workflow_id";
 
@@ -335,9 +336,9 @@ class WorkflowHandler extends BaseAPI
         $sql = "SELECT wi.*, wd.code as workflow_code, wd.name as workflow_name,
                        ws.name as current_stage_name, ws.description as stage_description,
                        u.username as started_by_username
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-                LEFT JOIN workflow_stages ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
+                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
                 LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = :instance_id";
         
@@ -361,7 +362,7 @@ class WorkflowHandler extends BaseAPI
     public function getWorkflowHistory($instance_id)
     {
         $sql = "SELECT wsh.*, u.username as processed_by_username
-                FROM workflow_stage_history wsh
+                FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . "
                 LEFT JOIN users u ON wsh.processed_by = u.id
                 WHERE wsh.instance_id = :instance_id
                 ORDER BY wsh.processed_at DESC";
@@ -519,9 +520,8 @@ class WorkflowHandler extends BaseAPI
                 $starterId = (int) ($instance['started_by'] ?? 0);
                 if ($starterId > 0) {
                     $stmt = $this->db->prepare(
-                        "SELECT u.id, u.username, p.email
-                         FROM users u
-                         LEFT JOIN persons p ON p.id = u.person_id
+                        "SELECT u.id, u.username, pd.email
+                         FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                          WHERE u.id = :id AND u.status = 'active'
                          LIMIT 1"
                     );
@@ -564,10 +564,7 @@ class WorkflowHandler extends BaseAPI
         }
 
         $sql = "SELECT DISTINCT u.id, u.username, p.email, r.name as role_name
-                FROM users u
-                LEFT JOIN persons p ON p.id = u.person_id
-                LEFT JOIN user_roles ur ON ur.user_id = u.id
-                LEFT JOIN roles r ON r.id = ur.role_id
+                FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                 WHERE u.status = 'active'";
 
         $stmt = $this->db->prepare($sql);

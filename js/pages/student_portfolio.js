@@ -26,6 +26,18 @@ const PortfolioController = {
             ]);
             const studentPayload = students?.data?.students || students?.data?.data || students?.data || students || [];
             this.state.students = Array.isArray(studentPayload) ? studentPayload : [];
+            try {
+                const termsPayload = await window.API.apiCall('/academic/exam-periods-options', 'GET');
+                const terms = termsPayload?.data?.terms || termsPayload?.data || [];
+                const termSelect = document.getElementById('pfArtifactTerm');
+                if (termSelect) termSelect.innerHTML = '<option value="">— Not set —</option>' + (Array.isArray(terms) ? terms : []).map(t => `<option value="${t.id}">${this.esc(t.academic_year_name || '')} · Term ${t.term_id || ''}</option>`).join('');
+            } catch (_) { /* term scope stays optional */ }
+            try {
+                const areasPayload = await window.API.apiCall('/academic/learning-areas/list', 'GET');
+                const areas = areasPayload?.data?.data || areasPayload?.data || [];
+                const areaSelect = document.getElementById('pfArtifactArea');
+                if (areaSelect) areaSelect.innerHTML = '<option value="">— Not set —</option>' + (Array.isArray(areas) ? areas : []).map(a => `<option value="${a.id}">${this.esc(a.name)}</option>`).join('');
+            } catch (_) { /* learning area stays optional */ }
             this.state.classes = [...new Map(this.state.students.map(s => [String(s.class_id), {
                 id: s.class_id, name: s.class_name
             }]).filter(([id, c]) => id && c.name)).values()];
@@ -476,6 +488,10 @@ const PortfolioController = {
             rating: rating !== undefined && rating !== '' ? Number(rating) : null,
             learner_reflection: document.getElementById('pfArtifactReflection')?.value?.trim() || '',
             teacher_feedback: document.getElementById('pfArtifactFeedback')?.value?.trim() || '',
+            academic_year_term_id: document.getElementById('pfArtifactTerm')?.value || null,
+            evidence_source: document.getElementById('pfArtifactSource')?.value || null,
+            learning_area_id: document.getElementById('pfArtifactArea')?.value || null,
+            knec_verification_ref: document.getElementById('pfArtifactKnecRef')?.value?.trim() || null,
         };
 
         const fileInput = document.getElementById('pfArtifactFile');

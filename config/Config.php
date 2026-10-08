@@ -187,6 +187,10 @@ class Config
         // These decide where inter-service traffic is sent, so redirecting them
         // at runtime in production would be a routing hijack.
         'AI_PYTHON_INTERNAL_BASE_URL', 'AI_PYTHON_INTERNAL_HOST',
+        // Node.js realtime data-update layer routing (same hijack-protection rule).
+        'NODE_REALTIME_URL', 'NODE_REALTIME_PUBLIC_URL', 'NODE_REALTIME_BASE_URL',
+        'NODE_REALTIME_INTERNAL_BASE_URL', 'NODE_REALTIME_INTERNAL_HOST', 'NODE_REALTIME_PUBLISH_SECRET',
+        'NODE_REALTIME_WEB_ORIGIN',
     ];
 
     public static function set(string $key, $value)

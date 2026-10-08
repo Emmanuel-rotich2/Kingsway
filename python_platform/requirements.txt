@@ -8,3 +8,11 @@ pypdfium2==5.13.0
 pytesseract==0.3.13
 Pillow==12.3.0
 defusedxml==0.7.1
+# Batch document/packaging/graphics layer (scaling masterplan 2026-10-04)
+reportlab==4.4.4
+weasyprint==66.0
+xlsxwriter==3.2.9
+zipstream-ng==1.8.0
+segno==1.6.6
+qrcode==8.2
+pyarrow==21.0.0

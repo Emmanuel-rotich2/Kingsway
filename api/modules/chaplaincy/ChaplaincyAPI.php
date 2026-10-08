@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace App\API\Modules\chaplaincy;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\students\StudentLeadershipService;
@@ -231,7 +232,7 @@ class ChaplaincyAPI extends BaseAPI
                     v.police_clearance_verified, v.notes, v.is_active,
                     r.name AS role_name,
                     v.linked_student_id
-             FROM chaplaincy_volunteers v
+             FROM " . ReadReplicaService::qualifiedRef("chaplaincy_volunteers") . "
              LEFT JOIN chaplaincy_team_roles r ON r.id = v.role_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY v.full_name"
@@ -490,12 +491,11 @@ class ChaplaincyAPI extends BaseAPI
     private function parentRecord(int $parentId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT p.id AS parent_id,
-                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS full_name,
-                    pp.phone AS phone_1, pp.email
-             FROM parents p
-             JOIN persons pp ON pp.id = p.person_id
-             WHERE p.id = ?"
+            "SELECT p.parent_id AS parent_id,
+                    CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
+                    p.phone AS phone_1, p.email
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " p
+             WHERE p.parent_id = ?"
         );
         $stmt->execute([$parentId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -786,7 +786,7 @@ class ChaplaincyAPI extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT s.id AS session_id, s.title, s.session_date, s.status,
                     p.name AS program_name, p.code AS program_code
-             FROM chapel_program_sessions s
+             FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . "
              JOIN chapel_programs p ON p.id = s.program_id
              WHERE s.id = ?"
         );
@@ -1225,7 +1225,7 @@ class ChaplaincyAPI extends BaseAPI
         $wkEnd = date('Y-m-d', strtotime('sunday this week'));
 
         $upcomingSabbath = $this->db->prepare(
-            "SELECT COUNT(*) FROM chapel_program_sessions s
+            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("chapel_program_sessions") . "
              JOIN chapel_programs p ON p.id = s.program_id
              WHERE s.session_date BETWEEN ? AND ? AND p.applies_sabbath = 1 AND s.status = 'scheduled'"
         );

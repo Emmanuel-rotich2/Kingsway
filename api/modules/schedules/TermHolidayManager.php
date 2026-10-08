@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\schedules;
 
+use App\API\Services\ReadReplicaService;
 use Exception;
 use PDO;
 
@@ -27,9 +28,9 @@ class TermHolidayManager
                 FROM vw_timetable_entries cs
                 WHERE cs.class_id = (
                     SELECT ayc.class_id
-                    FROM student_academic_enrollments se
-                    JOIN academic_year_class_streams aycs ON aycs.id = se.academic_year_class_stream_id
-                    JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " se
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = se.academic_year_class_stream_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                     WHERE se.student_id = :student_id
                       AND se.enrollment_status = 'active'
                     ORDER BY se.id DESC
@@ -45,10 +46,10 @@ class TermHolidayManager
         $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $holidaysSql = "SELECT d.id, d.date, cdt.code AS day_type, cdt.name AS day_type_name, d.title, d.description, ayt.term_id AS term_id
-                        FROM academic_year_calendar_days d
-                        JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                        FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                         JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-                        LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+                        LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
                         WHERE cdt.code IN ('public_holiday', 'school_holiday', 'holiday')";
         $holidayParams = [];
         if ($termId) {
@@ -84,10 +85,10 @@ class TermHolidayManager
         $teaching = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $holidaySql = "SELECT d.id, d.date, cdt.code AS day_type, cdt.name AS day_type_name, d.title, d.description, ayt.term_id AS term_id
-                       FROM academic_year_calendar_days d
-                       JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                       FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+                       JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                        JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-                       LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+                       LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
                        WHERE cdt.code IN ('public_holiday', 'school_holiday', 'holiday')";
         $holidayParams = [];
         if ($termId) {
@@ -110,24 +111,33 @@ class TermHolidayManager
     {
         // Term details
         $stmt = $this->db->prepare("
-            SELECT ayt.*, t.name AS term_name, t.code AS term_code, ay.year_code AS academic_year
-            FROM academic_year_terms ayt
-            LEFT JOIN terms t ON t.id = ayt.term_id
-            LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
-            WHERE ayt.id = :term_id
+            SELECT
+                ayt.academic_year_term_id AS id,
+                ayt.academic_year_id,
+                ayt.term_id,
+                ayt.opening_date,
+                ayt.half_term_start,
+                ayt.half_term_end,
+                ayt.closing_date,
+                ayt.term_period_status AS status,
+                ayt.term_name,
+                ayt.term_code,
+                ayt.year_code AS academic_year
+            FROM " . ReadReplicaService::qualifiedRef('academic_term') . " ayt
+            WHERE ayt.academic_year_term_id = :term_id
         ");
         $stmt->execute(['term_id' => $termId]);
         $term = $stmt->fetch(PDO::FETCH_ASSOC);
 
         // Holiday/special-day calendar entries
         $stmt = $this->db->prepare("
-            SELECT d.id, d.date, cdt.code AS day_type, cdt.name AS day_type_name, d.title, d.description
-            FROM academic_year_calendar_days d
-            JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
-            JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-            WHERE ac.academic_year_term_id = :term_id
-              AND cdt.code IN ('public_holiday', 'school_holiday', 'holiday', 'special_event')
-            ORDER BY d.date ASC
+            SELECT calendar_day_id AS id, calendar_date AS date,
+                   day_type_code AS day_type, day_type_name,
+                   day_title AS title, day_description AS description
+            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('calendar_day_type') . "
+            WHERE academic_year_term_id = :term_id
+              AND day_type_code IN ('public_holiday', 'school_holiday', 'holiday', 'special_event')
+            ORDER BY calendar_date ASC
         ");
         $stmt->execute(['term_id' => $termId]);
         $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -140,7 +150,7 @@ class TermHolidayManager
                 cs.subject_name,
                 cs.room_name,
                 cs.teacher_name
-            FROM vw_timetable_entries cs
+            FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
             WHERE cs.academic_year_term_id = :term_id
               AND cs.status = 'scheduled'
             ORDER BY cs.day_of_week, cs.start_time
@@ -151,8 +161,8 @@ class TermHolidayManager
         // Term-linked activity/exam counts for quick admin view
         $activityStmt = $this->db->prepare("
             SELECT COUNT(*) AS total
-            FROM activity_schedule asch
-            JOIN academic_year_terms ayt ON ayt.id = :term_id
+            FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = :term_id
             WHERE asch.schedule_date BETWEEN ayt.opening_date AND ayt.closing_date
         ");
         $activityStmt->execute(['term_id' => $termId]);

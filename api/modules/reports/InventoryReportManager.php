@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
+use App\API\Services\ReadReplicaService;
 
 class InventoryReportManager extends BaseAPI
 {
@@ -16,8 +17,8 @@ class InventoryReportManager extends BaseAPI
                         v.status,
                         COUNT(DISTINCT sta.student_id) AS assigned_students
                     FROM transport_vehicles v
-                    LEFT JOIN transport_vehicle_routes tvr ON tvr.vehicle_id = v.id AND tvr.status = 'active'
-                    LEFT JOIN student_transport_assignments sta ON sta.route_id = tvr.route_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta ON sta.route_id = tvr.route_id
                     GROUP BY v.id, v.registration_number, v.make, v.model, v.capacity, v.status
                     ORDER BY v.registration_number";
             $stmt = $this->db->query($sql);
@@ -42,8 +43,8 @@ class InventoryReportManager extends BaseAPI
                                 WHEN i.current_quantity <= GREATEST(i.minimum_quantity, i.reorder_level) THEN 'low_stock'
                                 ELSE 'adequate' END AS stock_status,
                            i.unit, c.name AS category
-                    FROM inventory_items i
-                    LEFT JOIN inventory_categories c ON i.category_id = c.id
+                    FROM " . ReadReplicaService::qualifiedRef("inventory_items") . "
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY i.name";
             $stmt = $this->db->prepare($sql);
@@ -87,7 +88,7 @@ class InventoryReportManager extends BaseAPI
     {
         try {
             $sql = "SELECT equipment_id AS asset_id, emt.name AS maintenance_type, COUNT(*) as event_count
-                    FROM equipment_maintenance em
+                    FROM " . ReadReplicaService::qualifiedRef("equipment_maintenance") . "
                     LEFT JOIN equipment_maintenance_types emt ON emt.id = em.maintenance_type_id
                     GROUP BY equipment_id, emt.name
                     ORDER BY event_count DESC";
@@ -104,14 +105,13 @@ class InventoryReportManager extends BaseAPI
             $sql = "SELECT
                         it.id,
                         it.item_id,
-                        ii.name AS item_name,
+                        it.item_name,
                         it.quantity,
                         it.unit_cost,
                         it.transaction_date AS adjusted_at,
                         it.reference_id,
                         it.notes
-                    FROM inventory_transactions it
-                    LEFT JOIN inventory_items ii ON ii.id = it.item_id
+                    FROM " . ReadReplicaService::qualifiedRef("inventory_transactions_items") . " it
                     WHERE it.reference_type = 'adjustment'
                     ORDER BY it.transaction_date DESC
                     LIMIT 100";

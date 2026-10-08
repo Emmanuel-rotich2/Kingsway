@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\academic;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\WorkflowHandler;
 use Exception;
@@ -75,13 +76,11 @@ class ReportGenerationWorkflow extends WorkflowHandler {
     private function resolveReportTermContext(int $termId): array
     {
         $stmt = $this->db->prepare("
-            SELECT ayt.id AS ayt_id, ayt.term_id, ayt.academic_year_id,
-                   CAST(ay.year_code AS UNSIGNED) AS year_value,
-                   CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            JOIN academic_years ay ON ay.id = ayt.academic_year_id
-            WHERE ayt.id = ?
+            SELECT academic_year_term_id AS ayt_id, term_id, academic_year_id,
+                   CAST(year_code AS UNSIGNED) AS year_value,
+                   CAST(SUBSTRING(term_code, 2) AS UNSIGNED) AS term_number
+            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+            WHERE academic_year_term_id = ?
         ");
         $stmt->execute([$termId]);
         $ctx = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -155,12 +154,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     : $this->resolveYearId($scope['academic_year'] ?? 0);
 
                 $stmt = $this->db->prepare(
-                    "SELECT DISTINCT s.id FROM students s
-                    INNER JOIN student_academic_enrollments sae
-                        ON sae.student_id = s.id AND sae.academic_year_id = :year_id
-                        AND sae.enrollment_status IN ('pending', 'active')
-                    INNER JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                    INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    "SELECT DISTINCT s.id FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                     WHERE (ayc.class_id = :class_id OR aycs.id = :class_id)
                     AND s.status = 'active'"
                 );
@@ -254,14 +248,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     "SELECT s.*, p.first_name, p.last_name, p.gender, p.photo_url,
                         CONCAT(p.first_name, ' ', p.last_name) as full_name,
                         c.name as class_name, st.name as stream_name
-                    FROM students s
-                    INNER JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN student_academic_enrollments sae
-                        ON sae.student_id = s.id AND sae.enrollment_status IN ('pending', 'active')
-                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                    LEFT JOIN classes c ON c.id = ayc.class_id
-                    LEFT JOIN streams st ON st.id = aycs.stream_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                     WHERE s.id = :id"
                 );
                 $studentStmt->execute(['id' => $studentId]);
@@ -274,8 +261,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                 // Get academic scores
                 $scoresStmt = $this->db->prepare(
                     "SELECT tss.*, la.name as subject_name, la.code as subject_code
-                    FROM term_subject_scores tss
-                    INNER JOIN learning_areas la ON tss.subject_id = la.id
+                    FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON tss.subject_id = la.id
                     WHERE tss.student_id = :student_id
                     AND tss.term_id = :term_id"
                 );
@@ -291,8 +278,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     $compStmt = $this->db->prepare(
                         "SELECT lc.*, cc.code as comp_code, cc.name as comp_name,
                             plc.code as perf_code, plc.name as perf_name
-                        FROM learner_competencies lc
-                        INNER JOIN core_competencies cc ON lc.competency_id = cc.id
+                        FROM " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON lc.competency_id = cc.id
                         LEFT JOIN performance_levels_cbc plc ON lc.performance_level_id = plc.id
                         WHERE lc.student_id = :student_id
                         AND lc.term_id = :term_id
@@ -312,8 +299,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                 if ($includeValues) {
                     $valuesStmt = $this->db->prepare(
                         "SELECT lva.*, cv.code as value_code, cv.name as value_name
-                        FROM learner_values_acquisition lva
-                        INNER JOIN core_values cv ON lva.value_id = cv.id
+                        FROM " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . "
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("core_values") . " cv ON lva.value_id = cv.id
                         WHERE lva.student_id = :student_id
                         AND lva.term_id = :term_id
                         AND lva.academic_year = :year
@@ -359,8 +346,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     // Map average to CBC grade
                     $gradeStmt = $this->db->prepare(
                         "SELECT gr.grade_code, gr.performance_level 
-                        FROM grade_rules gr
-                        INNER JOIN grading_scales gs ON gr.scale_id = gs.id
+                        FROM " . ReadReplicaService::qualifiedRef("grade_rules") . "
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("grading_scales") . " gs ON gr.scale_id = gs.id
                         WHERE gs.status = 'active'
                         AND :score >= gr.min_mark AND :score <= gr.max_mark
                         LIMIT 1"

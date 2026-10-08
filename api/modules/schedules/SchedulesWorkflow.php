@@ -6,6 +6,7 @@ use Exception;
 use App\API\Includes\WorkflowHandler;
 use App\API\Services\ServiceContractBroker;
 use App\API\Services\TeacherSpecializationService;
+use App\API\Services\ReadReplicaService;
 use function App\API\Includes\dayNameToNumber;
 
 class SchedulesWorkflow extends WorkflowHandler
@@ -126,7 +127,7 @@ class SchedulesWorkflow extends WorkflowHandler
                 }
                 $streamLearningAreaId = (int)$this->db->query(
                     "SELECT sla.id
-                     FROM academic_year_class_stream_learning_areas sla
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
                      JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
                      WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
                     [$classStreamId, $learningAreaId]
@@ -178,27 +179,32 @@ class SchedulesWorkflow extends WorkflowHandler
                 throw new \Exception('Workflow instance not found');
             }
             $data = json_decode($instance['data_json'], true);
-            // Example: call conflict detection procedure
-            $conflicts = [];
-            $proc = "SHOW PROCEDURE STATUS WHERE Db = DATABASE() AND Name = 'sp_detect_schedule_conflicts'";
-            if ($this->db->query($proc)->fetchColumn()) {
-                $stmt = $this->db->prepare('CALL sp_detect_schedule_conflicts(:class_id, :term_id)');
-                $stmt->execute([
-                    'class_id' => $data['class_id'],
-                    'term_id' => $data['term_id']
-                ]);
-                $conflicts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            } else {
-                // Fall back to view-based overlap detection
-                $classStreamId = $this->resolveClassStreamId((int) $data['class_id']);
-                $termId = $this->resolveAcademicYearTermId((int) $data['term_id']);
-                $stmt = $this->db->prepare("SELECT COUNT(*) FROM vw_timetable_entries a JOIN vw_timetable_entries b ON a.academic_year_class_stream_id = b.academic_year_class_stream_id AND a.day_of_week = b.day_of_week AND a.id < b.id AND a.start_time < b.end_time AND a.end_time > b.start_time WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ? AND a.status = 'scheduled'");
-                $stmt->execute([$classStreamId, $termId]);
-                $overlapCount = (int) $stmt->fetchColumn();
-                if ($overlapCount > 0) {
-                    $conflicts = [['conflict_type' => 'class_overlap', 'count' => $overlapCount]];
-                }
-            }
+            $termId = $this->resolveAcademicYearTermId((int) $data['term_id']);
+            $calendar = ReadReplicaService::qualifiedRef('academic_calendar');
+            $stmt = $this->db->prepare(
+                "SELECT class_stream_id FROM {$calendar}
+                 WHERE class_id = ? AND academic_year_id = ? LIMIT 1"
+            );
+            $stmt->execute([(int) $data['class_id'], $this->getCurrentAcademicYearId()]);
+            $classStreamId = (int) $stmt->fetchColumn();
+
+            // The same materialized conflict set serves the review workflow;
+            // source-view joins are evaluated only by the projection refresh.
+            $conflictTable = ReadReplicaService::qualifiedRef('timetable_conflict');
+            $stmt = $this->db->prepare(
+                "SELECT conflict_type, COUNT(*) AS conflict_count
+                 FROM {$conflictTable}
+                 WHERE conflict_type = 'class_overlap'
+                   AND academic_year_class_stream_id = ?
+                   AND academic_year_term_id = ?
+                 GROUP BY conflict_type"
+            );
+            $stmt->execute([$classStreamId, $termId]);
+            $conflict = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $conflicts = $conflict ? [[
+                'conflict_type' => $conflict['conflict_type'],
+                'count' => (int) $conflict['conflict_count'],
+            ]] : [];
             // Advance workflow to next stage if no conflicts
             if (empty($conflicts)) {
                 $this->advanceStage($instance_id, 'timetable_approval', 'review_passed');
@@ -293,11 +299,10 @@ class SchedulesWorkflow extends WorkflowHandler
             return 0;
         }
         $stmt = $this->db->prepare(
-            "SELECT aycs.id
-             FROM academic_year_class_streams aycs
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
-             ORDER BY aycs.id LIMIT 1"
+            "SELECT class_stream_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ? AND class_id = ?
+             ORDER BY class_stream_id LIMIT 1"
         );
         $stmt->execute([$academicYearId, $classId]);
         return (int) $stmt->fetchColumn();

@@ -211,8 +211,7 @@ class NotificationService
         $in = implode(',', array_fill(0, count($staffIds), '?'));
         $stmt = $this->db->prepare(
             "SELECT DISTINCT u.id
-               FROM users u
-               JOIN staff s ON s.person_id = u.person_id
+               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
               WHERE s.id IN ($in) AND u.status = 'active'"
         );
         $stmt->execute($staffIds);
@@ -234,11 +233,9 @@ class NotificationService
             $stmt->execute([(int) $roleIdOrName]);
         } else {
             $stmt = $this->db->prepare(
-                "SELECT DISTINCT ur.user_id
-                   FROM user_roles ur
-                   JOIN roles r ON r.id = ur.role_id
-                   JOIN users u ON u.id = ur.user_id
-                  WHERE r.name = ? AND u.status = 'active'"
+                "SELECT DISTINCT user_id
+                   FROM " . ReadReplicaService::masterRef('user_role_grant') . "
+                  WHERE role_name = ? AND user_status = 'active'"
             );
             $stmt->execute([(string) $roleIdOrName]);
         }
@@ -252,8 +249,7 @@ class NotificationService
     {
         $sql =
             "SELECT DISTINCT u.id
-               FROM users u
-               JOIN staff s ON s.person_id = u.person_id
+               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
               WHERE u.status = 'active'";
         $params = [];
         if ($excludeUserId > 0) {
@@ -287,13 +283,221 @@ class NotificationService
     public function userName(int $userId): ?string
     {
         $stmt = $this->db->prepare(
-            "SELECT CONCAT_WS(' ', p.first_name, p.last_name)
-               FROM users u
-               JOIN persons p ON p.id = u.person_id
-              WHERE u.id = ?"
+            "SELECT CONCAT_WS(' ', first_name, last_name)
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+              WHERE user_id = ?"
         );
         $stmt->execute([$userId]);
         $name = $stmt->fetchColumn();
         return $name !== null && $name !== '' ? (string) $name : null;
     }
+    /** Unified newest-first feed for the notifications dropdown. */
+    public function feedForUser(\PDO $pdo, int $userId): array
+    {
+        $items = [];
+        $messagesUnread = 0;
+        $notificationsUnread = 0;
+        $eventsCount = 0;
+
+        // 1. Unread internal messages (one item per conversation with unread count).
+        $sql = "SELECT c.id, c.title, c.conversation_type, cp.unread_count,
+                       (SELECT im.message_body
+                          FROM internal_messages im
+                         WHERE im.conversation_id = c.id
+                         ORDER BY im.created_at DESC, im.id DESC
+                         LIMIT 1) AS snippet,
+                       (SELECT im.created_at
+                          FROM internal_messages im
+                         WHERE im.conversation_id = c.id
+                         ORDER BY im.created_at DESC, im.id DESC
+                         LIMIT 1) AS last_at,
+                       (SELECT CONCAT_WS(' ', p.first_name, p.last_name)
+                          FROM internal_messages im
+                          JOIN users u ON u.id = im.sender_id
+                          JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+                         WHERE im.conversation_id = c.id
+                         ORDER BY im.created_at DESC, im.id DESC
+                         LIMIT 1) AS sender_name
+                  FROM conversation_participants cp
+                  JOIN internal_conversations c ON c.id = cp.conversation_id
+                 WHERE cp.participant_id = :uid
+                   AND cp.left_at IS NULL
+                   AND cp.unread_count > 0
+                 ORDER BY last_at DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([':uid' => $userId]);
+
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $unread = (int) $row['unread_count'];
+            $messagesUnread += $unread;
+            $sender = $row['sender_name'] !== null ? $row['sender_name'] : 'a colleague';
+
+            $items[] = [
+                'id' => 'message-' . (int) $row['id'],
+                'type' => 'message',
+                'category' => 'message',
+                'title' => 'Message from ' . $sender,
+                'message' => $row['snippet'] !== null ? $row['snippet'] : '',
+                'priority' => 'medium',
+                'created_at' => $row['last_at'],
+                'unread' => true,
+                'read' => false,
+                'badge' => $unread,
+                'route' => 'messages',
+                'context' => $row['title'] !== null && $row['title'] !== '' ? $row['title'] : '',
+                'action_url' => 'home.php?route=communications/messages_inbox&conversation_id=' . (int) $row['id'],
+            ];
+        }
+
+        // 2. Notifications: unread first, then a handful of recent read items
+        //    for context (faded in the UI, never counted as unread).
+        $stmt = $pdo->prepare(
+            "SELECT id, type, title, message, priority, read_status, created_at,
+                    action_url, reference_type, reference_id, reminder_window
+               FROM notifications
+              WHERE user_id = :uid
+              ORDER BY (read_status = 'unread') DESC, created_at DESC
+              LIMIT 25"
+        );
+        $stmt->execute([':uid' => $userId]);
+
+        $readShown = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $isUnread = $row['read_status'] === 'unread';
+            if ($isUnread) {
+                $notificationsUnread++;
+            } else {
+                if ($readShown >= 6) {
+                    continue;
+                }
+                $readShown++;
+            }
+
+            $items[] = [
+                'id' => 'notification-' . (int) $row['id'],
+                'type' => 'notification',
+                'category' => $row['type'] !== null && $row['type'] !== ''
+                    ? $row['type']
+                    : 'notification',
+                'title' => $row['title'],
+                'message' => $row['message'],
+                'priority' => $row['priority'],
+                'created_at' => $row['created_at'],
+                'unread' => $isUnread,
+                'read' => !$isUnread,
+                'badge' => $isUnread ? 1 : 0,
+                'route' => 'announcements',
+                'context' => '',
+                'action_url' => $row['action_url'] ?? null,
+                'reference_type' => $row['reference_type'] ?? null,
+                'reference_id' => isset($row['reference_id']) ? (int) $row['reference_id'] : null,
+                'reminder_window' => $row['reminder_window'] ?? null,
+            ];
+        }
+
+        // Events enter this feed only through scheduled reminder notifications.
+
+        // Newest-first, capped so the dropdown stays readable.
+        usort($items, function (array $a, array $b): int {
+            return strcmp((string) $b['created_at'], (string) $a['created_at']);
+        });
+        $items = array_slice($items, 0, 30);
+
+        return [
+            'unread_count' => $messagesUnread + $notificationsUnread,
+            'counts' => [
+                'messages' => $messagesUnread,
+                'notifications' => $notificationsUnread,
+                'events' => $eventsCount,
+            ],
+            'items' => $items,
+        ];
+    }
+
+    /** Push upcoming-event reminders into the user feed (idempotent by window/type/reference). */
+    public function ensureEventReminders(\PDO $pdo, int $userId): void
+    {
+        $service = $this;
+        foreach ([['7_days', 3, 7], ['3_days', 1, 3], ['24_hours', 0, 1]] as [$window, $lower, $upper]) {
+            $stmt = $pdo->prepare(
+                "SELECT id, title, start_at, location FROM school_events
+                  WHERE status IN ('upcoming','ongoing')
+                    AND start_at > DATE_ADD(NOW(), INTERVAL {$lower} DAY)
+                    AND start_at <= DATE_ADD(NOW(), INTERVAL {$upper} DAY)"
+            );
+            $stmt->execute();
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $event) {
+                $when = date('D, d M Y \\a\\t H:i', strtotime($event['start_at']));
+                $title = $window === '24_hours' ? 'Tomorrow: ' . $event['title'] : 'Upcoming: ' . $event['title'];
+                $message = "Reminder: {$event['title']} is scheduled for {$when}.";
+                if (!empty($event['location'])) $message .= ' Venue: ' . $event['location'] . '.';
+                $service->push($userId, 'reminder', $title, $message, 'medium', [
+                    'action_url' => 'home.php?route=school_events&event_id=' . (int) $event['id'],
+                    'reference_type' => 'school_event',
+                    'reference_id' => (int) $event['id'],
+                    'reminder_window' => $window,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Total actionable unread count (messages + notifications), matching the
+     * badge semantics in buildFeed().
+     */
+    /** Mark one notification read/unread for its owner. Returns whether it changed. */
+    public function setReadForUser(\PDO $pdo, int $userId, int $notificationId, bool $read): bool
+    {
+        $stmt = $pdo->prepare(
+            "UPDATE notifications SET read_status = :status WHERE id = :id AND user_id = :uid"
+        );
+        $stmt->execute([':status' => $read ? 'read' : 'unread', ':id' => $notificationId, ':uid' => $userId]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /** Mark every unread notification and conversation message read for the user. */
+    public function markAllReadForUser(\PDO $pdo, int $userId): void
+    {
+        $pdo->prepare(
+            "UPDATE notifications SET read_status = 'read'
+              WHERE user_id = :uid AND read_status = 'unread'"
+        )->execute([':uid' => $userId]);
+
+        $pdo->prepare(
+            "UPDATE internal_messages im
+               JOIN conversation_participants cp
+                 ON cp.conversation_id = im.conversation_id
+                SET im.status = 'read'
+              WHERE cp.participant_id = :uid1
+                AND cp.left_at IS NULL
+                AND im.sender_id <> :uid2"
+        )->execute([':uid1' => $userId, ':uid2' => $userId]);
+
+        $pdo->prepare(
+            "UPDATE conversation_participants SET unread_count = 0, last_read_at = NOW()
+              WHERE participant_id = :uid AND left_at IS NULL"
+        )->execute([':uid' => $userId]);
+    }
+
+    public function unreadTotal(\PDO $pdo, int $userId): int
+    {
+        $stmt = $pdo->prepare(
+            "SELECT COALESCE(SUM(unread_count), 0)
+               FROM conversation_participants
+              WHERE participant_id = :uid AND left_at IS NULL"
+        );
+        $stmt->execute([':uid' => $userId]);
+        $messagesUnread = (int) $stmt->fetchColumn();
+
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*)
+               FROM notifications
+              WHERE user_id = :uid AND read_status = 'unread'"
+        );
+        $stmt->execute([':uid' => $userId]);
+        $notificationsUnread = (int) $stmt->fetchColumn();
+
+        return $messagesUnread + $notificationsUnread;
+    }
+
 }

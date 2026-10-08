@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Locations Manager
@@ -26,8 +27,8 @@ class LocationsManager extends BaseAPI
                     l.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM inventory_locations l
-                LEFT JOIN inventory_items i ON l.id = i.location_id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON l.id = i.location_id
                 WHERE l.status = 'active'
                 GROUP BY l.id
                 ORDER BY l.location_name
@@ -50,8 +51,8 @@ class LocationsManager extends BaseAPI
                     l.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM inventory_locations l
-                LEFT JOIN inventory_items i ON l.id = i.location_id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON l.id = i.location_id
                 WHERE l.id = ?
                 GROUP BY l.id
             ");

@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\reports;
+use App\API\Services\ReadReplicaService;
 use App\API\Includes\BaseAPI;
 
 class FinanceReportManager extends BaseAPI
@@ -39,10 +40,10 @@ class FinanceReportManager extends BaseAPI
                     COALESCE(SUM(fb.amount_paid), 0) AS total_paid,
                     COALESCE(SUM(fb.balance), 0) AS total_outstanding
                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
-                LEFT JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = fb.student_academic_enrollment_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                 $whereSql
                 GROUP BY c.id, c.name
                 ORDER BY c.name";
@@ -110,10 +111,10 @@ class FinanceReportManager extends BaseAPI
                     COUNT(DISTINCT fb.student_id) AS students_in_arrears,
                     COALESCE(SUM(fb.balance), 0) AS total_arrears
                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
-                LEFT JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = fb.student_academic_enrollment_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY c.id, c.name
                 ORDER BY total_arrears DESC";

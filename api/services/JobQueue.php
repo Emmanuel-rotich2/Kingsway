@@ -27,13 +27,47 @@ use RuntimeException;
 final class JobQueue
 {
     /** Job families reserved for Python's internal worker endpoint. */
-    public const PYTHON_JOB_TYPES = ['reads.projection.refresh', 'automation.run'];
+    public const PYTHON_JOB_TYPES = [
+        'reads.projection.refresh',
+        'automation.run',
+        // Batch families are registered here for the shared queue contract.
+        // RealtimeController activates them only after its PHP-owned
+        // authorization/input/result boundary has been implemented.
+        'academic.report_card_batch',
+        'media.photo_normalize',
+        'analytics.parquet_buffer',
+    ];
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_PROCESSING = 'processing';
     public const STATUS_DONE = 'done';
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELLED = 'cancelled';
+
+    /**
+     * Priority lanes (scaling masterplan §"Multi-Lane Priority Queue").
+     * Claims are ordered (priority ASC, id ASC) so batch floods cannot starve
+     * critical payment-webhook and auth work; lane 1 must complete within 5s.
+     */
+    public const PRIORITY_CRITICAL = 1;
+    public const PRIORITY_NORMAL = 2;
+    public const PRIORITY_BATCH = 3;
+
+    /** Exact job types that always run on the BATCH lane. */
+    private const BATCH_JOB_TYPES = [
+        'reads.projection.refresh', 'automation.run', 'ai.analytics.insight',
+        'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
+        'curriculum.policy_interpret', 'rpc.async.dispatch',
+        'rebake_realtime_buffer', 'purge_old_realtime_events',
+    ];
+
+    /** Job-type prefixes that always run on the CRITICAL lane. */
+    private const CRITICAL_JOB_PREFIXES = [
+        'payment.', 'payments.', 'mpesa.', 'kcb.', 'auth.token.', 'security.',
+    ];
+
+    /** Job-type prefixes that always run on the BATCH lane. */
+    private const BATCH_JOB_PREFIXES = ['export.', 'exports.', 'report.', 'print.'];
 
     private const MAX_ATTEMPTS = 20;
     private const MAX_BACKOFF = 3600;
@@ -47,6 +81,7 @@ final class JobQueue
      * @param int    $delaySeconds  Optional delay before the job is available.
      * @param int    $maxAttempts   Attempt limit before the job is dead-lettered (1-20).
      * @param int    $backoffSeconds Base backoff for the first retry (5-3600); doubles each retry.
+     * @param int|null $priority    Priority lane 1-3; null auto-classifies from the job type.
      * @return int New job id.
      */
     public static function push(
@@ -54,13 +89,15 @@ final class JobQueue
         array $payload = [],
         int $delaySeconds = 0,
         int $maxAttempts = 3,
-        int $backoffSeconds = 60
+        int $backoffSeconds = 60,
+        ?int $priority = null
     ): int {
         if (!preg_match('/^[a-z][a-z0-9_.-]{2,99}$/', $jobType)) {
             throw new \InvalidArgumentException('Invalid background job type.');
         }
         $maxAttempts = self::clampAttempts($maxAttempts);
         $backoffSeconds = self::clampBackoff($backoffSeconds);
+        $priority = self::clampPriority($priority ?? self::priorityForType($jobType));
         $availableAt = date('Y-m-d H:i:s', time() + max(0, (int) $delaySeconds));
         $encoded = json_encode(
             $payload,
@@ -81,7 +118,8 @@ final class JobQueue
             $idempotencyKey,
             $availableAt,
             $maxAttempts,
-            $backoffSeconds
+            $backoffSeconds,
+            $priority
         ): int {
             $lockName = '';
             if ($idempotencyKey !== '') {
@@ -107,10 +145,10 @@ final class JobQueue
 
                     $stmt = $pdo->prepare(
                         "INSERT INTO jobs_queue
-                            (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
-                         VALUES (?, ?, 0, ?, ?, ?, ?)"
+                            (job_type, priority, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                         VALUES (?, ?, ?, 0, ?, ?, ?, ?)"
                     );
-                    $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
+                    $stmt->execute([$jobType, $priority, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
                     return (int) $pdo->lastInsertId();
                 } finally {
                     $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
@@ -120,11 +158,52 @@ final class JobQueue
 
             $stmt = $pdo->prepare(
                 "INSERT INTO jobs_queue
-                    (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
-                 VALUES (?, ?, 0, ?, ?, ?, ?)"
+                    (job_type, priority, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                 VALUES (?, ?, ?, 0, ?, ?, ?, ?)"
             );
-            $stmt->execute([$jobType, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
+            $stmt->execute([$jobType, $priority, $encoded, $maxAttempts, $backoffSeconds, self::STATUS_PENDING, $availableAt]);
             return (int) $pdo->lastInsertId();
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
+     * Locate an already-active (pending or processing) job by type and one
+     * scalar payload field.
+     *
+     * Used by schedulers that would otherwise enqueue duplicate work for the
+     * same logical unit (e.g. one projection-refresh job per projection): the
+     * caller skips the push while a job for that unit is still outstanding.
+     * Completed jobs are deliberately NOT matched, so the unit may be
+     * scheduled again after it has actually run.
+     *
+     * @return int|null Outstanding job id, or null when none exists.
+     */
+    public static function findActiveByTypeAndPayload(string $jobType, string $field, string $value): ?int
+    {
+        if (preg_match('/^[A-Za-z0-9_]{1,64}$/', $field) !== 1) {
+            throw new \InvalidArgumentException('Invalid payload field name.');
+        }
+        if (strlen($value) > 255) {
+            throw new \InvalidArgumentException('Payload value lookup exceeds 255 characters.');
+        }
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($jobType, $field, $value): ?int {
+            $stmt = $pdo->prepare(
+                "SELECT id FROM jobs_queue
+                 WHERE job_type = ?
+                   AND status IN (?, ?)
+                   AND JSON_UNQUOTE(JSON_EXTRACT(payload, ?)) = ?
+                 ORDER BY id ASC LIMIT 1"
+            );
+            $stmt->execute([
+                $jobType,
+                self::STATUS_PENDING,
+                self::STATUS_PROCESSING,
+                '$.' . $field,
+                $value,
+            ]);
+            $id = $stmt->fetchColumn();
+            return $id === false ? null : (int) $id;
         }, ConnectionManager::NS_BUFFERS);
     }
 
@@ -145,7 +224,7 @@ final class JobQueue
             $stmt = $pdo->prepare(
                 "SELECT id FROM jobs_queue
                  WHERE status = ? AND available_at <= NOW(){$exclusion}
-                 ORDER BY id ASC
+                 ORDER BY priority ASC, id ASC
                  LIMIT {$limit}"
             );
             $stmt->execute(array_merge([self::STATUS_PENDING], $excludeJobTypes));
@@ -182,7 +261,7 @@ final class JobQueue
             $stmt = $pdo->prepare(
                 "SELECT id FROM jobs_queue
                  WHERE status = ? AND available_at <= NOW() AND job_type IN ({$marks})
-                 ORDER BY id ASC LIMIT {$limit}"
+                 ORDER BY priority ASC, id ASC LIMIT {$limit}"
             );
             $stmt->execute(array_merge([self::STATUS_PENDING], $jobTypes));
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $rawId) {
@@ -200,7 +279,7 @@ final class JobQueue
     /**
      * Fetch one queued job for dispatch.
      *
-     * @return array{id:int, job_type:string, payload:array, status:string,
+     * @return array{id:int, job_type:string, priority:int, payload:array, status:string,
      *               attempts:int, max_attempts:int, backoff_seconds:int,
      *               available_at:string, created_at:string, updated_at:string,
      *               failed_reason:?string, dead_letter_reason:?string}|null
@@ -209,7 +288,7 @@ final class JobQueue
     {
         return ConnectionManager::run(static function (PDO $pdo) use ($id): ?array {
             $stmt = $pdo->prepare(
-                "SELECT id, job_type, payload, status, attempts, max_attempts, backoff_seconds,
+                "SELECT id, job_type, priority, payload, status, attempts, max_attempts, backoff_seconds,
                         available_at, created_at, updated_at, failed_reason, dead_letter_reason
                  FROM jobs_queue WHERE id = ?"
             );
@@ -221,6 +300,7 @@ final class JobQueue
             $decoded = json_decode((string) $row['payload'], true);
             $row['payload'] = is_array($decoded) ? $decoded : [];
             $row['id'] = (int) $row['id'];
+            $row['priority'] = (int) ($row['priority'] ?? self::PRIORITY_NORMAL);
             $row['attempts'] = (int) $row['attempts'];
             $row['max_attempts'] = (int) $row['max_attempts'];
             $row['backoff_seconds'] = (int) $row['backoff_seconds'];
@@ -501,7 +581,7 @@ final class JobQueue
 
         return ConnectionManager::run(static function (PDO $pdo) use ($limit): array {
             $stmt = $pdo->prepare(
-                "SELECT id, job_type, status, attempts, max_attempts, backoff_seconds,
+                "SELECT id, job_type, priority, status, attempts, max_attempts, backoff_seconds,
                         available_at, created_at, updated_at, failed_reason, dead_letter_reason
                  FROM jobs_queue ORDER BY id DESC LIMIT {$limit}"
             );
@@ -633,11 +713,12 @@ final class JobQueue
 
             $insert = $pdo->prepare(
                 "INSERT INTO jobs_queue
-                    (job_type, payload, attempts, max_attempts, backoff_seconds, status, available_at)
-                 VALUES (?, ?, 0, ?, ?, ?, NOW())"
+                    (job_type, priority, payload, attempts, max_attempts, backoff_seconds, status, available_at)
+                 VALUES (?, ?, ?, 0, ?, ?, ?, NOW())"
             );
             $insert->execute([
                 (string) $row['job_type'],
+                self::priorityForType((string) $row['job_type']),
                 json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 $maxAttempts,
                 $backoffSeconds,
@@ -688,6 +769,40 @@ final class JobQueue
     private static function clampAttempts(int $value): int
     {
         return max(1, min(self::MAX_ATTEMPTS, $value));
+    }
+
+    /**
+     * Lane classification used when a producer does not pass an explicit
+     * priority. CRITICAL prefixes outrank exact BATCH names; anything unknown
+     * stays NORMAL so historical FIFO behaviour is preserved by default.
+     */
+    private static function priorityForType(string $jobType): int
+    {
+        foreach (self::CRITICAL_JOB_PREFIXES as $prefix) {
+            if (str_starts_with($jobType, $prefix)) {
+                return self::PRIORITY_CRITICAL;
+            }
+        }
+        if (in_array($jobType, self::BATCH_JOB_TYPES, true)) {
+            return self::PRIORITY_BATCH;
+        }
+        foreach (self::BATCH_JOB_PREFIXES as $prefix) {
+            if (str_starts_with($jobType, $prefix)) {
+                return self::PRIORITY_BATCH;
+            }
+        }
+        return self::PRIORITY_NORMAL;
+    }
+
+    private static function clampPriority(int $value): int
+    {
+        if ($value < self::PRIORITY_CRITICAL) {
+            return self::PRIORITY_CRITICAL;
+        }
+        if ($value > self::PRIORITY_BATCH) {
+            return self::PRIORITY_BATCH;
+        }
+        return $value;
     }
 
     private static function clampBackoff(int $value): int

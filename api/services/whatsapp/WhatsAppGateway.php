@@ -1,6 +1,64 @@
 <?php
 namespace App\API\Services\whatsapp;
 
+class TalksasaWhAppProvider implements WhatsAppProvider
+{
+    private $config;
+    private $apiKey;
+    private $username;
+    private $waNumber;
+
+    public function __construct($config)
+    {
+        $this->config = $config;
+        $this->apiKey = $config['api_key'] ?? '';
+        $this->username = $config['username'] ?? 'TALK-SASA';
+        $this->waNumber = $config['wa_number'] ?? '';
+
+        if (empty($this->apiKey)) {
+            throw new Exception("Talksaa WhatsApp API Key is not configured");
+        }
+    }
+
+    public function sendMessage($to, $message)
+    {
+        $url = rtrim((string) ($this->config['api_url'] ?? 'https://bulksms.talksaa.com/api/v3/'), '/') . '/sms/send';
+
+        $body = [
+            'recipient' => $to,
+            'message' => $message,
+            'sender_id' => $this->username,
+            'type' => 'whatsapp'
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json'
+        ]);
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error) {
+            throw new Exception("Talksaa WhatsApp send failed: $error");
+        }
+
+        $data = json_decode($response, true);
+        if (($data['status'] ?? $data['result'] ?? null) !== 'success' && ($data['status'] ?? null) !== 'accepted') {
+            $msg = $data['message'] ?? $data['error'] ?? 'Unknown error';
+            throw new Exception("Talksaa WhatsApp send failed: $msg");
+        }
+
+        return true;
+    }
+}
+
 class WhatsAppGateway
 {
     private $config;
@@ -54,6 +112,8 @@ class WhatsAppGateway
         switch ($this->config['provider']) {
             case 'africastalking':
                 return new AfricasTalkingWhatsAppProvider($this->config);
+            case 'talksasa':
+                return new TalksasaWhAppProvider($this->config);
             default:
                 throw new \Exception('Unsupported WhatsApp provider');
         }
@@ -82,10 +142,10 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
         $this->isSandbox = ($this->username === 'sandbox');
 
         if (empty($this->apiKey)) {
-            throw new \Exception("WhatsApp API Key is not configured");
+            throw new Exception("WhatsApp API Key is not configured");
         }
         if (empty($this->waNumber)) {
-            throw new \Exception("WhatsApp Number is not configured");
+            throw new Exception("WhatsApp Number is not configured");
         }
     }
 
@@ -192,7 +252,6 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $error = curl_error($ch);
@@ -249,4 +308,3 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
         @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }
 }
-?>

@@ -29,6 +29,7 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 
@@ -101,9 +102,9 @@ class AcademicCohortProjectionService extends BaseAPI
             // ---- 4. Capacity source ----------------------------------------
             // Class capacity is derived from its streams' capacities.
             $capacity = (int) $this->fetchValue(
-                "SELECT COALESCE(SUM(st.capacity), 0) FROM streams st
-                 JOIN academic_year_class_streams aycs ON aycs.stream_id = st.id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                "SELECT COALESCE(SUM(st.capacity), 0) FROM " . ReadReplicaService::qualifiedRef("streams") . " st
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.stream_id = st.id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  WHERE ayc.class_id = ?",
                 [$targetClassId]
             );
@@ -311,8 +312,8 @@ return $this->errorResponse('An internal error occurred.');
     private function findFeederClass(int $targetClassId): ?array
     {
         $row = $this->fetchRow(
-            "SELECT c.* FROM academic_class_progression p
-             JOIN classes c ON c.id = p.source_class_id
+            "SELECT c.* FROM " . ReadReplicaService::qualifiedRef("academic_class_progression") . "
+             JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = p.source_class_id
              WHERE p.target_class_id = ? AND p.active = 1
              ORDER BY p.id DESC LIMIT 1",
             [$targetClassId]
@@ -410,9 +411,9 @@ return $this->errorResponse('An internal error occurred.');
             // List streams linked to this class (any academic year), with occupancy
             // scoped to the target academic year.
             $streamRows = $this->fetchAll(
-                "SELECT DISTINCT st.* FROM streams st
-                 JOIN academic_year_class_streams aycs ON aycs.stream_id = st.id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                "SELECT DISTINCT st.* FROM " . ReadReplicaService::qualifiedRef("streams") . " st
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.stream_id = st.id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  WHERE ayc.class_id = ?
                  ORDER BY st.id",
                 [$targetClassId]
@@ -534,11 +535,10 @@ return $this->errorResponse('An internal error occurred.');
         $className = str_replace('Playground', 'Playgroup', $className);
         // exact: name + academic year value; fallback: any class with that name.
         $row = $this->fetchRow(
-            "SELECT c.id FROM classes c
-             JOIN academic_year_classes ayc ON ayc.class_id = c.id
-             JOIN academic_years ay ON ay.id = ayc.academic_year_id
-             WHERE c.name = ? AND CAST(ay.year_code AS UNSIGNED) = ?
-             ORDER BY ayc.id LIMIT 1",
+            "SELECT cd.class_id AS id
+             FROM " . ReadReplicaService::qualifiedRef('academic_class_directory') . " cd
+             WHERE cd.class_name = ? AND CAST(cd.year_code AS UNSIGNED) = ?
+             ORDER BY cd.id LIMIT 1",
             [$className, $yearVal]
         );
         if ($row) {
@@ -580,11 +580,7 @@ return $this->errorResponse('An internal error occurred.');
     private function countActiveEnrollment(int $classId): int
     {
         return (int) $this->fetchValue(
-            "SELECT COUNT(DISTINCT s.id) FROM students s
-             JOIN student_academic_enrollments sae ON sae.student_id = s.id
-                AND sae.enrollment_status IN ('pending', 'active')
-             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            "SELECT COUNT(DISTINCT s.id) FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
              WHERE ayc.class_id = ? AND s.status = 'active'",
             [$classId]
         );
@@ -593,8 +589,8 @@ return $this->errorResponse('An internal error occurred.');
     private function countStreamEnrollment(int $streamId, int $yearId): int
     {
         return (int) $this->fetchValue(
-            "SELECT COUNT(*) FROM student_academic_enrollments sae
-             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
              WHERE aycs.stream_id = ? AND sae.academic_year_id = ?
                AND sae.enrollment_status IN ('pending', 'active')",
             [$streamId, $yearId]

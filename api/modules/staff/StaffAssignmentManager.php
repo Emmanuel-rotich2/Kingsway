@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\staff;
+use App\API\Services\ReadReplicaService;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -119,22 +120,20 @@ class StaffAssignmentManager extends BaseAPI
     public function getClassStaffing($academicYearClassId, $academicYearId)
     {
         try {
+            $csd = \App\API\Services\ReadReplicaService::qualifiedRef('class_stream_directory');
+            $sctx = \App\API\Services\ReadReplicaService::qualifiedRef('staff_context');
             $sql = "SELECT t.id, t.staff_id, t.role,
-                       s.staff_no, p.first_name, p.last_name, s.position, p.phone,
-                       stt.name AS staff_type, sc.category_name,
+                       sctx.staff_no, sctx.first_name, sctx.last_name, sctx.position, sctx.phone,
+                       sctx.staff_type_name AS staff_type, sctx.staff_category_name AS category_name,
                        la.name AS subject_name,
-                       c.name AS class_name, str.name AS stream_name
-                FROM academic_year_class_learning_area_teachers t
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN streams str ON str.id = aycs.stream_id
-                JOIN staff s ON s.id = t.staff_id
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN staff_types stt ON stt.id = s.staff_type_id
-                LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-                LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
+                       c.name AS class_name, csd.stream_name
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = t.academic_year_class_learning_area_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN {$csd} csd ON csd.academic_year_class_id = ayc.id
+                JOIN {$sctx} sctx ON sctx.staff_id = t.staff_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
                 WHERE ayc.id = ?
                 ORDER BY
                     CASE t.role
@@ -143,18 +142,16 @@ class StaffAssignmentManager extends BaseAPI
                         WHEN 'assistant' THEN 3
                         ELSE 4
                     END,
-                    p.last_name";
+                    sctx.last_name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$academicYearClassId]);
             $staffing = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $stmt = $this->db->prepare("
-                SELECT ayc.id AS academic_year_class_id, c.name AS class_name, ay.year_name
-                FROM academic_year_classes ayc
-                JOIN classes c ON c.id = ayc.class_id
-                JOIN academic_years ay ON ay.id = ayc.academic_year_id
-                WHERE ayc.id = ?
+                SELECT id AS academic_year_class_id, class_name, year_name
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_class_directory') . "
+                WHERE id = ?
             ");
             $stmt->execute([$academicYearClassId]);
             $classInfo = $stmt->fetch(PDO::FETCH_ASSOC);

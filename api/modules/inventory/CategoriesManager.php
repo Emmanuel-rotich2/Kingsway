@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Categories Manager
@@ -26,8 +27,8 @@ class CategoriesManager extends BaseAPI
                     c.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM inventory_categories c
-                LEFT JOIN inventory_items i ON c.id = i.category_id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON c.id = i.category_id
                 WHERE c.status = 'active'
                 GROUP BY c.id
                 ORDER BY c.category_name
@@ -50,8 +51,8 @@ class CategoriesManager extends BaseAPI
                     c.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM inventory_categories c
-                LEFT JOIN inventory_items i ON c.id = i.category_id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON c.id = i.category_id
                 WHERE c.id = ?
                 GROUP BY c.id
             ");

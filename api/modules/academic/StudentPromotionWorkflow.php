@@ -2,6 +2,7 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\ReadReplicaService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
@@ -197,28 +198,19 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             ]);
 
             // Retrieve identified candidates (the procedure stamps decided_by with the batch id)
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
             $candidatesStmt = $this->db->prepare(
                 "SELECT st.*,
                     p.first_name, p.last_name, s.admission_no,
-                    c_from.id  AS current_class_id,  st_from.id AS current_stream_id,
-                    c_to.id    AS promoted_to_class_id,  st_to.id AS promoted_to_stream_id,
-                    c_from.name  AS current_class,  st_from.name AS current_stream,
-                    c_to.name    AS promoted_class,  st_to.name   AS promoted_stream
+                    lp_from.class_id  AS current_class_id,  lp_from.stream_id AS current_stream_id,
+                    lp_to.id    AS promoted_to_class_id,  lp_to.stream_id AS promoted_to_stream_id,
+                    lp_from.name  AS current_class,  lp_from.stream_name AS current_stream,
+                    lp_to.name    AS promoted_class,  lp_to.stream_name   AS promoted_stream
                 FROM student_transitions st
                 INNER JOIN students      s       ON st.student_id = s.id
                 INNER JOIN persons       p       ON p.id = s.person_id
-                LEFT JOIN student_academic_enrollments sae_from
-                    ON st.from_student_academic_enrollment_id = sae_from.id
-                LEFT JOIN academic_year_class_streams aycs_from ON aycs_from.id = sae_from.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc_from ON ayc_from.id = aycs_from.academic_year_class_id
-                LEFT JOIN classes c_from ON c_from.id = ayc_from.class_id
-                LEFT JOIN streams st_from ON st_from.id = aycs_from.stream_id
-                LEFT JOIN student_academic_enrollments sae_to
-                    ON st.to_student_academic_enrollment_id = sae_to.id
-                LEFT JOIN academic_year_class_streams aycs_to ON aycs_to.id = sae_to.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc_to ON ayc_to.id = aycs_to.academic_year_class_id
-                LEFT JOIN classes c_to ON c_to.id = ayc_to.class_id
-                LEFT JOIN streams st_to ON st_to.id = aycs_to.stream_id
+                LEFT JOIN {$lp} lp_from ON lp_from.enrollment_id = st.from_student_academic_enrollment_id
+                LEFT JOIN {$lp} lp_to   ON lp_to.enrollment_id = st.to_student_academic_enrollment_id
                 WHERE st.decided_by = :batch_id"
             );
             $candidatesStmt->execute(['batch_id' => $batchId]);
@@ -290,7 +282,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 
                 // Check if in lower primary (PP1, PP2, Grade 1, Grade 2)
                 $gradeStmt = $this->db->prepare(
-                    "SELECT sl.name AS grade_name FROM classes c 
+                    "SELECT sl.name AS grade_name FROM " . ReadReplicaService::qualifiedRef("classes") . " 
                     INNER JOIN school_levels sl ON c.level_id = sl.id 
                     WHERE c.id = :class_id"
                 );
@@ -315,8 +307,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 // Get academic performance (average from term_subject_scores)
                 $scoreStmt = $this->db->prepare(
                     "SELECT AVG(overall_percentage) as avg_score 
-                    FROM term_subject_scores 
-                    WHERE student_id = :student_id 
+                    FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " WHERE student_id = :student_id 
                     AND term_id IN (
                         SELECT ayt.term_id FROM academic_year_terms ayt
                         INNER JOIN academic_years ay ON ay.id = ayt.academic_year_id
@@ -521,11 +512,10 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                         if ($nextClassId > 0) {
                             // Prefer the matching stream in the target class
                             $aycsStmt = $this->db->prepare(
-                                "SELECT aycs.id FROM academic_year_class_streams aycs
-                                 INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                 WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id
-                                   AND aycs.stream_id = :stream_id
-                                 ORDER BY aycs.id LIMIT 1"
+                                "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                                 WHERE academic_year_id = :year_id AND class_id = :class_id
+                                   AND stream_id = :stream_id
+                                 ORDER BY class_stream_id LIMIT 1"
                             );
                             $aycsStmt->execute([
                                 'year_id' => $toYearId,
@@ -536,10 +526,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
                             if ($targetAycsId <= 0) {
                                 $aycsStmt = $this->db->prepare(
-                                    "SELECT aycs.id FROM academic_year_class_streams aycs
-                                     INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                     WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id
-                                     ORDER BY aycs.id LIMIT 1"
+                                    "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                                     WHERE academic_year_id = :year_id AND class_id = :class_id
+                                     ORDER BY class_stream_id LIMIT 1"
                                 );
                                 $aycsStmt->execute([
                                     'year_id' => $toYearId,
@@ -697,7 +686,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             $stmt = $this->db->prepare(
                 "SELECT pb.*,
                     u.username as created_by_name
-                FROM promotion_batches pb
+                FROM " . ReadReplicaService::qualifiedRef("promotion_batches") . "
                 LEFT JOIN users u ON pb.created_by = u.id
                 WHERE pb.id = :batch_id"
             );

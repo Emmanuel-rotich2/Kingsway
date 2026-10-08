@@ -3,6 +3,7 @@ namespace App\API\Modules\attendance;
 
 use App\Database\Database;
 use PDO;
+use App\API\Services\ReadReplicaService;
 
 class StudentAttendanceManager
 {
@@ -44,10 +45,10 @@ class StudentAttendanceManager
     {
         $sql = "SELECT sa.*,
                        CONCAT(p.first_name, ' ', p.last_name) as student_name
-                FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
-                JOIN students s ON sae.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sa.student_academic_enrollment_id = sae.id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sae.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 WHERE sae.student_id = ?
                 ORDER BY sa.date DESC";
         $stmt = $this->db->prepare($sql);
@@ -65,8 +66,7 @@ class StudentAttendanceManager
                        SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days,
                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                        SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late_days
-                FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                 WHERE sae.student_id = ?
                 GROUP BY sae.academic_year_id
                 ORDER BY sae.academic_year_id DESC";
@@ -82,10 +82,10 @@ class StudentAttendanceManager
     {
         $sql = "SELECT sa.*,
                        CONCAT(p.first_name, ' ', p.last_name) as student_name
-                FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
-                JOIN students s ON sae.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sa.student_academic_enrollment_id = sae.id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sae.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 WHERE sae.academic_year_class_stream_id = ?";
         $params = [$streamId];
         if ($yearId) {
@@ -104,8 +104,7 @@ class StudentAttendanceManager
     public function getAttendancePercentage($studentId, $yearId = null)
     {
         $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days
-                FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                 WHERE sae.student_id = ?";
         $params = [$studentId];
         if ($yearId) {
@@ -133,10 +132,10 @@ class StudentAttendanceManager
                         COUNT(*) as total_days,
                         SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                         (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
-                FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
-                JOIN students s ON sae.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sa.student_academic_enrollment_id = sae.id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sae.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 WHERE sae.academic_year_class_stream_id = ?";
         $params = [$streamId];
         if ($yearId) {
@@ -154,8 +153,7 @@ class StudentAttendanceManager
 
     public function read($studentId, $date = null, $streamId = null)
     {
-        $sql = "SELECT sa.* FROM student_attendance sa
-                JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
+        $sql = "SELECT sa.* FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                 WHERE sae.student_id = :student_id";
         $params = ['student_id' => $studentId];
         if ($date) {

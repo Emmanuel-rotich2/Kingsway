@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App\API\Modules\Import;
 
+use App\API\Services\ReadReplicaService;
+
 use App\API\Includes\BulkOperationsHelper;
 use Exception;
 use PDO;
@@ -155,8 +157,8 @@ class DataImporter
                     CONCAT(p.first_name," ",p.last_name) AS imported_by_name,
                     b.created_at
              FROM staff_import_batches b
-             LEFT JOIN staff st ON st.id = b.imported_by
-             LEFT JOIN persons p ON p.id = st.person_id
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('staff') . ' st ON st.id = b.imported_by
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('persons') . ' p ON p.id = st.person_id
              ORDER BY b.created_at DESC
              LIMIT :lim'
         );
@@ -177,8 +179,8 @@ class DataImporter
                     CONCAT(p.first_name," ",p.last_name) AS imported_by_name,
                     b.created_at, b.completed_at
              FROM staff_import_batches b
-             LEFT JOIN staff st ON st.id = b.imported_by
-             LEFT JOIN persons p ON p.id = st.person_id
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('staff') . ' st ON st.id = b.imported_by
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('persons') . ' p ON p.id = st.person_id
              WHERE b.id = :id'
         );
         $stmt->execute([':id' => $id]);

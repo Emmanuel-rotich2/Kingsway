@@ -5,6 +5,7 @@ use App\API\Includes\WorkflowHandler;
 use App\API\Services\DataScopeService;
 use Exception;
 use PDO;
+use App\API\Services\ReadReplicaService;
 
 /**
  * PayrollApprovalWorkflow
@@ -235,10 +236,10 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             // Verify all payments are successful (3NF: payslips.payment_status)
             $failedCount = $this->db->fetchColumn(
-                "SELECT COUNT(*) FROM payslips ps
-                 JOIN payroll_runs pr ON pr.id = ?
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.id = ?
                  WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-                   AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                   AND ps.data_scope = pr.data_scope
                    AND ps.payment_status = 'failed'",
                 [$payrollId]
             );
@@ -312,8 +313,8 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                        WHERE u.person_id=st.person_id AND rr.effective_from<=?
                          AND (rr.effective_to IS NULL OR rr.effective_to>=?)
                        ORDER BY rr.effective_from DESC,rr.id DESC LIMIT 1),0) AS basic_salary
-             FROM staff st
-             JOIN persons p ON p.id = st.person_id
+             FROM " . ReadReplicaService::qualifiedRef("staff") . " st
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
              WHERE st.status = 'active' AND $scopeSql",
             array_merge([$periodDate, $periodDate, $periodDate, $periodDate], $scopeParams)
         );
@@ -487,10 +488,10 @@ class PayrollApprovalWorkflow extends WorkflowHandler
         [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
         $totals = $this->db->fetchOne(
             "SELECT COALESCE(SUM(ps.net_salary), 0) AS total_net
-             FROM payslips ps
-             JOIN payroll_runs pr ON pr.id = ?
+             FROM " . ReadReplicaService::qualifiedRef("payslips") . "
+             JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.id = ?
              WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-               AND $prScope AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci",
+               AND $prScope AND ps.data_scope = pr.data_scope",
             array_merge([$payrollId], $prParams)
         );
 
@@ -560,7 +561,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 $sql = "SELECT COUNT(*) FROM payslips ps
                         JOIN payroll_runs pr ON pr.id = ?
                         WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-                          AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci AND $scopeSql
+                          AND ps.data_scope = pr.data_scope AND $scopeSql
                           AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute(array_merge([$payrollId], $scopeParams));
@@ -576,7 +577,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 $sql = "SELECT COUNT(*) FROM payslips ps
                         JOIN payroll_runs pr ON pr.id = ?
                         WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-                          AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci AND $scopeSql
+                          AND ps.data_scope = pr.data_scope AND $scopeSql
                           AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute(array_merge([$payrollId], $scopeParams));

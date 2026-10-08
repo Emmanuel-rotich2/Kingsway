@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\admission;
 
+use App\API\Services\ReadReplicaService;
+
 use PDO;
 
 class AdmissionStageAuthorization
@@ -117,7 +119,7 @@ class AdmissionStageAuthorization
                        wsp.can_process,
                        wsp.can_approve
                 FROM workflow_stage_permissions wsp
-                JOIN workflow_stages ws ON ws.id = wsp.workflow_stage_id
+                JOIN " . ReadReplicaService::masterRef("workflow_stages") . " ws ON ws.id = wsp.workflow_stage_id
                 LEFT JOIN permissions p ON p.id = wsp.permission_id
                 LEFT JOIN roles r ON r.id = wsp.role_id
                 WHERE ws.workflow_id = ?

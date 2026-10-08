@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\activities;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -44,18 +45,11 @@ class CategoriesManager extends BaseAPI
 
             $whereClause = implode(' AND ', $where);
 
-            $sql = "
-                SELECT 
-                    ac.*,
-                    COUNT(DISTINCT a.id) as activity_count,
-                    COUNT(DISTINCT ap.id) as total_participants
-                FROM activity_categories ac
-                LEFT JOIN activities a ON ac.id = a.category_id
-                LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
-                WHERE $whereClause
-                GROUP BY ac.id
-                ORDER BY ac.name ASC
-            ";
+            $sql = "SELECT id, name, description, is_active, status, created_at,
+                           department_id, activity_count, total_participants
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_category_summary') . "
+                    WHERE $whereClause
+                    ORDER BY name ASC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
@@ -81,20 +75,9 @@ class CategoriesManager extends BaseAPI
     public function getCategory($id)
     {
         try {
-            $sql = "
-                SELECT 
-                    ac.*,
-                    COUNT(DISTINCT a.id) as activity_count,
-                    COUNT(DISTINCT ap.id) as total_participants,
-                    SUM(CASE WHEN a.status = 'planned' THEN 1 ELSE 0 END) as planned_activities,
-                    SUM(CASE WHEN a.status = 'ongoing' THEN 1 ELSE 0 END) as ongoing_activities,
-                    SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed_activities
-                FROM activity_categories ac
-                LEFT JOIN activities a ON ac.id = a.category_id
-                LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
-                WHERE ac.id = ?
-                GROUP BY ac.id
-            ";
+            $sql = "SELECT *
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_category_summary') . "
+                    WHERE id = ?";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
@@ -200,7 +183,7 @@ class CategoriesManager extends BaseAPI
 
             // Check for duplicate name if name is being updated
             if (isset($data['name']) && $data['name'] !== $category['name']) {
-                $stmt = $this->db->prepare("SELECT id FROM activity_categories WHERE name = ? AND id != ?");
+                $stmt = $this->db->prepare("SELECT id FROM " . ReadReplicaService::qualifiedRef("activity_categories") . " name = ? AND id != ?");
                 $stmt->execute([$data['name'], $id]);
                 if ($stmt->fetch()) {
                     throw new Exception('A category with this name already exists');
@@ -259,7 +242,7 @@ class CategoriesManager extends BaseAPI
                     ac.id, 
                     ac.name,
                     COUNT(a.id) as activity_count
-                FROM activity_categories ac
+                FROM " . ReadReplicaService::qualifiedRef("activity_categories") . "
                 LEFT JOIN activities a ON ac.id = a.category_id
                 WHERE ac.id = ?
                 GROUP BY ac.id
@@ -306,23 +289,13 @@ class CategoriesManager extends BaseAPI
     public function getCategoryStatistics()
     {
         try {
-            $sql = "
-                SELECT 
-                    ac.id,
-                    ac.name,
-                    COUNT(DISTINCT a.id) as total_activities,
-                    COUNT(DISTINCT ap.id) as total_participants,
-                    SUM(CASE WHEN a.status = 'planned' THEN 1 ELSE 0 END) as planned,
-                    SUM(CASE WHEN a.status = 'ongoing' THEN 1 ELSE 0 END) as ongoing,
-                    SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) as completed,
-                    MAX(a.start_date) as latest_activity_date
-                FROM activity_categories ac
-                LEFT JOIN activities a ON ac.id = a.category_id
-                LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
-                WHERE ac.is_active = 1
-                GROUP BY ac.id
-                ORDER BY total_activities DESC
-            ";
+            $sql = "SELECT id, name, activity_count AS total_activities,
+                           total_participants, planned_activities AS planned,
+                           ongoing_activities AS ongoing, completed_activities AS completed,
+                           latest_activity_date
+                    FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_category_summary') . "
+                    WHERE is_active = 1
+                    ORDER BY activity_count DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute();

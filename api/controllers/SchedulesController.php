@@ -81,11 +81,10 @@ class SchedulesController extends BaseController
     {
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         if (!$userId) return null;
-        $stmt = $this->db->getConnection()->prepare(
-            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? AND s.status = 'active' LIMIT 1"
+        $staffId = \App\API\Services\StaffRecordsService::staffIdForUserId(
+            $this->db->getConnection(), (int) $userId, true
         );
-        $stmt->execute([(int) $userId]);
-        $id = $stmt->fetchColumn();
+        $id = $staffId ?: 0;
         return $id ? (int) $id : null;
     }
 
@@ -275,8 +274,7 @@ class SchedulesController extends BaseController
         if ($guard = $this->guardSchedules()) return $guard;
         $scope = $this->timetableScope([])['_scope_stream_ids'] ?? null;
         if ($scope !== null) {
-            $check = $this->db->getConnection()->prepare("SELECT COUNT(*) FROM timetable_draft_entries WHERE draft_id = ? AND academic_year_class_stream_id IN (" . ($scope ? implode(',', array_fill(0, count($scope), '?')) : '0') . ")");
-            $check->execute(array_merge([(int)($id ?? ($data['id'] ?? 0))], $scope ?: []));
+            $check = \App\API\Modules\schedules\SchedulesManager::countDraftEntriesForScope($this->db->getConnection(), (int)($id ?? ($data['id'] ?? 0)), $scope ?: []);
             if (!(int)$check->fetchColumn()) return $this->forbidden('This timetable draft is outside your assigned streams.');
         }
         return $this->handleResponse($this->api->getTimetableDraft($id ?? ($data['id'] ?? 0)));
@@ -323,8 +321,7 @@ class SchedulesController extends BaseController
         if ($isClassTeacher && in_array($action, ['submit'], true)) {
             $scope = $this->timetableScope([])['_scope_stream_ids'] ?? [];
             if (!$scope) return $this->forbidden('No assigned class stream is available for timetable submission.');
-            $q = $this->db->getConnection()->prepare("SELECT COUNT(*) FROM timetable_draft_entries WHERE draft_id = ? AND academic_year_class_stream_id IN (" . implode(',', array_fill(0, count($scope), '?')) . ")");
-            $q->execute(array_merge([(int)($data['id'] ?? 0)], $scope));
+            $count = \App\API\Modules\schedules\SchedulesManager::countDraftEntriesForScope($this->db->getConnection(), (int)($data['id'] ?? 0), $scope);
             if (!(int)$q->fetchColumn()) return $this->forbidden('You may only submit a draft containing your assigned streams.');
         }
         $data['actor_id'] = (int)($this->user['id'] ?? 0);

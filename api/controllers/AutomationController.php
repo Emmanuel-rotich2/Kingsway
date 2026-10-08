@@ -72,7 +72,7 @@ class AutomationController extends BaseController
         try {
             $result = $this->artifacts()->enqueue(
                 $userId,
-                (array) $this->user->permissions,
+                $this->effectiveUserPermissions(),
                 $automationId,
                 $input,
                 (string) ($this->requestId ?? '')
@@ -94,6 +94,24 @@ class AutomationController extends BaseController
         return $this->success($result, 'Automation queued');
     }
 
+    /**
+     * Effective permissions of the authenticated caller, safe for both user
+     * representations the base controller may hydrate (object or array).
+     *
+     * @return array<int,string>
+     */
+    private function effectiveUserPermissions(): array
+    {
+        if (is_object($this->user)) {
+            $permissions = $this->user->permissions ?? [];
+        } elseif (is_array($this->user)) {
+            $permissions = $this->user['permissions'] ?? [];
+        } else {
+            $permissions = [];
+        }
+        return array_values(array_map('strval', (array) $permissions));
+    }
+
     /** POST multipart /api/automation/exam-document-preview: private, review-only import extraction. */
     public function postExamDocumentPreview($id = null, $data = [], $segments = [])
     {
@@ -107,6 +125,7 @@ class AutomationController extends BaseController
         if (!in_array($kind, ['timetable', 'results'], true)) return $this->badRequest('Choose timetable or results as the document type.');
 
         $storedPath = null;
+        $permissions = $this->effectiveUserPermissions();
         try {
             $stored = $this->uploadManaged($file, 'import_file', ['subdirectory' => 'exam_preview', 'prefix' => 'exam_document']);
             $storedPath = (string)($stored['absolute_path'] ?? '');
@@ -117,7 +136,7 @@ class AutomationController extends BaseController
             if (!is_string($content) || $content === '') throw new \RuntimeException('The uploaded document is empty.', 422);
             $result = $this->artifacts()->enqueue(
                 (int)$this->getUserId(),
-                (array)$this->user->permissions,
+                $permissions,
                 AutomationRegistry::EXAM_DOCUMENT_PREVIEW,
                 ['filename' => basename((string)($file['name'] ?? 'document')), 'document_kind' => $kind, 'content_base64' => base64_encode($content)],
                 (string)($this->requestId ?? '')

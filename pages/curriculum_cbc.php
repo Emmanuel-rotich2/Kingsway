@@ -14,12 +14,13 @@
             <small class="text-muted">Competency-Based Curriculum structure and learning areas</small>
         </div>
         <div class="btn-group">
-            <button class="btn btn-outline-primary btn-sm" id="exportCurriculumBtn">
+            <button class="btn btn-outline-primary btn-sm" id="exportCurriculumBtn" data-curriculum-export>
                 <i class="bi bi-download"></i> Export
             </button>
+            <button class="btn btn-outline-secondary btn-sm" id="printCurriculumBtn" data-curriculum-print><i class="bi bi-printer"></i> Print / PDF</button>
             <a class="btn btn-outline-success btn-sm" href="home.php?route=curriculum_proposals"><i class="bi bi-lightbulb"></i> Propose Change</a>
-            <button class="btn btn-success btn-sm" id="addCurriculumBtn" data-curriculum-manage>
-                <i class="bi bi-plus-circle"></i> Add Entry
+            <button class="btn btn-success btn-sm" id="addLearningAreaBtn" data-curriculum-manage>
+                <i class="bi bi-plus-circle"></i> Add Learning Area
             </button>
         </div>
     </div>
@@ -54,7 +55,7 @@
             <div class="card border-warning">
                 <div class="card-body text-center">
                         <h6 class="text-muted mb-2">Learning Outcomes</h6>
-                    <h3 class="text-warning mb-0" id="totalCompetencies">0</h3>
+                    <h3 class="text-warning mb-0" id="totalLearningOutcomes">0</h3>
                 </div>
             </div>
         </div>
@@ -94,17 +95,14 @@
                     <thead class="table-light">
                         <tr>
                             <th scope="col">#</th>
-                            <th scope="col">Grade Level</th>
+                            <th scope="col">Code</th>
                             <th scope="col">Learning Area</th>
-                            <th scope="col">Strand</th>
-                            <th scope="col">Sub-Strands</th>
-                            <th scope="col">Learning Outcomes</th>
+                            <th scope="col">Applicable Grades</th>
+                            <th scope="col">Curriculum Status</th>
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="curriculumTableBody">
-                        <!-- Dynamic content -->
-                    </tbody>
+                    <tbody id="curriculumTableBody"><tr><td colspan="6" class="text-center text-muted py-3">Loading learning areas…</td></tr></tbody>
                 </table>
             </div>
             <div class="d-flex justify-content-between align-items-center mt-3">
@@ -117,6 +115,32 @@
             </div>
         </div>
     </div>
+</div>
+
+<div class="modal fade" id="learningAreaCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Add Learning Area</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <label class="form-label" for="newLearningAreaName">Name *</label><input class="form-control mb-3" id="newLearningAreaName" required maxlength="120">
+            <label class="form-label" for="newLearningAreaCode">Code *</label><input class="form-control mb-3" id="newLearningAreaCode" required maxlength="30">
+            <label class="form-label" for="newLearningAreaGrades">Applicable grades *</label><select class="form-select mb-3" id="newLearningAreaGrades" multiple size="7"><option>PlayGroup</option><option>PP1</option><option>PP2</option><option>Grade 1</option><option>Grade 2</option><option>Grade 3</option><option>Grade 4</option><option>Grade 5</option><option>Grade 6</option><option>Grade 7</option><option>Grade 8</option><option>Grade 9</option></select>
+            <label class="form-label" for="newLearningAreaDescription">Description</label><textarea class="form-control" id="newLearningAreaDescription" rows="2"></textarea>
+            <div class="form-text">Use the official CBC learning-area name and code. The area will be added to the school syllabus as active.</div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="saveLearningAreaBtn">Add Learning Area</button></div>
+    </div></div>
+</div>
+
+<div class="modal fade" id="learningAreaAssignModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Assign Learning Area to Classes</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <input type="hidden" id="assignLearningAreaId">
+            <label class="form-label" for="assignLearningAreaYear">Academic year *</label><select class="form-select mb-3" id="assignLearningAreaYear"></select>
+            <div id="assignLearningAreaClasses" class="border rounded p-3" style="max-height:45vh;overflow:auto">Choose an academic year to load its classes.</div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveLearningAreaAssignmentBtn">Assign to selected classes</button></div>
+    </div></div>
 </div>
 
 <!-- Add/Edit Curriculum Entry Modal -->

@@ -42,13 +42,21 @@
       renderClasses();
     }
   }
-  function renderClasses() {
-    const root = $('examPeriodClasses');
+  function renderClasses(rootId = 'examPeriodClasses', selectedIds = []) {
+    const root = $(rootId);
     if (!root) return;
+    const selected = new Set(selectedIds.map(Number));
+    const toggleId = rootId === 'examPeriodClasses' ? 'examPeriodToggleClasses' : 'examPeriodEditToggleClasses';
     root.innerHTML = state.classes.length ? state.classes.map((classRow) => {
       const areas = (classRow.learning_areas || []).map((area) => area.name).join(', ');
-      return `<div class="col-md-6"><label class="form-check border rounded p-2 h-100"><input class="form-check-input me-2 exam-period-class" type="checkbox" value="${Number(classRow.academic_year_class_id)}" ${areas ? '' : 'disabled'}><span class="fw-semibold">${esc(classRow.class_name)}</span><small class="d-block text-muted ms-4">${esc(areas || 'No configured learning areas')}</small></label></div>`;
+      const checked = selected.has(Number(classRow.academic_year_class_id)) ? ' checked' : '';
+      return `<div class="col-md-6"><label class="form-check border rounded p-2 h-100"><input class="form-check-input me-2 exam-period-class" type="checkbox" value="${Number(classRow.academic_year_class_id)}"${checked} ${areas ? '' : 'disabled'}><span class="fw-semibold">${esc(classRow.class_name)}</span><small class="d-block text-muted ms-4">${esc(areas || 'No configured learning areas')}</small></label></div>`;
     }).join('') : '<div class="text-muted">No classes with active streams are configured for this academic year.</div>';
+    const toggle = $(toggleId);
+    if (toggle) {
+      const boxes = [...root.querySelectorAll('.exam-period-class:not(:disabled)')];
+      toggle.textContent = boxes.length && boxes.every((box) => box.checked) ? 'Clear selection' : 'Select all';
+    }
   }
   async function loadPeriods() {
     try {
@@ -62,15 +70,29 @@
     if (!state.periods.length) { body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No exam periods yet.</td></tr>'; return; }
     body.innerHTML = state.periods.map((p) => {
       const resultCount = `${Number(p.approved_count || 0)} approved · ${Number(p.submitted_count || 0)} submitted`;
-      let actions = `<button class="btn btn-sm btn-outline-primary" data-period-action="schedule" data-id="${Number(p.id)}">${p.status === 'draft' ? 'Set timetable' : 'View timetable'}</button>`;
-      if (canManage() && p.deleted_at) actions = `<button class="btn btn-sm btn-outline-success" data-period-action="restore" data-id="${Number(p.id)}">Restore</button>`;
-      else if (canManage()) actions += ` <button class="btn btn-sm btn-outline-dark" data-period-action="edit" data-id="${Number(p.id)}">Edit details</button> <button class="btn btn-sm btn-outline-danger" data-period-action="delete" data-id="${Number(p.id)}">Delete</button>`;
-      if (canManage() && ['published','results_open','moderation','completed'].includes(p.status)) actions += ` <button class="btn btn-sm btn-outline-warning" data-period-action="reopen" data-id="${Number(p.id)}">Reopen timetable</button>`;
-      if (canManage() && p.status === 'draft') actions += ` <button class="btn btn-sm btn-primary" data-period-action="publish" data-id="${Number(p.id)}" ${Number(p.scheduled_count) < Number(p.learning_area_count) ? 'disabled title="Schedule every learning area first"' : ''}>Publish</button>`;
-      if (canManage() && p.status === 'published') actions += ` <button class="btn btn-sm btn-outline-success" data-period-action="open" data-id="${Number(p.id)}">Open results</button>`;
-      if (canViewSchoolResults()) actions += ` <button class="btn btn-sm btn-outline-secondary" data-period-action="results" data-id="${Number(p.id)}">School results</button>`;
-      else if (canViewResults()) actions += ` <button class="btn btn-sm btn-outline-secondary" data-period-action="my-results" data-id="${Number(p.id)}">My results</button>`;
-      if (canPublishResults() && !p.results_published_at && ['results_open','moderation','completed'].includes(p.status) && Number(p.submitted_count || 0) > 0) actions += ` <button class="btn btn-sm btn-success" data-period-action="publish-results" data-id="${Number(p.id)}">Publish results</button>`;
+      const item = (action, icon, label, extra = '', disabled = false) => `<li><button class="dropdown-item${extra ? ` ${extra}` : ''}" type="button" data-period-action="${action}" data-id="${Number(p.id)}"${disabled ? ' disabled title="Schedule every learning area first"' : ''}><i class="bi ${icon} me-2"></i>${esc(label)}</button></li>`;
+      const items = [];
+      if (canManage() && p.deleted_at) {
+        items.push(item('restore', 'bi-arrow-counterclockwise', 'Restore', 'text-success'));
+      } else {
+        items.push('<li><h6 class="dropdown-header">Timetable</h6></li>');
+        items.push(item('schedule', 'bi-calendar-week', p.status === 'draft' ? 'Set timetable' : 'View timetable'));
+        if (canManage()) {
+          items.push(item('edit', 'bi-pencil-square', 'Edit details'));
+          items.push(item('delete', 'bi-trash', 'Delete', 'text-danger'));
+        }
+        if (canManage() && ['published','results_open','moderation','completed'].includes(p.status)) items.push(item('reopen', 'bi-arrow-repeat', 'Reopen timetable'));
+        if (canManage() && p.status === 'draft') items.push(item('publish', 'bi-send-check', 'Publish', '', Number(p.scheduled_count) < Number(p.learning_area_count)));
+        if (canManage() && p.status === 'published') items.push(item('open', 'bi-unlock', 'Open results'));
+        if (canManage() && String(p.assessment_kind || '') === 'national') items.push(item('national-timetable', 'bi-file-earmark-rule', 'KNEC timetable'));
+      }
+      if (canViewSchoolResults() || canViewResults()) {
+        items.push('<li><h6 class="dropdown-header">Results</h6></li>');
+        if (canViewSchoolResults()) items.push(item('results', 'bi-clipboard-data', 'School results'));
+        else items.push(item('my-results', 'bi-clipboard-check', 'My results'));
+        if (canPublishResults() && !p.results_published_at && ['results_open','moderation','completed'].includes(p.status) && Number(p.submitted_count || 0) > 0) items.push(item('publish-results', 'bi-broadcast', 'Publish results', 'fw-semibold'));
+      }
+      const actions = `<div class="dropdown"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false" aria-label="Actions for ${esc(p.title)}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button><ul class="dropdown-menu dropdown-menu-end shadow-sm">${items.join('')}</ul></div>`;
       const assessmentType = ({school_based:'School based',national:`National${p.national_assessment_code ? ` · ${p.national_assessment_code}` : ''}`,mock:'Mock',other:'Other'})[p.assessment_kind] || 'School based';
       return `<tr class="${p.deleted_at ? 'table-secondary' : ''}"><td class="fw-semibold">${esc(p.title)}${p.deleted_at ? ' <span class="badge text-bg-danger">deleted</span>' : ''}</td><td>${esc(assessmentType)}</td><td>${esc(p.academic_year_name || 'Academic year')} · Term ${Number(p.term_id || 0)}</td><td>${esc(p.starts_on)} – ${esc(p.ends_on)}</td><td>${Number(p.class_count || 0)}</td><td>${Number(p.learning_area_count || 0)}</td><td>${Number(p.scheduled_count || 0)} / ${Number(p.learning_area_count || 0)}</td><td>${esc(resultCount)}</td><td><span class="badge text-bg-${p.status === 'completed' ? 'success' : p.status === 'draft' ? 'secondary' : 'primary'}">${esc(String(p.status).replaceAll('_', ' '))}</span></td><td class="text-nowrap">${actions}</td></tr>`;
     }).join('');
@@ -237,6 +259,171 @@
       window.KingswayFileLifecycle?.exportText?.(csv, 'exam-document-preview.csv', 'text/csv');
     };
     $('examDocumentPreviewPrint').onclick = () => { if (printAllowed) printScope('exam-preview'); };
+
+    // Keep the reviewed grid so the save step posts exactly what staff saw.
+    state.previewPayload = { headers, rows, filename: String(preview.filename || 'national-timetable') };
+    renderNationalSaveControls();
+  }
+
+  /** Build the field -> column index mapping from the preview headers. */
+  function previewMapping() {
+    const headers = state.previewPayload?.headers || [];
+    const find = (...needles) => headers.findIndex((header) => needles.some((needle) => String(header || '').toLowerCase().includes(needle)));
+    return {
+      item_no: find('item', 'no.') >= 0 ? find('item', 'no.') : null,
+      paper_code: find('paper code', 'code') >= 0 ? find('paper code', 'code') : null,
+      paper_name: find('paper', 'subject', 'learning area') >= 0 ? find('paper', 'subject', 'learning area') : null,
+      date: find('date', 'day') >= 0 ? find('date', 'day') : null,
+      start_time: find('start') >= 0 ? find('start') : null,
+      end_time: find('end') >= 0 ? find('end') : null,
+      duration: find('duration') >= 0 ? find('duration') : null,
+      session: find('session') >= 0 ? find('session') : null,
+    };
+  }
+
+  /** Show the save controls with the national periods as targets. */
+  function renderNationalSaveControls() {
+    const row = $('examDocumentSaveRow');
+    const select = $('examDocumentTargetPeriod');
+    if (!row || !select) return;
+    const national = (state.periods || []).filter((period) => String(period.assessment_kind || '') === 'national' && !period.deleted_at);
+    if (!national.length) {
+      row.classList.add('d-none');
+      $('examDocumentSaveStatus').textContent = 'Create a national (KNEC) exam period first, then save this timetable to it.';
+      return;
+    }
+    select.innerHTML = national.map((period) => `<option value="${Number(period.id)}">${esc(period.title)}${period.national_assessment_code ? ' (' + esc(period.national_assessment_code) + ')' : ''}</option>`).join('');
+    row.classList.remove('d-none');
+  }
+
+  /** Save the reviewed grid to the selected national period. */
+  async function saveReviewedTimetable() {
+    const status = $('examDocumentSaveStatus');
+    const periodId = Number($('examDocumentTargetPeriod')?.value || 0);
+    if (!periodId) return notify('Choose the national exam period first.', 'warning');
+    if (!state.previewPayload?.rows?.length) return notify('Extract and review a timetable first.', 'warning');
+    const button = $('examDocumentSaveTimetable');
+    button.disabled = true;
+    status.textContent = 'Validating and saving the reviewed rows…';
+    try {
+      const saved = payload(await call('/academic/exam-period-timetable', 'POST', {
+        exam_period_id: periodId,
+        rows: state.previewPayload.rows,
+        mapping: previewMapping(),
+        filename: state.previewPayload.filename,
+        source_format: (state.previewPayload.filename.split('.').pop() || '').toLowerCase(),
+      }));
+      status.textContent = `${Number(saved?.papers || 0)} papers saved${Array.isArray(saved?.warnings) && saved.warnings.length ? ` with ${saved.warnings.length} warning(s): ${saved.warnings.join(' ')}` : '.'}`;
+      notify('National timetable saved.', 'success');
+    } catch (error) {
+      status.textContent = error.message || 'The timetable could not be saved.';
+      notify(status.textContent, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** Generate internal sittings from the saved papers of the selected period. */
+  async function generateNationalSittings() {
+    const status = $('examDocumentSaveStatus');
+    const periodId = Number($('examDocumentTargetPeriod')?.value || 0);
+    if (!periodId) return notify('Choose the national exam period first.', 'warning');
+    const button = $('examDocumentGenerateSittings');
+    button.disabled = true;
+    status.textContent = 'Generating sittings and registers from the KNEC papers…';
+    try {
+      const result = payload(await call('/academic/exam-period-timetable-sittings', 'POST', { exam_period_id: periodId }));
+      const created = Number(result?.sittings_created || 0);
+      const unmatched = Array.isArray(result?.unmatched_learning_areas) ? result.unmatched_learning_areas : [];
+      status.textContent = `${created} sittings created.` + (unmatched.length ? ` Unmatched subjects (no sitting): ${unmatched.join('; ')}.` : '');
+      notify(created ? 'Sittings created from the KNEC timetable.' : 'No sittings could be matched.', created ? 'success' : 'warning');
+      await loadPeriods();
+      renderPeriods();
+    } catch (error) {
+      status.textContent = error.message || 'Sittings could not be generated.';
+      notify(status.textContent, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** View the saved KNEC papers for a period inside the import modal. */
+  async function showNationalPapers(periodId) {
+    const wrap = $('nationalPapersWrap');
+    const table = $('nationalPapersTable');
+    $('examDocumentImportStatus').textContent = '';
+    bootstrap.Modal.getOrCreateInstance($('examDocumentImportModal')).show();
+    try {
+      const data = payload(await call('/academic/exam-period-timetable', 'GET', null, { exam_period_id: periodId }));
+      const papers = Array.isArray(data?.papers) ? data.papers : [];
+      if (!papers.length) {
+        wrap.classList.add('d-none');
+        $('examDocumentSaveStatus').textContent = 'No KNEC timetable saved for this period yet. Upload and review one to create the paper schedule.';
+        return;
+      }
+      table.tBodies[0].innerHTML = papers.map((paper) => `<tr><td>${esc(paper.item_no || '—')}</td><td>${esc(paper.paper_code || '—')}</td><td>${esc(paper.paper_name || '')}${paper.is_break ? ' <span class="badge bg-secondary">Break</span>' : ''}</td><td>${esc(paper.paper_date || '—')}</td><td>${esc(paper.start_time || '—')}</td><td>${esc(paper.end_time || '—')}</td><td>${esc(paper.duration_label || (paper.duration_minutes ? paper.duration_minutes + ' min' : '—'))}</td><td>${esc(paper.variant || '')}</td></tr>`).join('');
+      wrap.classList.remove('d-none');
+      $('examDocumentSaveStatus').textContent = `${papers.length} KNEC papers saved for this period.`;
+    } catch (error) {
+      notify(error.message || 'Unable to load the KNEC papers.', 'error');
+    }
+  }
+
+  // ── Grading system per term (versioned bindings) ──────────────────────
+  async function initGradingScope() {
+    const form = $('gradingScopeForm');
+    if (!form) return;
+    const termSelect = $('gradingTermSelect');
+    const systemSelect = $('gradingSystemSelect');
+    try {
+      const options = payload(await call('/academic/exam-periods-options')) || [];
+      const terms = Array.isArray(options) ? options : (options.terms || []);
+      termSelect.innerHTML = terms.map((term) => `<option value="${Number(term.id)}" ${String(term.status) === 'current' ? 'selected' : ''}>${esc(term.academic_year_name || '')} · Term ${Number(term.term_id || 0)}</option>`).join('');
+    } catch (_) { /* the exam periods select keeps working without it */ }
+    try {
+      const data = payload(await call('/academic/grading-systems')) || {};
+      const systems = Array.isArray(data.systems) ? data.systems : [];
+      systemSelect.innerHTML = systems.map((system) => `<option value="${Number(system.id)}">${esc(system.name)} · ${Number(system.levels_count)}-level</option>`).join('');
+      renderGradingBindings(Array.isArray(data.bindings) ? data.bindings : []);
+    } catch (error) {
+      $('gradingScopeStatus').textContent = error.message || 'Grading systems could not be loaded.';
+    }
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const termId = Number(termSelect.value || 0);
+      const systemId = Number(systemSelect.value || 0);
+      if (!termId || !systemId) return;
+      const button = $('gradingScopeSave');
+      button.disabled = true;
+      $('gradingScopeStatus').textContent = 'Saving the binding…';
+      try {
+        const result = payload(await call('/academic/grading-systems-binding', 'POST', { academic_year_term_id: termId, grading_system_id: systemId }));
+        $('gradingScopeStatus').textContent = 'Bound. New exam periods for this term snapshot this system; completed exams keep theirs.';
+        renderGradingBindings(Array.isArray(result?.bindings) ? result.bindings : []);
+        notify('Grading system bound for the term.', 'success');
+      } catch (error) {
+        $('gradingScopeStatus').textContent = error.message || 'The binding could not be saved.';
+        notify($('gradingScopeStatus').textContent, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+    termSelect.addEventListener('change', () => refreshGradingBindings(Number(termSelect.value || 0)));
+  }
+  async function refreshGradingBindings(termId) {
+    if (!termId) return;
+    try {
+      const data = payload(await call('/academic/grading-systems', 'GET', null, { term_id: termId })) || {};
+      renderGradingBindings(Array.isArray(data.bindings) ? data.bindings : []);
+    } catch (_) { /* non-fatal */ }
+  }
+  function renderGradingBindings(bindings) {
+    const wrap = $('gradingBindingsWrap');
+    const body = $('gradingBindingsTable')?.tBodies?.[0];
+    if (!wrap || !body) return;
+    if (!bindings.length) { wrap.classList.add('d-none'); return; }
+    body.innerHTML = bindings.map((binding) => `<tr><td>${esc(binding.binding_scope)}</td><td>${esc(binding.class_name || 'Whole school')}</td><td>${esc(binding.learning_area_name || 'All')}</td><td>${esc(binding.system_name || '')}</td><td>${Number(binding.levels_count || 0)}</td></tr>`).join('');
+    wrap.classList.remove('d-none');
   }
   async function showResults(periodId, mine = false, includeDeleted = false) {
     const data = await call(`/academic/exam-periods/${periodId}/${mine ? 'my-results' : 'results'}`, 'GET', null, includeDeleted ? { include_deleted: true } : null); const p = data.period;
@@ -265,6 +452,53 @@
     root.querySelectorAll('[data-result-restore]').forEach((button)=>button.onclick=async()=>{try{await call(`/academic/exam-period-result/${button.dataset.resultRestore}/restore`,'POST',{});notify('Result record restored.','success');await showResults(periodId,mine,true);}catch(e){notify(e.message||'Unable to restore result.','error');}});
     $('toggleDeletedResults')?.addEventListener('click',()=>showResults(periodId,mine,!includeDeleted));
   }
+  async function openEditModal(periodId) {
+    const form = $('examPeriodEditForm'); if (!form) return;
+    form.dataset.periodId = String(periodId);
+    const setBusy = (busy) => { ['examPeriodEditTitle','examPeriodEditStart','examPeriodEditEnd','examPeriodEditAssessmentKind','examPeriodEditEntryMode','examPeriodEditNationalCode'].forEach((id) => { if ($(id)) $(id).disabled = busy; }); if ($('examPeriodEditClasses')) $('examPeriodEditClasses').classList.toggle('opacity-50', busy); };
+    setBusy(true);
+    $('examPeriodEditModalNote').textContent = 'Loading the current exam period details…';
+    let detail = null;
+    try {
+      detail = await call(`/academic/exam-periods/${periodId}`, 'GET');
+    } catch (error) {
+      $('examPeriodEditModalNote').innerHTML = `<span class="text-danger">${esc(error.message || 'Unable to load this exam period.')}</span>`;
+      setBusy(false);
+      return;
+    }
+    const period = detail?.period || {};
+    const termId = Number(period.academic_year_term_id || 0);
+    try { await loadOptions(termId || ''); } catch (_) { state.classes = []; }
+    const term = state.terms.find((t) => Number(t.id) === termId);
+    $('examPeriodEditTerm').value = term ? termLabel(term) : `${period.academic_year_name || 'Academic year'} · Term ${Number(period.term_id || 0)}`;
+    $('examPeriodEditTitle').value = period.title || '';
+    $('examPeriodEditStart').value = period.starts_on || '';
+    $('examPeriodEditEnd').value = period.ends_on || '';
+    const min = term?.opening_date || ''; const max = term?.closing_date || '';
+    ['examPeriodEditStart', 'examPeriodEditEnd'].forEach((fieldId) => { $(fieldId).min = min; $(fieldId).max = max; });
+    $('examPeriodEditAssessmentKind').value = period.assessment_kind || 'school_based';
+    $('examPeriodEditEntryMode').value = period.entry_mode || 'timetable';
+    $('examPeriodEditNationalCode').value = period.national_assessment_code || '';
+    const national = $('examPeriodEditAssessmentKind').value === 'national';
+    $('examPeriodEditNationalWrap').classList.toggle('d-none', !national);
+    $('examPeriodEditNationalCode').required = national;
+    renderClasses('examPeriodEditClasses', detail?.class_ids || period.academic_year_class_ids || []);
+    const lockedClasses = Number(detail?.entries?.length || 0) > 0;
+    $('examPeriodEditClassesHint').textContent = lockedClasses
+      ? 'Sittings already exist for this period. You may add classes; removing a class that already holds results is blocked.'
+      : 'Every active stream in the selected class receives each configured learning-area paper.';
+    $('examPeriodEditModalNote').textContent = `Exam dates must remain within the academic term shown above. Timetable sittings themselves are managed from the timetable workspace.`;
+    setBusy(false);
+    bootstrap.Modal.getOrCreateInstance($('examPeriodEditModal')).show();
+  }
+  function openDeleteModal(periodId) {
+    const row = state.periods.find((x) => Number(x.id) === periodId);
+    if (!row) return;
+    const form = $('examPeriodDeleteForm'); if (!form) return;
+    form.dataset.periodId = String(periodId);
+    $('examPeriodDeleteName').textContent = row.title || `Exam period #${periodId}`;
+    bootstrap.Modal.getOrCreateInstance($('examPeriodDeleteModal')).show();
+  }
   function exportTable(tableId, filename) {
     const rows = [...$(tableId).querySelectorAll('tr')].map((row) => [...row.cells].map((cell) => `"${cell.innerText.replaceAll('"','""')}"`).join(','));
     if (window.KingswayFileLifecycle?.exportText) window.KingswayFileLifecycle.exportText(rows.join('\r\n'), filename, 'text/csv');
@@ -280,13 +514,31 @@
     $('openExamPeriodCreate')?.addEventListener('click', async () => { await loadOptions($('examPeriodTerm')?.value || ''); bootstrap.Modal.getOrCreateInstance($('examPeriodModal')).show(); });
     $('openExamDocumentImport')?.addEventListener('click', () => { $('examDocumentPreviewWrap')?.classList.add('d-none'); $('examDocumentPreviewActions')?.classList.add('d-none'); $('examDocumentSuggestedMapping')?.classList.add('d-none'); $('examDocumentImportStatus').textContent = ''; $('examDocumentImportForm')?.reset(); bootstrap.Modal.getOrCreateInstance($('examDocumentImportModal')).show(); });
     $('examDocumentImportForm')?.addEventListener('submit', queueDocumentPreview);
+    $('examDocumentSaveTimetable')?.addEventListener('click', saveReviewedTimetable);
+    $('examDocumentGenerateSittings')?.addEventListener('click', generateNationalSittings);
+    initGradingScope();
     $('examPeriodTerm')?.addEventListener('change', async (event) => loadOptions(event.target.value));
     $('examPeriodAssessmentKind')?.addEventListener('change', (event) => {
       const national = event.target.value === 'national';
       $('nationalAssessmentWrap')?.classList.toggle('d-none', !national);
       if ($('nationalAssessmentCode')) $('nationalAssessmentCode').required = national;
     });
-    $('examPeriodToggleClasses')?.addEventListener('click', (event) => { const boxes = [...document.querySelectorAll('.exam-period-class:not(:disabled)')]; const select = boxes.some((box) => !box.checked); boxes.forEach((box) => { box.checked = select; }); event.currentTarget.textContent = select ? 'Clear selection' : 'Select all'; });
+    $('examPeriodEditAssessmentKind')?.addEventListener('change', (event) => {
+      const national = event.target.value === 'national';
+      $('examPeriodEditNationalWrap')?.classList.toggle('d-none', !national);
+      $('examPeriodEditNationalCode').required = national;
+    });
+    const bindClassToggle = (buttonId, rootId) => {
+      $(buttonId)?.addEventListener('click', () => {
+        const root = $(rootId); if (!root) return;
+        const boxes = [...root.querySelectorAll('.exam-period-class:not(:disabled)')];
+        const select = boxes.some((box) => !box.checked);
+        boxes.forEach((box) => { box.checked = select; });
+        $(buttonId).textContent = select ? 'Clear selection' : 'Select all';
+      });
+    };
+    bindClassToggle('examPeriodToggleClasses', 'examPeriodClasses');
+    bindClassToggle('examPeriodEditToggleClasses', 'examPeriodEditClasses');
     $('examPeriodForm')?.addEventListener('submit', async (event) => {
       event.preventDefault(); const academic_year_class_ids = [...document.querySelectorAll('.exam-period-class:checked')].map((box) => Number(box.value));
       const startsOn = $('examPeriodStart').value;
@@ -300,16 +552,63 @@
       catch (error) { notify(error.message || 'Unable to create exam period.', 'error'); }
       finally { button.disabled = false; }
     });
+    $('examPeriodEditForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = Number($('examPeriodEditForm').dataset.periodId || 0);
+      if (!id) return;
+      const title = $('examPeriodEditTitle').value.trim();
+      const starts_on = $('examPeriodEditStart').value;
+      const ends_on = $('examPeriodEditEnd').value;
+      if (!title || !starts_on || !ends_on || starts_on > ends_on) {
+        notify('Check the exam dates: the end date must be on or after the start date.', 'error');
+        return;
+      }
+      const academic_year_class_ids = [...$('examPeriodEditClasses').querySelectorAll('.exam-period-class:checked')].map((box) => Number(box.value));
+      if (!academic_year_class_ids.length) {
+        notify('Select at least one applicable class.', 'error');
+        return;
+      }
+      const assessment_kind = $('examPeriodEditAssessmentKind').value;
+      const nationalCode = assessment_kind === 'national' ? $('examPeriodEditNationalCode').value : null;
+      if (assessment_kind === 'national' && !nationalCode) {
+        notify('Select the national assessment (KPSEA, KJSEA, or other).', 'error');
+        return;
+      }
+      const button = $('saveExamPeriodEditBtn'); button.disabled = true;
+      try {
+        await call(`/academic/exam-periods/${id}`, 'PUT', {
+          title, starts_on, ends_on, academic_year_class_ids,
+          assessment_kind,
+          assessment_authority: assessment_kind === 'national' ? 'KNEC' : null,
+          national_assessment_code: nationalCode,
+          entry_mode: $('examPeriodEditEntryMode').value,
+        });
+        bootstrap.Modal.getInstance($('examPeriodEditModal'))?.hide();
+        await loadPeriods();
+        notify('Exam period updated.', 'success');
+      } catch (error) { notify(error.message || 'Unable to update exam period.', 'error'); }
+      finally { button.disabled = false; }
+    });
+    $('examPeriodDeleteForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = Number($('examPeriodDeleteForm').dataset.periodId || 0);
+      if (!id) return;
+      const button = $('examPeriodDeleteBtn'); button.disabled = true;
+      try { await call(`/academic/exam-periods/${id}`, 'DELETE'); bootstrap.Modal.getInstance($('examPeriodDeleteModal'))?.hide(); await loadPeriods(); notify('Exam period deleted.', 'success'); }
+      catch (error) { notify(error.message || 'Unable to delete exam period.', 'error'); }
+      finally { button.disabled = false; }
+    });
     $('examPeriodsBody')?.addEventListener('click', async (event) => {
       const button = event.target.closest('[data-period-action]'); if (!button) return;
       const id = Number(button.dataset.id); const action = button.dataset.periodAction; button.disabled = true;
       try {
+      if (action === 'national-timetable') { await showNationalPapers(id); return; }
       if (action === 'schedule') await showSchedule(id);
       if (action === 'my-results') await showResults(id, true);
       if (action === 'results') await showResults(id);
-        if (action === 'delete' && confirm('Delete this exam period? It will be hidden from normal lists and can be restored by an administrator.')) { await call(`/academic/exam-periods/${id}`, 'DELETE'); notify('Exam period deleted.', 'success'); await loadPeriods(); }
+        if (action === 'delete') openDeleteModal(id);
         if (action === 'restore') { await call(`/academic/exam-periods/${id}/restore`, 'POST', {}); await loadPeriods(); notify('Exam period restored.','success'); }
-        if (action === 'edit') { const row=state.periods.find((x)=>Number(x.id)===id); const title=prompt('Exam period name',row?.title||''); if(title!==null){ const starts_on=prompt('Start date (YYYY-MM-DD)',row?.starts_on||''); const ends_on=prompt('End date (YYYY-MM-DD)',row?.ends_on||''); if(starts_on&&ends_on){ await call(`/academic/exam-periods/${id}`,'PUT',{title,starts_on,ends_on}); await loadPeriods(); notify('Exam period updated.','success'); } } }
+        if (action === 'edit') await openEditModal(id);
         if (action === 'reopen') { const choice=confirm('Reopen results entry? Choose Cancel to reopen timetable editing.'); await call(`/academic/exam-periods/${id}/reopen`,'POST',{target:choice?'results':'timetable'}); await loadPeriods(); notify('Exam period reopened for editing.','success'); }
         if (action === 'publish' || action === 'open') { await call(`/academic/exam-periods/${id}/${action === 'publish' ? 'publish' : 'open-results'}`, 'POST', {}); notify(action === 'publish' ? 'Timetable published.' : 'Results entry opened.', 'success'); await loadPeriods(); }
         if (action === 'publish-results' && confirm('Publish these reviewed marks as official term results? This makes results visible through the parent results surfaces.')) { await call(`/academic/exam-periods/${id}/publish-results`, 'POST', {}); notify('Official summative results published. Continue to report-card release to generate parent PDFs and notifications.', 'success'); await loadPeriods(); }

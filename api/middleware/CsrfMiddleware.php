@@ -88,6 +88,7 @@ class CsrfMiddleware
         // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'realtime/worker',
         'realtime/cleanup',
+        'realtime/maintenance',
         'realtime/sync-projection',
         'realtime/python-job-claim',
         'realtime/python-job-input',
@@ -98,6 +99,7 @@ class CsrfMiddleware
         'dashboard/agent-digest-worker',
         'dashboard/insight-brief-queue',
         'dashboard/kicd-policy-watch',
+        'dashboard/assessment-policy-watch',
         'mcp',
     ];
 

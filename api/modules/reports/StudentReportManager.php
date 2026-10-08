@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
+use App\API\Services\ReadReplicaService;
 
 class StudentReportManager extends BaseAPI
 {
@@ -52,7 +53,7 @@ class StudentReportManager extends BaseAPI
         $params = [];
         if (!empty($filters['year'])) { $where[] = 'YEAR(admission_date) = ?'; $params[] = (int) $filters['year']; }
         $sql = "SELECT YEAR(admission_date) as year, MONTH(admission_date) as month, COUNT(*) as total
-                FROM students
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY year, month
                 ORDER BY year DESC, month DESC";
@@ -283,8 +284,8 @@ class StudentReportManager extends BaseAPI
                         ay.end_date,
                         ay.status,
                         COUNT(DISTINCT e.student_id) AS enrolled_students
-                    FROM academic_years ay
-                    LEFT JOIN student_academic_enrollments e ON e.academic_year_id = ay.id
+                    FROM " . ReadReplicaService::qualifiedRef("academic_years") . "
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e ON e.academic_year_id = ay.id
                     GROUP BY ay.id, ay.year_code, ay.year_name, ay.start_date, ay.end_date, ay.status
                     ORDER BY ay.start_date DESC";
             return $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);

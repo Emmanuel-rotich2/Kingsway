@@ -542,7 +542,7 @@ final class AuthSessionService
                 END AS has_active_session
             FROM refresh_tokens rt
             LEFT JOIN users u ON u.id = rt.user_id
-            LEFT JOIN persons p ON p.id = u.person_id
+            LEFT JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
             LEFT JOIN (
                 SELECT
                     s.user_id,
@@ -590,7 +590,7 @@ final class AuthSessionService
                 0 AS has_active_session
             FROM api_tokens at
             INNER JOIN users u ON u.id = at.user_id
-            INNER JOIN persons p ON p.id = u.person_id
+            INNER JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
         ";
 
         $where = ['1 = 1'];

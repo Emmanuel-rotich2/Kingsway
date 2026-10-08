@@ -94,24 +94,20 @@ final class StaffAppointmentsService
                     p.rejected_reason,
                     p.payroll_adjustment_id,
                     p.created_at,
-                    CONCAT(pe.first_name, ' ', pe.last_name) AS staff_name,
+                    CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
                     s.staff_no,
                     fd.name AS from_department,
                     td.name AS to_department,
-                    CONCAT(cbp.first_name, ' ', cbp.last_name) AS created_by_name,
-                    CONCAT(sbp.first_name, ' ', sbp.last_name) AS submitted_by_name,
-                    CONCAT(abp.first_name, ' ', abp.last_name) AS approved_by_name
+                    CONCAT(cbr.first_name, ' ', cbr.last_name) AS created_by_name,
+                    CONCAT(sbr.first_name, ' ', sbr.last_name) AS submitted_by_name,
+                    CONCAT(abr.first_name, ' ', abr.last_name) AS approved_by_name
              FROM staff_promotions p
-             JOIN staff s ON s.id = p.staff_id
-             JOIN persons pe ON pe.id = s.person_id
-             LEFT JOIN departments fd ON fd.id = p.from_department_id
-             LEFT JOIN departments td ON td.id = p.to_department_id
-             LEFT JOIN users cu ON cu.id = p.created_by
-             LEFT JOIN persons cbp ON cbp.id = cu.person_id
-             LEFT JOIN users su ON su.id = p.submitted_by
-             LEFT JOIN persons sbp ON sbp.id = su.person_id
-             LEFT JOIN users au ON au.id = p.approved_by
-             LEFT JOIN persons abp ON abp.id = au.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " s ON s.staff_id = p.staff_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " fd ON fd.id = p.from_department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " td ON td.id = p.to_department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " cbr ON cbr.user_id = p.created_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sbr ON sbr.user_id = p.submitted_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " abr ON abr.user_id = p.approved_by
              WHERE " . implode(' AND ', $where) . "
              ORDER BY p.created_at DESC
              LIMIT 200",
@@ -136,8 +132,7 @@ final class StaffAppointmentsService
 
         $staff = $this->db->query(
             "SELECT s.*, sda.department_id
-             FROM staff s
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
              WHERE s.id = ?",
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
@@ -271,14 +266,14 @@ final class StaffAppointmentsService
                     om.sent_at AS invitation_sent_at,
                     u.force_password_change AS setup_required,
                     u.profile_completed_at
-             FROM staff_appointments sa
-             LEFT JOIN departments d ON d.id = sa.department_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sa.department_id
              LEFT JOIN users sb ON sb.id = sa.submitted_by
-             LEFT JOIN persons sbp ON sbp.id = sb.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sbp ON sbp.id = sb.person_id
              LEFT JOIN users ab ON ab.id = sa.approved_by
-             LEFT JOIN persons abp ON abp.id = ab.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " abp ON abp.id = ab.person_id
              LEFT JOIN users ob ON ob.id = sa.onboarded_by
-             LEFT JOIN persons obp ON obp.id = ob.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " obp ON obp.id = ob.person_id
              LEFT JOIN users u ON u.id=sa.created_user_id
              LEFT JOIN user_invitations ui ON ui.id=(
                 SELECT ui2.id FROM user_invitations ui2 WHERE ui2.user_id=u.id ORDER BY ui2.id DESC LIMIT 1
@@ -620,7 +615,7 @@ final class StaffAppointmentsService
                     CONCAT(p.first_name, ' ', p.last_name) AS actor_name
              FROM staff_appointment_approvals a
              JOIN users u ON u.id = a.actor_id
-             JOIN persons p ON p.id = u.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
              WHERE a.appointment_type = :appointment_type
                AND a.appointment_id = :appointment_id
              ORDER BY a.created_at ASC",
@@ -636,7 +631,7 @@ final class StaffAppointmentsService
         $userId = (int)($user['id'] ?? $user['user_id'] ?? 0);
         if ($userId > 0) {
             $staff = $this->db->query(
-                'SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ?',
+                'SELECT s.staff_id AS id FROM ' . ReadReplicaService::qualifiedRef("staff_directory") . ' s WHERE s.user_id = ?',
                 [$userId]
             )->fetch(PDO::FETCH_ASSOC);
             return $staff ? (int)$staff['id'] : null;
@@ -667,7 +662,7 @@ final class StaffAppointmentsService
         if (!in_array($data['contract_type'], ['permanent', 'contract', 'temporary'], true)) throw new InvalidArgumentException('Invalid contract_type');
         $department = $this->db->query("SELECT id FROM departments WHERE id=? AND status='active'", [(int)$data['department_id']])->fetchColumn();
         $classification = $this->db->query(
-            'SELECT EXISTS(SELECT 1 FROM staff_types WHERE id=? AND is_active=1) AS type_ok, EXISTS(SELECT 1 FROM staff_categories WHERE id=? AND staff_type_id=? AND is_active=1) AS category_ok',
+            'SELECT EXISTS(SELECT 1 FROM ' . ReadReplicaService::qualifiedRef("staff_types") . ' WHERE id=? AND is_active=1) AS type_ok, EXISTS(SELECT 1 FROM ' . ReadReplicaService::qualifiedRef("staff_categories") . ' WHERE id=? AND staff_type_id=? AND is_active=1) AS category_ok',
             [(int)$data['staff_type_id'], (int)$data['staff_category_id'], (int)$data['staff_type_id']]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$department || !(int)($classification['type_ok'] ?? 0) || !(int)($classification['category_ok'] ?? 0)) throw new InvalidArgumentException('Choose an active department and matching staff classification');

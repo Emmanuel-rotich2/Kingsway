@@ -7,6 +7,7 @@ use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Expense Management Class
@@ -75,7 +76,7 @@ class ExpenseManager
             $vendorId = null;
             if (!empty($data['vendor_name'])) {
                 $vendorStmt = $this->db->prepare(
-                    "SELECT id FROM suppliers WHERE name = ? AND status = 'active' LIMIT 1"
+                    "SELECT id FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " name = ? AND status = 'active' LIMIT 1"
                 );
                 $vendorStmt->execute([$data['vendor_name']]);
                 $vendorId = $vendorStmt->fetchColumn() ?: null;
@@ -86,7 +87,7 @@ class ExpenseManager
                 $stmt = $this->db->prepare("
                     SELECT bli.allocated_amount,
                            COALESCE(SUM(e.amount), 0) as spent
-                    FROM budget_line_items bli
+                    FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . "
                     LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
                         AND e.status != 'rejected'
                     WHERE bli.id = ?
@@ -288,9 +289,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                        bli.allocated_amount as budget_allocated,
                        u.username as recorded_by_name,
                        a.username as approved_by_name
-                FROM expenses e
-                LEFT JOIN departments d ON e.department_id = d.id
-                LEFT JOIN budget_line_items bli ON e.budget_line_item_id = bli.id
+                FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON e.department_id = d.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli ON e.budget_line_item_id = bli.id
                 LEFT JOIN expense_categories ec ON ec.id = bli.category_id
                 LEFT JOIN users u ON e.created_by = u.id
                 LEFT JOIN users a ON e.approved_by = a.id
@@ -328,11 +329,11 @@ return formatResponse(false, null, 'An internal error occurred.');
                            d.name as department_name,
                            ec.name as budget_category,
                            u.username as recorded_by_name
-                    FROM expenses e
-                    LEFT JOIN departments d ON e.department_id = d.id
-                    LEFT JOIN budget_line_items bli ON e.budget_line_item_id = bli.id
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON e.department_id = d.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli ON e.budget_line_item_id = bli.id
                     LEFT JOIN expense_categories ec ON ec.id = bli.category_id
-                    LEFT JOIN suppliers s ON e.vendor_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON e.vendor_id = s.id
                     LEFT JOIN users u ON e.created_by = u.id
                     WHERE 1=1";
 
@@ -379,10 +380,10 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt->execute($params);
             $expenses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             // Get total count
-            $countSql = "SELECT COUNT(*) as total FROM expenses e
-                         LEFT JOIN budget_line_items bli ON e.budget_line_item_id = bli.id
+            $countSql = "SELECT COUNT(*) as total FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
+                         LEFT JOIN " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli ON e.budget_line_item_id = bli.id
                          LEFT JOIN expense_categories ec ON ec.id = bli.category_id
-                         LEFT JOIN suppliers s ON e.vendor_id = s.id
+                         LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON e.vendor_id = s.id
                          WHERE 1=1";
 
             $countParams = array_slice($params, 0, -2);
@@ -560,7 +561,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                         COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
                         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
                         COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count
-                    FROM expenses e
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . "
                     LEFT JOIN expense_categories ec ON ec.id = e.category_id
                     WHERE 1=1";
 
@@ -664,13 +665,13 @@ return formatResponse(false, null, 'An internal error occurred.');
                         COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS recorded_by_name,
                         COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name,
                         s.name AS vendor_name
-                 FROM expenses e
+                 FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
                  LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                 LEFT JOIN suppliers s ON e.vendor_id = s.id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON e.vendor_id = s.id
                  LEFT JOIN users u ON u.id = e.created_by
-                 LEFT JOIN persons up ON up.id = u.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                  LEFT JOIN users a ON a.id = e.approved_by
-                 LEFT JOIN persons ap ON ap.id = a.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = a.person_id
                  WHERE e.id = ? AND e.deleted_at IS NULL"
             );
             $stmt->execute([$expenseId]);
@@ -708,13 +709,13 @@ return formatResponse(false, null, 'An internal error occurred.');
                            COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS recorded_by_name,
                            COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name,
                            s.name AS vendor_name
-                    FROM expenses e
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
                     LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                    LEFT JOIN suppliers s ON e.vendor_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON e.vendor_id = s.id
                     LEFT JOIN users u ON u.id = e.created_by
-                    LEFT JOIN persons up ON up.id = u.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                     LEFT JOIN users a ON a.id = e.approved_by
-                    LEFT JOIN persons ap ON ap.id = a.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = a.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY e.expense_date DESC LIMIT 200";
             $stmt = $this->db->prepare($sql);

@@ -284,8 +284,8 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
     {
         try {
             $sql = 'SELECT r.*, ur.is_primary
-                    FROM user_roles ur
-                    JOIN roles r ON r.id = ur.role_id
+                    FROM roles r
+                    JOIN user_roles ur ON ur.role_id = r.id
                     WHERE ur.user_id = ?
                     ORDER BY ur.is_primary DESC, ur.id';
             $stmt = $this->db->prepare($sql);

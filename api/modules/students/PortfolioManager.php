@@ -4,6 +4,7 @@ namespace App\API\Modules\students;
 
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * PortfolioManager
@@ -68,17 +69,13 @@ class PortfolioManager
         $stmt = $this->db->prepare(
             "SELECT s.id, p.first_name, p.last_name, s.admission_no, p.photo_url AS photo,
                     c.name AS class_name, st.name AS stream_name
-             FROM students s
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN student_academic_enrollments e
-                    ON e.student_id = s.id
-                   AND e.id = (SELECT e2.id FROM student_academic_enrollments e2
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                                WHERE e2.student_id = s.id
                                ORDER BY e2.academic_year_id DESC, e2.id DESC LIMIT 1)
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = e.academic_year_class_stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN streams st ON st.id = aycs.stream_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = e.academic_year_class_stream_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
              WHERE s.id = ?"
         );
         $stmt->execute([$studentId]);
@@ -99,10 +96,10 @@ class PortfolioManager
         $stmt = $this->db->prepare(
             "SELECT pa.*, cc.name AS competency_name, cv.name AS value_name,
                     p.academic_year
-             FROM portfolio_artifacts pa
+             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
              JOIN portfolios p ON p.id = pa.portfolio_id
-             LEFT JOIN core_competencies cc ON cc.id = pa.competency_id
-             LEFT JOIN core_values cv ON cv.id = pa.value_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id = pa.competency_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("core_values") . " cv ON cv.id = pa.value_id
              WHERE p.student_id = ?
              ORDER BY pa.upload_date DESC"
         );
@@ -117,9 +114,9 @@ class PortfolioManager
                     COUNT(pa.id) AS artifact_count,
                     ROUND(AVG(pa.rating), 1) AS avg_rating,
                     MAX(pa.rating) AS highest_rating
-             FROM portfolio_artifacts pa
+             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
              JOIN portfolios p ON p.id = pa.portfolio_id
-             JOIN core_competencies cc ON cc.id = pa.competency_id
+             JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id = pa.competency_id
              WHERE p.student_id = ? AND pa.competency_id IS NOT NULL
              GROUP BY cc.id, cc.name
              ORDER BY artifact_count DESC"
@@ -132,9 +129,9 @@ class PortfolioManager
     {
         $stmt = $this->db->prepare(
             "SELECT cv.name AS value_name, COUNT(pa.id) AS artifact_count
-             FROM portfolio_artifacts pa
+             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
              JOIN portfolios p ON p.id = pa.portfolio_id
-             JOIN core_values cv ON cv.id = pa.value_id
+             JOIN " . ReadReplicaService::qualifiedRef("core_values") . " cv ON cv.id = pa.value_id
              WHERE p.student_id = ? AND pa.value_id IS NOT NULL
              GROUP BY cv.id, cv.name
              ORDER BY artifact_count DESC"
@@ -147,7 +144,7 @@ class PortfolioManager
     {
         $stmt = $this->db->prepare(
             "SELECT pa.teacher_feedback
-             FROM portfolio_artifacts pa
+             FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . "
              JOIN portfolios p ON p.id = pa.portfolio_id
              WHERE p.student_id = ?
                AND pa.teacher_feedback IS NOT NULL

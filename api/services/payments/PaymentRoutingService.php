@@ -6,6 +6,7 @@ namespace App\API\Services\payments;
 use PDO;
 use RuntimeException;
 use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\ReadReplicaService;
 
 /** Resolves incoming money to fees or transport without guessing. */
 class PaymentRoutingService
@@ -61,7 +62,7 @@ class PaymentRoutingService
                 $admission = trim((string)preg_replace('/^TRN-/i', '', $reference));
                 $s=$this->db->prepare('SELECT id FROM students WHERE admission_no=? AND status IN ("active","enrolled") LIMIT 1'); $s->execute([$admission]); $studentId=(int)$s->fetchColumn();
                 if ($studentId) {
-                    $e=$this->db->prepare("SELECT e.id FROM student_transport_entitlements e JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.student_id=? AND e.entitlement_status='active' AND p.period_start<=CURDATE() AND p.period_end>=CURDATE() ORDER BY DATEDIFF(p.period_end,p.period_start) ASC,e.id DESC LIMIT 1"); $e->execute([$studentId]); $entitlementId=(int)$e->fetchColumn();
+                    $e=$this->db->prepare("SELECT e.id FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.student_id=? AND e.entitlement_status='active' AND p.period_start<=CURDATE() AND p.period_end>=CURDATE() ORDER BY DATEDIFF(p.period_end,p.period_start) ASC,e.id DESC LIMIT 1"); $e->execute([$studentId]); $entitlementId=(int)$e->fetchColumn();
                     $financialAccountId = $this->accountFinancialId($providerId, $accountIdentifier);
                     if ($entitlementId && $financialAccountId && (new TransportPaymentService($this->db))->reconcileEntitlement($entitlementId,$studentId,$amount,$providerCode,$providerTransactionId,$financialAccountId)) return ['status'=>'processed','purpose'=>'transport','student_id'=>$studentId,'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
                 }
@@ -90,7 +91,7 @@ class PaymentRoutingService
         return ['status'=>'processed','purpose'=>$purpose,'student_id'=>(int)$referenceRow['student_id'],'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
     }
 
-    public function listRoutes(): array { return $this->db->query("SELECT r.*,p.code provider_code,sa.account_name settlement_account_name,sa.account_identifier settlement_account_identifier,(SELECT GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') FROM payment_collection_route_channels rch JOIN financial_channels fc ON fc.id=rch.channel_id WHERE rch.route_id=r.id) route_channels FROM payment_collection_routes r JOIN payment_providers p ON p.id=r.provider_id LEFT JOIN school_financial_accounts sa ON sa.id=COALESCE(r.settlement_financial_account_id,r.financial_account_id) WHERE r.active=1 ORDER BY p.code,r.account_identifier,r.purpose")->fetchAll(PDO::FETCH_ASSOC); }
+    public function listRoutes(): array { return $this->db->query("SELECT r.*,p.code provider_code,sa.account_name settlement_account_name,sa.account_identifier settlement_account_identifier,(SELECT GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') FROM " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rch JOIN financial_channels fc ON fc.id=rch.channel_id WHERE rch.route_id=r.id) route_channels FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r JOIN payment_providers p ON p.id=r.provider_id LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=COALESCE(r.settlement_financial_account_id,r.financial_account_id) WHERE r.active=1 ORDER BY p.code,r.account_identifier,r.purpose")->fetchAll(PDO::FETCH_ASSOC); }
 
     public function isConfiguredAccount(string $providerCode, ?string $account): bool
     { if (!$account) return false; $pid=$this->providerId($providerCode); $normalized=$this->normalizer->accountIdentifier($account); $s=$this->db->prepare('SELECT 1 FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1 LIMIT 1'); $s->execute([$pid,$normalized]); return (bool)$s->fetchColumn(); }
@@ -99,7 +100,7 @@ class PaymentRoutingService
     {
         $routeId=(int)($data['id']??0); $financialAccountId=(int)($data['financial_account_id']??0); $purpose=(string)($data['purpose']??'');
         if ($financialAccountId<=0 || !in_array($purpose,['fees','transport','uniforms'],true)) throw new RuntimeException('An existing school account and one incoming purpose are required.');
-        $account=$this->db->prepare('SELECT a.account_identifier,a.normalized_account_identifier,a.provider_id,a.settlement_financial_account_id,p.code provider_code FROM school_financial_accounts a LEFT JOIN payment_providers p ON p.id=a.provider_id WHERE a.id=? LIMIT 1'); $account->execute([$financialAccountId]); $accountRow=$account->fetch(PDO::FETCH_ASSOC);
+        $account=$this->db->prepare('SELECT a.account_identifier,a.normalized_account_identifier,a.provider_id,a.settlement_financial_account_id,p.code provider_code FROM ' . ReadReplicaService::masterRef('school_financial_accounts') . ' a LEFT JOIN payment_providers p ON p.id=a.provider_id WHERE a.id=? LIMIT 1'); $account->execute([$financialAccountId]); $accountRow=$account->fetch(PDO::FETCH_ASSOC);
         if (!$accountRow) throw new RuntimeException('Selected school account was not found.');
         $code=(string)($data['provider_code']??$accountRow['provider_code']??''); $accountIdentifier=trim((string)($data['account_identifier']??$accountRow['account_identifier']??'')); $displayName=trim((string)($data['display_name']??'')); $prefix=trim((string)($data['reference_prefix']??($purpose==='transport'?'TRN':($purpose==='uniforms'?'U':'FEE'))));
         if (!$code || $accountIdentifier==='' || $prefix==='') throw new RuntimeException('Provider, collection identifier and reference prefix are required.');
@@ -118,7 +119,7 @@ class PaymentRoutingService
                 $q->execute([$pid,$displayName?:null,!empty($data['show_on_fee_structure'])?1:0,max(0,(int)($data['display_order']??0)),trim((string)($data['display_title']??''))?:null,trim((string)($data['display_reference_label']??''))?:null,trim((string)($data['display_reference_value']??''))?:null,trim((string)($data['display_instructions']??''))?:null,(int)($data['updated_by']??0)?:null,$financialAccountId,$settlement,$accountIdentifier,$normalized,$product,$policy,trim((string)($data['reference_label']??''))?:null,$purpose,$prefix]); $routeId=(int)$this->db->lastInsertId();
             }
             $this->db->prepare('DELETE FROM payment_collection_route_channels WHERE route_id=?')->execute([$routeId]);
-            $channels=(array)($data['channels']??[]); if (!$channels) { $q=$this->db->prepare('SELECT c.code FROM school_financial_account_channels ac JOIN financial_channels c ON c.id=ac.channel_id WHERE ac.financial_account_id=?'); $q->execute([$financialAccountId]); $channels=$q->fetchAll(PDO::FETCH_COLUMN); }
+            $channels=(array)($data['channels']??[]); if (!$channels) { $q=$this->db->prepare('SELECT c.code FROM ' . ReadReplicaService::masterRef('school_financial_account_channels') . ' ac JOIN financial_channels c ON c.id=ac.channel_id WHERE ac.financial_account_id=?'); $q->execute([$financialAccountId]); $channels=$q->fetchAll(PDO::FETCH_COLUMN); }
             if ($purpose==='fees') $channels=array_values(array_diff($channels,['cash']));
             $insert=$this->db->prepare('INSERT INTO payment_collection_route_channels(route_id,channel_id) SELECT ?,id FROM financial_channels WHERE code=?'); foreach (array_unique($channels) as $channel) $insert->execute([$routeId,$channel]);
             $this->db->commit(); return ['id'=>$routeId,'display_name'=>$displayName,'provider_code'=>$code,'financial_account_id'=>$financialAccountId,'account_identifier'=>$accountIdentifier,'purpose'=>$purpose,'collection_product'=>$product,'reference_policy'=>$policy,'route_channels'=>implode(',',array_unique($channels))];
@@ -129,7 +130,7 @@ class PaymentRoutingService
     public function deleteRoute(int $id): array { if ($id<=0) throw new RuntimeException('Collection route ID is required.'); $s=$this->db->prepare("UPDATE payment_collection_routes SET active=0 WHERE id=? AND active=1"); $s->execute([$id]); if (!$s->rowCount()) throw new RuntimeException('Collection route not found or already inactive.'); return ['id'=>$id,'status'=>'inactive']; }
 
     public function listUnmatchedCases(array $filters=[]): array
-    { $sql='SELECT u.*,p.code provider_code FROM payment_unmatched_cases u JOIN payment_providers p ON p.id=u.provider_id WHERE u.status=? ORDER BY u.created_at DESC LIMIT 300'; $s=$this->db->prepare($sql); $s->execute([$filters['status']??'unmatched']); return $s->fetchAll(PDO::FETCH_ASSOC); }
+    { $sql='SELECT u.*,p.code provider_code FROM ' . ReadReplicaService::qualifiedRef('payment_unmatched_cases') . ' u JOIN payment_providers p ON p.id=u.provider_id WHERE u.status=? ORDER BY u.created_at DESC LIMIT 300'; $s=$this->db->prepare($sql); $s->execute([$filters['status']??'unmatched']); return $s->fetchAll(PDO::FETCH_ASSOC); }
 
     public function resolveCase(int $id, array $data, int $userId): array
     {
@@ -177,7 +178,7 @@ class PaymentRoutingService
         if (!$routeId) return false;
         $count=$this->db->prepare('SELECT COUNT(*) FROM payment_collection_route_channels WHERE route_id=?'); $count->execute([$routeId]);
         if (!(int)$count->fetchColumn()) return true;
-        $allowed=$this->db->prepare('SELECT 1 FROM payment_collection_route_channels rc JOIN financial_channels c ON c.id=rc.channel_id WHERE rc.route_id=? AND c.code=? LIMIT 1'); $allowed->execute([$routeId,$channel]);
+        $allowed=$this->db->prepare('SELECT 1 FROM ' . ReadReplicaService::masterRef('payment_collection_route_channels') . ' rc JOIN financial_channels c ON c.id=rc.channel_id WHERE rc.route_id=? AND c.code=? LIMIT 1'); $allowed->execute([$routeId,$channel]);
         return (bool)$allowed->fetchColumn();
     }
     private function extract(array $payload,array $keys): ?string { foreach ($keys as $key) if (isset($payload[$key]) && $payload[$key]!=='') return (string)$payload[$key]; return null; }

@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Inventory Transactions Manager
@@ -53,7 +54,7 @@ class TransactionsManager extends BaseAPI
 
             $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 
-            $sql = "SELECT COUNT(*) FROM inventory_transactions it LEFT JOIN inventory_items i ON it.item_id = i.id $whereClause";
+            $sql = "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("inventory_transactions_items") . " it $whereClause";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
             $total = $stmt->fetchColumn();
@@ -61,12 +62,9 @@ class TransactionsManager extends BaseAPI
             $sql = "
                 SELECT 
                     it.*,
-                    i.item_name,
-                    i.code AS item_code,
-                    l.location_name
-                FROM inventory_transactions it
-                LEFT JOIN inventory_items i ON it.item_id = i.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
+                    it.item_name,
+                    it.item_code
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions_items") . " it
                 $whereClause
                 ORDER BY it.transaction_date DESC
                 LIMIT ? OFFSET ?
@@ -180,17 +178,16 @@ class TransactionsManager extends BaseAPI
 
             $sql = "
                 SELECT 
-                    i.item_name,
-                    i.code AS item_code,
+                    it.item_name,
+                    it.item_code,
                     SUM(CASE WHEN it.transaction_type = 'in' THEN it.quantity ELSE 0 END) as total_in,
                     SUM(CASE WHEN it.transaction_type = 'out' THEN it.quantity ELSE 0 END) as total_out,
                     SUM(CASE WHEN it.transaction_type = 'in' THEN it.quantity ELSE -it.quantity END) as net_change,
-                    i.quantity_on_hand as current_stock
-                FROM inventory_transactions it
-                JOIN inventory_items i ON it.item_id = i.id
+                    it.current_stock
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions_items") . " it
                 $whereClause
-                GROUP BY i.id
-                ORDER BY i.item_name
+                GROUP BY it.item_id, it.item_name, it.item_code, it.current_stock
+                ORDER BY it.item_name
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);

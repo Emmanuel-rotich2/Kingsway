@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Stock Movements Manager
@@ -159,8 +160,8 @@ class StockMovementsManager extends BaseAPI
             // Count total
             $sql = "
                 SELECT COUNT(*) 
-                FROM inventory_transactions t
-                LEFT JOIN inventory_items i ON t.item_id = i.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON t.item_id = i.id
                 WHERE $whereClause
             ";
             $stmt = $this->db->prepare($sql);
@@ -176,9 +177,9 @@ class StockMovementsManager extends BaseAPI
                     i.sku,
                     i.unit AS unit_of_measure,
                     l.location_name
-                FROM inventory_transactions t
-                LEFT JOIN inventory_items i ON t.item_id = i.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON t.item_id = i.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
                 WHERE $whereClause
                 ORDER BY t.$sort $order
                 LIMIT ? OFFSET ?
@@ -234,8 +235,7 @@ class StockMovementsManager extends BaseAPI
                     COUNT(*) as transaction_count,
                     SUM(quantity) as total_quantity,
                     SUM(quantity * COALESCE(unit_cost, 0)) as total_value
-                FROM inventory_transactions
-                WHERE $whereClause
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " $whereClause
                 GROUP BY transaction_type
                 ORDER BY total_value DESC
             ";
@@ -253,8 +253,7 @@ class StockMovementsManager extends BaseAPI
                     COUNT(*) as movement_count,
                     SUM(t.quantity) as total_quantity,
                     SUM(t.quantity * COALESCE(t.unit_cost, 0)) as total_value
-                FROM inventory_transactions t
-                LEFT JOIN inventory_items i ON t.item_id = i.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions_items") . " t
                 WHERE $whereClause
                 GROUP BY t.item_id
                 ORDER BY total_quantity DESC
@@ -305,9 +304,9 @@ class StockMovementsManager extends BaseAPI
                 SELECT 
                     t.*,
                     l.location_name
-                FROM inventory_transactions t
-                LEFT JOIN inventory_items i ON t.item_id = i.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON t.item_id = i.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
                 WHERE t.item_id = ?
                 ORDER BY t.transaction_date DESC, t.created_at DESC
                 LIMIT ?

@@ -2,6 +2,7 @@
 
 namespace App\API\Services;
 
+use App\API\Services\ReadReplicaService;
 use App\Database\Database;
 use PDO;
 use Throwable;
@@ -64,16 +65,14 @@ class AttendanceRegisterService
     {
         $date = $filters['date'] ?? date('Y-m-d');
         $sql = "SELECT ar.*, ass.code AS session_code, COALESCE(cfg.name, ass.name) AS session_name,
-                       CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name,
-                       CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) AS teacher_name
+                       CONCAT(COALESCE(csd.class_name,''),' - ',COALESCE(csd.stream_name,'')) AS stream_name,
+                       CONCAT(COALESCE(sctx.first_name,''),' ',COALESCE(sctx.last_name,'')) AS teacher_name
                   FROM attendance_registers ar
-                  JOIN attendance_sessions ass ON ass.id=ar.session_id
+                  JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass ON ass.id=ar.session_id
                   LEFT JOIN attendance_session_term_configs cfg
                     ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
-                  JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id
-                  JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
-                  JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams st ON st.id=aycs.stream_id
-                 LEFT JOIN staff sf ON sf.id=ar.assigned_staff_id LEFT JOIN persons p ON p.id=sf.person_id
+                  JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id=ar.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id=ar.assigned_staff_id
                  WHERE ar.register_date=? AND ar.status <> 'not_required'";
         $params = [$date];
         if (!empty($filters['status'])) { $sql .= " AND ar.status=?"; $params[] = $filters['status']; }
@@ -109,18 +108,15 @@ class AttendanceRegisterService
 
         $streamIds = array_values(array_filter(array_map('intval', (array) ($filters['stream_ids'] ?? []))));
         $sessionId = !empty($filters['session_id']) ? (int) $filters['session_id'] : null;
-        $existingSql = "SELECT ar.*, ass.code AS session_code,
+$existingSql = "SELECT ar.*, ass.code AS session_code,
                                COALESCE(cfg.name, ass.name) AS session_name,
-                               CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name
-                          FROM attendance_registers ar
-                          JOIN attendance_sessions ass ON ass.id=ar.session_id
-                          LEFT JOIN attendance_session_term_configs cfg
-                            ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
-                          JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id
-                          JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
-                          JOIN classes c ON c.id=ayc.class_id
-                          LEFT JOIN streams st ON st.id=aycs.stream_id
-                         WHERE ar.register_date BETWEEN ? AND ?
+                               CONCAT(COALESCE(csd.class_name,''),' - ',COALESCE(csd.stream_name,'')) AS stream_name
+                        FROM attendance_registers ar
+                        JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass ON ass.id=ar.session_id
+                        LEFT JOIN attendance_session_term_configs cfg
+                          ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
+                        JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id=ar.stream_id
+                        WHERE ar.register_date BETWEEN ? AND ?
                            AND ar.status <> 'not_required'
                            AND ar.register_type='class'";
         $params = [$from, $to];
@@ -232,10 +228,10 @@ class AttendanceRegisterService
         $sql = "SELECT s.id, s.admission_no,
                        CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) AS learner_name,
                        st.name AS student_type
-                  FROM student_academic_enrollments en
-                  JOIN students s ON s.id=en.student_id
-                  LEFT JOIN admission_applications aa ON aa.id=s.application_id
-                  JOIN persons p ON p.id=s.person_id
+                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " en
+                  JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id=en.student_id
+                  LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id=s.application_id
+                  JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = s.person_id
                   LEFT JOIN student_types st ON st.id=s.student_type_id
                  WHERE en.academic_year_class_stream_id=?
                    AND s.status='active' AND en.enrollment_status='active'
@@ -244,7 +240,7 @@ class AttendanceRegisterService
                          CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN en.enrolled_on END
                        ) <= ?
                    AND NOT EXISTS (
-                       SELECT 1 FROM student_attendance sa
+                       SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
                         WHERE sa.student_academic_enrollment_id=en.id
                           AND sa.date=? AND sa.session_id=? AND sa.register_type='class'
                    )";
@@ -272,7 +268,7 @@ class AttendanceRegisterService
         $stmt = $this->db->prepare(
             "SELECT ar.id, COALESCE(cfg.applies_to, ass.applies_to) AS applies_to
              FROM attendance_registers ar
-             JOIN attendance_sessions ass ON ass.id = ar.session_id
+             JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass ON ass.id = ar.session_id
              LEFT JOIN attendance_session_term_configs cfg
                ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
              WHERE ar.stream_id = ? AND ar.session_id = ? AND ar.register_date = ?
@@ -299,19 +295,18 @@ class AttendanceRegisterService
     {
         $stmt = $this->db->prepare(
             "SELECT ay.id AS year_id, ayt.id AS term_id, acd.id AS calendar_day_id,
-                    DAYNAME(?) AS day_name, COALESCE(cdt.code, 'school_day') AS day_type,
-                    COALESCE(cdt.requires_attendance, 1) AS requires_attendance,
-                    COALESCE(cdt.affects_day_students, 1) AS affects_day_students,
-                    COALESCE(cdt.affects_boarders, 1) AS affects_boarders,
+                    DAYNAME(?) AS day_name,                     COALESCE(acd.type, 'school_day') AS day_type,
+                    COALESCE(acd.requires_attendance, 1) AS requires_attendance,
+                    COALESCE(acd.affects_day_students, 1) AS affects_day_students,
+                    COALESCE(acd.affects_boarders, 1) AS affects_boarders,
                     COALESCE(acd.title, '') AS day_title
-               FROM academic_years ay
-               JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id
+               FROM " . ReadReplicaService::qualifiedRef("academic_years") . " ay
+               JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id
                 AND ? BETWEEN ayt.opening_date AND ayt.closing_date
-               LEFT JOIN academic_year_calendar ac ON ac.academic_year_term_id = ayt.id
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.academic_year_term_id = ayt.id
                 AND ? BETWEEN ac.week_start AND ac.week_end
-               LEFT JOIN academic_year_calendar_days acd ON acd.academic_year_calendar_id = ac.id
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " acd ON acd.academic_year_calendar_id = ac.id
                 AND acd.date = ?
-               LEFT JOIN calendar_day_types cdt ON cdt.id = acd.calendar_day_type_id
               WHERE (ay.is_current = 1 OR ay.status = 'active')
               ORDER BY ay.is_current DESC, ay.id DESC LIMIT 1"
         );
@@ -348,13 +343,10 @@ class AttendanceRegisterService
     private function streams(int $yearId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT aycs.id, aycs.class_teacher_id, aycs.stream_id, ayc.class_id,
-                    CONCAT(COALESCE(c.name, ''), ' - ', COALESCE(st.name, '')) AS stream_name
-               FROM academic_year_class_streams aycs
-               JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-               JOIN classes c ON c.id = ayc.class_id
-               LEFT JOIN streams st ON st.id = aycs.stream_id
-              WHERE ayc.academic_year_id = ? AND aycs.status = 'active'"
+            "SELECT class_stream_id AS id, class_teacher_id, stream_id, class_id,
+                    CONCAT(COALESCE(class_name, ''), ' - ', COALESCE(stream_name, '')) AS stream_name
+               FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+              WHERE academic_year_id = ? AND class_stream_status = 'active'"
         );
         $stmt->execute([$yearId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -363,26 +355,25 @@ class AttendanceRegisterService
     private function sessions(string $dayName, bool $saturdayClasses, int $termId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT ass.*,
-                    cfg.name AS term_name, cfg.description AS term_description,
-                    cfg.start_time AS term_start_time, cfg.end_time AS term_end_time,
-                    cfg.applicable_days AS term_applicable_days,
-                    cfg.applies_to AS term_applies_to,
-                    cfg.is_mandatory AS term_is_mandatory,
-                    cfg.display_order AS term_display_order,
-                    cfg.status AS term_status
-             FROM attendance_sessions ass
-             LEFT JOIN attendance_session_term_configs cfg
-               ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
-             WHERE ass.type IN ('academic','boarding')
-             ORDER BY COALESCE(cfg.display_order, ass.display_order), ass.id"
+            "SELECT *,
+                    configured_name AS term_name, configured_description AS term_description,
+                    configured_start_time AS term_start_time, configured_end_time AS term_end_time,
+                    configured_applicable_days AS term_applicable_days,
+                    configured_applies_to AS term_applies_to,
+                    configured_is_mandatory AS term_is_mandatory,
+                    configured_display_order AS term_display_order,
+                    configured_status AS term_status
+             FROM " . ReadReplicaService::qualifiedRef("attendance_sessions_config") . "
+             WHERE academic_year_term_id = ? AND type IN ('academic','boarding')
+             ORDER BY COALESCE(configured_display_order, display_order), id"
         );
         $stmt->execute([$termId]);
         $result = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             foreach (['name','description','start_time','end_time','applicable_days','applies_to','is_mandatory','display_order','status'] as $field) {
-                if ($row['term_' . $field] !== null) $row[$field] = $row['term_' . $field];
-                unset($row['term_' . $field]);
+                $cfgField = 'configured_' . $field;
+                if ($row[$cfgField] !== null) $row[$field] = $row[$cfgField];
+                unset($row[$cfgField]);
             }
             if (($row['status'] ?? 'inactive') !== 'active') continue;
             $days = json_decode((string) ($row['applicable_days'] ?? '[]'), true) ?: [];
@@ -395,9 +386,9 @@ class AttendanceRegisterService
 
     private function expectedCount(int $streamId, string $appliesTo, string $date): int
     {
-        $sql = "SELECT COUNT(*) FROM student_academic_enrollments en
-                  JOIN students s ON s.id = en.student_id
-                  LEFT JOIN admission_applications aa ON aa.id=s.application_id
+        $sql = "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " en
+                  JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = en.student_id
+                  LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id=s.application_id
                   LEFT JOIN student_types ty ON ty.id = s.student_type_id
                  WHERE en.academic_year_class_stream_id = ? AND en.enrollment_status = 'active' AND s.status = 'active'
                    AND COALESCE(
@@ -472,7 +463,7 @@ class AttendanceRegisterService
     private function reconcile(int $id, int $streamId, int $sessionId, string $date, int $expected, string $now): void
     {
         $stmt = $this->db->prepare("SELECT COUNT(DISTINCT sa.student_academic_enrollment_id)
-              FROM student_attendance sa JOIN student_academic_enrollments en ON en.id=sa.student_academic_enrollment_id
+              FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
              WHERE sa.date=? AND sa.session_id=? AND en.academic_year_class_stream_id=?");
         $stmt->execute([$date, $sessionId, $streamId]); $marked = (int) $stmt->fetchColumn();
         $row = $this->db->prepare("SELECT opens_at, due_at, overdue_at, status FROM attendance_registers WHERE id=?"); $row->execute([$id]); $current = $row->fetch(PDO::FETCH_ASSOC);
@@ -503,10 +494,9 @@ class AttendanceRegisterService
     private function notify(string $date, string $now, int $registers): array
     {
         $service = new NotificationService($this->db); $reminders = 0; $escalations = 0;
-        $q = $this->db->prepare("SELECT ar.*, ass.name AS session_name, CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name
-              FROM attendance_registers ar JOIN attendance_sessions ass ON ass.id=ar.session_id
-              JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
-              JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams st ON st.id=aycs.stream_id
+        $q = $this->db->prepare("SELECT ar.*, ass.name AS session_name, CONCAT(COALESCE(csd.class_name,''),' - ',COALESCE(csd.stream_name,'')) AS stream_name
+              FROM attendance_registers ar JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass ON ass.id=ar.session_id
+              JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id=ar.stream_id
              WHERE ar.register_date=? AND ar.status IN ('open','overdue','not_marked')");
         $q->execute([$date]);
         foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) {

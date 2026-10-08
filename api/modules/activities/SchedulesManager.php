@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\activities;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -54,25 +55,22 @@ class SchedulesManager extends BaseAPI
             }
 
             if (!empty($params['start_date'])) {
-                $where[] = 'a.end_date >= ?';
+                $where[] = 'as_tbl.activity_end_date >= ?';
                 $bindings[] = $params['start_date'];
             }
             if (!empty($params['end_date'])) {
-                $where[] = 'a.start_date <= ?';
+                $where[] = 'as_tbl.activity_start_date <= ?';
                 $bindings[] = $params['end_date'];
             }
 
             $whereClause = implode(' AND ', $where);
 
             $sql = "
-                SELECT 
-                    as_tbl.*,
-                    a.title as activity_title,
-                    a.status as activity_status,
-                    ac.name as category_name
-                FROM activity_schedule as_tbl
-                JOIN activities a ON as_tbl.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                SELECT as_tbl.id, as_tbl.activity_id, as_tbl.day_of_week,
+                       as_tbl.schedule_date, as_tbl.start_time, as_tbl.end_time,
+                       as_tbl.venue, as_tbl.created_at, as_tbl.updated_at,
+                       as_tbl.activity_title, as_tbl.activity_status, as_tbl.category_name
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_schedule_directory') . " as_tbl
                 WHERE $whereClause
                 ORDER BY 
                     FIELD(as_tbl.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
@@ -105,16 +103,13 @@ class SchedulesManager extends BaseAPI
         try {
             $sql = "
                 SELECT 
-                    as_tbl.*,
-                    a.title as activity_title,
-                    a.description as activity_description,
-                    a.status as activity_status,
-                    a.start_date,
-                    a.end_date,
-                    ac.name as category_name
-                FROM activity_schedule as_tbl
-                JOIN activities a ON as_tbl.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                    as_tbl.id, as_tbl.activity_id, as_tbl.day_of_week,
+                    as_tbl.schedule_date, as_tbl.start_time, as_tbl.end_time,
+                    as_tbl.venue, as_tbl.created_at, as_tbl.updated_at,
+                    as_tbl.activity_title, as_tbl.activity_description,
+                    as_tbl.activity_status, as_tbl.activity_start_date AS start_date,
+                    as_tbl.activity_end_date AS end_date, as_tbl.category_name
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_schedule_directory') . " as_tbl
                 WHERE as_tbl.id = ?
             ";
 
@@ -392,8 +387,7 @@ class SchedulesManager extends BaseAPI
         try {
             $sql = "
                 SELECT * 
-                FROM activity_schedule 
-                WHERE activity_id = ?
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " activity_id = ?
                 ORDER BY 
                     FIELD(day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
                     start_time
@@ -431,7 +425,7 @@ class SchedulesManager extends BaseAPI
                 SELECT 
                     as_tbl.*,
                     a.title as activity_title
-                FROM activity_schedule as_tbl
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
                 JOIN activities a ON as_tbl.activity_id = a.id
                 WHERE as_tbl.venue = ?
                 AND as_tbl.day_of_week = ?
@@ -482,11 +476,11 @@ class SchedulesManager extends BaseAPI
     public function getWeeklyTimetable($params = [])
     {
         try {
-            $where = ['a.status IN (?, ?)'];
+            $where = ['as_tbl.activity_status IN (?, ?)'];
             $bindings = ['planned', 'ongoing'];
 
             if (!empty($params['category_id'])) {
-                $where[] = 'a.category_id = ?';
+                $where[] = 'as_tbl.category_id = ?';
                 $bindings[] = $params['category_id'];
             }
 
@@ -499,12 +493,11 @@ class SchedulesManager extends BaseAPI
 
             $sql = "
                 SELECT 
-                    as_tbl.*,
-                    a.title as activity_title,
-                    ac.name as category_name
-                FROM activity_schedule as_tbl
-                JOIN activities a ON as_tbl.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                    as_tbl.id, as_tbl.activity_id, as_tbl.day_of_week,
+                    as_tbl.schedule_date, as_tbl.start_time, as_tbl.end_time,
+                    as_tbl.venue, as_tbl.created_at, as_tbl.updated_at,
+                    as_tbl.activity_title, as_tbl.category_name
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('activity_schedule_directory') . " as_tbl
                 WHERE $whereClause
                 ORDER BY 
                     FIELD(as_tbl.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
@@ -558,7 +551,7 @@ class SchedulesManager extends BaseAPI
                     a.title as activity_title,
                     as_tbl.start_time,
                     as_tbl.end_time
-                FROM activity_schedule as_tbl
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
                 JOIN activities a ON as_tbl.activity_id = a.id
                 WHERE as_tbl.day_of_week = ?
                 AND a.status IN ('planned', 'ongoing')

@@ -751,7 +751,7 @@ class TwoFactorService
      */
     public function getUserContact(int $userId): array
     {
-        $stmt = $this->db->prepare("SELECT p.email, p.phone AS phone_1 FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?");
+        $stmt = $this->db->prepare("SELECT email, phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE user_id = ?");
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -868,4 +868,13 @@ class TwoFactorService
         }
         return $result;
     }
+
+    /** Mark the account passkey-enabled after a successful first registration. */
+    public function enablePasskeyOnAccount(int $userId): void
+    {
+        $stmt = $this->db->prepare("UPDATE users SET two_factor_enabled=1, two_factor_method='passkey', two_factor_verified_at=NOW() WHERE id=?");
+        $stmt->execute([$userId]);
+    }
+
+
 }

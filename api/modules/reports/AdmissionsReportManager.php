@@ -1,5 +1,7 @@
 <?php
 namespace App\API\Modules\reports;
+
+use App\API\Services\ReadReplicaService;
 use App\API\Includes\BaseAPI;
 
 class AdmissionsReportManager extends BaseAPI
@@ -80,9 +82,9 @@ class AdmissionsReportManager extends BaseAPI
                         YEAR(COALESCE(st.executed_at, st.decided_at)) AS graduation_year,
                         p.gender,
                         COUNT(*) AS alumni_count
-                    FROM student_transitions st
-                    JOIN students s ON s.id = st.student_id
-                    JOIN persons p ON p.id = s.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
+                    JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = st.student_id
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     WHERE " . implode(' AND ', $where) . "
                     GROUP BY graduation_year, p.gender
                     ORDER BY graduation_year DESC";

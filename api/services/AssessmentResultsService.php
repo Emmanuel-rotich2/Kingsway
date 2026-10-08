@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Services;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 use RuntimeException;
 
@@ -87,7 +88,7 @@ final class AssessmentResultsService
                         throw new RuntimeException('Every present learner requires numeric marks', 422);
                     }
                     $score = (float) $raw;
-                    $grade = $this->grading->grade($score, (float) $assessment['max_marks']);
+                    $grade = $this->grading->gradeForSystem($score, (float) $assessment['max_marks'], $this->gradingSystemFor((int) $assessment['id']));
                 }
 
                 $normalized[$studentId] = [
@@ -247,7 +248,7 @@ final class AssessmentResultsService
     public function adminUpdateResult(int $resultId, array $data): array
     {
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to edit a result.', 403);
-        $stmt=$this->db->prepare('SELECT ar.*,a.max_marks,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL');
+        $stmt=$this->db->prepare('SELECT *, max_marks, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NULL');
         $stmt->execute([$resultId]); $old=$stmt->fetch(PDO::FETCH_ASSOC);
         if (!$old) throw new RuntimeException('Result record not found.',404);
         $status=strtolower(trim((string)($data['entry_status']??$old['entry_status']??'present')));
@@ -256,7 +257,7 @@ final class AssessmentResultsService
         if($status==='present'){
             $raw=$data['marks_obtained']??$old['marks_obtained'];
             if(!is_numeric($raw)||(float)$raw<0||(float)$raw>(float)$old['max_marks']) throw new RuntimeException('Marks must be between zero and the assessment maximum.',422);
-            $graded=$this->grading->grade((float)$raw,(float)$old['max_marks']);$score=(float)$raw;$grade=$graded['grade_code']??null;$points=$graded['points']??null;
+            $graded=$this->grading->gradeForSystem((float)$raw,(float)$old['max_marks'],$this->gradingSystemFor((int)$old['assessment_id']));$score=(float)$raw;$grade=$graded['grade_code']??null;$points=$graded['points']??null;
         }
         $remarks=trim((string)($data['remarks']??$old['remarks']??''));
         $this->db->beginTransaction();
@@ -268,12 +269,85 @@ final class AssessmentResultsService
         } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
     }
 
+    /**
+     * Record (or re-record over) one summative result as the academic leader.
+     * Binds the write to the assessment's exact class-stream enrollment, keeps
+     * browser-supplied grades out, and journals the transition.
+     */
+    public function adminCreateResult(array $data): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to record a result.', 403);
+        $assessmentId=(int)($data['assessment_id']??0);
+        $enrollmentId=(int)($data['student_academic_enrollment_id']??0);
+        if(!$assessmentId||!$enrollmentId) throw new RuntimeException('Assessment and learner enrollment are required.',422);
+        $status=strtolower(trim((string)($data['entry_status']??'present')));
+        if(!in_array($status,['present','absent','exempted'],true)) throw new RuntimeException('Invalid result status.',422);
+
+        // Recomputing term results inside every per-learner write means concurrent
+        // mark entry contends on the same aggregate rows. InnoDB resolves that as a
+        // deadlock, which it expects the application to retry, so retry the whole
+        // (idempotent, ON DUPLICATE KEY UPDATE) transaction once before surfacing it.
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $this->recordResultRow($data, $assessmentId, $enrollmentId, $status);
+            } catch (\PDOException $e) {
+                if ($attempt >= 2 || !$this->isRetryableLockFailure($e)) throw $e;
+                usleep(120000 * ($attempt + 1));
+            }
+        }
+    }
+
+    /** True for a deadlock or lock-wait timeout that a retry can resolve. */
+    private function isRetryableLockFailure(\PDOException $e): bool
+    {
+        $driverCode = (int) ($e->errorInfo[1] ?? 0);
+        $sqlState = (string) ($e->errorInfo[0] ?? '');
+        return $driverCode === 1213 || $driverCode === 1205 || $sqlState === '40001';
+    }
+
+    private function recordResultRow(array $data, int $assessmentId, int $enrollmentId, string $status): array
+    {
+        $this->db->beginTransaction();
+        try {
+            $stmt=$this->db->prepare('SELECT a.id,a.max_marks,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessments a WHERE a.id=?');
+            $stmt->execute([$assessmentId]);$assessment=$stmt->fetch(PDO::FETCH_ASSOC);
+            if(!$assessment) throw new RuntimeException('Assessment not found.',404);
+            $enroll=$this->db->prepare("SELECT id FROM student_academic_enrollments WHERE id=? AND academic_year_class_stream_id=? AND enrollment_status IN ('active','completed')");
+            $enroll->execute([$enrollmentId,(int)$assessment['academic_year_class_stream_id']]);
+            if(!$enroll->fetchColumn()) throw new RuntimeException('The learner enrollment does not belong to this assessment class stream.',422);
+            $score=null;$grade=null;$points=null;
+            if($status==='present'){
+                $raw=$data['marks_obtained']??null;
+                if($raw===null||$raw===''||!is_numeric($raw)) throw new RuntimeException('Numeric marks are required for a present learner.',422);
+                if((float)$raw<0||(float)$raw>(float)$assessment['max_marks']) throw new RuntimeException('Marks must be between zero and the assessment maximum.',422);
+                $score=(float)$raw;
+                $graded=$this->grading->gradeForSystem($score,(float)$assessment['max_marks'],$this->gradingSystemFor($assessmentId));$grade=$graded['grade_code']??null;$points=$graded['points']??null;
+            }
+            $remarks=trim((string)($data['remarks']??''));
+            $this->db->prepare("INSERT INTO assessment_results
+                    (assessment_id, student_academic_enrollment_id, marks_obtained, entry_status,
+                     grade, points, remarks, submitted_at, is_submitted, is_approved, responder_type, responder_id)
+                 VALUES (?,?,?,?,?,?,?,NOW(),1,0,'teacher',?)
+                 ON DUPLICATE KEY UPDATE
+                    marks_obtained=VALUES(marks_obtained), entry_status=VALUES(entry_status),
+                    grade=VALUES(grade), points=VALUES(points), remarks=VALUES(remarks),
+                    deleted_at=NULL, deleted_by=NULL")->execute([$assessmentId,$enrollmentId,$score,$status,$grade,$points,$remarks,$this->userId]);
+            $idStmt=$this->db->prepare('SELECT id FROM assessment_results WHERE assessment_id=? AND student_academic_enrollment_id=?');
+            $idStmt->execute([$assessmentId,$enrollmentId]);
+            $resultId=(int)$idStmt->fetchColumn();
+            $this->recordEvent($assessmentId,$resultId,$enrollmentId,'created',null,['marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade,'remarks'=>$remarks],(string)($data['reason']??'Administrative result recording'));
+            (new TermResultsService($this->db))->compute((int)$assessment['academic_year_class_stream_id'],(int)$assessment['academic_year_term_id'],(int)$assessment['learning_area_id']);
+            $this->db->commit();
+            return ['id'=>$resultId,'marks_obtained'=>$score,'entry_status'=>$status,'grade'=>$grade];
+        } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
     public function softDeleteResult(int $resultId): array
     {
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to delete a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Active result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NOW(),deleted_by=? WHERE id=?')->execute([$this->userId,$resultId]);
@@ -289,7 +363,7 @@ final class AssessmentResultsService
         if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to restore a result.',403);
         $this->db->beginTransaction();
         try {
-            $stmt=$this->db->prepare('SELECT ar.*,a.academic_year_class_stream_id,a.academic_year_term_id,a.learning_area_id FROM assessment_results ar JOIN assessments a ON a.id=ar.assessment_id WHERE ar.id=? AND ar.deleted_at IS NOT NULL FOR UPDATE');
+            $stmt=$this->db->prepare('SELECT *, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM ' . ReadReplicaService::qualifiedRef("assessment_results_detailed") . ' WHERE id=? AND deleted_at IS NOT NULL FOR UPDATE');
             $stmt->execute([$resultId]);$old=$stmt->fetch(PDO::FETCH_ASSOC);
             if(!$old) throw new RuntimeException('Deleted result record not found.',404);
             $this->db->prepare('UPDATE assessment_results SET deleted_at=NULL,deleted_by=NULL WHERE id=?')->execute([$resultId]);
@@ -298,6 +372,84 @@ final class AssessmentResultsService
             $this->db->commit();
             return ['id'=>$resultId,'restored'=>true];
         } catch(\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); throw $e; }
+    }
+
+    /**
+     * School-leadership submission of one complete learning-area register.
+     *
+     * Publication requires every register to be submitted, and the teacher bulk
+     * path is scoped to the assigned class stream, so academic leadership needs
+     * its own governed submission action for record-only exam periods.
+     */
+    public function adminSubmitRegister(int $assessmentId, string $reason = ''): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to submit this register.',403);
+
+        $this->db->beginTransaction();
+        try {
+            $assessment = $this->assessment($assessmentId, true);
+            $this->assertPeriodAllowsEntry($assessmentId);
+            if ($assessment['assessment_status'] !== 'pending_submission') {
+                throw new RuntimeException('Only a register awaiting submission can be submitted.',409);
+            }
+
+            $streamId = (int) $assessment['academic_year_class_stream_id'];
+            $roster = $this->rosterMap($streamId);
+            if (!$roster) throw new RuntimeException('No active learner enrollments exist for this class stream.',409);
+
+            $stmt = $this->db->prepare('SELECT * FROM assessment_results WHERE assessment_id=? AND deleted_at IS NULL FOR UPDATE');
+            $stmt->execute([$assessmentId]);
+            $recorded = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $recorded[(int) $row['student_academic_enrollment_id']] = $row;
+            }
+
+            $missing = [];
+            foreach ($roster as $studentId => $enrollmentId) {
+                $row = $recorded[$enrollmentId] ?? null;
+                if (!$row || !in_array((string) $row['entry_status'], ['present', 'absent', 'exempted'], true)) {
+                    $missing[] = $studentId;
+                    continue;
+                }
+                if ((string) $row['entry_status'] === 'present' && ($row['marks_obtained'] === null || !is_numeric((string) $row['marks_obtained']))) {
+                    $missing[] = $studentId;
+                }
+            }
+            if ($missing) {
+                throw new RuntimeException(count($missing) . ' learner(s) still require marks, absent, or exempted status before this register can be submitted.',422);
+            }
+
+            $submittedAt = date('Y-m-d H:i:s');
+            $mark = $this->db->prepare('UPDATE assessment_results SET is_submitted=1,is_approved=0,submitted_at=? WHERE id=?');
+            foreach ($recorded as $enrollmentId => $row) {
+                $mark->execute([$submittedAt, (int) $row['id']]);
+                $this->recordEvent($assessmentId, (int) $row['id'], (int) $enrollmentId, 'submitted', $row, ['is_submitted' => true, 'is_approved' => false], $reason !== '' ? trim($reason) : 'Administrative register submission.');
+            }
+
+            $reviewRequired = $this->classTeacherReviewRequired($streamId);
+            if ($reviewRequired && !$this->hasClassReviewSchema()) {
+                throw new RuntimeException('Class-teacher review needs the summative-assessment migration before Grade 4–9 results can be submitted.',409);
+            }
+            $reviewStatus = $reviewRequired ? 'pending' : 'not_required';
+            $this->db->prepare(
+                'UPDATE assessments SET status=?,submitted_by=?,submitted_at=?,class_review_status=?,class_reviewed_by=NULL,class_reviewed_at=NULL,class_review_note=NULL WHERE id=?'
+            )->execute(['submitted', $this->staffId(), $submittedAt, $reviewStatus, $assessmentId]);
+
+            (new ExamPeriodService($this->db, $this->userId))->markSubmitted($assessmentId);
+            (new TermResultsService($this->db))->compute($streamId, (int) $assessment['academic_year_term_id'], (int) $assessment['learning_area_id']);
+
+            $this->db->commit();
+            return [
+                'assessment_id' => $assessmentId,
+                'status' => 'submitted',
+                'class_review_status' => $reviewStatus,
+                'result_count' => count($recorded),
+                'submitted_at' => $submittedAt,
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /** Mark a validated register official and journal every result transition. */
@@ -353,7 +505,7 @@ final class AssessmentResultsService
                 $params[] = $studentId;
             }
             $stmt = $this->db->prepare(
-                "SELECT ar.* FROM assessment_results ar
+                "SELECT ar.* FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
                  JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
                  WHERE ar.assessment_id = ? AND ar.is_submitted = 1 AND ar.deleted_at IS NULL{$studentSql}
                  FOR UPDATE"
@@ -459,29 +611,18 @@ final class AssessmentResultsService
 
     private function exam(int $assessmentId): array
     {
+        $ec = ReadReplicaService::qualifiedRef('exam_context');
         $stmt = $this->db->prepare(
-            "SELECT es.id AS exam_schedule_id, esa.assessment_id, es.exam_name, es.exam_type,
-                    es.exam_date, es.start_time, es.end_time, es.venue, es.status AS schedule_status,
-                    esa.academic_year_class_stream_id, es.academic_year_class_id, es.academic_year_term_id, es.learning_area_id,
-                    ep.id AS exam_period_id, ep.status AS exam_period_status,
-                    a.title AS assessment_title, a.max_marks, a.assessment_type_id,
-                    a.assigned_by, a.status AS assessment_status,
-                    la.name AS learning_area_name, c.name AS class_name, sn.name AS stream_name,
-                    at.name AS assessment_type_name
-             FROM exam_schedules es
-             JOIN exam_schedule_assessments esa ON esa.exam_schedule_id=es.id
-             JOIN assessments a ON a.id = esa.assessment_id
-             JOIN academic_year_class_streams aycs ON aycs.id = esa.academic_year_class_stream_id
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN streams sn ON sn.id = aycs.stream_id
-             JOIN learning_areas la ON la.id = es.learning_area_id
-             JOIN assessment_types at ON at.id = a.assessment_type_id
-             LEFT JOIN exam_period_timetable_entries ept ON ept.exam_schedule_id = es.id
-             LEFT JOIN exam_period_class_learning_areas epcla ON epcla.id=ept.exam_period_class_learning_area_id
-             LEFT JOIN exam_period_classes epc ON epc.id=epcla.exam_period_class_id
-             LEFT JOIN exam_periods ep ON ep.id=epc.exam_period_id
-             WHERE esa.assessment_id = ? AND es.status <> 'cancelled' LIMIT 1"
+            "SELECT ec.exam_schedule_id, ec.assessment_id, ec.exam_name, ec.exam_type,
+                    ec.exam_date, ec.start_time, ec.end_time, ec.venue, ec.exam_status AS schedule_status,
+                    ec.aycs_id AS academic_year_class_stream_id, ec.academic_year_class_id, ec.academic_year_term_id, ec.learning_area_id,
+                    ec.exam_period_id, ec.period_status AS exam_period_status,
+                    ec.assessment_title, ec.assessment_max_marks AS max_marks, ec.assessment_type_id,
+                    ec.assigned_by, ec.assessment_status,
+                    ec.learning_area_name, ec.class_name, ec.stream_name,
+                    ec.assessment_type_name
+             FROM {$ec} ec
+             WHERE ec.assessment_id = ? AND ec.exam_status <> 'cancelled' LIMIT 1"
         );
         $stmt->execute([$assessmentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -526,10 +667,10 @@ final class AssessmentResultsService
                     ar.marks_obtained, COALESCE(ar.entry_status, 'present') AS entry_status,
                     ar.grade, ar.points, ar.remarks, ar.moderation_note,
                     ar.is_submitted, ar.is_approved, ar.updated_at
-             FROM student_academic_enrollments sae
-             JOIN students s ON s.id = sae.student_id AND s.status = 'active'
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN assessment_results ar
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id AND s.status = 'active'
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
                ON ar.student_academic_enrollment_id = sae.id AND ar.assessment_id = ? AND ar.deleted_at IS NULL
              WHERE sae.academic_year_class_stream_id = ?
                AND sae.enrollment_status IN ('pending','active')
@@ -537,6 +678,40 @@ final class AssessmentResultsService
         );
         $stmt->execute([$assessmentId, $classStreamId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * The versioned grading system in force for this assessment: its exam
+     * period snapshot first (historical immutability), then the term/class
+     * binding, then the global legacy scale. Null = legacy behaviour.
+     */
+    private function gradingSystemFor(int $assessmentId): ?int
+    {
+        try {
+            $stmt = $this->db->prepare(
+                'SELECT ep.grading_system_id
+                 FROM ' . ReadReplicaService::qualifiedRef('assessments') . ' a
+                 JOIN exam_schedule_assessments esa ON esa.assessment_id = a.id
+                 JOIN exam_period_timetable_entries epte ON epte.exam_schedule_id = esa.exam_schedule_id
+                 JOIN exam_period_class_learning_areas epcla ON epcla.id = epte.exam_period_class_learning_area_id
+                 JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
+                 JOIN exam_periods ep ON ep.id = epc.exam_period_id
+                 WHERE a.id = ? LIMIT 1'
+            );
+            $stmt->execute([$assessmentId]);
+            $snapshotted = $stmt->fetchColumn();
+            if ($snapshotted !== false && $snapshotted !== null && (int) $snapshotted > 0) {
+                return (int) $snapshotted;
+            }
+        } catch (\Throwable) {
+            // results_only periods have no timetable link; fall through to the binding.
+        }
+        try {
+            $resolved = (new GradingScopeService($this->db))->resolveForAssessment($assessmentId);
+            return $resolved !== null ? (int) $resolved['system']['id'] : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function rosterMap(int $classStreamId): array
@@ -594,8 +769,8 @@ final class AssessmentResultsService
             return $this->staffId ?: null;
         }
         $stmt = $this->db->prepare(
-            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id
-             WHERE u.id = ? AND s.status = 'active' LIMIT 1"
+            "SELECT s.staff_id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+             WHERE s.user_id = ? AND s.staff_status = 'active' LIMIT 1"
         );
         $stmt->execute([$this->userId]);
         $this->staffId = (int) ($stmt->fetchColumn() ?: 0);
@@ -628,7 +803,7 @@ final class AssessmentResultsService
 
     private function classTeacherReviewRequired(int $streamId): bool
     {
-        $stmt=$this->db->prepare('SELECT c.name FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id JOIN classes c ON c.id=ayc.class_id WHERE aycs.id=?');
+        $stmt=$this->db->prepare('SELECT aycs.class_name AS name FROM ' . ReadReplicaService::qualifiedRef('academic_calendar') . ' aycs WHERE aycs.class_stream_id=?');
         $stmt->execute([$streamId]);
         $name=(string)$stmt->fetchColumn();
         return preg_match('/(?:grade|class)\\s*[4-9]\\b/i',$name)===1;

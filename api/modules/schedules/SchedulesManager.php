@@ -2,7 +2,9 @@
 namespace App\API\Modules\schedules;
 
 use Exception;
+use PDO;
 use function App\API\Includes\dayNameToNumber;
+use App\API\Services\ReadReplicaService;
 
 class SchedulesManager
 {
@@ -47,7 +49,7 @@ class SchedulesManager
         $sql = "SELECT * FROM vw_timetable_entries cs
                 WHERE cs.status = 'scheduled'
                   AND (cs.subject_id = :subject_id
-                       OR cs.subject_id = (SELECT st.learning_area_id FROM strands st WHERE st.id = :subject_id2))";
+                       OR cs.subject_id = (SELECT st.learning_area_id FROM " . ReadReplicaService::qualifiedRef("strands") . " st WHERE st.id = :subject_id2))";
         $params = ['subject_id' => $subjectId, 'subject_id2' => $subjectId];
         if ($termId) {
             $sql .= " AND cs.academic_year_term_id = :term_id";
@@ -68,10 +70,10 @@ class SchedulesManager
                     a.description as activity_description,
                     a.status as activity_status,
                     CONCAT(COALESCE(sp.first_name, ''), ' ', COALESCE(sp.last_name, '')) as coordinator_name
-                FROM activity_schedule asch
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " asch
                 JOIN activities a ON asch.activity_id = a.id
-                LEFT JOIN staff st ON a.started_by = st.id
-                LEFT JOIN persons sp ON sp.id = st.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON a.started_by = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = st.person_id
                 WHERE 1=1";
         $params = [];
         if (!empty($filters['term_id'])) {
@@ -98,7 +100,7 @@ class SchedulesManager
         $sql = "SELECT ts.*, v.registration_number, r.name as route_name
                 FROM transport_schedules ts
                 JOIN transport_vehicles v ON ts.vehicle_id = v.id
-                JOIN transport_routes r ON ts.route_id = r.id
+                JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " r ON ts.route_id = r.id
                 WHERE ts.driver_id = :driver_id";
         $params = ['driver_id' => $driverId];
         if ($termId) {
@@ -115,7 +117,7 @@ class SchedulesManager
     public function getStaffDutySchedule($staffId, $termId = null)
     {
         $sql = "SELECT dsr.*, dt.name as department_name, NULL as room_name
-                FROM staff_duty_roster dsr
+                FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . "
                 LEFT JOIN staff_duty_types dt ON dt.id = dsr.duty_type_id
                 WHERE dsr.staff_id = :staff_id";
         $params = ['staff_id' => $staffId];
@@ -319,4 +321,21 @@ class SchedulesManager
         $overlaps = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         return count($overlaps) === 0;
     }
+    /**
+     * Count draft entries the given teacher scope covers. Centralized so the
+     * controller performs no SQL (SQL placement rule).
+     */
+    public static function countDraftEntriesForScope(PDO $db, int $draftId, array $scope): int
+    {
+        if ($scope === []) {
+            return 0;
+        }
+        $in = implode(',', array_fill(0, count($scope), '?'));
+        $stmt = $db->prepare(
+            "SELECT COUNT(*) FROM timetable_draft_entries WHERE draft_id = ? AND academic_year_class_stream_id IN (" . $in . ")"
+        );
+        $stmt->execute(array_merge([$draftId], $scope));
+        return (int) $stmt->fetchColumn();
+    }
+
 }

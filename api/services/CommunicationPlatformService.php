@@ -34,10 +34,10 @@ class CommunicationPlatformService
     ): array {
         $stmt = $this->db->prepare(
             "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
-               FROM student_parents sp
-               JOIN parents pr ON pr.id = sp.parent_id AND pr.status = 'active'
+               FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+               JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.id = sp.parent_id AND pr.status = 'active'
                JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
-               JOIN persons p ON p.id = u.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = u.person_id
               WHERE sp.student_id = ?"
         );
         $stmt->execute([$studentId]);
@@ -53,9 +53,7 @@ class CommunicationPlatformService
     ): array {
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, p.email, p.phone
-               FROM parents pr
-               JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
-               JOIN persons p ON p.id = u.person_id
+               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
               WHERE pr.id = ? AND pr.status = 'active'"
         );
         $stmt->execute([$parentId]);
@@ -101,10 +99,10 @@ class CommunicationPlatformService
     ): array {
         $stmt = $this->db->prepare(
             "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
-               FROM student_parents sp
-               JOIN parents pr ON pr.id = sp.parent_id AND pr.status = 'active'
+               FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+               JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.id = sp.parent_id AND pr.status = 'active'
                LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
-               JOIN persons p ON p.id = pr.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = pr.person_id
               WHERE sp.student_id = ?"
         );
         $stmt->execute([$studentId]);

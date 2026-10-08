@@ -18,7 +18,7 @@ final class StaffCompensationService
     {
         $roles = $this->db->query(
             "SELECT r.id, r.name, rate.gross_salary, rate.effective_from, rate.effective_to
-             FROM roles r
+             FROM " . ReadReplicaService::masterRef("roles") . "
              LEFT JOIN staff_role_salary_rates rate ON rate.id = (
                  SELECT latest.id FROM staff_role_salary_rates latest
                  WHERE latest.role_id = r.id ORDER BY latest.effective_from DESC, latest.id DESC LIMIT 1
@@ -32,14 +32,7 @@ final class StaffCompensationService
                     CASE WHEN override.id IS NULL THEN 0 ELSE 1 END AS salary_override,
                     override.gross_salary AS individual_salary,
                     role_rate.gross_salary AS role_gross_salary
-             FROM staff s JOIN persons p ON p.id = s.person_id
-             LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-             LEFT JOIN departments d ON d.id = sep.department_id
-             LEFT JOIN users u ON u.person_id = p.id
-             LEFT JOIN user_roles ur ON ur.user_id = u.id AND ur.is_primary = 1
-             LEFT JOIN roles primary_role ON primary_role.id = ur.role_id
-             LEFT JOIN staff_salary_overrides override ON override.id = (
-                 SELECT latest.id FROM staff_salary_overrides latest
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                  WHERE latest.staff_id = s.id AND latest.effective_from <= CURDATE()
                    AND (latest.effective_to IS NULL OR latest.effective_to >= CURDATE())
                  ORDER BY latest.effective_from DESC, latest.id DESC LIMIT 1
@@ -59,19 +52,19 @@ final class StaffCompensationService
             "SELECT so.id, so.staff_id, so.gross_salary, so.effective_from, so.effective_to,
                     CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
                     s.staff_no
-             FROM staff_salary_overrides so JOIN staff s ON s.id=so.staff_id
-             JOIN persons p ON p.id=s.person_id
+             FROM staff_salary_overrides so JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=so.staff_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=s.person_id
              ORDER BY so.effective_from DESC, so.id DESC LIMIT 250"
         )->fetchAll(PDO::FETCH_ASSOC);
         $awardBatches = $this->db->query(
             "SELECT b.id,b.award_kind,b.award_name,b.award_type,b.amount_per_month,b.selection_mode,
                     b.status,b.created_at,d.name AS department,
-                    (SELECT COUNT(*) FROM staff_payroll_award_recipients r WHERE r.batch_id=b.id) AS recipient_count,
+                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_payroll_award_recipients") . " WHERE r.batch_id=b.id) AS recipient_count,
                     (SELECT GROUP_CONCAT(CONCAT(LPAD(p.payroll_month,2,'0'),'/',p.payroll_year)
                          ORDER BY p.payroll_year,p.payroll_month SEPARATOR ', ')
                      FROM staff_payroll_award_periods p WHERE p.batch_id=b.id) AS periods
              FROM staff_payroll_award_batches b
-             LEFT JOIN departments d ON d.id=b.department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id=b.department_id
              ORDER BY b.created_at DESC,b.id DESC LIMIT 100"
         )->fetchAll(PDO::FETCH_ASSOC);
 
@@ -232,9 +225,7 @@ final class StaffCompensationService
         if ($mode === 'department_all') {
             if ($departmentId < 1) throw new RuntimeException('Choose a department.');
             $staffQuery = $this->db->prepare(
-                "SELECT s.id FROM staff s
-                 JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                 JOIN departments d ON d.id = sep.department_id AND d.status = 'active'
+                "SELECT s.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                  WHERE s.status = 'active' AND s.data_scope = 'live' AND sep.department_id = ?"
             );
             $staffQuery->execute([$departmentId]);

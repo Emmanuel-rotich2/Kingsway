@@ -2,6 +2,7 @@
 namespace App\API\Modules\communications;
 
 use PDO;
+use App\API\Services\ReadReplicaService;
 
 class StaffRequestManager
 {
@@ -105,6 +106,7 @@ class StaffRequestManager
         }
         if (!empty($filters['status'])) {
             $where[] = 'status = ?';
+            $   $where[] = 'status = ?';
             $params[] = $filters['status'];
         }
         $sql = "SELECT * FROM internal_conversations";
@@ -135,7 +137,7 @@ class StaffRequestManager
         $mail = new \App\API\Services\MessageService($this->db);
         $sms = new \App\API\Services\SMS\SMSGateway();
         // Fetch requester email/phone from persons (staff has no email/phone columns)
-        $stmt = $this->db->prepare("SELECT p.email, p.phone FROM internal_conversations c JOIN staff s ON s.id = c.created_by LEFT JOIN persons p ON p.id = s.person_id WHERE c.id = ?");
+        $stmt = $this->db->prepare("SELECT email, phone FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " WHERE staff_id = (SELECT created_by FROM internal_conversations WHERE id = ?) LIMIT 1");
         $stmt->execute([$id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) {

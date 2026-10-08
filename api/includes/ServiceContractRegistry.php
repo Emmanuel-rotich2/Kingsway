@@ -45,6 +45,7 @@ class ServiceContractRegistry
         // Core governed services (extended as controllers are wired).
         self::govern('App\\API\\Modules\\academic\\AcademicAPI', 'academic', 'academic.api');
         self::govern('App\\API\\Services\\ExamPeriodService', 'academic', 'academic.examperiodservice');
+        self::govern('App\\API\\Services\\AssessmentResultsService', 'academic', 'academic.assessmentresultsservice');
         self::govern('App\\API\\Modules\\finance\\FinanceAPI', 'finance', 'finance.api');
         self::govern('App\\API\\Modules\\attendance\\AttendanceAPI', 'attendance', 'attendance.api');
         self::govern('App\\API\\Modules\\reports\\ReportsAPI', 'reports', 'reports.api');
@@ -193,6 +194,7 @@ class ServiceContractRegistry
         self::govern('App\API\Services\StaffDomainAccessService', '', 'staffdomainaccessservice');
         self::govern('App\API\Services\StaffGateAttendanceService', '', 'staffgateattendanceservice');
         self::govern('App\API\Services\CommunicationOutboxService', '', 'communicationoutboxservice');
+        self::govern('App\API\Services\sms\TalksasaContactSyncService', '', 'talksasacontactsyncservice');
         self::govern('App\API\Services\StaffLifecycleService', '', 'stafflifecycleservice');
         self::govern('App\API\Services\AnalyticsExportAuditService', '', 'analyticsexportauditservice');
         self::govern('App\API\Services\PasskeyService', '', 'passkeyservice');

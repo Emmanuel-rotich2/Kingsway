@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 /**
  * Clearance Manager
  *
@@ -219,7 +220,7 @@ class ClearanceManager extends BaseAPI
             $currentUserId = $this->getCurrentUserId();
             $clearedCount = 0;
 
-            $stmt = $this->db->prepare("SELECT student_id FROM student_transitions WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT student_id FROM " . ReadReplicaService::qualifiedRef("student_clearances") . " id = ?");
             $stmt->execute([$transferId]);
             $studentId = $stmt->fetchColumn();
 
@@ -305,8 +306,8 @@ class ClearanceManager extends BaseAPI
                     SUM(CASE WHEN sc.status = 'pending' THEN 1 ELSE 0 END) as pending,
                     0 AS waivers_granted,
                     COALESCE(SUM(sc.amount_outstanding), 0) as total_outstanding
-                FROM student_clearances sc
-                JOIN student_transitions st ON sc.transfer_request_id = st.id
+                FROM " . ReadReplicaService::qualifiedRef("student_clearances") . "
+                JOIN " . ReadReplicaService::qualifiedRef("student_transitions") . " st ON sc.transfer_request_id = st.id
                 WHERE {$whereClause}
                 GROUP BY sc.clearance_type
                 ORDER BY MIN(st.id)

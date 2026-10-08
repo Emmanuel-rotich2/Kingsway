@@ -3,6 +3,7 @@ namespace App\API\Modules\transport;
 
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 class StudentTransportStatusManager
 {
@@ -33,27 +34,24 @@ class StudentTransportStatusManager
     {
         $billingMonth = sprintf('%04d-%02d-01', (int) $year, (int) $month);
         $sql = "
-            SELECT s.id AS student_id, p.first_name, p.last_name, s.admission_no,
-                   a.route_id, r.name AS route_name, a.stop_id, st.name AS stop_name,
-                   d.id AS driver_id, dp.first_name AS driver_first_name, dp.last_name AS driver_last_name, dp.phone AS driver_phone,
-                   v.id AS vehicle_id, v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
-                   a.month, a.year, a.status AS assignment_status,
-                   (SELECT COALESCE(SUM(bp.amount), 0) FROM transport_monthly_bills b
+            SELECT tac.assignment_student_id AS student_id,
+                   tac.student_first_name AS first_name, tac.student_last_name AS last_name, tac.admission_no,
+                   tac.assignment_route_id AS route_id, tac.route_name,
+                   tac.assignment_stop_id AS stop_id, st.name AS stop_name,
+                   sctx.staff_id AS driver_id, sctx.first_name AS driver_first_name, sctx.last_name AS driver_last_name, sctx.phone AS driver_phone,
+                   tac.vehicle_id, tac.registration_number AS vehicle_registration, tac.model AS vehicle_model, tac.vehicle_capacity,
+                   tac.month, tac.year, tac.assignment_status,
+                   (SELECT COALESCE(SUM(bp.amount), 0) FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                      JOIN transport_bill_payments bp ON bp.bill_id = b.id
-                    WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?) AS payment_amount,
-                   (SELECT b.payment_status FROM transport_monthly_bills b
-                     WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?
+                    WHERE b.student_id = tac.assignment_student_id AND b.route_id = tac.assignment_route_id AND b.billing_month = ?) AS payment_amount,
+                   (SELECT b.payment_status FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
+                     WHERE b.student_id = tac.assignment_student_id AND b.route_id = tac.assignment_route_id AND b.billing_month = ?
                      LIMIT 1) AS payment_status
-            FROM student_transport_assignments a
-            JOIN students s ON a.student_id = s.id
-            JOIN persons p ON p.id = s.person_id
-            JOIN transport_routes r ON a.route_id = r.id
-            JOIN transport_stops st ON a.stop_id = st.id
-            LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = r.id AND tvr.status = 'active'
-            LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
-            LEFT JOIN staff d ON d.id = v.driver_id AND d.position = 'Driver'
-            LEFT JOIN persons dp ON dp.id = d.person_id
-            WHERE a.student_id = ? AND a.month = ? AND a.year = ? AND a.status = 'active'
+            FROM " . ReadReplicaService::qualifiedRef("transport_assignment_context") . " tac
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx
+                   ON sctx.staff_id = tac.driver_staff_id AND sctx.position = 'Driver'
+            JOIN transport_stops st ON st.id = tac.assignment_stop_id
+            WHERE tac.assignment_student_id = ? AND tac.month = ? AND tac.year = ?
             LIMIT 1
         ";
         $stmt = $this->db->prepare($sql);
@@ -68,15 +66,15 @@ class StudentTransportStatusManager
         $sql = "
             SELECT s.id AS student_id, p.first_name, p.last_name, s.admission_no,
                    a.stop_id, st.name AS stop_name,
-                   (SELECT COALESCE(SUM(bp.amount), 0) FROM transport_monthly_bills b
+                   (SELECT COALESCE(SUM(bp.amount), 0) FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                      JOIN transport_bill_payments bp ON bp.bill_id = b.id
                     WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?) AS payment_amount,
-                   (SELECT b.payment_status FROM transport_monthly_bills b
+                   (SELECT b.payment_status FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                      WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?
                      LIMIT 1) AS payment_status
-            FROM student_transport_assignments a
-            JOIN students s ON a.student_id = s.id
-            JOIN persons p ON p.id = s.person_id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON a.student_id = s.id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
             JOIN transport_stops st ON a.stop_id = st.id
             WHERE a.route_id = ? AND a.month = ? AND a.year = ? AND a.status = 'active'
             ORDER BY st.name, s.admission_no
@@ -107,11 +105,7 @@ class StudentTransportStatusManager
             "SELECT DISTINCT tr.id, tr.name, tr.code, tr.start_point, tr.end_point,
                     tr.morning_departure, tr.afternoon_departure,
                     v.id AS vehicle_id, v.registration_number AS vehicle_registration
-             FROM users u
-             JOIN staff ds ON ds.person_id = u.person_id
-             JOIN transport_vehicles v ON v.driver_id = ds.id AND v.status = 'active'
-             JOIN transport_vehicle_routes tvr ON tvr.vehicle_id = v.id AND tvr.status = 'active'
-             JOIN transport_routes tr ON tr.id = tvr.route_id AND tr.status = 'active'
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
              WHERE u.id = ? AND ds.status IN ('active','on_leave')
              ORDER BY tr.name"
         );
@@ -131,12 +125,12 @@ class StudentTransportStatusManager
                        ps.sequence AS stop_sequence, ps.arrival_time, ps.departure_time,
                        sta.id AS attendance_id, sta.status AS attendance_status,
                        sta.marked_time, sta.marked_by, sta.vehicle_id AS attendance_vehicle_id
-                FROM student_transport_assignments a
-                JOIN students s ON s.id = a.student_id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . "
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = a.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN transport_stops ps ON ps.id = a.pickup_stop_id
                 LEFT JOIN transport_stops ss ON ss.id = a.stop_id
-                LEFT JOIN student_transport_attendance sta
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_attendance") . " sta
                   ON sta.student_id = a.student_id
                  AND sta.route_id = a.route_id
                  AND sta.attendance_date = ?
@@ -179,10 +173,10 @@ class StudentTransportStatusManager
         $sql = "
             SELECT COALESCE(SUM(p.amount), 0) AS total_paid,
                    (SELECT COALESCE(SUM(expected_amount), 0)
-                      FROM student_transport_assignments WHERE student_id = ? AND status = 'active') AS total_expected,
+                      FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " student_id = ? AND status = 'active') AS total_expected,
                    COALESCE(SUM(p.amount), 0) - (SELECT COALESCE(SUM(expected_amount), 0)
-                      FROM student_transport_assignments WHERE student_id = ? AND status = 'active') AS balance
-            FROM transport_monthly_bills b
+                      FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " WHERE student_id = ? AND status = 'active') AS balance
+            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
             JOIN transport_bill_payments p ON p.bill_id = b.id
             WHERE b.student_id = ?
         ";
@@ -197,16 +191,16 @@ class StudentTransportStatusManager
         $billingMonth = sprintf('%04d-%02d-01', (int) $year, (int) $month);
         $sql = "
             SELECT a.student_id, p.first_name, p.last_name, s.admission_no,
-                   (SELECT COALESCE(SUM(bp.amount), 0) FROM transport_monthly_bills b
+                   (SELECT COALESCE(SUM(bp.amount), 0) FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                      JOIN transport_bill_payments bp ON bp.bill_id = b.id
                     WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?) AS total_paid,
                    a.expected_amount,
-                   (a.expected_amount - (SELECT COALESCE(SUM(bp.amount), 0) FROM transport_monthly_bills b
+                   (a.expected_amount - (SELECT COALESCE(SUM(bp.amount), 0) FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " b
                      JOIN transport_bill_payments bp ON bp.bill_id = b.id
                     WHERE b.student_id = a.student_id AND b.route_id = a.route_id AND b.billing_month = ?)) AS balance
-            FROM student_transport_assignments a
-            JOIN students s ON a.student_id = s.id
-            JOIN persons p ON p.id = s.person_id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON a.student_id = s.id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
             WHERE a.route_id = ? AND a.month = ? AND a.year = ? AND a.status = 'active'
             ORDER BY s.admission_no
         ";

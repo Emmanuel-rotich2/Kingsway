@@ -3,6 +3,7 @@ namespace App\API\Services\payments;
 
 use PDO;
 use RuntimeException;
+use App\API\Services\ReadReplicaService;
 
 /** Creates and submits approved parent overpayment refunds. */
 class ParentRefundService
@@ -11,6 +12,51 @@ class ParentRefundService
     private $mpesa;
     private $kcb;
     private $financialAccounts;
+
+    /** Refund requests with payout account + credit note context. */
+    public function refundRequests(): array
+    {
+        return $this->db->query("SELECT r.*, c.credit_number, c.student_id, a.provider, a.phone_number, a.bank_name, a.account_number, a.account_name FROM parent_refund_requests r JOIN " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " c ON c.id = r.fee_credit_note_id JOIN parent_payment_accounts a ON a.id = r.parent_payment_account_id ORDER BY r.created_at DESC")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Available fee-credit notes with a remaining balance, per-parent payout accounts. */
+    public function refundableCredits(): array
+    {
+        $stmt = $this->db->query("SELECT c.id AS fee_credit_note_id, c.credit_number, c.student_id, c.remaining_amount, CONCAT(ps.first_name, ' ', ps.last_name) AS student_name, sp.parent_id, CONCAT(pp.first_name, ' ', pp.last_name) AS parent_name
+             FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " c JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = c.student_id LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.id = sp.parent_id LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = pr.person_id
+             WHERE c.status IN ('available','partially_applied') AND c.remaining_amount > 0 AND sp.is_primary_contact = 1 ORDER BY c.created_at ASC");
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $accounts = $this->db->query("SELECT id, parent_id, provider, phone_number, bank_name, account_name, account_number, is_primary FROM parent_payment_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $byParent = [];
+        foreach ($accounts as $account) $byParent[(int) $account['parent_id']][] = $account;
+        foreach ($rows as &$row) { $row['remaining_amount'] = (float) $row['remaining_amount']; $row['accounts'] = $byParent[(int) $row['parent_id']] ?? []; }
+        unset($row);
+        return $rows;
+    }
+
+    /** Whether a refund request moved out of pending_approval (approve/reject). */
+    public function setRefundStatus(int $id, string $status, int $actorId): bool
+    {
+        $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = ?, approved_by = ? WHERE id = ? AND status = 'pending_approval'");
+        $stmt->execute([$status, $actorId, $id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /** All verified payout accounts for one parent. */
+    public function accountsForParent(int $parentId): array
+    {
+        $stmt = $this->db->prepare("SELECT id, provider, phone_number, bank_name, bank_code, account_name, account_number, verification_status, is_primary, active FROM parent_payment_accounts WHERE parent_id = ? ORDER BY is_primary DESC, id DESC");
+        $stmt->execute([$parentId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Insert a payout account request pending verification. Returns the id. */
+    public function createPayoutAccount(int $parentId, string $provider, array $data): int
+    {
+        $stmt = $this->db->prepare("INSERT INTO parent_payment_accounts (parent_id, provider, phone_number, bank_name, bank_code, account_name, account_number, is_primary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$parentId, $provider, $data['phone_number'] ?? null, $data['bank_name'] ?? null, $data['bank_code'] ?? null, $data['account_name'], $data['account_number'] ?? null, !empty($data['is_primary']) ? 1 : 0]);
+        return (int) $this->db->lastInsertId();
+    }
 
     public function __construct(PDO $db, ?MpesaB2CService $mpesa = null, ?KcbFundsTransferService $kcb = null)
     {
@@ -23,8 +69,8 @@ class ParentRefundService
     public function createRequest(int $creditId, int $userId, array $data): array
     {
         $stmt = $this->db->prepare(
-            "SELECT c.*, sp.parent_id FROM fee_credit_notes c
-             JOIN student_parents sp ON sp.student_id = c.student_id
+            "SELECT c.*, sp.parent_id FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . "
+             JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = c.student_id
              WHERE c.id = ? AND c.status IN ('available','partially_applied')
              ORDER BY sp.is_primary_contact DESC, sp.parent_id ASC LIMIT 1"
         );
@@ -46,7 +92,7 @@ class ParentRefundService
 
     public function submit(int $requestId, int $userId): array
     {
-        $stmt = $this->db->prepare("SELECT r.*, a.provider, a.phone_number, a.bank_name, a.bank_code, a.account_name, a.account_number, sf.account_identifier AS source_account_identifier FROM parent_refund_requests r JOIN parent_payment_accounts a ON a.id = r.parent_payment_account_id JOIN school_financial_accounts sf ON sf.id = r.source_financial_account_id WHERE r.id = ? AND r.status = 'approved' AND a.active = 1 AND a.verification_status = 'verified' AND sf.status='active' LIMIT 1");
+        $stmt = $this->db->prepare("SELECT r.*, a.provider, a.phone_number, a.bank_name, a.bank_code, a.account_name, a.account_number, sf.account_identifier AS source_account_identifier FROM parent_refund_requests r JOIN parent_payment_accounts a ON a.id = r.parent_payment_account_id JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sf ON sf.id = r.source_financial_account_id WHERE r.id = ? AND r.status = 'approved' AND a.active = 1 AND a.verification_status = 'verified' AND sf.status='active' LIMIT 1");
         $stmt->execute([$requestId]);
         $request = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$request) throw new RuntimeException('Refund must be approved and have a verified active destination.');

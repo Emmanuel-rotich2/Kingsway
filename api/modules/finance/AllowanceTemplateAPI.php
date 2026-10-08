@@ -2,6 +2,7 @@
 
 namespace App\API\Modules\finance;
 
+use App\API\Services\ReadReplicaService;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
@@ -207,12 +208,11 @@ class AllowanceTemplateAPI extends BaseAPI
             }
 
             $sql = "SELECT
-                        s.id, s.staff_no,
-                        CONCAT(p.first_name, ' ', p.last_name) AS full_name,
+                        s.staff_id AS id, s.staff_no,
+                        s.full_name,
                         s.contract_type, s.position
-                    FROM staff s
-                    LEFT JOIN persons p ON p.id = s.person_id
-                    WHERE s.status = 'active'
+                    FROM " . ReadReplicaService::qualifiedRef('staff_directory') . " s
+                    WHERE s.staff_status = 'active'
                     ORDER BY s.staff_no";
 
             $stmt = $this->db->prepare($sql);

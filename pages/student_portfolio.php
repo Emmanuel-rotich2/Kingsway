@@ -244,6 +244,34 @@
                         <label class="form-label small fw-semibold">Title *</label>
                         <input type="text" class="form-control form-control-sm" id="pfArtifactTitle" placeholder="e.g. Science Fair Project Board" required>
                     </div>
+                    <div class="row">
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Term (SBA cycle phase)</label>
+                            <select class="form-select form-select-sm" id="pfArtifactTerm"></select>
+                        </div>
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Evidence source</label>
+                            <select class="form-select form-select-sm" id="pfArtifactSource">
+                                <option value="">— Not set —</option>
+                                <option value="project">Project (Term 2 SBA)</option>
+                                <option value="performance_task">Performance task</option>
+                                <option value="written_test">Written test (Term 3 SBA)</option>
+                                <option value="homework">Homework</option>
+                                <option value="co_curricular">Co-curricular / CSL</option>
+                                <option value="reflection">Reflection</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Learning area</label>
+                            <select class="form-select form-select-sm" id="pfArtifactArea"></select>
+                        </div>
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">KNEC verification ref</label>
+                            <input type="text" class="form-control form-control-sm" id="pfArtifactKnecRef" placeholder="Script / evidence ref (optional)">
+                        </div>
+                    </div>
                     <div class="mb-2">
                         <label class="form-label small fw-semibold">Description</label>
                         <textarea class="form-control form-control-sm" id="pfArtifactDesc" rows="2"></textarea>

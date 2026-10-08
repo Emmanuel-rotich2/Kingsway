@@ -28,6 +28,39 @@ final class StaffMigrationService
     ];
     public function __construct(private PDO $db) {}
 
+    /**
+     * Resolve the setup token on the account-setup page (reset_default_password.php)
+     * into display flags. The page renders only; this service owns the query.
+     *
+     * @return array{is_parent_invitation: bool, resume_staff_invitation_otp: bool}
+     */
+    public function setupInvitationFlags(string $rawToken): array
+    {
+        $flags = ['is_parent_invitation' => false, 'resume_staff_invitation_otp' => false];
+        if (trim($rawToken) === '') {
+            return $flags;
+        }
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT ui.staff_id, ui.status
+                 FROM " . ReadReplicaService::masterRef("user_invitations") . " JOIN users u ON u.id = ui.user_id
+                 WHERE ui.token_hash = ? AND (
+                     (ui.status = 'pending' AND ui.expires_at > NOW() AND u.status = 'active' AND u.force_password_change = 1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL)
+                     OR (ui.status = 'accepted' AND u.status = 'active' AND u.force_password_change = 0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL)
+                 ) ORDER BY ui.id DESC LIMIT 1"
+            );
+            $stmt->execute([hash('sha256', $rawToken)]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($row)) {
+                $flags['is_parent_invitation'] = empty($row['staff_id']);
+                $flags['resume_staff_invitation_otp'] = !empty($row['staff_id']) && $row['status'] === 'accepted';
+            }
+        } catch (Throwable $ignored) {
+            // Display defaults only; never leak the existence of a token.
+        }
+        return $flags;
+    }
+
     public function templateHeaders(): array { return array_merge(self::REQUIRED, self::OPTIONAL); }
 
     public function templateCsv(): string
@@ -219,14 +252,14 @@ PHP;
             'departments' => $this->rows("SELECT id,code,name FROM departments WHERE status='active' ORDER BY name"),
             'roles' => $this->assignableSchoolRoles(),
             'staff_types' => $this->rows("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name"),
-            'staff_categories' => $this->rows("SELECT sc.id,sc.category_name AS name,st.name AS staff_type FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE sc.is_active=1 ORDER BY st.name,sc.category_name"),
+            'staff_categories' => $this->rows("SELECT sc.id,sc.category_name AS name,st.name AS staff_type FROM " . ReadReplicaService::qualifiedRef("staff_categories") . " JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id=sc.staff_type_id WHERE sc.is_active=1 ORDER BY st.name,sc.category_name"),
             'learning_areas' => $this->rows("SELECT id,name,code FROM learning_areas WHERE status='active' ORDER BY name"),
-            'leadership_positions' => $this->rows("SELECT lp.id,lp.name FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') ORDER BY lp.display_order,lp.name"),
+            'leadership_positions' => $this->rows("SELECT id, name FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') ORDER BY display_order, name"),
             'positions' => StaffPositionCatalog::list($this->db),
             'contracts' => ['permanent','contract','temporary'],
             'genders' => ['male','female','other'],
             'marital_statuses' => ['single','married','divorced','widowed','separated','unknown'],
-            'supervisors' => $this->rows("SELECT s.staff_no, CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name) AS name FROM staff s JOIN persons p ON p.id=s.person_id WHERE s.status='active' ORDER BY p.first_name,p.last_name"),
+            'supervisors' => $this->rows("SELECT s.staff_no, CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name) AS name FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.staff_status='active' AND s.person_id IS NOT NULL ORDER BY s.first_name,s.last_name"),
         ];
     }
 
@@ -521,8 +554,8 @@ PHP;
     {
         $stmt = $this->db->prepare("SELECT u.id,u.status,u.password_changed_at,u.profile_completed_at,p.email,
                 (SELECT ui.status FROM user_invitations ui WHERE ui.user_id=u.id ORDER BY ui.id DESC LIMIT 1) AS invitation_status
-            FROM users u JOIN persons p ON p.id=u.person_id
-            JOIN staff s ON s.person_id=u.person_id
+            FROM users u JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.person_id=u.person_id
             WHERE u.id=? LIMIT 1");
         $stmt->execute([$userId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -600,7 +633,7 @@ PHP;
                 if (!preg_match('/(?:\?|&)token=([a-f0-9]{64})(?:&|$)/i', $setupUrl, $tokenMatch)) {
                     throw new RuntimeException('Invitation email has no valid setup token.');
                 }
-                $liveInvitation = $this->db->prepare("SELECT ui.id FROM user_invitations ui JOIN users u ON u.id=ui.user_id WHERE ui.user_id=? AND ui.token_hash=? AND ui.status='pending' AND ui.expires_at>NOW() AND u.status='active' AND u.force_password_change=1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL LIMIT 1");
+                $liveInvitation = $this->db->prepare("SELECT ui.id FROM " . ReadReplicaService::masterRef("user_invitations") . " JOIN users u ON u.id=ui.user_id WHERE ui.user_id=? AND ui.token_hash=? AND ui.status='pending' AND ui.expires_at>NOW() AND u.status='active' AND u.force_password_change=1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL LIMIT 1");
                 $liveInvitation->execute([(int)$message['user_id'], hash('sha256', $tokenMatch[1])]);
                 if (!$liveInvitation->fetchColumn()) {
                     $this->db->prepare("UPDATE outbound_messages SET status='cancelled',last_error='Invitation token is no longer active',updated_at=NOW() WHERE id=? AND status='processing'")
@@ -635,16 +668,16 @@ PHP;
 
     public function batches(int $limit=50): array
     {
-        $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN persons p ON p.id=u.person_id ORDER BY b.id DESC LIMIT ?");
+        $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id ORDER BY b.id DESC LIMIT ?");
         $stmt->bindValue(1,max(1,min(200,$limit)),PDO::PARAM_INT);$stmt->execute();return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function batchDetail(int $batchId): array
     {
-        $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN persons p ON p.id=u.person_id WHERE b.id=?");
+        $stmt=$this->db->prepare("SELECT b.*,CONCAT(p.first_name,' ',p.last_name) imported_by_name FROM staff_import_batches b LEFT JOIN users u ON u.id=b.imported_by LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id WHERE b.id=?");
         $stmt->execute([$batchId]);$batch=$stmt->fetch(PDO::FETCH_ASSOC);if(!$batch)throw new RuntimeException('Import batch not found.');
         $stmt=$this->db->prepare("SELECT r.id,r.`row_number`,r.row_data,r.validation_errors,r.status,r.staff_id,r.user_id,
-            (SELECT u.force_password_change FROM users u WHERE u.id=r.user_id LIMIT 1) AS setup_required,
+            (SELECT u.force_password_change FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE u.id=r.user_id LIMIT 1) AS setup_required,
             CASE WHEN ui.id IS NULL THEN 'not_sent' WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired' ELSE ui.status END AS invitation_status,
             COALESCE(om.status,'not_queued') AS invitation_delivery_status,om.sent_at AS invitation_sent_at
             FROM staff_import_rows r
@@ -678,15 +711,15 @@ PHP;
                 COALESCE(NULLIF(sep.position,''), NULLIF(s.position,''), '') AS position,
                 COALESCE(sep.employment_date, s.employment_date) AS employment_date,
                 COALESCE(NULLIF(sep.contract_type,''), NULLIF(s.contract_type,''), '') AS contract_type,
-                COALESCE((SELECT sda.department_id FROM staff_department_assignments sda JOIN departments sd ON sd.id=sda.department_id AND sd.status='active' WHERE sda.staff_id=s.id AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE()) ORDER BY sda.effective_from DESC,sda.id DESC LIMIT 1), sep.department_id) AS department_id,
+                COALESCE((SELECT sda.department_id FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda JOIN " . ReadReplicaService::qualifiedRef("departments") . " sd ON sd.id=sda.department_id AND sd.status='active' WHERE sda.staff_id=s.id AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE()) ORDER BY sda.effective_from DESC,sda.id DESC LIMIT 1), sep.department_id) AS department_id,
                 s.supervisor_id,
                 (SELECT r.name FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id ORDER BY ur.is_primary DESC,ur.id LIMIT 1) AS role_name,
                 s.status, s.staff_type_id, s.staff_category_id,
                 CASE
                     WHEN EXISTS (SELECT 1 FROM staff_import_rows sir WHERE sir.staff_id=s.id AND sir.status='created') THEN 'existing_staff_import'
-                    WHEN EXISTS (SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[job_application_id=%') THEN 'new_staff_online_application'
-                    WHEN EXISTS (SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[candidate_source=walk_in]%') THEN 'new_staff_walk_in'
-                    WHEN EXISTS (SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded') THEN 'new_staff_school_entered'
+                    WHEN EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[job_application_id=%') THEN 'new_staff_online_application'
+                    WHEN EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[candidate_source=walk_in]%') THEN 'new_staff_walk_in'
+                    WHEN EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded') THEN 'new_staff_school_entered'
                     ELSE 'existing_staff_manual'
                 END AS employment_source,
                 NULL AS documents_folder, s.created_at, s.updated_at,
@@ -705,13 +738,13 @@ PHP;
                 CASE WHEN NULLIF(TRIM(p.phone),'') IS NOT NULL AND NULLIF(TRIM(p.gender),'') IS NOT NULL AND p.dob IS NOT NULL
                     AND EXISTS (SELECT 1 FROM person_addresses pa WHERE pa.person_id=p.id AND pa.address_type='residential' AND pa.valid_to IS NULL AND NULLIF(TRIM(pa.address_line),'') IS NOT NULL)
                     THEN 'completed' ELSE 'invited' END AS onboarding_status,
-                COALESCE((SELECT sd.name FROM staff_department_assignments sda JOIN departments sd ON sd.id=sda.department_id AND sd.status='active' WHERE sda.staff_id=s.id AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE()) ORDER BY sda.effective_from DESC,sda.id DESC LIMIT 1), (SELECT sd.name FROM departments sd WHERE sd.id=sep.department_id)) AS department_name,
+                COALESCE((SELECT sd.name FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda JOIN " . ReadReplicaService::qualifiedRef("departments") . " sd ON sd.id=sda.department_id AND sd.status='active' WHERE sda.staff_id=s.id AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE()) ORDER BY sda.effective_from DESC,sda.id DESC LIMIT 1), (SELECT sd.name FROM " . ReadReplicaService::qualifiedRef("departments") . " sd WHERE sd.id=sep.department_id)) AS department_name,
                 st.name AS staff_type_name,
                 sc.category_name AS staff_category_name,
                 CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name
             FROM users u
-            JOIN persons p ON p.id = u.person_id
-            JOIN staff s ON s.person_id = p.id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.person_id = p.id
             LEFT JOIN staff_payroll_profiles payroll ON payroll.staff_id=s.id
             LEFT JOIN staff_employment_profiles sep ON sep.id=(
                 SELECT current_sep.id
@@ -721,10 +754,10 @@ PHP;
                          current_sep.updated_at DESC,current_sep.id DESC
                 LIMIT 1
             )
-            LEFT JOIN staff_types st ON st.id = s.staff_type_id
-            LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-            LEFT JOIN staff su ON su.id = s.supervisor_id
-            LEFT JOIN persons sp ON sp.id = su.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id = s.staff_type_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_categories") . " sc ON sc.id = s.staff_category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " su ON su.id = s.supervisor_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = su.person_id
             WHERE u.id = ?
         ");
         $stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
@@ -831,7 +864,7 @@ PHP;
         if (!$row['position'] || !$employmentDate || $employmentDate->format('Y-m-d')!==$row['employment_date'] || !in_array((string)$row['contract_type'], ['permanent','contract','temporary'], true) || (int)$row['staff_type_id']<1 || (int)$row['staff_category_id']<1) throw new RuntimeException('The school must finish your employment assignment before profile completion. Contact the System Administrator.');
         $assignment = $this->db->prepare("SELECT department_id FROM (
                 SELECT sda.department_id, sda.effective_from, sda.id AS assignment_id
-                FROM staff_department_assignments sda
+                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
                 JOIN departments d ON d.id=sda.department_id AND d.status='active'
                 WHERE sda.staff_id=? AND (sda.effective_to IS NULL OR sda.effective_to>=CURDATE())
                 UNION ALL
@@ -899,7 +932,7 @@ PHP;
             }
             $selectedAreaIds = array_values(array_unique(array_filter(array_map('intval', (array)($data['learning_area_ids'] ?? [])), static fn(int $id): bool => $id > 0)));
             $primaryAreaId = (int)($data['primary_learning_area_id'] ?? 0);
-            $teaching = $this->db->prepare("SELECT 1 FROM staff s JOIN staff_types st ON st.id=s.staff_type_id WHERE s.id=? AND LOWER(st.name) LIKE '%teach%' LIMIT 1");
+            $teaching = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.staff_id=? AND LOWER(s.staff_type_name) LIKE '%teach%' LIMIT 1");
             $teaching->execute([$sid]);
             $isTeachingStaff = (bool)$teaching->fetchColumn();
             if ($selectedAreaIds && !$isTeachingStaff) throw new RuntimeException('Only teaching staff can submit learning-area specializations.');
@@ -998,7 +1031,7 @@ PHP;
                 ->execute([$sid,$learningAreaId,$actorId,$employmentDate]);
         }
         if (($r['leadership_position_name'] ?? '') !== '') {
-            $leaderPosition = $this->db->prepare("SELECT lp.id FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
+            $leaderPosition = $this->db->prepare("SELECT id FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') LIMIT 1");
             $leaderPosition->execute([$r['leadership_position_name']]);
             $positionId = (int)$leaderPosition->fetchColumn();
             $yearId = (int)$this->db->query("SELECT id FROM academic_years ORDER BY is_current DESC,id DESC LIMIT 1")->fetchColumn();
@@ -1198,7 +1231,7 @@ PHP;
                 // Older deployments may not have every optional operational table.
             }
         }
-        $setup=$this->db->prepare("SELECT 1 FROM staff s JOIN users u ON u.person_id=s.person_id WHERE s.id=? AND (u.password_changed_at IS NOT NULL OR u.profile_completed_at IS NOT NULL OR EXISTS(SELECT 1 FROM user_invitations ui WHERE ui.user_id=u.id AND ui.status='accepted')) LIMIT 1");
+        $setup=$this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.staff_id=? AND s.user_id IS NOT NULL AND (s.password_changed_at IS NOT NULL OR s.profile_completed_at IS NOT NULL OR EXISTS(SELECT 1 FROM user_invitations ui WHERE ui.user_id=s.user_id AND ui.status='accepted')) LIMIT 1");
         $setup->execute([$sid]);
         return (bool)$setup->fetchColumn();
     }
@@ -1285,12 +1318,12 @@ PHP;
         }
         return $ids;
     }
-    private function categoryBelongsToType(string $category,string $type):bool{$s=$this->db->prepare('SELECT 1 FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);return(bool)$s->fetchColumn();}
+    private function categoryBelongsToType(string $category,string $type):bool{$s=$this->db->prepare('SELECT 1 FROM ' . ReadReplicaService::masterRef('staff_categories') . ' sc JOIN ' . ReadReplicaService::masterRef('staff_types') . ' st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);return(bool)$s->fetchColumn();}
     private function staffPositionExistsForRow(array $row): bool
     {
         $stmt = $this->db->prepare("SELECT 1 FROM staff_positions p
-            LEFT JOIN staff_types st ON st.id=p.staff_type_id
-            LEFT JOIN staff_categories sc ON sc.id=p.staff_category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id=p.staff_type_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_categories") . " sc ON sc.id=p.staff_category_id
             LEFT JOIN roles selected_role ON LOWER(TRIM(selected_role.name))=LOWER(TRIM(?)) AND selected_role.is_active=1
             WHERE LOWER(TRIM(p.name))=LOWER(TRIM(?)) AND p.is_active=1
               AND (p.staff_type_id IS NULL OR LOWER(TRIM(st.name))=LOWER(TRIM(?)))
@@ -1316,7 +1349,7 @@ PHP;
     }
     private function staffLeadershipPositionExists(string $name): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("leadership_positions_categories") . " WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND is_active=1 AND category_is_active=1 AND category_holder_scope IN ('staff','any_person') LIMIT 1");
         $stmt->execute([$name]);
         return (bool)$stmt->fetchColumn();
     }
@@ -1331,7 +1364,7 @@ PHP;
         }
         return true;
     }
-    private function categoryId(string $category,string $type):?int{if(trim($category)==='')return null;$s=$this->db->prepare('SELECT sc.id FROM staff_categories sc JOIN staff_types st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);$id=$s->fetchColumn();if(!$id)throw new RuntimeException("staff_category '$category' does not belong to staff_type '$type'");return(int)$id;}
+    private function categoryId(string $category,string $type):?int{if(trim($category)==='')return null;$s=$this->db->prepare('SELECT sc.id FROM ' . ReadReplicaService::masterRef('staff_categories') . ' sc JOIN ' . ReadReplicaService::masterRef('staff_types') . ' st ON st.id=sc.staff_type_id WHERE LOWER(sc.category_name)=LOWER(?) AND LOWER(st.name)=LOWER(?) AND sc.is_active=1 AND st.is_active=1 LIMIT 1');$s->execute([trim($category),trim($type)]);$id=$s->fetchColumn();if(!$id)throw new RuntimeException("staff_category '$category' does not belong to staff_type '$type'");return(int)$id;}
     private function null(array$r,string$k):mixed{$v=trim((string)($r[$k]??''));return$v===''?null:$v;}
     private function decimal(array$r,string$k):?float{$v=trim((string)($r[$k]??''));return$v===''?null:(float)$v;}
     private function yes(string$v):bool{return in_array(strtolower(trim($v)),['1','yes','true','y'],true);}

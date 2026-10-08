@@ -38,6 +38,12 @@
         this.renderEvents(events);
         this.renderGallery(gallery);
         this.renderContactStrip(statMap);
+
+        // Testimonials are fetched on their own so a slow admin table can
+        // never hold up the above-the-fold sections.
+        PS.get('testimonials', {}, { tier: 'dynamic' })
+          .then((rows) => this.renderTestimonials(rows))
+          .catch(() => {});
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[home] render failed:', err);
       }
@@ -196,6 +202,66 @@
       set('contact-phone', (m.school_phone_main || '+254 720 113 030') + ' / ' + (m.school_phone_alt || '+254 720 113 031'));
       set('contact-email', m.school_email_main || 'info@kingswaypreparatoryschool.sc.ke');
       set('contact-hours', m.office_hours_weekday || 'Mon – Fri: 7:30 AM – 5:00 PM');
+    },
+
+    renderTestimonials(rows) {
+      const inner = document.getElementById('testimonials-inner');
+      const indicators = document.getElementById('testimonials-indicators');
+      if (!inner) return;
+      const items = (rows && rows.items) || rows || [];
+      const list = Array.isArray(items) && items.length ? items : [
+        { text: 'Kingsway has transformed my daughter completely.', name: 'Kingsway Parent', role: 'Parent', stars: 5, video_url: null },
+      ];
+      const perSlide = 3;
+      const slides = [];
+      for (let i = 0; i < list.length; i += perSlide) slides.push(list.slice(i, i + perSlide));
+      const card = (t) => {
+        let video = '';
+        if (t.video_url) {
+          const yt = String(t.video_url).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
+          const vimeo = String(t.video_url).match(/vimeo\.com\/(\d+)/);
+          const vUrl = S(t.video_url);
+          video = '<div class="ratio ratio-16x9 mb-3 rounded-3 overflow-hidden">' +
+            (yt ? `<iframe src="https://www.youtube.com/embed/${S(yt[1])}" title="Testimonial video" allowfullscreen loading="lazy"></iframe>`
+              : vimeo ? `<iframe src="https://player.vimeo.com/video/${S(vimeo[1])}" title="Testimonial video" allowfullscreen loading="lazy"></iframe>`
+              : `<video controls preload="none" class="w-100 h-100 object-fit-cover"><source src="${vUrl}" type="video/mp4"></video>`) + '</div>';
+        }
+        return `
+          <div class="col-lg-4 col-md-6">
+            <div class="testimonial-card h-100">
+              ${video}
+              <div class="stars">${'★'.repeat(Math.max(0, Math.min(5, parseInt(t.stars || 5, 10) || 5)))}</div>
+              <p class="testimonial-text">${S(t.text)}</p>
+              <div class="testimonial-author">
+                <div class="testimonial-avatar d-flex align-items-center justify-content-center bg-success text-white rounded-circle" style="width:46px;height:46px;font-size:1.1rem;font-weight:700;flex-shrink:0;">${S(String(t.name || ' ').trim().charAt(0).toUpperCase())}</div>
+                <div>
+                  <div class="testimonial-name">${S(t.name)}</div>
+                  <div class="testimonial-role">${S(t.role)}</div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      };
+      inner.innerHTML = slides.map((slide, si) => `
+        <div class="carousel-item${si === 0 ? ' active' : ''}">
+          <div class="row g-4 justify-content-center">${slide.map(card).join('')}</div>
+        </div>`).join('');
+      if (indicators) {
+        if (slides.length > 1) {
+          indicators.innerHTML = slides.map((_, si) =>
+            `<button type="button" data-bs-target="#testimonialsCarousel" data-bs-slide-to="${si}"${si === 0 ? ' class="active" aria-current="true"' : ''} aria-label="Slide ${si + 1}"></button>`
+          ).join('');
+        } else {
+          indicators.innerHTML = '';
+          ['prev', 'next'].forEach((d) => {
+            const btn = document.querySelector(`.carousel-control-${d}`);
+            if (btn && btn.getAttribute('data-bs-target') === '#testimonialsCarousel') btn.classList.add('d-none');
+          });
+        }
+      }
+      if (window.bootstrap) {
+        try { window.bootstrap.Carousel.getOrCreateInstance(document.getElementById('testimonialsCarousel')); } catch (e) {}
+      }
     },
   };
 

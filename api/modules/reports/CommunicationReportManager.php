@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
+use App\API\Services\ReadReplicaService;
 
 class CommunicationReportManager extends BaseAPI
 {
@@ -79,7 +80,7 @@ class CommunicationReportManager extends BaseAPI
                                COUNT(DISTINCT av.viewer_id) / NULLIF(COUNT(av.id), 0) * 100,
                                2
                            ) AS read_rate
-                    FROM announcements_bulletin a
+                    FROM " . ReadReplicaService::qualifiedRef("announcements_bulletin") . "
                     LEFT JOIN announcement_views av ON av.announcement_id = a.id
                     GROUP BY a.id, a.title
                     ORDER BY total_recipients DESC

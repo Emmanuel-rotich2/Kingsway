@@ -14,6 +14,7 @@ use App\API\Modules\activities\workflows\CompetitionWorkflow;
 use App\API\Modules\activities\workflows\PerformanceEvaluationWorkflow;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * ActivitiesAPI - Central coordinator for all activity operations
@@ -93,8 +94,8 @@ class ActivitiesAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT a.id, a.title, a.description, a.start_date AS created_at,
                         ac.name AS type, a.status, a.category_id
-                 FROM activities a
-                 LEFT JOIN activity_categories ac ON ac.id = a.category_id
+                 FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = a.category_id
                  WHERE a.status IN ('planned', 'ongoing')
                  ORDER BY a.start_date DESC
                  LIMIT ?"

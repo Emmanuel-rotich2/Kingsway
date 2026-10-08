@@ -69,23 +69,9 @@ class TwoFactorController extends BaseController
             return true;
         }
         try {
-            $stmt = $this->db->getConnection()->prepare(
-                'SELECT pr.id
-                   FROM users u
-                   JOIN persons p ON p.id = u.person_id
-                   JOIN parents pr ON pr.person_id = p.id
-                   JOIN user_roles ur ON ur.user_id = u.id
-                   JOIN roles r ON r.id = ur.role_id
-                  WHERE u.id = ?
-                    AND u.status = \'active\'
-                    AND pr.status = \'active\'
-                    AND r.id = 73
-                    AND r.name = \'Parent\'
-                  LIMIT 1'
+            return \App\API\Modules\parent\ParentPortalManager::isParentAccount(
+                $this->db->getConnection(), $userId
             );
-            $stmt->execute([$userId]);
-
-            return (bool) $stmt->fetchColumn();
         } catch (\Throwable $error) {
             \App\API\Services\Logger::legacyError('isParentAccount failed: ' . $error->getMessage());
             return false;
@@ -120,7 +106,7 @@ class TwoFactorController extends BaseController
         try {
             $ok = $this->passkeys->finishRegistration($userId, (array) ($data['credential'] ?? []), (string) ($data['label'] ?? 'Passkey'));
             if ($ok && !$this->tfa->is2FAEnabled($userId)) {
-                $this->db->getConnection()->prepare("UPDATE users SET two_factor_enabled=1, two_factor_method='passkey', two_factor_verified_at=NOW() WHERE id=?")->execute([$userId]);
+                $this->tfa->enablePasskeyOnAccount($userId);
             }
             return $ok ? $this->success(null, 'Passkey registered.') : $this->badRequest('Passkey registration failed.');
         }

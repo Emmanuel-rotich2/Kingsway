@@ -6,6 +6,7 @@ use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Requisitions Manager
@@ -61,7 +62,7 @@ class RequisitionsManager extends BaseAPI
             // Count total
             $sql = "
                 SELECT COUNT(DISTINCT r.id) 
-                FROM requisitions r
+                FROM " . ReadReplicaService::qualifiedRef("requisitions") . " r
                 LEFT JOIN users u ON r.requested_by = u.id
                 WHERE $whereClause
             ";
@@ -76,10 +77,10 @@ class RequisitionsManager extends BaseAPI
                     CONCAT(p.first_name, ' ', p.last_name) as requested_by_name,
                     p.email as requester_email,
                     COUNT(DISTINCT ri.id) as items_count
-                FROM requisitions r
+                FROM " . ReadReplicaService::qualifiedRef("requisitions") . " r
                 LEFT JOIN users u ON r.requested_by = u.id
-                LEFT JOIN persons p ON p.id = u.person_id
-                LEFT JOIN requisition_items ri ON r.id = ri.requisition_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("requisition_items") . " ri ON r.id = ri.requisition_id
                 WHERE $whereClause
                 GROUP BY r.id
                 ORDER BY r.$sort $order
@@ -119,9 +120,9 @@ class RequisitionsManager extends BaseAPI
                     r.*,
                     CONCAT(p.first_name, ' ', p.last_name) as requested_by_name,
                     p.email as requester_email
-                FROM requisitions r
+                FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
                 LEFT JOIN users u ON r.requested_by = u.id
-                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                 WHERE r.id = ?
             ";
 
@@ -140,8 +141,8 @@ class RequisitionsManager extends BaseAPI
                     i.item_name,
                     i.code as item_code,
                     i.unit as unit_of_measure
-                FROM requisition_items ri
-                LEFT JOIN inventory_items i ON ri.item_id = i.id
+                FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON ri.item_id = i.id
                 WHERE ri.requisition_id = ?
             ";
             $stmt = $this->db->prepare($sql);

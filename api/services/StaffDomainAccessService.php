@@ -36,27 +36,91 @@ final class StaffDomainAccessService
 
     public function staffId(): ?int
     {
-        $direct = (int)($this->user['staff_id'] ?? 0);
-        if ($direct > 0) {
-            return $direct;
-        }
-
         $userId = $this->userId();
         if ($userId <= 0) {
             return null;
         }
 
-        // users.staff_id was dropped in the 4NF schema — the staff↔user link is
-        // the shared persons row (staff.person_id = users.person_id).
-        $row = $this->db->query(
-            'SELECT s.id
-             FROM staff s
-             JOIN users u ON u.person_id = s.person_id
-             WHERE u.id = ? LIMIT 1',
-            [$userId]
-        )->fetch(PDO::FETCH_ASSOC);
+        if ($this->isSystemDomainAccount()) {
+            return null;
+        }
 
-        return $row ? (int)$row['id'] : null;
+        $context = StaffRecordsService::staffContextForUserId(
+            $this->db->getConnection(),
+            $userId
+        );
+        return ($context['state'] ?? '') !== 'unlinked'
+            ? (int) ($context['staff_id'] ?? 0) ?: null
+            : null;
+    }
+
+    public function isSchoolStaff(): bool
+    {
+        return $this->staffId() !== null;
+    }
+
+    public function staffContext(): array
+    {
+        $userId = $this->userId();
+        if ($userId <= 0 || $this->isSystemDomainAccount()) {
+            return ['state' => 'unlinked', 'staff_id' => null];
+        }
+        return StaffRecordsService::staffContextForUserId(
+            $this->db->getConnection(),
+            $userId
+        );
+    }
+
+    public function requireActiveStaff(): int
+    {
+        $context = $this->staffContext();
+        if (($context['state'] ?? '') === 'invited') {
+            throw new RuntimeException('Staff invitation must be accepted and the profile completed before access is granted', 403);
+        }
+        if (($context['state'] ?? '') === 'deactivated') {
+            throw new RuntimeException('This staff account has been deactivated by an administrator', 403);
+        }
+        if (($context['state'] ?? '') === 'unlinked') {
+            throw new RuntimeException('No school staff record is linked to this account', 403);
+        }
+        return (int) $context['staff_id'];
+    }
+
+    public function isSystemDomainAccount(): bool
+    {
+        $userId = $this->userId();
+        if ($userId > 0) {
+            $stmt = $this->db->getConnection()->prepare(
+                'SELECT DISTINCT r.scope
+                   FROM user_roles ur
+                   JOIN roles r ON r.id = ur.role_id
+                  WHERE ur.user_id = ? AND r.is_active = 1'
+            );
+            $stmt->execute([$userId]);
+            $scopes = array_map(
+                static fn($scope): string => strtolower(trim((string) $scope)),
+                $stmt->fetchAll(PDO::FETCH_COLUMN)
+            );
+            if ($scopes !== []) {
+                return !in_array('school', $scopes, true)
+                    && in_array('system', $scopes, true);
+            }
+        }
+
+        // Older tokens may not carry role scope metadata. Keep the same
+        // invariant for those requests without treating a missing scope as
+        // proof of school-staff identity.
+        $roles = (array) ($this->user['roles'] ?? []);
+        $scopes = [];
+        foreach ($roles as $role) {
+            if (is_array($role)) {
+                $scope = strtolower(trim((string) ($role['scope'] ?? $role['domain'] ?? '')));
+                if ($scope !== '') $scopes[] = $scope;
+            }
+        }
+        return $scopes !== []
+            && !in_array('school', $scopes, true)
+            && in_array('system', $scopes, true);
     }
 
     public function permissions(): array
@@ -118,9 +182,10 @@ final class StaffDomainAccessService
 
     public function requireSelfOr(string $permission, int $requestedStaffId, array $fallbackRoles = []): int
     {
-        $ownStaffId = $this->staffId();
+        $context = $this->staffContext();
+        $ownStaffId = (int) ($context['staff_id'] ?? 0);
         if ($ownStaffId && $ownStaffId === $requestedStaffId) {
-            return $ownStaffId;
+            return $this->requireActiveStaff();
         }
         $this->require($permission, $fallbackRoles);
         return $requestedStaffId;
@@ -131,10 +196,7 @@ final class StaffDomainAccessService
         if ($this->allows('staff.attendance.manage', ['system administrator', 'school administrator', 'headteacher', 'director'])) {
             return $filters;
         }
-        $staffId = $this->staffId();
-        if (!$staffId) {
-            throw new RuntimeException('No staff profile is linked to this account', 403);
-        }
+        $staffId = $this->requireActiveStaff();
         $filters['staff_id'] = $staffId;
         return $filters;
     }
@@ -160,8 +222,8 @@ final class StaffDomainAccessService
                     ),0) AS salary, s.employment_date,
                     p.first_name, p.last_name,
                     spp.bank_name, spp.bank_account, spp.mpesa_phone, spp.kra_pin, spp.nssf_no, spp.nhif_no
-             FROM staff s
-             JOIN persons p ON p.id = s.person_id
+             FROM ' . ReadReplicaService::masterRef('staff') . ' s
+             JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = s.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
              WHERE s.id = ? AND ' . $scopeSql . ' LIMIT 1',
             array_merge([$periodStart, $periodStart, $periodStart, $periodStart, $staffId], $scopeParams)

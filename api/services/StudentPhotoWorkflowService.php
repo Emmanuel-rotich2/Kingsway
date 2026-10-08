@@ -86,7 +86,7 @@ final class StudentPhotoWorkflowService
         $stmt = $this->db->prepare(
             'SELECT ppv.*, mf.filename, mf.original_name, mf.file_type
              FROM person_photo_versions ppv
-             JOIN students s ON s.person_id = ppv.person_id
+             JOIN ' . ReadReplicaService::qualifiedRef('students') . ' s ON s.person_id = ppv.person_id
              LEFT JOIN media_files mf ON mf.id = ppv.media_id
              WHERE s.id = ? ORDER BY ppv.created_at DESC, ppv.id DESC'
         );
@@ -101,8 +101,8 @@ final class StudentPhotoWorkflowService
                     p.first_name, p.middle_name, p.last_name,
                     mf.filename, mf.original_name, mf.file_type
              FROM person_photo_versions ppv
-             JOIN persons p ON p.id = ppv.person_id
-             JOIN students s ON s.person_id = p.id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = ppv.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.person_id = p.id
              LEFT JOIN media_files mf ON mf.id = ppv.media_id
              WHERE ppv.status = 'pending'
              ORDER BY ppv.created_at ASC, ppv.id ASC"

@@ -300,6 +300,11 @@ final class InterServiceClient
         $map = [
             'python_ai' => 'AI_PYTHON',
             'php_app' => 'KINGSWAY_PHP',
+            // Node.js realtime data-update layer (scaling masterplan 2026-10-04).
+            // Env keys: NODE_REALTIME_INTERNAL_BASE_URL + NODE_REALTIME_INTERNAL_HOST
+            // (loopback, Host header picks the vhost) tried first, then the
+            // public NODE_REALTIME_URL / NODE_REALTIME_PUBLIC_URL as fallback.
+            'realtime_node' => 'NODE_REALTIME',
         ];
         if (isset($map[$service])) {
             return $map[$service];

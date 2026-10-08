@@ -21,6 +21,7 @@
 namespace App\API\Middleware;
 
 use App\Database\Database;
+use App\API\Services\ReadReplicaService;
 
 class RouteAuthorization
 {
@@ -63,7 +64,7 @@ class RouteAuthorization
         if (!isset(self::$roleRoutesCache[$roleId])) {
             $stmt = self::getDb()->prepare(
                 "SELECT r.name 
-                 FROM role_routes rr
+                 FROM " . ReadReplicaService::masterRef("role_routes") . "
                  JOIN routes_registry r ON r.id = rr.route_id
                  WHERE rr.role_id = ? AND rr.is_allowed = 1 AND r.is_active = 1"
             );
@@ -245,9 +246,8 @@ class RouteAuthorization
     public static function hasAccessToDomain(int $roleId, string $domain): bool
     {
         $stmt = self::getDb()->prepare(
-            "SELECT COUNT(*) FROM role_routes rr
-             JOIN routes_registry r ON r.id = rr.route_id
-             WHERE rr.role_id = ? AND r.domain = ? AND rr.is_allowed = 1"
+            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+             WHERE role_id = ? AND domain = ? AND is_allowed = 1"
         );
         $stmt->execute([$roleId, $domain]);
         return (int) $stmt->fetchColumn() > 0;

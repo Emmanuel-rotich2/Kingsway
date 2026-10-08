@@ -83,11 +83,11 @@ final class IncidentService
                     CONCAT_WS(' ', rr.first_name, rr.last_name) AS resolved_by_name
              FROM school_incidents i
              LEFT JOIN users ru ON ru.id = i.reported_by
-             LEFT JOIN persons rp ON rp.id = ru.person_id
-             LEFT JOIN staff ra ON ra.id = i.assigned_to
-             LEFT JOIN persons rap ON rap.id = ra.person_id
-             LEFT JOIN staff rz ON rz.id = i.resolved_by
-             LEFT JOIN persons rr ON rr.id = rz.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rp ON rp.id = ru.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " ra ON ra.id = i.assigned_to
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rap ON rap.id = ra.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " rz ON rz.id = i.resolved_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rr ON rr.id = rz.person_id
              WHERE $where
              ORDER BY i.occurred_at DESC, i.id DESC
              LIMIT 500"
@@ -112,7 +112,7 @@ final class IncidentService
                     CONCAT_WS(' ', rp.first_name, rp.last_name) AS reported_by_name
              FROM school_incidents i
              LEFT JOIN users ru ON ru.id = i.reported_by
-             LEFT JOIN persons rp ON rp.id = ru.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rp ON rp.id = ru.person_id
              WHERE i.id = ?
              LIMIT 1"
         );

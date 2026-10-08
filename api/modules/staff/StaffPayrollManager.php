@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\staff;
 
+use App\API\Services\ReadReplicaService;
 use App\API\Includes\BaseAPI;
 use App\API\Modules\finance\FeeManager;
 use PDO;
@@ -73,16 +74,15 @@ class StaffPayrollManager extends BaseAPI
                 p.phone,
                 spp.kra_pin, spp.nssf_no, spp.nhif_no,
                 (SELECT COUNT(DISTINCT ur.role_id)
-                 FROM users u
-                 INNER JOIN user_roles ur ON ur.user_id = u.id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                  WHERE u.person_id = s.person_id) AS role_count,
                 (SELECT sda.department_id
-                 FROM staff_department_assignments sda
+                 FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda
                  WHERE sda.staff_id = s.id
                    AND sda.effective_to IS NULL
                  LIMIT 1) AS department_id
-            FROM staff s
-            INNER JOIN persons p ON p.id = s.person_id
+            FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+            INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
             WHERE s.id = ? AND s.status = 'active'";
             $eligStmt = $this->db->prepare($eligibilitySql);
@@ -323,15 +323,15 @@ class StaffPayrollManager extends BaseAPI
                     s.position, spp.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
                     spp.bank_name, st.name AS staff_type, d.name AS department_name,
                     CONCAT(ap.first_name, ' ', ap.last_name) AS approved_by_name
-                FROM payslips ps
-                INNER JOIN staff s ON ps.staff_id = s.id
-                INNER JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                INNER JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON ps.staff_id = s.id
+                INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON s.staff_type_id = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
                 LEFT JOIN users approver ON ps.signed_by = approver.id
-                LEFT JOIN persons ap ON ap.id = approver.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = approver.person_id
                 WHERE ps.staff_id = ? AND ps.payroll_month = ? AND ps.payroll_year = ?
             ");
             $stmt->execute([$staffId, $data['payroll_month'], $data['payroll_year']]);
@@ -697,10 +697,9 @@ class StaffPayrollManager extends BaseAPI
 
             // Check if student exists and is active
             $stmt = $this->db->prepare("
-                SELECT s.id, p.first_name, p.last_name
-                FROM students s
-                INNER JOIN persons p ON p.id = s.person_id
-                WHERE s.id = ? AND s.status = 'active'
+                SELECT s.student_id AS id, s.first_name, s.last_name
+                FROM " . ReadReplicaService::qualifiedRef('person_directory') . " s
+                WHERE s.student_id = ? AND s.student_status = 'active'
             ");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -867,7 +866,7 @@ class StaffPayrollManager extends BaseAPI
                      WHERE u.person_id=s.person_id AND rr.effective_from<=?
                        AND (rr.effective_to IS NULL OR rr.effective_to>=?)
                      ORDER BY rr.effective_from DESC,rr.id DESC LIMIT 1), 0) AS salary
-                FROM staff s WHERE s.id = ?");
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s WHERE s.id = ?");
             $stmt->execute([$periodStart, $periodStart, $periodStart, $periodStart, $staffId]);
             $staffRow = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$staffRow) {
@@ -1039,12 +1038,7 @@ class StaffPayrollManager extends BaseAPI
                        st.name AS staff_type_name,
                        spp.kra_pin, spp.nssf_no, spp.nhif_no,
                        COALESCE(spp.basic_salary, 0) AS salary
-                FROM staff s
-                INNER JOIN persons p ON p.id = s.person_id
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                LEFT JOIN departments d ON d.id = sda.department_id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                 WHERE s.id = ?
             ");
             $stmt->execute([$staffId]);
@@ -1059,8 +1053,7 @@ class StaffPayrollManager extends BaseAPI
             // Get allowances
             $stmt = $this->db->prepare("
                 SELECT id, name, allowance_type, amount, is_taxable
-                FROM staff_allowances 
-                WHERE staff_id = ? 
+                FROM " . ReadReplicaService::qualifiedRef("staff_deductions") . " staff_id = ? 
                 AND status = 'active'
                 AND (end_date IS NULL OR end_date >= CURDATE())
             ");
@@ -1105,7 +1098,7 @@ class StaffPayrollManager extends BaseAPI
             // Get other deductions (loans, SACCO, advances, etc.)
             $stmt = $this->db->prepare("
                 SELECT sd.*, dt.name AS type_name, dt.code AS type_code, dt.category
-                FROM staff_deductions sd
+                FROM " . ReadReplicaService::qualifiedRef("staff_deductions") . "
                 LEFT JOIN deduction_types dt ON sd.deduction_type_id = dt.id
                 WHERE sd.staff_id = ? 
                 AND sd.status = 'active'
@@ -1474,4 +1467,85 @@ class StaffPayrollManager extends BaseAPI
         }
         return round(max(0, $tax - (float)($rule['personal_relief'] ?? 0)), 2);
     }
+    // ───────────────────────── P9 (statutory tax letter) source data ─────────────────
+
+    /** Employee tax identity fields for the P9 statement. */
+    public function p9Employee(int $staffId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT s.staff_no, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS employee_name,
+                    p.national_id_no, spp.kra_pin, spp.nssf_no, spp.nhif_no
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+             WHERE s.id = ? LIMIT 1"
+        );
+        $stmt->execute([$staffId]);
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /** Monthly payslip aggregates for the P9 year grid. */
+    public function p9MonthlyRows(int $staffId, int $year): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT payroll_month, gross_salary, nssf_contribution, shif_contribution, nhif_contribution,
+                    housing_levy, paye_tax
+             FROM payslips WHERE staff_id = ? AND payroll_year = ? AND data_scope = 'live' ORDER BY payroll_month"
+        );
+        $stmt->execute([$staffId, $year]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** KRA personal relief rule active at the given year-end, if any. */
+    public function kraPersonalRelief(int $year): float
+    {
+        $asOf = sprintf('%04d-12-31', $year);
+        $stmt = $this->db->prepare(
+            "SELECT personal_relief FROM statutory_rule_versions
+             WHERE agency = 'KRA' AND rule_code = 'paye_bands' AND active = 1
+               AND effective_from <= ?
+               AND (effective_to IS NULL OR effective_to >= ?)
+             ORDER BY effective_from DESC, id DESC LIMIT 1"
+        );
+        $stmt->execute([$asOf, $asOf]);
+        return (float) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /** Assemble the full P9 payload (employee + months + employer identity). */
+    public function p9Data(int $staffId, int $year): array
+    {
+        $employee = $this->p9Employee($staffId);
+        if (!$employee) {
+            throw new \RuntimeException('Selected employee was not found', 404);
+        }
+        $payslips = $this->p9MonthlyRows($staffId, $year);
+        if (!$payslips) {
+            throw new \RuntimeException('No payroll data exists for the selected employee and year', 422);
+        }
+        $personalRelief = $this->kraPersonalRelief($year);
+        $months = [];
+        foreach ($payslips as $row) {
+            $months[((int) $row['payroll_month']) - 1] = [
+                'gross_pay' => (float) $row['gross_salary'],
+                'nssf' => (float) $row['nssf_contribution'],
+                'shif' => (float) ($row['shif_contribution'] ?? $row['nhif_contribution'] ?? 0),
+                'housing_levy' => (float) $row['housing_levy'],
+                'chargeable_pay' => (float) $row['gross_salary'] - (float) $row['nssf_contribution'] - (float) ($row['shif_contribution'] ?? $row['nhif_contribution'] ?? 0) - (float) $row['housing_levy'],
+                'tax_charged' => (float) $row['paye_tax'] + $personalRelief,
+                'personal_relief' => $personalRelief,
+                'paye' => (float) $row['paye_tax'],
+            ];
+        }
+        // Employer identity is authoritative in school_profile.
+        $school = \App\API\Services\SchoolProfileService::current();
+        return compact('employee', 'months', 'personalRelief') + [
+            'year' => $year,
+            'employerName' => $school['school_name'] ?? 'Kingsway Preparatory School',
+            'employerPin' => (string) ($school['employer_kra_pin'] ?? ''),
+            'employerAddress' => trim(implode(', ', array_filter([
+                $school['address'] ?? null, $school['city'] ?? null,
+                $school['postal_code'] ?? null, $school['country'] ?? null,
+            ]))),
+            'employerPhones' => trim(implode(', ', array_filter([$school['phone'] ?? null, $school['alternative_phone'] ?? null]))),
+        ];
+    }
+
 }

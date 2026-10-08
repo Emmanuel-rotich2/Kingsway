@@ -70,7 +70,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <button type="button" data-bs-target="#schoolHeroCarousel" data-bs-slide-to="2" aria-label="Practical education"></button>
     </div>
     <div class="carousel-inner">
-      <div class="carousel-item active hero-slide hero-slide--founding" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png')">
+      <div class="carousel-item active hero-slide hero-slide--founding" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_classroom_v2.png?v=<?= asset_version('school_assets/bg_images/school_hero_classroom_v2.png') ?>')">
         <div class="container hero-content">
           <div class="row align-items-center g-5">
             <div class="col-lg-7">
@@ -84,7 +84,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
           </div>
         </div>
       </div>
-      <div class="carousel-item hero-slide hero-slide--school" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_2.png')">
+      <div class="carousel-item hero-slide hero-slide--school" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_2.jpeg?v=<?= asset_version('school_assets/bg_images/school_hero_section_2.jpeg') ?>')">
         <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
           <div class="hero-badge"><i class="bi bi-heart-fill"></i>In God We Soar</div>
           <h2 class="hero-title">Growing Minds.<br><span class="highlight">Grounded in Christ.</span></h2>
@@ -92,7 +92,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
           <div class="hero-actions"><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs" class="btn-kw-gold"><i class="bi bi-mortarboard"></i>Explore Learning</a><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0" class="btn-kw-outline"><i class="bi bi-compass"></i>Discover Kingsway</a></div>
         </div></div></div></div>
       </div>
-      <div class="carousel-item hero-slide hero-slide--community" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png')">
+      <div class="carousel-item hero-slide hero-slide--community" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png?v=<?= asset_version('school_assets/bg_images/school_hero_section_3.png') ?>')">
         <div class="container hero-content"><div class="row align-items-center"><div class="col-lg-7"><div class="hero-copy-panel">
           <div class="hero-badge"><i class="bi bi-tree-fill"></i>Learning, Work & Service</div>
           <h2 class="hero-title">Learning Beyond<br><span class="highlight">The Classroom</span></h2>
@@ -175,7 +175,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
     <div class="row align-items-center g-5">
       <div class="col-lg-6 reveal reveal-left">
         <div class="position-relative">
-          <img src="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.png"
+          <img src="<?= $appBase ?>/uploads/school_assets/bg_images/kingsway-about-campus-v1.jpeg?v=<?= asset_version('school_assets/bg_images/kingsway-about-campus-v1.jpeg') ?>"
                alt="Kingsway Preparatory School pupils walking toward the school campus"
                class="img-fluid rounded-4 shadow-lg about-school-image">
           <div class="position-absolute bottom-0 start-0 m-3 bg-white rounded-3 p-3 shadow-sm d-flex align-items-center gap-2">
@@ -376,86 +376,19 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <div class="section-label justify-content-center"><span>Parent &amp; Alumni Voices</span></div>
       <h2 class="section-title">What Our <span>Community Says</span></h2>
     </div>
-    <?php
-    $testi = [];
-    $db = null;
-    try { $db = kw_db(); } catch (\Throwable $e) {}
-    if ($db) {
-        try { $testi = $db->query("SELECT person_name AS name, role_label AS role, testimonial AS text, video_url, stars FROM school_testimonials WHERE is_active = 1 ORDER BY display_order ASC LIMIT 20")->fetchAll(\PDO::FETCH_ASSOC) ?: []; } catch (\Throwable $e) { $testi = []; }
-    }
-    if (empty($testi)) {
-        $testi = [
-          ['text'=>"Kingsway has transformed my daughter completely. The teachers genuinely care, the CBC teaching is excellent, and she has grown so much in confidence and character.",'name'=>'Mrs. Akinyi Otieno','role'=>'Parent, Grade 6','stars'=>5,'video_url'=>null],
-          ['text'=>"As an alumni who went through KCPE here, I can say the foundation Kingsway gave me opened doors to the best secondary schools and beyond. The values still guide me.",'name'=>'Brian Kiprotich','role'=>'Alumni, Class of 2019','stars'=>5,'video_url'=>null],
-          ['text'=>"The boarding facilities and pastoral care are exceptional. My son feels at home here. The staff treats every child as their own. We are extremely satisfied.",'name'=>'Mr. Samuel Cheruiyot','role'=>'Parent, Grade 8','stars'=>5,'video_url'=>null],
-        ];
-    }
-    ?>
-    <?php
-    $carouselId = 'testimonialsCarousel';
-    $perSlide = 3;
-    $slides = [];
-    for ($i = 0; $i < count($testi); $i += $perSlide) {
-        $slides[] = array_slice($testi, $i, $perSlide);
-    }
-    ?>
-    <div id="<?= $carouselId ?>" class="carousel slide" data-bs-ride="carousel" data-bs-interval="7000">
-      <?php if (count($slides) > 1): ?>
-      <div class="carousel-indicators mb-4">
-        <?php foreach ($slides as $si => $sl): ?>
-        <button type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide-to="<?= $si ?>" <?= $si === 0 ? 'class="active" aria-current="true"' : '' ?> aria-label="Slide <?= $si+1 ?>"></button>
-        <?php endforeach; ?>
+    <div class="carousel slide" id="testimonialsCarousel" data-bs-ride="carousel" data-bs-interval="7000">
+      <div class="carousel-indicators mb-4" id="testimonials-indicators"></div>
+      <div class="carousel-inner" id="testimonials-inner">
+        <div class="text-center py-4 text-muted">Loading…</div>
       </div>
-      <?php endif; ?>
-      <div class="carousel-inner">
-        <?php foreach ($slides as $si => $slide): ?>
-        <div class="carousel-item<?= $si === 0 ? ' active' : '' ?>">
-          <div class="row g-4 justify-content-center">
-            <?php foreach ($slide as $t): ?>
-            <div class="col-lg-4 col-md-6">
-              <div class="testimonial-card h-100">
-                <?php if (!empty($t['video_url'])): ?>
-                <div class="ratio ratio-16x9 mb-3 rounded-3 overflow-hidden">
-                  <?php
-                  $vUrl = htmlspecialchars($t['video_url'], ENT_QUOTES, 'UTF-8');
-                  if (preg_match('#(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]+)#', $t['video_url'], $m)) {
-                      echo '<iframe src="https://www.youtube.com/embed/' . htmlspecialchars($m[1]) . '" title="Testimonial video" allowfullscreen loading="lazy"></iframe>';
-                  } elseif (preg_match('#vimeo\.com/(\d+)#', $t['video_url'], $m)) {
-                      echo '<iframe src="https://player.vimeo.com/video/' . htmlspecialchars($m[1]) . '" title="Testimonial video" allowfullscreen loading="lazy"></iframe>';
-                  } else {
-                      echo '<video controls preload="none" class="w-100 h-100 object-fit-cover"><source src="' . $vUrl . '" type="video/mp4"></video>';
-                  }
-                  ?>
-                </div>
-                <?php endif; ?>
-                <div class="stars"><?= str_repeat('★', $t['stars'] ?? 5) ?></div>
-                <p class="testimonial-text"><?= htmlspecialchars($t['text']) ?></p>
-                <div class="testimonial-author">
-                  <div class="testimonial-avatar d-flex align-items-center justify-content-center bg-success text-white rounded-circle" style="width:46px;height:46px;font-size:1.1rem;font-weight:700;flex-shrink:0;">
-                    <?= strtoupper(substr($t['name'],0,1)) ?>
-                  </div>
-                  <div>
-                    <div class="testimonial-name"><?= htmlspecialchars($t['name']) ?></div>
-                    <div class="testimonial-role"><?= htmlspecialchars($t['role']) ?></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <?php endforeach; ?>
-          </div>
-        </div>
-        <?php endforeach; ?>
-      </div>
-      <?php if (count($slides) > 1): ?>
-      <button class="carousel-control-prev" type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide="prev">
+      <button class="carousel-control-prev" type="button" data-bs-target="#testimonialsCarousel" data-bs-slide="prev">
         <span class="carousel-control-prev-icon" aria-hidden="true"></span>
         <span class="visually-hidden">Previous</span>
       </button>
-      <button class="carousel-control-next" type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide="next">
+      <button class="carousel-control-next" type="button" data-bs-target="#testimonialsCarousel" data-bs-slide="next">
         <span class="carousel-control-next-icon" aria-hidden="true"></span>
         <span class="visually-hidden">Next</span>
       </button>
-      <?php endif; ?>
     </div>
   </div>
 </section>

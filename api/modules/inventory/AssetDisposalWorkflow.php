@@ -5,6 +5,7 @@ use App\API\Includes\WorkflowHandler;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Asset Disposal Workflow
@@ -360,8 +361,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
             // Check approval authority based on asset value
             $stmt = $this->db->prepare("
                 SELECT r.name AS role
-                FROM user_roles ur
-                JOIN roles r ON r.id = ur.role_id
+                FROM " . ReadReplicaService::masterRef("user_role_grant") . " 
                 WHERE ur.user_id = ? AND r.is_active = 1
             ");
             $stmt->execute([$userId]);

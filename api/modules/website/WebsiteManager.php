@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\website;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use App\API\Services\AuthSessionService;
@@ -55,7 +56,7 @@ class WebsiteManager extends BaseAPI
         $stmt = $this->db->query(
             "SELECT d.id, d.code, d.name, d.description, d.status,
                     cd.email, cd.phone
-             FROM departments d
+             FROM " . ReadReplicaService::qualifiedRef("departments") . "
              JOIN contact_directory cd
                     ON cd.contact_type = 'department' AND cd.department_id = d.id
              WHERE d.status = 'active'
@@ -178,6 +179,23 @@ class WebsiteManager extends BaseAPI
     // ───────────────────────── OPEN TERMS ─────────────────────────
 
     /**
+     * Active public testimonials for the homepage carousel. Returns [] on any
+     * failure so the page can show its static defaults without error output.
+     */
+    public function publicTestimonials(): array
+    {
+        try {
+            $rows = $this->db->query(
+                "SELECT person_name AS name, role_label AS role, testimonial AS text, video_url, stars
+                 FROM school_testimonials WHERE is_active = 1 ORDER BY display_order ASC LIMIT 20"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            return $rows ?: [];
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
      * Intake terms the public site may offer (current or upcoming). Completed
      * terms are excluded; upcoming terms are listed first so the next intake is
      * the default choice on the admissions form. Mirrors the old kw_academic_terms().
@@ -193,10 +211,10 @@ class WebsiteManager extends BaseAPI
                         aw.application_open_at, aw.application_close_at,
                         aw.eligible_grades, aw.default_admission_category,
                         aw.label AS admission_window_label
-                 FROM admission_windows aw
-                 JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
                  JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                  WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
                    AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
                    AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
@@ -741,8 +759,8 @@ class WebsiteManager extends BaseAPI
             if ($id) {
                 $stmt = $this->db->prepare(
                     "SELECT j.*, d.name AS department
-                     FROM job_vacancies j
-                     LEFT JOIN departments d ON d.id = j.department_id
+                     FROM " . ReadReplicaService::qualifiedRef("job_vacancies") . "
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = j.department_id
                      WHERE j.id=?"
                 );
                 $stmt->execute([$id]);
@@ -892,40 +910,53 @@ class WebsiteManager extends BaseAPI
                 }
 
                 // ── Computed: headteacher name from staff table ──
-                $hStmt = $this->db->query(
-                    "SELECT CONCAT(p.first_name,' ',p.last_name)
-                     FROM staff s
-                     JOIN persons p ON s.person_id = p.id
-                     WHERE s.position = 'Headteacher'
-                       AND s.data_scope = 'live'
-                       AND p.data_scope = 'live'
-                       AND NOT EXISTS (
-                           SELECT 1 FROM users u
-                           WHERE u.person_id = p.id AND u.is_test_user = 1
-                       )
-                     LIMIT 1"
-                );
-                $headteacher = $hStmt->fetchColumn();
+                // Leadership display is optional public-site decoration. A
+                // stale/missing read projection must not take the settings
+                // endpoint (and the whole public homepage) down.
+                $headteacher = null;
+                try {
+                    $hStmt = $this->db->query(
+                        "SELECT CONCAT(s.first_name,' ',s.last_name)
+                         FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                         WHERE s.position = 'Headteacher'
+                           AND s.data_scope = 'live'
+                           AND s.person_data_scope = 'live'
+                           AND COALESCE(s.is_test_user, 0) <> 1
+                         LIMIT 1"
+                    );
+                    $headteacher = $hStmt->fetchColumn();
+                } catch (\Throwable $e) {
+                    \App\API\Includes\FileLogger::write('reads', [
+                        'event' => 'optional_public_setting_unavailable',
+                        'projection' => 'staff_directory',
+                        'setting' => 'headteacher_name',
+                    ], 'warning');
+                }
                 if ($headteacher) {
                     $maxId++;
                     $rows[] = ['id' => $maxId, 'setting_key' => 'headteacher_name', 'setting_value' => $headteacher, 'label' => 'Headteacher'];
                 }
 
                 // ── Computed: all school leaders from staff table ──
-                $lStmt = $this->db->query(
-                    "SELECT CONCAT(p.first_name,' ',p.last_name) AS name, s.position
-                     FROM staff s
-                     JOIN persons p ON s.person_id = p.id
-                     WHERE s.position IN ('Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')
-                       AND s.data_scope = 'live'
-                       AND p.data_scope = 'live'
-                       AND NOT EXISTS (
-                           SELECT 1 FROM users u
-                           WHERE u.person_id = p.id AND u.is_test_user = 1
-                       )
-                     ORDER BY FIELD(s.position,'Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')"
-                );
-                $leaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
+                $leaders = [];
+                try {
+                    $lStmt = $this->db->query(
+                        "SELECT CONCAT(s.first_name,' ',s.last_name) AS name, s.position
+                         FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                         WHERE s.position IN ('Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')
+                           AND s.data_scope = 'live'
+                           AND s.person_data_scope = 'live'
+                           AND COALESCE(s.is_test_user, 0) <> 1
+                         ORDER BY FIELD(s.position,'Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')"
+                    );
+                    $leaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
+                } catch (\Throwable $e) {
+                    \App\API\Includes\FileLogger::write('reads', [
+                        'event' => 'optional_public_setting_unavailable',
+                        'projection' => 'staff_directory',
+                        'setting' => 'school_leaders_json',
+                    ], 'warning');
+                }
                 if ($leaders) {
                     $maxId++;
                     $rows[] = ['id' => $maxId, 'setting_key' => 'school_leaders_json', 'setting_value' => json_encode($leaders), 'label' => 'School Leaders'];
@@ -986,10 +1017,10 @@ class WebsiteManager extends BaseAPI
                             s.position AS staff_position,
                             CONCAT('person/', p.id, '/leadership') AS photo_target
                      FROM school_leader sl
-                     JOIN leadership_positions lp ON lp.id = sl.leadership_position_id
+                     JOIN " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp ON lp.id = sl.leadership_position_id
                      JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
-                     JOIN persons p ON p.id = sl.person_id
-                     LEFT JOIN staff s ON s.id = sl.staff_id
+                     JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = sl.person_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sl.staff_id
                      WHERE sl.is_active = 1 AND sl.academic_year_id = ?
                        AND p.data_scope = 'live'
                        AND (s.id IS NULL OR s.data_scope = 'live')
@@ -1061,10 +1092,10 @@ class WebsiteManager extends BaseAPI
                            s.position AS staff_position,
                            CONCAT('person/', p.id, '/leadership') AS photo_target
                     FROM school_leader sl
-                    JOIN leadership_positions lp ON lp.id = sl.leadership_position_id
+                    JOIN " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp ON lp.id = sl.leadership_position_id
                     JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
-                    JOIN persons p ON p.id = sl.person_id
-                    LEFT JOIN staff s ON s.id = sl.staff_id
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = sl.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sl.staff_id
                     WHERE sl.academic_year_id = ?";
             $params = [$ayId];
             if ($categoryId !== null) {
@@ -1191,9 +1222,9 @@ class WebsiteManager extends BaseAPI
             // second box. A community member matches none and stays NULL.
             $population = $this->db->prepare(
                 "SELECT
-                    (SELECT id FROM staff    WHERE person_id = ? LIMIT 1) AS staff_id,
-                    (SELECT id FROM students WHERE person_id = ? LIMIT 1) AS student_id,
-                    (SELECT id FROM parents  WHERE person_id = ? LIMIT 1) AS parent_id"
+                    (SELECT id FROM " . ReadReplicaService::qualifiedRef("staff") . "    WHERE person_id = ? LIMIT 1) AS staff_id,
+                    (SELECT id FROM " . ReadReplicaService::qualifiedRef("students") . " WHERE person_id = ? LIMIT 1) AS student_id,
+                    (SELECT id FROM " . ReadReplicaService::qualifiedRef("parents") . "  WHERE person_id = ? LIMIT 1) AS parent_id"
             );
             $population->execute([$data['person_id'], $data['person_id'], $data['person_id']]);
             $pop = $population->fetch(\PDO::FETCH_ASSOC) ?: [];
@@ -1315,12 +1346,12 @@ class WebsiteManager extends BaseAPI
                             ELSE NULLIF(LOWER(a.student_type_code), '')
                         END AS boarding_preference,
                         a.status, a.created_at
-                 FROM admission_applications a
-                 LEFT JOIN parents p ON p.id = a.parent_id
-                 LEFT JOIN persons pp ON pp.id = p.person_id
-                 LEFT JOIN students s ON s.id = COALESCE(
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " a
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.id = a.parent_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = COALESCE(
                      a.enrolled_student_id,
-                     (SELECT MAX(s2.id) FROM students s2 WHERE s2.application_id = a.id)
+                     (SELECT MAX(s2.id) FROM " . ReadReplicaService::qualifiedRef("students") . " s2 WHERE s2.application_id = a.id)
                  )
                  LEFT JOIN student_types st ON st.id = s.student_type_id
                  $where
@@ -1361,8 +1392,8 @@ class WebsiteManager extends BaseAPI
                         i.id AS interview_id, i.scheduled_at AS interview_scheduled_at,
                         i.mode AS interview_mode, i.location AS interview_location,
                         i.status AS interview_status, i.score AS interview_score, i.notes AS interview_notes,
-                        (SELECT sa.id FROM staff_appointments sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_id,
-                        (SELECT sa.status FROM staff_appointments sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_status
+                        (SELECT sa.id FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_id,
+                        (SELECT sa.status FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.candidate_notes LIKE CONCAT('%[job_application_id=', a.id, ']%') AND sa.status NOT IN ('rejected','cancelled') ORDER BY sa.id DESC LIMIT 1) AS staff_appointment_status
                  FROM job_applications a
                  LEFT JOIN job_application_interviews i ON i.id = (
                     SELECT i2.id FROM job_application_interviews i2
@@ -1494,7 +1525,7 @@ class WebsiteManager extends BaseAPI
         );
 
         $threadStmt = $this->db->prepare(
-            "SELECT t.id FROM communication_threads t
+            "SELECT t.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . "
              JOIN communication_thread_inquiries ti ON ti.thread_id = t.id
              WHERE ti.inquiry_id = ? LIMIT 1"
         );

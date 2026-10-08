@@ -10,6 +10,7 @@ use App\API\Modules\users\UserRoleManager;
 use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
+use App\API\Services\ReadReplicaService;
 use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
 use App\API\Services\PolicyEngine;
@@ -81,13 +82,13 @@ class AuthAPI extends BaseAPI
         $message = 'If an account exists for that email, password reset instructions have been sent.';
 
         try {
-            $stmt = $this->db->prepare('
-                SELECT u.id, p.email, u.username, p.first_name, p.last_name
-                FROM users u
-                LEFT JOIN persons p ON p.id = u.person_id
-                WHERE p.email = ? OR u.username = ?
-                LIMIT 1
-            ');
+            $stmt = $this->db->prepare(
+                "SELECT u.id AS user_id, p.email, u.username, p.first_name, p.last_name
+                 FROM users u
+                 JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+                 WHERE p.email = ? OR u.username = ?
+                 LIMIT 1"
+            );
             $stmt->execute([$identifier, $identifier]);
             $user = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -205,13 +206,15 @@ class AuthAPI extends BaseAPI
         try {
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare('
+            $stmt = $this->db->prepare(
+                '
                 SELECT id, email
                 FROM password_resets
                 WHERE token = ? AND used = 0 AND expires_at > NOW()
                 LIMIT 1
                 FOR UPDATE
-            ');
+                '
+            );
             $stmt->execute([$this->hashResetToken($token)]);
             $reset = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -226,7 +229,7 @@ class AuthAPI extends BaseAPI
             $stmt = $this->db->prepare('
                 SELECT u.id
                 FROM users u
-                JOIN persons p ON p.id = u.person_id
+                JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = u.person_id
                 WHERE p.email = ?
                 LIMIT 1
             ');
@@ -303,6 +306,14 @@ class AuthAPI extends BaseAPI
         if ($result['success']) {
             // Extract user data - it's nested in $result['data']['user']
             $userData = $result['data']['user'] ?? $result['data'];
+            $accessError = $this->loginAccessError((int) ($userData['id'] ?? 0));
+            if ($accessError !== null) {
+                return [
+                    'status' => 'error',
+                    'message' => $accessError,
+                    'data' => null,
+                ];
+            }
 
             // ── 2FA gate ──────────────────────────────────────────────────
             // If the user has 2FA enabled (or policy mandates it), pause the
@@ -461,24 +472,20 @@ class AuthAPI extends BaseAPI
                  $this->parentPortalLoginMarker($userData)
              );
 
-            try {
-                if (!empty($userData['force_password_change'])) {
-                    $setupToken = $this->createPasswordSetupInvitation((int)$userData['id']);
-                    $loginData['data']['password_setup_required'] = true;
-                    $loginData['data']['password_setup_url'] = $this->passwordSetupUrl($setupToken);
-                    $loginData['data']['dashboard'] = [
-                        'key' => 'reset_default_password',
-                        'url' => $loginData['data']['password_setup_url'],
-                        'label' => 'Create Password',
-                    ];
-                } elseif ($this->staffProfileCompletionRequired((int)$userData['id'])) {
-                    $loginData['data']['profile_completion_required'] = true;
-                    $loginData['data']['dashboard'] = [
-                        'key' => 'complete_staff_profile',
-                        'url' => 'complete_staff_profile',
-                        'label' => 'Complete Staff Profile',
+             try {
+                 $accessError = $this->loginAccessError((int) $userData['id']);
+                if ($accessError !== null) {
+                    return [
+                        'status' => 'error',
+                        'message' => $accessError,
+                        'data' => null,
                     ];
                 }
+                $loginData = $this->applyLoginDestination(
+                    $loginData,
+                    (int) $userData['id'],
+                    $userData
+                );
 
                 $result = $this->attachTrackedSession(
                     $loginData,
@@ -591,15 +598,11 @@ class AuthAPI extends BaseAPI
         }
 
         try {
-            if (!empty($userData['force_password_change'])) {
-                $setupToken = $this->createPasswordSetupInvitation($userId);
-                $loginData['data']['password_setup_required'] = true;
-                $loginData['data']['password_setup_url'] = $this->passwordSetupUrl($setupToken);
-                $loginData['data']['dashboard'] = ['key' => 'reset_default_password', 'url' => $loginData['data']['password_setup_url'], 'label' => 'Create Password'];
-            } elseif ($this->staffProfileCompletionRequired($userId)) {
-                $loginData['data']['profile_completion_required'] = true;
-                $loginData['data']['dashboard'] = ['key' => 'complete_staff_profile', 'url' => 'complete_staff_profile', 'label' => 'Complete Staff Profile'];
+            $accessError = $this->loginAccessError($userId);
+            if ($accessError !== null) {
+                return ['status' => 'error', 'message' => $accessError, 'data' => null];
             }
+            $loginData = $this->applyLoginDestination($loginData, $userId, $userData);
 
             $loginData['data']['two_factor_verified'] = true;
             $loginData['data']['csrf_token'] = $this->generateCsrfToken($userId);
@@ -866,7 +869,7 @@ class AuthAPI extends BaseAPI
                     'icon' => 'bi-house-door',
                     'url' => $resolvedKey,
                     'route_url' => $resolvedKey,
-                    'domain' => 'SCHOOL',
+                    'domain' => $this->domainForUser($userData),
                     'display_order' => -200,
                     'subitems' => [],
                     'show_badge' => false,
@@ -896,6 +899,7 @@ class AuthAPI extends BaseAPI
                         'url' => $resolvedKey,
                         'label' => $resolvedLabel
                     ],
+                    'domain' => $this->domainForUser($userData),
                     'delegated_permissions' => array_values(array_unique($delegatedPermissions)),
                     'config_source' => 'database'
                 ]
@@ -923,34 +927,30 @@ class AuthAPI extends BaseAPI
         try {
             // Get the dashboard route for this role from role_dashboards -> dashboards -> routes
             $stmt = $this->db->prepare(
-                "SELECT r.name 
-                 FROM role_dashboards rd
-                 JOIN dashboards d ON d.id = rd.dashboard_id
-                 JOIN routes_registry r ON r.id = d.route_id
-                 WHERE rd.role_id = ? AND rd.is_primary = 1
+                "SELECT route_name
+                 FROM " . ReadReplicaService::masterSourceRef('dashboard_catalog') . "
+                 WHERE role_id = ? AND role_dashboard_is_primary = 1
                  LIMIT 1"
             );
             $stmt->execute([$roleId]);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            if ($result && !empty($result['name'])) {
-                return $result['name'];
+            if ($result && !empty($result['route_name'])) {
+                return $result['route_name'];
             }
 
             // Fallback: try to get any dashboard for this role
             $stmt = $this->db->prepare(
-                "SELECT r.name 
-                 FROM role_dashboards rd
-                 JOIN dashboards d ON d.id = rd.dashboard_id
-                 JOIN routes_registry r ON r.id = d.route_id
-                 WHERE rd.role_id = ?
-                 ORDER BY rd.is_primary DESC
+                "SELECT route_name
+                 FROM " . ReadReplicaService::masterSourceRef('dashboard_catalog') . "
+                 WHERE role_id = ?
+                 ORDER BY role_dashboard_is_primary DESC
                  LIMIT 1"
             );
             $stmt->execute([$roleId]);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            return $result['name'] ?? 'home';
+            return $result['route_name'] ?? 'home';
         } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError("getDefaultRouteForRole error: " . $e->getMessage());
             return 'home';
@@ -1011,17 +1011,45 @@ class AuthAPI extends BaseAPI
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRoleId);
 
             if ($hardcodedSidebar === null) {
-                // Only query DB menu items when no hardcoded sidebar exists
-                $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+                // Legacy roles without file-backed navigation may still use the
+                // database menu. This is best-effort: refresh-token is part of
+                // the authentication path and must not fail because a read
+                // projection is unavailable (or the request is pinned to the
+                // master database).
+                try {
+                    $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError(
+                        'Auth sidebar database fallback unavailable: ' . $e->getMessage()
+                    );
+                }
             }
-            $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+
+            // File-backed roles already have their canonical route in
+            // DashboardRouter. Do not make token refresh depend on the
+            // materialized `dashboards` projection for presentation metadata.
+            if ($hardcodedSidebar === null) {
+                try {
+                    $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError(
+                        'Auth dashboard database fallback unavailable: ' . $e->getMessage()
+                    );
+                }
+            }
         } elseif ($primaryRole) {
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRole);
 
             // Fall back to role name lookup if role ID wasn't provided
             if ($hardcodedSidebar === null && $primaryRoleId) {
-                $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
-                $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+                try {
+                    $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+                    $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError(
+                        'Auth dashboard database fallback unavailable: ' . $e->getMessage()
+                    );
+                }
             }
         }
 
@@ -1029,7 +1057,13 @@ class AuthAPI extends BaseAPI
 
         // If no sidebar items found, try to get first accessible dashboard
         if (empty($sidebarItems)) {
-            $defaultDashboard = $dashboardManager->getDefaultDashboard();
+            try {
+                $defaultDashboard = $defaultDashboard ?? $dashboardManager->getDefaultDashboard();
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError(
+                    'Auth default dashboard database fallback unavailable: ' . $e->getMessage()
+                );
+            }
             if ($defaultDashboard) {
                 $sidebarItems = $defaultDashboard['menu_items'] ?? $defaultDashboard['menus'] ?? [];
             }
@@ -1073,13 +1107,9 @@ class AuthAPI extends BaseAPI
         if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
             $dashboardKeyResolved = $matches[1];
         }
-        $dashboardLabel = (
-            ($defaultDashboard['label'] ?? null) ? $defaultDashboard['label'] : (
-                (($dbDash = $this->getConfigService()->getDashboardByName($dashboardKeyResolved)) && !empty($dbDash['display_name']))
-                ? $dbDash['display_name']
-                : ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $dashboardKeyResolved)))
-            )
-        );
+        $dashboardLabel = $defaultDashboard['label']
+            ?? $defaultDashboard['display_name']
+            ?? ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $dashboardKeyResolved)));
 
         // Final normalization of dashboard key
         if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
@@ -1094,7 +1124,7 @@ class AuthAPI extends BaseAPI
                 'icon' => 'bi-house-door',
                 'url' => $dashboardKeyResolved,
                 'route_url' => $dashboardKeyResolved,
-                'domain' => 'SCHOOL',
+                'domain' => $this->domainForUser($userData),
                 'display_order' => -200,
                 'subitems' => [],
                 'show_badge' => false,
@@ -1124,9 +1154,28 @@ class AuthAPI extends BaseAPI
                     'url' => $dashboardKeyResolved,
                     'label' => $dashboardLabel
                 ],
+                'domain' => $this->domainForUser($userData),
                 'config_source' => 'file'
             ]
         ];
+    }
+
+    private function domainForUser(array $userData): string
+    {
+        $domains = [];
+        foreach ((array) ($userData['roles'] ?? []) as $role) {
+            $domain = is_array($role)
+                ? ($role['scope'] ?? $role['domain'] ?? '')
+                : '';
+            $domain = strtoupper(trim((string) $domain));
+            if ($domain !== '') {
+                $domains[$domain] = true;
+            }
+        }
+
+        return isset($domains['SYSTEM']) && !isset($domains['SCHOOL'])
+            ? 'SYSTEM'
+            : 'SCHOOL';
     }
 
     // Generate JWT token
@@ -1185,18 +1234,18 @@ class AuthAPI extends BaseAPI
         }
         try {
             $stmt = $this->db->prepare(
-                'SELECT pr.id
+                "SELECT pr.id
                    FROM users u
-                   JOIN persons p ON p.id = u.person_id
-                   JOIN parents pr ON pr.person_id = p.id
+                   JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+                   JOIN " . ReadReplicaService::masterRef("parents") . " pr ON pr.person_id = p.id
                    JOIN user_roles ur ON ur.user_id = u.id
                    JOIN roles r ON r.id = ur.role_id
                   WHERE u.id = ?
-                    AND u.status = \'active\'
-                    AND pr.status = \'active\'
-                    AND r.id = ' . self::PARENT_ROLE_ID . '
-                    AND r.name = \'Parent\'
-                  LIMIT 1'
+                    AND u.status = 'active'
+                    AND pr.status = 'active'
+                    AND r.id = " . self::PARENT_ROLE_ID . "
+                    AND r.name = 'Parent'
+                  LIMIT 1"
             );
             $stmt->execute([$userId]);
             $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -1400,19 +1449,19 @@ class AuthAPI extends BaseAPI
                 );
             }
 
-            // Override the dashboard key when profile completion is required.
-            // This matches the login-time check at lines 422–438 so the
-            // client-side AppRouteAccess.authorizeRoute() still sees the
-            // correct dashboard key after a page refresh (when only the
-            // HttpOnly refresh cookie survives, not localStorage).
-            if ($this->staffProfileCompletionRequired((int) $userData['id'])) {
-                $loginData['data']['profile_completion_required'] = true;
-                $loginData['data']['dashboard'] = [
-                    'key'   => 'complete_staff_profile',
-                    'url'   => 'complete_staff_profile',
-                    'label' => 'Complete Staff Profile',
+            $accessError = $this->loginAccessError((int) $userData['id']);
+            if ($accessError !== null) {
+                return [
+                    'status' => 'error',
+                    'message' => $accessError,
+                    'data' => null,
                 ];
             }
+            $loginData = $this->applyLoginDestination(
+                $loginData,
+                (int) $userData['id'],
+                $userData
+            );
 
             $loginData['data']['csrf_token'] = $this->generateCsrfToken(
                 (int) $userData['id']
@@ -1525,14 +1574,14 @@ class AuthAPI extends BaseAPI
 
     private function createPasswordSetupInvitation(int $userId): string
     {
-        $stmt = $this->db->prepare('
+        $stmt = $this->db->prepare("
             SELECT p.email, s.id AS staff_id
-            FROM users u
-            LEFT JOIN persons p ON p.id = u.person_id
-            LEFT JOIN staff s ON s.person_id = u.person_id
-            WHERE u.id = ?
+              FROM users u
+              JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+              LEFT JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = p.id
+             WHERE u.id = ?
             LIMIT 1
-        ');
+        ");
         $stmt->execute([$userId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$row || empty($row['email'])) {
@@ -1619,11 +1668,59 @@ class AuthAPI extends BaseAPI
     private function staffProfileCompletionRequired(int $userId): bool
     {
         try {
+            $staffContext = \App\API\Services\StaffRecordsService::staffContextForUserId(
+                $this->db,
+                $userId
+            );
+            if (($staffContext['state'] ?? '') === 'unlinked') {
+                return false;
+            }
             return (new \App\API\Services\StaffProfileCompletionService($this->db))->isRequired($userId);
         } catch (\Throwable $error) {
             \App\API\Services\Logger::legacyError('Staff profile completion check failed: ' . $error->getMessage());
             return true;
         }
+    }
+
+    /**
+     * Resolve the account destination before any token/session response can
+     * reach the browser. SYSTEM and parent-only accounts have no staff
+     * onboarding destination; only completed staff later marked inactive are
+     * denied at login.
+     */
+    private function applyLoginDestination(array $loginData, int $userId, array $userData): array
+    {
+        if (!empty($userData['force_password_change'])) {
+            $setupToken = $this->createPasswordSetupInvitation($userId);
+            $loginData['data']['password_setup_required'] = true;
+            $loginData['data']['password_setup_url'] = $this->passwordSetupUrl($setupToken);
+            $loginData['data']['dashboard'] = [
+                'key' => 'reset_default_password',
+                'url' => $loginData['data']['password_setup_url'],
+                'label' => 'Create Password',
+            ];
+        } elseif ($this->staffProfileCompletionRequired($userId)) {
+            $loginData['data']['profile_completion_required'] = true;
+            $loginData['data']['dashboard'] = [
+                'key' => 'complete_staff_profile',
+                'url' => 'complete_staff_profile',
+                'label' => 'Complete Staff Profile',
+            ];
+        }
+
+        return $loginData;
+    }
+
+    private function loginAccessError(int $userId): ?string
+    {
+        $context = \App\API\Services\StaffRecordsService::staffContextForUserId(
+            $this->db,
+            $userId
+        );
+        if (($context['state'] ?? '') === 'deactivated') {
+            return 'This staff account has been deactivated by an administrator. Please contact an administrator.';
+        }
+        return null;
     }
 
     // Send reset email
@@ -1786,7 +1883,7 @@ class AuthAPI extends BaseAPI
         // the password saved, OTP verification is governed by its own short
         // expiry so an invitation expiring during the email round-trip cannot
         // strand the staff member.
-        $stmt = $this->db->prepare("SELECT ui.user_id FROM user_invitations ui JOIN staff s ON s.id=ui.staff_id JOIN users u ON u.id=ui.user_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
+        $stmt = $this->db->prepare("SELECT ui.user_id FROM user_invitations ui JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.id=ui.staff_id JOIN users u ON u.id=ui.user_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
         $stmt->execute([hash('sha256', $token)]);
         $userId = (int)$stmt->fetchColumn();
         if ($userId < 1) return ['success' => false, 'message' => 'This setup verification has expired. Request a new invitation from the school.'];
@@ -1817,7 +1914,7 @@ class AuthAPI extends BaseAPI
     {
         $token = trim((string)($data['token'] ?? ''));
         if ($token === '') return ['success' => false, 'message' => 'The setup link is missing.'];
-        $stmt = $this->db->prepare("SELECT ui.user_id,p.email FROM user_invitations ui JOIN users u ON u.id=ui.user_id JOIN persons p ON p.id=u.person_id JOIN staff s ON s.id=ui.staff_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
+        $stmt = $this->db->prepare("SELECT ui.user_id,p.email FROM user_invitations ui JOIN users u ON u.id=ui.user_id JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id=u.person_id JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.id=ui.staff_id WHERE ui.token_hash=? AND ui.status='accepted' AND u.status='active' AND u.force_password_change=0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL LIMIT 1");
         $stmt->execute([hash('sha256', $token)]);
         $invite = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$invite) return ['success' => false, 'message' => 'This setup verification has expired. Request a new invitation from the school.'];

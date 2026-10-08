@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Services\payments;
 
+use App\API\Services\ReadReplicaService;
 use App\API\Services\FinancialPostingCoordinator;
 use App\API\Services\ServiceContractBroker;
 use PDO;
@@ -124,7 +125,7 @@ class TransportPaymentService
     public function reconcileIntentReference(string $reference, float $amount, string $provider, string $providerReference): bool
     {
         $reference = (new ReferenceNormalizer())->reference($reference);
-        $s=$this->db->prepare("SELECT i.* FROM transport_payment_intents i JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
+        $s=$this->db->prepare("SELECT i.* FROM " . ReadReplicaService::qualifiedRef("transport_payment_intents") . " JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
         if (!$intent) return false;
         if ($intent['status']==='confirmed') return true;
         if (!in_array($intent['status'], ['pending','accepted','manual_review'], true) || abs((float)$intent['amount']-$amount)>0.01) return false;
@@ -175,7 +176,7 @@ class TransportPaymentService
     private function notifyParent(int $studentId, float $amount, string $reference): void
     {
         try {
-            $s=$this->db->prepare("SELECT p.phone,p.email FROM students st JOIN persons p ON p.id=st.person_id WHERE st.id=?"); $s->execute([$studentId]); $p=$s->fetch(PDO::FETCH_ASSOC) ?: [];
+            $s=$this->db->prepare("SELECT st.phone, st.email FROM " . ReadReplicaService::qualifiedRef('person_directory') . " st WHERE st.student_id=?"); $s->execute([$studentId]); $p=$s->fetch(PDO::FETCH_ASSOC) ?: [];
             $body='Kingsway transport payment received: KES '.number_format($amount,2).' (Ref '.$reference.'). View your parent portal for the transport receipt.';
             $m=ServiceContractBroker::contract('App\API\Modules\communications\CommunicationsManager', [], $this->db);
             foreach (['sms'=>'phone','whatsapp'=>'phone','email'=>'email'] as $type=>$field) if (!empty($p[$field])) $m->createCommunication(['sender_id'=>1,'subject'=>'Transport payment received','body'=>$body,'type'=>$type,'status'=>'queued','priority'=>'normal','recipients'=>[$p[$field]]]);

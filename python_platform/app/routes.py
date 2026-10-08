@@ -32,7 +32,7 @@ from .providers import Provider, ProviderError
 from .security import bearer_authorized, ensure_staff_context, bound_question
 from .automations import AutomationEngine, AutomationError
 from .tools import ToolBridge
-from .read_models import ReadModelError, ReadModelRefresher
+from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
 from .queue_worker import PythonQueueWorker
 
 
@@ -58,7 +58,7 @@ def create_app(config: Config | None = None) -> Flask:
 
     def run_python_queue_batch() -> None:
         try:
-            outcome = PythonQueueWorker(cfg).run_batch(1)
+            outcome = PythonQueueWorker(cfg).run_batch(50)
             journal.write("reads", {
                 "type": "python_queue_batch_finished",
                 "processed": int(outcome.get("processed", 0)),
@@ -256,7 +256,10 @@ def create_app(config: Config | None = None) -> Flask:
         payload = request.get_json(force=True, silent=True) or {}
         projection = str(payload.get("projection") or "")
         try:
-            result = ReadModelRefresher(cfg).refresh(projection)
+            if projection in {"student_term_placement", "fee_status_summary", "person_directory"}:
+                result = PolarsReadModelRefresher(cfg).refresh(projection)
+            else:
+                result = ReadModelRefresher(cfg).refresh(projection)
         except ReadModelError as error:
             # Operational responses stay generic; logs contain only exception
             # classes, projection IDs, and timings, never records or SQL values.

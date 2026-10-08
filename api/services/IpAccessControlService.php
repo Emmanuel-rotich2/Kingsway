@@ -157,9 +157,9 @@ final class IpAccessControlService
         $whereSql = implode(' AND ', $where);
         $joins = '
             LEFT JOIN users cu ON cu.id = r.created_by
-            LEFT JOIN persons cp ON cp.id = cu.person_id
+            LEFT JOIN ' . ReadReplicaService::qualifiedRef('person_directory') . ' cp ON cp.person_id = cu.person_id
             LEFT JOIN users uu ON uu.id = r.updated_by
-            LEFT JOIN persons up ON up.id = uu.person_id
+            LEFT JOIN ' . ReadReplicaService::qualifiedRef('person_directory') . ' up ON up.person_id = uu.person_id
         ';
 
         $statusExpression = $this->statusExpression();

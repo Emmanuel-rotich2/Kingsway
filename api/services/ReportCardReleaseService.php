@@ -33,9 +33,9 @@ final class ReportCardReleaseService
                     r.status, r.overall_percentage, r.class_position, r.class_population,
                     r.generated_at, r.approved_at, r.released_at, r.pdf_path
              FROM report_card_releases r
-             JOIN student_academic_enrollments sae ON sae.id=r.student_academic_enrollment_id
-             JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
-             JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+             JOIN ' . ReadReplicaService::qualifiedRef('student_academic_enrollments') . ' sae ON sae.id=r.student_academic_enrollment_id
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_year_class_streams') . ' aycs ON aycs.id=sae.academic_year_class_stream_id
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_year_classes') . ' ayc ON ayc.id=aycs.academic_year_class_id
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY r.generated_at DESC'
         );

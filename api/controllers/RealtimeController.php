@@ -8,6 +8,7 @@ use App\API\Services\JobHandlerRegistry;
 use App\API\Services\JobQueue;
 use App\API\Services\ReadProjectionSynchronizer;
 use App\API\Services\RealtimeScopeResolver;
+use App\Config\Config;
 
 /**
  * RealtimeController - authenticated fallback access to the real-time engine.
@@ -49,19 +50,13 @@ class RealtimeController extends BaseAPI
         $allowedScopes = $this->allowedScopes();
 
         try {
-            $scopeMarks = implode(',', array_fill(0, count($allowedScopes), '?'));
-            $stmt = $this->db->prepare(
-                "SELECT id, domain, event_name, payload, created_at
-                 FROM system_realtime_events
-                 WHERE id > ? AND (target_scope IN ({$scopeMarks}) OR target_scope IS NULL)
-                 ORDER BY id ASC
-                 LIMIT " . self::SYNC_BATCH_LIMIT
+            $rows = \App\API\Services\EventBroadcaster::syncBatch(
+                $this->db, $lastId, $allowedScopes, self::SYNC_BATCH_LIMIT
             );
-            $stmt->execute(array_merge([$lastId], $allowedScopes));
 
             $events = [];
             $newLastId = $lastId;
-            while ($row = $stmt->fetch()) {
+            foreach ($rows as $row) {
                 $decoded = json_decode((string) $row['payload'], true);
                 $newLastId = (int) $row['id'];
                 $events[] = [
@@ -94,6 +89,61 @@ class RealtimeController extends BaseAPI
         } catch (\Exception $e) {
             $this->logError($e, 'RealtimeController::getSync');
             return $this->errorResponse('Unable to synchronise real-time events.', 500);
+        }
+    }
+
+    /**
+     * GET /api/realtime/stream-token
+     * Issue a short-lived capability containing only the scopes this
+     * authenticated user already receives from the static realtime path.
+     */
+    public function getStreamToken($id = null, $data = [])
+    {
+        $user = $this->getCurrentUser() ?: [];
+        $userId = (int) ($user['user_id'] ?? $user['id'] ?? $this->user_id ?? 0);
+        $url = trim((string) Config::get('NODE_REALTIME_URL', Config::get('NODE_REALTIME_PUBLIC_URL', '')));
+        $url = rtrim($url, '/');
+        if ($userId < 1) {
+            return $this->errorResponse('Authentication required.', 401);
+        }
+        if ($url === '') {
+            return $this->errorResponse('Realtime stream is not configured.', 503);
+        }
+
+        $channels = array_values(array_unique(array_filter(
+            $this->allowedScopes(),
+            static fn($scope): bool => is_string($scope)
+                && preg_match('/^[a-zA-Z0-9:_-]{1,128}$/', $scope) === 1
+        )));
+        if ($channels === [] || count($channels) > 100) {
+            return $this->errorResponse('No realtime scopes are available.', 403);
+        }
+
+        $issuedAt = time();
+        $expiresAt = $issuedAt + 240;
+        $claims = [
+            'iss' => (string) Config::get('JWT_ISSUER', JWT_ISSUER),
+            'aud' => (string) Config::get('JWT_AUDIENCE', JWT_AUDIENCE),
+            'sub' => (string) $userId,
+            'user_id' => $userId,
+            'realtime' => true,
+            'channels' => $channels,
+            'iat' => $issuedAt,
+            'exp' => $expiresAt,
+            'jti' => bin2hex(random_bytes(16)),
+        ];
+
+        try {
+            $token = \Firebase\JWT\JWT::encode($claims, JWT_SECRET, 'HS256');
+            header('Cache-Control: no-store, private');
+            return $this->successResponse([
+                'token' => $token,
+                'url' => $url,
+                'expires_at' => gmdate('c', $expiresAt),
+            ], 'Realtime stream capability issued', 200);
+        } catch (\Throwable $error) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] stream capability issuance failed: ' . get_class($error));
+            return $this->errorResponse('Unable to establish realtime stream.', 500);
         }
     }
 
@@ -162,6 +212,31 @@ class RealtimeController extends BaseAPI
      * HostAfrica shared hosting runs jobs. There is deliberately no
      * scripts/cron dispatcher in this path.
      */
+    /**
+     * POST /api/realtime/maintenance
+     * Daily maintenance (curl crontab line with X-Kingsway-Worker-Secret).
+     * Replaces the legacy webroot maintenance.php script per the curl-only
+     * scheduling rule.
+     */
+    public function postMaintenance($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasValidWorkerCredential()) {
+            return $this->errorResponse('Invalid worker credential', 403);
+        }
+        try {
+            (new \App\API\Services\ScheduledMaintenanceService())->runDailyMaintenance();
+            $this->contract(\App\API\Services\UploadService::class)->writeFile(
+                dirname(__DIR__, 2) . '/logs/maintenance.log',
+                date('Y-m-d H:i:s') . " - Maintenance tasks completed successfully\n",
+                FILE_APPEND
+            );
+            return $this->successResponse(['status' => 'completed']);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[RealtimeController] maintenance: ' . $e->getMessage());
+            return $this->errorResponse('Maintenance failed.', 500);
+        }
+    }
+
     public function postCleanup($id = null, $data = [], $segments = [])
     {
         if (!$this->hasValidWorkerCredential()) {
@@ -174,12 +249,7 @@ class RealtimeController extends BaseAPI
 
         $report = array_merge($report, JobQueue::purgeOld());
 
-        $stmt = $this->db->prepare(
-            "DELETE FROM system_realtime_events
-             WHERE created_at < NOW() - INTERVAL 12 HOUR"
-        );
-        $stmt->execute();
-        $report['events_purged'] = $stmt->rowCount();
+        $report['events_purged'] = \App\API\Services\EventBroadcaster::purgeOldEvents($this->db);
 
         // Expired SQLite cache rows are only removed lazily when a key is read
         // again, so a key that is written once and never revisited would
@@ -208,6 +278,34 @@ class RealtimeController extends BaseAPI
         if (!$this->hasValidWorkerCredential()) {
             return $this->errorResponse('Invalid worker credential', 403);
         }
+        $batch = filter_var($data['projection_batch'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 0, 'max_range' => 4],
+        ]);
+        if ($batch !== false && $batch !== null) {
+            $batchProjections = ReadProjectionSynchronizer::batchQueueSlice($batch);
+            $queued = [];
+            $skipped = 0;
+            foreach ($batchProjections as $projection) {
+                // One outstanding refresh job per projection: without this the
+                // every-5-minute batch enqueue grows an unbounded duplicate
+                // backlog whenever the worker drains slower than the batch
+                // cadence, and duplicate jobs collide on the projection lock.
+                if (JobQueue::findActiveByTypeAndPayload('reads.projection.refresh', 'projection', $projection) !== null) {
+                    $skipped++;
+                    continue;
+                }
+                $queued[] = JobQueue::push('reads.projection.refresh', [
+                    'projection' => $projection,
+                    'requested_by' => 'worker-cron',
+                    'idempotency_key' => 'projection:' . $projection . ':' . date('YmdHi'),
+                ], 0, 5, 60);
+            }
+            return $this->successResponse(
+                ['batch' => $batch, 'count' => count($queued), 'skipped' => $skipped, 'job_ids' => $queued, 'status' => 'queued'],
+                'Read projection refresh batch queued',
+                202
+            );
+        }
         $projection = trim((string) ($data['projection'] ?? 'fee_collection_monthly_trend'));
         if (!ReadProjectionSynchronizer::supports($projection)) {
             return $this->errorResponse('Projection is not enabled for synchronization', 422);
@@ -219,6 +317,14 @@ class RealtimeController extends BaseAPI
                 $result = ReadProjectionSynchronizer::synchronize($projection);
                 $result['engine'] = 'php_fallback';
                 return $this->successResponse($result, 'Read projection synchronized', 200);
+            }
+            $activeJobId = JobQueue::findActiveByTypeAndPayload('reads.projection.refresh', 'projection', $projection);
+            if ($activeJobId !== null) {
+                return $this->successResponse(
+                    ['job_id' => $activeJobId, 'projection' => $projection, 'status' => 'already_queued'],
+                    'Read projection refresh already queued',
+                    200
+                );
             }
             $jobId = JobQueue::push('reads.projection.refresh', [
                 'projection' => $projection,
@@ -273,7 +379,7 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Python job lease is not valid for input access', 409);
         }
         try {
-            $input = (new \App\API\Services\automations\AutomationArtifacts())
+            $input = $this->contract(\App\API\Services\automations\AutomationArtifacts::class)
                 ->preparePythonJob($job['payload'], $this->db);
             return $this->successResponse($input, 'Authorized automation input', 200);
         } catch (\Throwable $error) {
@@ -300,7 +406,7 @@ class RealtimeController extends BaseAPI
                 return $this->errorResponse('Automation result is not available to this worker', 422);
             }
             try {
-                $descriptor = (new \App\API\Services\automations\AutomationArtifacts())
+                $descriptor = $this->contract(\App\API\Services\automations\AutomationArtifacts::class)
                     ->stagePythonResult($job['payload'], $data['result'], $this->db);
             } catch (\Throwable $error) {
                 \App\API\Services\Logger::legacyError('[RealtimeController] Python artifact validation failed: ' . get_class($error));
@@ -311,7 +417,7 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Python job lease has been recovered', 409);
         }
         if ($descriptor !== null) {
-            (new \App\API\Services\automations\AutomationArtifacts())->finishPythonJob($job['payload'], $descriptor);
+            $this->contract(\App\API\Services\automations\AutomationArtifacts::class)->finishPythonJob($job['payload'], $descriptor);
         }
         return $this->successResponse(['job_id' => $jobId, 'status' => JobQueue::STATUS_DONE, 'artifact' => $descriptor], 'Python job completed', 200);
     }
@@ -364,7 +470,7 @@ class RealtimeController extends BaseAPI
     {
         $types = [];
         try {
-            if ((new \App\API\Services\ReadProjectionBridge())->enabled()) {
+            if ($this->contract(\App\API\Services\ReadProjectionBridge::class)->enabled()) {
                 $types[] = 'reads.projection.refresh';
             }
         } catch (\Throwable $error) {
@@ -372,7 +478,7 @@ class RealtimeController extends BaseAPI
             // safe PHP fallback rather than strand queue rows as processing.
         }
         try {
-            if ((new \App\API\Services\AutomationBridge())->available()) {
+            if ($this->contract(\App\API\Services\AutomationBridge::class)->available()) {
                 $types[] = 'automation.run';
             }
         } catch (\Throwable $error) {
@@ -477,18 +583,7 @@ class RealtimeController extends BaseAPI
     private function latestOutboxId(array $allowedScopes = [EventBroadcaster::DEFAULT_SCOPE]): int
     {
         try {
-            $allowedScopes = array_values(array_unique(array_map([EventBroadcaster::class, 'normalizeScope'], $allowedScopes)));
-            if (empty($allowedScopes)) {
-                return 0;
-            }
-            $marks = implode(',', array_fill(0, count($allowedScopes), '?'));
-            $stmt = $this->db->prepare(
-                "SELECT COALESCE(MAX(id), 0) FROM system_realtime_events
-                 WHERE target_scope IN ({$marks}) OR target_scope IS NULL"
-            );
-            $stmt->execute($allowedScopes);
-            $value = $stmt->fetchColumn();
-            return (int) $value;
+            return \App\API\Services\EventBroadcaster::latestVisibleId($this->db, $allowedScopes);
         } catch (\Exception $e) {
             return 0;
         }

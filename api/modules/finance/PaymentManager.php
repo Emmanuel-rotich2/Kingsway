@@ -386,9 +386,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                        s.admission_no,
                        CONCAT(ps.first_name, ' ', ps.last_name) as student_name,
                        u.username as received_by_name
-                FROM payments p
-                INNER JOIN students s ON p.student_id = s.id
-                LEFT JOIN persons ps ON ps.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON p.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
                 LEFT JOIN users u ON p.received_by = u.id
                 WHERE p.id = ?
             ");
@@ -680,7 +680,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     SELECT st.id, ?, ?, ?
                     FROM school_transactions st
                     WHERE st.reference = (
-                        SELECT reference COLLATE utf8mb4_general_ci FROM payments WHERE id = ? LIMIT 1
+                        SELECT reference FROM payments WHERE id = ? LIMIT 1
                     )
                     LIMIT 1
                 ");
@@ -859,11 +859,11 @@ return formatResponse(false, null, 'An internal error occurred.');
                         ay.id AS academic_year,
                         ayt.term_id AS term_id,
                         t.name AS term_name
-                    FROM payments p
-                    INNER JOIN students s ON p.student_id = s.id
-                    LEFT JOIN persons ps ON ps.id = s.person_id
-                    LEFT JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
-                    LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id
+                    FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON p.student_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id
                         AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
                     LEFT JOIN terms t ON t.id = ayt.term_id
                     WHERE p.parent_id = ?";
@@ -966,7 +966,14 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt = $this->db->prepare($sql);
             $stmt->execute($args);
             $found = $stmt->fetchColumn();
-            if (is_string($found) && preg_match('/^[A-Za-z0-9_]+$/', $found)) {
+            // Only report a pin-worthy collation when the column has drifted
+            // away from the schema standard. Pinning a conforming column with
+            // an explicit COLLATE has coercibility 0 and disables index use —
+            // the exact full-table-scan trap the 2026-10-04 collation
+            // standardization migration removed.
+            if (is_string($found)
+                && preg_match('/^[A-Za-z0-9_]+$/', $found)
+                && $found !== 'utf8mb4_unicode_ci') {
                 $collation = $found;
             }
         } catch (\Throwable $e) {
@@ -1333,12 +1340,11 @@ return formatResponse(false, null, 'An internal error occurred.');
             $currentTermNumber = 0;
             $hasCurrentTerm = false;
             if ($contextYear !== '') {
+                $academicTerms = ReadReplicaService::qualifiedRef('academic_term');
                 $ctxStmt = $this->db->prepare(
-                    "SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-                     FROM academic_year_terms ayt
-                     JOIN terms t ON t.id = ayt.term_id
-                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                     WHERE ay.year_code = ? AND ayt.status = 'current'
+                    "SELECT CAST(SUBSTRING(term_code, 2) AS UNSIGNED)
+                     FROM {$academicTerms}
+                     WHERE year_code = ? AND term_period_status = 'current'
                      LIMIT 1"
                 );
                 $ctxStmt->execute([$contextYear]);
@@ -1349,11 +1355,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                     // not-yet-opened year) — fall back to the latest term that
                     // actually has fee rows, from the data, never assumed.
                     $latestStmt = $this->db->prepare(
-                        "SELECT MAX(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-                         FROM academic_year_terms ayt
-                         JOIN terms t ON t.id = ayt.term_id
-                         JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                         WHERE ay.year_code = ?"
+                        "SELECT MAX(CAST(SUBSTRING(term_code, 2) AS UNSIGNED))
+                         FROM {$academicTerms}
+                         WHERE year_code = ?"
                     );
                     $latestStmt->execute([$contextYear]);
                     $currentTermNumber = (int) ($latestStmt->fetchColumn() ?: 0);

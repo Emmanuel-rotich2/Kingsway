@@ -2,6 +2,7 @@
 namespace App\API\Services;
 
 use App\Database\Database;
+use App\API\Services\ReadReplicaService;
 use Exception;
 use PDO;
 
@@ -44,11 +45,10 @@ class ClassTeacherAnalyticsService
     {
         try {
             // Find the class assigned to this teacher as class_teacher
-            $query = "SELECT aycs.id as stream_id, aycs.academic_year_class_id as class_id
-                      FROM academic_year_class_streams aycs
-                      JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                      WHERE aycs.class_teacher_id = ?
-                        AND ayc.status = 'active'
+            $query = "SELECT class_stream_id as stream_id, class_id
+                      FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                      WHERE class_teacher_id = ?
+                        AND class_stream_status = 'active'
                       LIMIT 1";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -85,28 +85,23 @@ class ClassTeacherAnalyticsService
             // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         COUNT(*) as total,
-                        SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
-                        SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female
-                      FROM student_academic_enrollments sae
-                      JOIN students st ON st.id = sae.student_id
-                      LEFT JOIN persons p ON p.id = st.person_id
+                        SUM(CASE WHEN sae.gender = 'male' THEN 1 ELSE 0 END) as male,
+                        SUM(CASE WHEN sae.gender = 'female' THEN 1 ELSE 0 END) as female
+                      FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sae
                       WHERE sae.academic_year_class_stream_id = ? 
                         AND sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query, [$this->streamId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get class name from academic_year_class_streams and classes
+            // Get class name from academic_calendar
             $classQuery = "SELECT 
                             CASE 
-                                WHEN c.name = s.name THEN c.name
-                                WHEN s.name IS NULL THEN c.name
-                                ELSE CONCAT(c.name, ' ', s.name)
+                                WHEN class_name = stream_name THEN class_name
+                                WHEN stream_name IS NULL THEN class_name
+                                ELSE CONCAT(class_name, ' ', stream_name)
                             END as class_name
-                          FROM academic_year_class_streams aycs
-                          JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
-                          JOIN classes c ON aac.class_id = c.id
-                          JOIN streams s ON aycs.stream_id = s.id
-                          WHERE aycs.id = ?";
+                          FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                          WHERE class_stream_id = ?";
             $classStmt = $this->db->query($classQuery, [$this->streamId]);
             $classResult = $classStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -139,8 +134,7 @@ class ClassTeacherAnalyticsService
                         SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
                         SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
                         COUNT(*) as total
-                      FROM student_attendance a
-                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
+                      FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                       WHERE sae.academic_year_class_stream_id = ?
                         AND a.date = CURDATE()
                         AND sae.enrollment_status = 'active'";
@@ -185,8 +179,8 @@ class ClassTeacherAnalyticsService
 
             // Get graded this week (approved results submitted this week)
             $gradedQuery = "SELECT COUNT(DISTINCT ar.assessment_id) as graded
-                           FROM assessment_results ar
-                           JOIN assessments a ON a.id = ar.assessment_id
+                           FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+                           JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
                            WHERE a.assigned_by = ?
                              AND ar.is_approved = 1
                              AND YEARWEEK(ar.submitted_at) = YEARWEEK(CURDATE())";
@@ -310,8 +304,7 @@ class ClassTeacherAnalyticsService
             $query = "SELECT 
                         DATE(a.date) as date,
                         ROUND(AVG(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
-                      FROM student_attendance a
-                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
+                      FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                       WHERE sae.academic_year_class_stream_id = ?
                         AND a.date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
                         AND sae.enrollment_status = 'active'
@@ -416,8 +409,8 @@ class ClassTeacherAnalyticsService
 
             // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
-                        CONCAT(p.first_name, ' ', p.last_name) as student_name,
-                        st.admission_no,
+                        CONCAT(sae.first_name, ' ', sae.last_name) as student_name,
+                        sae.admission_no,
                         ROUND(AVG(v.percentage), 1) as average_score,
                         COUNT(v.result_id) as assessments_taken,
                         CASE 
@@ -425,14 +418,12 @@ class ClassTeacherAnalyticsService
                             WHEN AVG(v.percentage) >= 50 THEN 'Good'
                             ELSE 'Needs Support'
                         END as status
-                      FROM student_academic_enrollments sae
-                      JOIN students st ON st.id = sae.student_id
-                      LEFT JOIN persons p ON p.id = st.person_id
-                      LEFT JOIN vw_assessment_results_detail v ON sae.id = v.student_academic_enrollment_id
+                      FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sae
+                      LEFT JOIN vw_assessment_results_detail v ON sae.enrollment_id = v.student_academic_enrollment_id
                       WHERE sae.academic_year_class_stream_id = ? 
                         AND sae.enrollment_status = 'active'
-                      GROUP BY sae.id, p.first_name, p.last_name, st.admission_no
-                      ORDER BY p.first_name, p.last_name
+                      GROUP BY sae.enrollment_id, sae.first_name, sae.last_name, sae.admission_no
+                      ORDER BY sae.first_name, sae.last_name
                       LIMIT 50";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -455,22 +446,20 @@ class ClassTeacherAnalyticsService
             // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         sae.student_id as id,
-                        CONCAT(p.first_name, ' ', p.last_name) as name,
-                        st.admission_no,
-                        p.gender,
+                        CONCAT(sae.first_name, ' ', sae.last_name) as name,
+                        sae.admission_no,
+                        sae.gender,
                         CASE 
                             WHEN a.status = 'present' THEN 'Present'
                             WHEN a.status = 'absent' THEN 'Absent'
                             WHEN a.status = 'late' THEN 'Late'
                             ELSE 'Not Marked'
                         END as attendance_today
-                      FROM student_academic_enrollments sae
-                      JOIN students st ON st.id = sae.student_id
-                      LEFT JOIN persons p ON p.id = st.person_id
-                      LEFT JOIN student_attendance a ON a.student_academic_enrollment_id = sae.id AND a.date = CURDATE()
+                      FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sae
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("student_attendance") . " a ON a.student_academic_enrollment_id = sae.enrollment_id AND a.date = CURDATE()
                       WHERE sae.academic_year_class_stream_id = ? 
                         AND sae.enrollment_status = 'active'
-                      ORDER BY p.first_name, p.last_name";
+                      ORDER BY sae.first_name, sae.last_name";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
