@@ -310,7 +310,7 @@ const MaintenanceModeController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Maintenance Mode", orientation: "portrait" }) ?? window.print();
   },
 
   renderForbidden() {

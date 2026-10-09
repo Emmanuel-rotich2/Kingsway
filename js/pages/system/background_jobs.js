@@ -337,7 +337,7 @@ const BackgroundJobsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Background Jobs", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

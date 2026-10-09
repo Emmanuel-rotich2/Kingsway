@@ -242,7 +242,7 @@ const SidebarMenusController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Sidebar Menus", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

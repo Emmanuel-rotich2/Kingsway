@@ -222,7 +222,7 @@ const SystemDiagnosticsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "System Diagnostics", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

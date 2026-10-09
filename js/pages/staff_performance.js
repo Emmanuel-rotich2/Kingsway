@@ -53,7 +53,7 @@ const StaffPerformanceController = {
         if (printBtn) {
             printBtn.addEventListener("click", () => {
                 if (AuthContext.canPrint('staff')) {
-                    window.print();
+                    window.PrintManager?.printPage({ title: 'Staff Performance', orientation: 'landscape' }) ?? window.print();
                 } else {
                     showNotification('You do not have permission to print reports', 'error');
                 }

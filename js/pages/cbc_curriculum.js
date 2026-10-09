@@ -251,7 +251,7 @@ const CBCController = {
         document.getElementById('exportCurriculumBtn')?.addEventListener('click', () => this.exportLearningAreas());
         document.getElementById('printCurriculumBtn')?.addEventListener('click', () => {
             if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('curriculum')) return window.showNotification?.('You do not have permission to print curriculum data.', 'error');
-            window.print();
+            window.PrintManager?.printPage({ title: 'CBC Curriculum', orientation: 'landscape' }) ?? window.print();
         });
     },
 

@@ -258,7 +258,7 @@
             sectionTitle: "Operations & Observability",
           });
         } else if (window.print) {
-          window.print();
+          window.PrintManager?.printPage({ title: "System Operations Assistant", orientation: "landscape" }) ?? window.print();
         }
       } catch (error) {
         if (window.showNotification) showNotification("error", "Printing failed.");

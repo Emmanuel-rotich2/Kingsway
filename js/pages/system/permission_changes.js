@@ -241,7 +241,7 @@ const PermissionChangesController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Permission Changes", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

@@ -274,7 +274,7 @@ const TimeBoundAccessController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Time-Bound Access", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

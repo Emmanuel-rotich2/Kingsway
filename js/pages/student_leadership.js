@@ -319,7 +319,7 @@ const StudentLeadershipController = {
       this.showNotification("You are not permitted to print student leadership positions.", "error");
       return;
     }
-    window.print();
+    window.PrintManager?.printPage({ title: "Student Leadership Positions", orientation: "landscape" }) ?? window.print();
   },
 
   openPosition(id = null) {

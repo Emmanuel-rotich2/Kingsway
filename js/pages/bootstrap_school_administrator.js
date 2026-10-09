@@ -254,7 +254,7 @@
     el("exportSchoolAdminInvitations")?.addEventListener("click", exportInvitations);
     el("printSchoolAdminInvitations")?.addEventListener("click", () => {
       if (typeof window.AuthContext?.canPrint === "function" && !window.AuthContext.canPrint("users")) return;
-      window.print();
+      window.PrintManager?.printPage({ title: "School Administrator Invitations", orientation: "landscape" }) ?? window.print();
     });
     el("schoolAdminInvitationsBody")?.addEventListener("click", handleInvitationAction);
     if (typeof window.AuthContext?.canExport === "function") el("exportSchoolAdminInvitations").hidden = !window.AuthContext.canExport("users");

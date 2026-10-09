@@ -877,7 +877,7 @@ const ManageUsersController = {
   },
 
   printPdf() {
-    window.print();
+    window.PrintManager?.printPage({ title: "User Accounts", orientation: "landscape" }) ?? window.print();
   },
 
   async initiateTestDataPurge() {

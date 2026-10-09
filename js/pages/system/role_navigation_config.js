@@ -242,7 +242,7 @@ const RoleNavigationConfigController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Role Navigation Config", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

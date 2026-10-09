@@ -344,7 +344,7 @@ const SystemSettingsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "System Settings", orientation: "portrait" }) ?? window.print();
   },
 
   renderForbidden() {

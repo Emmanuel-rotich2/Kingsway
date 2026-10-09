@@ -369,7 +369,7 @@ const ApiMetricsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "API Metrics", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

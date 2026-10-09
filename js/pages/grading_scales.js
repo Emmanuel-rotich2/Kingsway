@@ -85,7 +85,7 @@ window.GradingScalesCtrl = {
                             <button class="btn btn-outline-success btn-sm" onclick="GradingScalesCtrl.exportBandsCsv(${sys.id})">
                                 <i class="bi bi-filetype-csv me-1"></i> CSV
                             </button>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer"></i></button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="window.PrintManager?.printPage({title:'Grading Scales',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer"></i></button>
                             <button class="btn btn-primary btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.addBand(${sys.id})">
                                 <i class="bi bi-plus-circle me-1"></i> Add Band
                             </button>

@@ -269,7 +269,7 @@ const FeatureFlagsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Feature Flags", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

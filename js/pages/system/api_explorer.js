@@ -247,7 +247,7 @@ const ApiExplorerController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "API Explorer", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

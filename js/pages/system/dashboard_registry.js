@@ -347,7 +347,7 @@ const DashboardRegistryController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Dashboard Registry", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {
