@@ -206,10 +206,10 @@ final class StaffRecordsService
 
     public function idCards(array $filters = []): array
     {
-        $where = ["COALESCE(s.status, 'active') IN ('active', 'on_leave')"];
+        $where = ["COALESCE(sd.staff_status, 'active') IN ('active', 'on_leave')"];
         $params = [];
         if (!empty($filters['staff_id'])) {
-            $where[] = 's.id = ?';
+            $where[] = 'sd.staff_id = ?';
             $params[] = (int)$filters['staff_id'];
         }
 
@@ -227,7 +227,7 @@ final class StaffRecordsService
                 return [];
             }
 
-            $where[] = 's.id IN ('
+            $where[] = 'sd.staff_id IN ('
                 . implode(',', array_fill(0, count($staffIds), '?'))
                 . ')';
             array_push($params, ...$staffIds);
@@ -245,7 +245,7 @@ final class StaffRecordsService
         return $this->db->query(
             "SELECT
                     c.id,
-                    s.id AS staff_id,
+                    sd.staff_id,
                     c.card_number,
                     c.generated_by,
                     c.generated_at,
@@ -256,26 +256,30 @@ final class StaffRecordsService
                     c.metadata,
                     c.created_at,
                     c.updated_at,
-                    s.staff_no,
-                    p.first_name,
-                    p.last_name,
-                    s.position,
-                    p.email,
-                    p.phone,
-                    p.photo_url AS profile_pic_url,
-                    d.name AS department_name
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                    GROUP BY staff_id
-                ) latest ON latest.id = c1.id
-             ) c ON c.staff_id = s.id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
+                    sd.staff_no,
+                    sd.first_name,
+                    sd.last_name,
+                    sd.position,
+                    sd.email,
+                    sd.phone,
+                    sd.photo_url AS profile_pic_url,
+                    sd.department_name
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+             LEFT JOIN (
+                    SELECT sic.*
+                    FROM staff_id_cards sic
+                    JOIN (
+                        SELECT staff_id, MAX(id) AS latest_id
+                        FROM staff_id_cards
+                        GROUP BY staff_id
+                    ) latest ON latest.latest_id = sic.id
+             ) c ON c.staff_id = sd.staff_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY
                 CASE WHEN c.id IS NULL THEN 0 ELSE 1 END,
-                p.last_name,
-                p.first_name,
-                s.staff_no",
+                sd.last_name,
+                sd.first_name,
+                sd.staff_no",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
     }

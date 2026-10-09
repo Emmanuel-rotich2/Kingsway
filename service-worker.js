@@ -1,7 +1,7 @@
 /** Kingsway service worker: safe static caching only. */
 // Bump on every SW behaviour change so existing installations flush the old
 // worker; a cached worker would keep polling unconditionally forever.
-const CACHE_VERSION = 'v10.6-realtime-poll-suppression';
+const CACHE_VERSION = 'v10.7-grading-aggregation';
 // How often the suppressed loop re-checks. Cheap: a timeout, no network.
 const POLL_SUPPRESSED_TICK_MS = 15000;
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;

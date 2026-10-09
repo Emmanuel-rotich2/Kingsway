@@ -1,7 +1,7 @@
 /* Exam-period workflow UI. Relationships and validation are enforced by the API. */
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { terms: [], classes: [], periods: [], activePeriod: null, detail: null, aiPollTimer: null, importPollTimer: null };
+  const state = { terms: [], classes: [], periods: [], kinds: [], activePeriod: null, detail: null, aiPollTimer: null, importPollTimer: null };
   const esc = (value) => { const n = document.createElement('span'); n.textContent = String(value ?? ''); return n.innerHTML; };
   const payload = (response) => response?.data?.data ?? response?.data ?? response;
   const notify = (message, type = 'info') => window.API?.showNotification?.(message, type) || window.showNotification?.(message, type);
@@ -41,6 +41,52 @@
       }
       renderClasses();
     }
+    await loadAssessmentKinds();
+  }
+
+  // Summative exam types (CA / SBA / SA) come from assessment_type_classifications
+  // via /academic/assessment-types?filter=summative — DB-driven, never hardcoded.
+  // The dropdown VALUE is the classification id; SA implies the national authority
+  // (KNEC-administered), CA/SBA stay school-administered.
+  async function loadAssessmentKinds() {
+    const selects = [$('examPeriodAssessmentKind'), $('examPeriodEditAssessmentKind')].filter(Boolean);
+    if (!selects.length) return;
+    try {
+      const kinds = await call('/academic/assessment-types?filter=summative', 'GET') || [];
+      if (!Array.isArray(kinds) || !kinds.length) throw new Error('No assessment types returned');
+      state.kinds = kinds;
+      const options = kinds.map((k) => `<option value="${Number(k.id)}" data-code="${esc(k.code)}" title="${esc(k.description || '')}">${esc(k.name)}</option>`).join('');
+      selects.forEach((sel) => {
+        const current = sel.value;
+        sel.innerHTML = options;
+        if (current && [...sel.options].some((o) => o.value === current)) sel.value = current;
+      });
+      selects.forEach((sel) => syncNationalWrap(sel));
+    } catch (error) {
+      selects.forEach((sel) => { sel.innerHTML = '<option value="">Unable to load assessment types</option>'; });
+    }
+  }
+
+  function kindCode(selectEl) {
+    const opt = selectEl && selectEl.selectedOptions && selectEl.selectedOptions[0];
+    return opt ? opt.dataset.code || '' : '';
+  }
+
+  function syncNationalWrap(selectEl) {
+    if (!selectEl) return;
+    const wrap = selectEl.id === 'examPeriodEditAssessmentKind' ? $('examPeriodEditNationalWrap') : $('nationalAssessmentWrap');
+    if (wrap) wrap.classList.toggle('d-none', kindCode(selectEl) !== 'SA');
+  }
+
+  function assessmentPayloadFromKind(selectEl) {
+    const id = selectEl ? Number(selectEl.value) || null : null;
+    const code = kindCode(selectEl);
+    return {
+      assessment_type_classification_id: id,
+      // Authority dimension derived from the type: SA = KNEC national;
+      // CA and SBA are administered by the school.
+      assessment_kind: code === 'SA' ? 'national' : 'school_based',
+    };
   }
   function renderClasses(rootId = 'examPeriodClasses', selectedIds = []) {
     const root = $(rootId);
@@ -62,6 +108,8 @@
     try {
       state.periods = await call('/academic/exam-periods') || [];
       if (!Array.isArray(state.periods)) state.periods = state.periods.items || [];
+      // Deleted periods are GONE — never render them in the active list.
+      state.periods = state.periods.filter((p) => !p.deleted_at);
       renderPeriods();
     } catch (error) { $('examPeriodsBody').innerHTML = `<tr><td colspan="10" class="text-danger">${esc(error.message || 'Unable to load exam periods.')}</td></tr>`; }
   }
@@ -72,20 +120,17 @@
       const resultCount = `${Number(p.approved_count || 0)} approved · ${Number(p.submitted_count || 0)} submitted`;
       const item = (action, icon, label, extra = '', disabled = false) => `<li><button class="dropdown-item${extra ? ` ${extra}` : ''}" type="button" data-period-action="${action}" data-id="${Number(p.id)}"${disabled ? ' disabled title="Schedule every learning area first"' : ''}><i class="bi ${icon} me-2"></i>${esc(label)}</button></li>`;
       const items = [];
-      if (canManage() && p.deleted_at) {
-        items.push(item('restore', 'bi-arrow-counterclockwise', 'Restore', 'text-success'));
-      } else {
-        items.push('<li><h6 class="dropdown-header">Timetable</h6></li>');
-        items.push(item('schedule', 'bi-calendar-week', p.status === 'draft' ? 'Set timetable' : 'View timetable'));
-        if (canManage()) {
-          items.push(item('edit', 'bi-pencil-square', 'Edit details'));
-          items.push(item('delete', 'bi-trash', 'Delete', 'text-danger'));
-        }
-        if (canManage() && ['published','results_open','moderation','completed'].includes(p.status)) items.push(item('reopen', 'bi-arrow-repeat', 'Reopen timetable'));
-        if (canManage() && p.status === 'draft') items.push(item('publish', 'bi-send-check', 'Publish', '', Number(p.scheduled_count) < Number(p.learning_area_count)));
-        if (canManage() && p.status === 'published') items.push(item('open', 'bi-unlock', 'Open results'));
-        if (canManage() && String(p.assessment_kind || '') === 'national') items.push(item('national-timetable', 'bi-file-earmark-rule', 'KNEC timetable'));
+      // Deleted periods are filtered out entirely — no restore action needed.
+      items.push('<li><h6 class="dropdown-header">Timetable</h6></li>');
+      items.push(item('schedule', 'bi-calendar-week', p.status === 'draft' ? 'Set timetable' : 'View timetable'));
+      if (canManage()) {
+        items.push(item('edit', 'bi-pencil-square', 'Edit details'));
+        items.push(item('delete', 'bi-trash', 'Delete', 'text-danger'));
       }
+      if (canManage() && ['published','results_open','moderation','completed'].includes(p.status)) items.push(item('reopen', 'bi-arrow-repeat', 'Reopen timetable'));
+      if (canManage() && p.status === 'draft') items.push(item('publish', 'bi-send-check', 'Publish', '', Number(p.scheduled_count) < Number(p.learning_area_count)));
+      if (canManage() && p.status === 'published') items.push(item('open', 'bi-unlock', 'Open results'));
+      if (canManage() && String(p.assessment_kind || '') === 'national') items.push(item('national-timetable', 'bi-file-earmark-rule', 'KNEC timetable'));
       if (canViewSchoolResults() || canViewResults()) {
         items.push('<li><h6 class="dropdown-header">Results</h6></li>');
         if (canViewSchoolResults()) items.push(item('results', 'bi-clipboard-data', 'School results'));
@@ -93,7 +138,9 @@
         if (canPublishResults() && !p.results_published_at && ['results_open','moderation','completed'].includes(p.status) && Number(p.submitted_count || 0) > 0) items.push(item('publish-results', 'bi-broadcast', 'Publish results', 'fw-semibold'));
       }
       const actions = `<div class="dropdown"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" data-bs-boundary="viewport" aria-expanded="false" aria-label="Actions for ${esc(p.title)}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button><ul class="dropdown-menu dropdown-menu-end shadow-sm">${items.join('')}</ul></div>`;
-      const assessmentType = ({school_based:'School based',national:`National${p.national_assessment_code ? ` · ${p.national_assessment_code}` : ''}`,mock:'Mock',other:'Other'})[p.assessment_kind] || 'School based';
+      const classification = (state.kinds || []).find((k) => Number(k.id) === Number(p.assessment_type_classification_id));
+      const assessmentType = classification ? classification.name
+        : ({ school_based: 'School based', national: `National${p.national_assessment_code ? ` · ${p.national_assessment_code}` : ''}`, mock: 'Mock', other: 'Other' })[p.assessment_kind] || 'School based';
       return `<tr class="${p.deleted_at ? 'table-secondary' : ''}"><td class="fw-semibold">${esc(p.title)}${p.deleted_at ? ' <span class="badge text-bg-danger">deleted</span>' : ''}</td><td>${esc(assessmentType)}</td><td>${esc(p.academic_year_name || 'Academic year')} · Term ${Number(p.term_id || 0)}</td><td>${esc(p.starts_on)} – ${esc(p.ends_on)}</td><td>${Number(p.class_count || 0)}</td><td>${Number(p.learning_area_count || 0)}</td><td>${Number(p.scheduled_count || 0)} / ${Number(p.learning_area_count || 0)}</td><td>${esc(resultCount)}</td><td><span class="badge text-bg-${p.status === 'completed' ? 'success' : p.status === 'draft' ? 'secondary' : 'primary'}">${esc(String(p.status).replaceAll('_', ' '))}</span></td><td class="text-nowrap">${actions}</td></tr>`;
     }).join('');
   }
@@ -476,10 +523,11 @@
     $('examPeriodEditEnd').value = period.ends_on || '';
     const min = term?.opening_date || ''; const max = term?.closing_date || '';
     ['examPeriodEditStart', 'examPeriodEditEnd'].forEach((fieldId) => { $(fieldId).min = min; $(fieldId).max = max; });
-    $('examPeriodEditAssessmentKind').value = period.assessment_kind || 'school_based';
+    const editKindSel = $('examPeriodEditAssessmentKind');
+    if (editKindSel) editKindSel.value = String(period.assessment_type_classification_id || '');
     $('examPeriodEditEntryMode').value = period.entry_mode || 'timetable';
     $('examPeriodEditNationalCode').value = period.national_assessment_code || '';
-    const national = $('examPeriodEditAssessmentKind').value === 'national';
+    const national = kindCode(editKindSel) === 'SA';
     $('examPeriodEditNationalWrap').classList.toggle('d-none', !national);
     $('examPeriodEditNationalCode').required = national;
     renderClasses('examPeriodEditClasses', detail?.class_ids || period.academic_year_class_ids || []);
@@ -519,12 +567,12 @@
     initGradingScope();
     $('examPeriodTerm')?.addEventListener('change', async (event) => loadOptions(event.target.value));
     $('examPeriodAssessmentKind')?.addEventListener('change', (event) => {
-      const national = event.target.value === 'national';
+      const national = kindCode(event.target) === 'SA';
       $('nationalAssessmentWrap')?.classList.toggle('d-none', !national);
       if ($('nationalAssessmentCode')) $('nationalAssessmentCode').required = national;
     });
     $('examPeriodEditAssessmentKind')?.addEventListener('change', (event) => {
-      const national = event.target.value === 'national';
+      const national = kindCode(event.target) === 'SA';
       $('examPeriodEditNationalWrap')?.classList.toggle('d-none', !national);
       $('examPeriodEditNationalCode').required = national;
     });
@@ -548,7 +596,10 @@
         return;
       }
       const button = $('createExamPeriodBtn'); button.disabled = true;
-      try { await call('/academic/exam-periods', 'POST', { academic_year_term_id: Number($('examPeriodTerm').value), title: $('examPeriodTitle').value.trim(), starts_on: startsOn, ends_on: endsOn, kind: $('examPeriodKind').value, entry_mode: $('examPeriodEntryMode').value, assessment_kind: $('examPeriodAssessmentKind').value, assessment_authority: $('examPeriodAssessmentKind').value === 'national' ? 'KNEC' : null, national_assessment_code: $('nationalAssessmentCode')?.value || null, academic_year_class_ids }); bootstrap.Modal.getInstance($('examPeriodModal'))?.hide(); event.currentTarget.reset(); $('nationalAssessmentWrap')?.classList.add('d-none'); await loadPeriods(); notify('Exam period created.', 'success'); }
+      try {
+        const kindPayload = assessmentPayloadFromKind($('examPeriodAssessmentKind'));
+        await call('/academic/exam-periods', 'POST', { academic_year_term_id: Number($('examPeriodTerm').value), title: $('examPeriodTitle').value.trim(), starts_on: startsOn, ends_on: endsOn, kind: $('examPeriodKind').value, entry_mode: $('examPeriodEntryMode').value, ...kindPayload, assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null, national_assessment_code: $('nationalAssessmentCode')?.value || null, academic_year_class_ids }); bootstrap.Modal.getInstance($('examPeriodModal'))?.hide(); event.currentTarget.reset(); $('nationalAssessmentWrap')?.classList.add('d-none'); await loadPeriods(); notify('Exam period created.', 'success');
+      }
       catch (error) { notify(error.message || 'Unable to create exam period.', 'error'); }
       finally { button.disabled = false; }
     });
@@ -568,9 +619,9 @@
         notify('Select at least one applicable class.', 'error');
         return;
       }
-      const assessment_kind = $('examPeriodEditAssessmentKind').value;
-      const nationalCode = assessment_kind === 'national' ? $('examPeriodEditNationalCode').value : null;
-      if (assessment_kind === 'national' && !nationalCode) {
+      const kindPayload = assessmentPayloadFromKind($('examPeriodEditAssessmentKind'));
+      const nationalCode = kindPayload.assessment_kind === 'national' ? $('examPeriodEditNationalCode').value : null;
+      if (kindPayload.assessment_kind === 'national' && !nationalCode) {
         notify('Select the national assessment (KPSEA, KJSEA, or other).', 'error');
         return;
       }
@@ -578,8 +629,8 @@
       try {
         await call(`/academic/exam-periods/${id}`, 'PUT', {
           title, starts_on, ends_on, academic_year_class_ids,
-          assessment_kind,
-          assessment_authority: assessment_kind === 'national' ? 'KNEC' : null,
+          ...kindPayload,
+          assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null,
           national_assessment_code: nationalCode,
           entry_mode: $('examPeriodEditEntryMode').value,
         });

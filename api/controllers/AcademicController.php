@@ -1232,9 +1232,17 @@ return $this->serverError('An internal error occurred.');
         try {
             $staffId = $this->getCurrentStaffId();
             if (!$staffId) return $this->success(['class_id' => null, 'class_name' => null], 'No staff profile; All classes is the default.');
-            $assigned = $this->contract(\App\API\Services\TeacherScopeService::class, $this->db->getConnection())->classTeacherClasses((int) $staffId);
-            if (count($assigned) === 1) {
-                return $this->success(['class_id' => (int) $assigned[0]['id'], 'class_name' => $assigned[0]['name']], 'Class teacher default resolved.');
+            // TeacherScopeService exposes the class-teacher scope through
+            // forUser(); a teacher of one class may hold several stream ids,
+            // so "exactly one class" is decided on the distinct class ids.
+            $scope = $this->contract(\App\API\Services\TeacherScopeService::class, $this->db->getConnection())->forUser((array) ($this->user ?? []));
+            $classIds = array_values(array_unique(array_map('intval', array_column($scope['class_teacher_pairs'] ?? [], 'class_id'))));
+            if (count($classIds) === 1) {
+                $classId = $classIds[0];
+                $nameStmt = \App\Database\Database::getInstance()->getConnection()->prepare('SELECT name FROM classes WHERE id = ?');
+                $nameStmt->execute([$classId]);
+                $className = (string) ($nameStmt->fetchColumn() ?: '');
+                return $this->success(['class_id' => $classId, 'class_name' => $className], 'Class teacher default resolved.');
             }
             return $this->success(['class_id' => null, 'class_name' => null], 'All classes is the default.');
         } catch (\PDOException $e) {
@@ -1461,12 +1469,85 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($this->academicManager->getResultsManagementSummative($filters));
     }
 
+    /** GET /api/academic/results-management-formative-matrix — all-areas formative CBC matrix */
+    public function getResultsManagementFormativeMatrix($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getFormativeAreaMatrix($filters));
+    }
+
+    /** GET /api/academic/results-management-substrand-matrix — single-area sub-strand matrix */
+    public function getResultsManagementSubStrandMatrix($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getFormativeSubStrandMatrix($filters));
+    }
+
+    /** GET /api/academic/results-management-area-detail — editable formative assessment grid for one area */
+    public function getResultsManagementAreaDetail($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getFormativeAreaDetail($filters));
+    }
+
     /** GET /api/academic/results-management-average — pooled formative + summative averages */
     public function getResultsManagementAverage($id = null, $data = [], $segments = [])
     {
         if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getResultsManagementAverage($filters));
+    }
+
+    /** GET /api/academic/results-management-class-areas — class learning areas + strand taxonomy */
+    public function getResultsManagementClassAreas($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getResultsManagementClassAreas($filters));
+    }
+
+    /** GET /api/academic/results-management-analytics — comparisons + statistical aggregations */
+    public function getResultsManagementAnalytics($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canAccessResultsManagement()) return $this->forbidden('Results management is limited to academic leadership.');
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getResultsManagementAnalytics($filters));
+    }
+
+    /**
+     * POST /api/academic/results-management-summative-batch — save the changed
+     * subject cells of ONE learner in a single batched write (pivoted results
+     * workspace). Accepts only changed cells, enforces optimistic updated_at
+     * concurrency, and returns the authoritative post-save row values.
+     */
+    public function postResultsManagementSummativeBatch($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Academic leadership access is required to record exam results.');
+        return $this->examResultAdminCall(fn ($service) => $service->adminSaveResultBatch((array) $data));
+    }
+
+    /** GET /api/academic/assessment-papers/{id} — papers + roster + per-paper results grid */
+    public function getAssessmentPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_view', 'assessments_view', 'academic_manage', 'academic_edit'], [1, 3, 4, 5, 6], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Academic access is required to view this paper grid.');
+        return $this->examResultAdminCall(fn ($service) => $service->adminListPaperGrid((int) $id));
+    }
+
+    /** POST /api/academic/assessment-papers/{id} — replace a register's paper set */
+    public function postAssessmentPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Academic leadership access is required to manage exam papers.');
+        return $this->examResultAdminCall(fn ($service) => $service->adminSavePapers((int) $id, (array) ($data['papers'] ?? [])));
+    }
+
+    /** POST /api/academic/assessment-paper-results-batch — one learner's changed paper cells */
+    public function postAssessmentPaperResultsBatch($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['academic_manage', 'academic_edit'], [1, 4, 5], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic'])) return $this->forbidden('Academic leadership access is required to record paper marks.');
+        return $this->examResultAdminCall(fn ($service) => $service->adminSavePaperResultBatch((array) $data));
     }
 
     private function examResultAdminCall(callable $operation)
@@ -4492,6 +4573,13 @@ return $this->serverError('An internal error occurred.');
     // grade code, points, performance level, description). No thresholds are
     // hardcoded in the frontend; all pages resolve grades from these rows.
 
+    /** GET /api/academic/exam-series-list — distinct series values from exam_periods (from DB) */
+    public function getExamSeriesList($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getExamSeriesList($filters));
+    }
+
     /** GET /api/academic/grading-scale|/grading-scale/{id} - Fetch a grading scale + its grade rules */
     public function getGradingScale($id = null, $data = [], $segments = [])
     {
@@ -4499,42 +4587,83 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($this->academicManager->getGradingScale($id !== null ? (int)$id : null, $query));
     }
 
-    /** POST /api/academic/grading-scale - Create a grading scale */
-    public function postGradingScale($id = null, $data = [], $segments = [])
+    /** POST /api/academic/grading-band - Create or update a grading band */
+    public function postGradingBand($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
-        return $this->handleResponse($this->academicManager->postGradingScale(is_array($data) ? $data : []));
+        $payload = is_array($data) ? $data : [];
+        $payload['user_id'] = (int) $this->getUserId();
+        return $this->handleResponse($this->academicManager->postGradingBand($payload));
     }
 
-    /** PUT /api/academic/grading-scale/{id} - Update a grading scale */
-    public function putGradingScale($id = null, $data = [], $segments = [])
+    /** DELETE /api/academic/grading-band/{id} - Delete a band */
+    public function deleteGradingBand($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Scale ID is required');
-        return $this->handleResponse($this->academicManager->putGradingScale((int)$id, is_array($data) ? $data : []));
+        if (!$id) return $this->badRequest('Band ID is required');
+        return $this->handleResponse($this->academicManager->deleteGradingBand((int)$id));
     }
 
-    /** POST /api/academic/grade-rules - Create a grade rule (range → grade) */
-    public function postGradeRules($id = null, $data = [], $segments = [])
+    /** GET /api/academic/aggregation-overview - systems + profiles + composites */
+    public function getAggregationOverview($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
-        return $this->handleResponse($this->academicManager->postGradeRules(is_array($data) ? $data : []));
+        return $this->handleResponse($this->academicManager->getAggregationOverview(array_merge($_GET, is_array($data) ? $data : [])));
     }
 
-    /** PUT /api/academic/grade-rules/{id} - Update a grade rule */
-    public function putGradeRules($id = null, $data = [], $segments = [])
+    /** GET /api/academic/aggregation-profile-resolve?exam_period_id=&term_id=&year_id= */
+    public function getAggregationProfileResolve($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Grade rule ID is required');
-        return $this->handleResponse($this->academicManager->putGradeRules((int)$id, is_array($data) ? $data : []));
+        return $this->handleResponse($this->academicManager->getAggregationResolve(array_merge($_GET, is_array($data) ? $data : [])));
     }
 
-    /** DELETE /api/academic/grade-rules/{id} - Delete a grade rule */
-    public function deleteGradeRules($id = null, $data = [], $segments = [])
+    /** POST /api/academic/aggregation-profile - upsert a term aggregation profile */
+    public function postAggregationProfile($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
-        if (!$id) return $this->badRequest('Grade rule ID is required');
-        return $this->handleResponse($this->academicManager->deleteGradeRules((int)$id));
+        $payload = is_array($data) ? $data : [];
+        $payload['user_id'] = (int) $this->getUserId();
+        return $this->handleResponse($this->academicManager->postAggregationProfile($payload));
+    }
+
+    /** DELETE /api/academic/aggregation-profile/{id} - deactivate a profile */
+    public function deleteAggregationProfile($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Profile ID is required');
+        return $this->handleResponse($this->academicManager->deleteAggregationProfile((int)$id));
+    }
+
+    /** GET /api/academic/sba-cba-export?term_id=&class_stream_ids=1,2 - CBA CSV */
+    public function getSbaCbaExport($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_view', 'staff'])) return $guard;
+        return $this->handleResponse($this->academicManager->getCbaExport(array_merge($_GET, is_array($data) ? $data : [])));
+    }
+
+    /** POST /api/academic/national-results-import - CSV upload (pending_review) */
+    public function postNationalResultsImport($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        $payload = is_array($data) ? $data : [];
+        $payload['user_id'] = (int) $this->getUserId();
+        return $this->handleResponse($this->academicManager->postNationalResultsImport($payload));
+    }
+
+    /** GET /api/academic/national-results - list imported national results */
+    public function getNationalResults($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_view', 'staff'])) return $guard;
+        return $this->handleResponse($this->academicManager->getNationalResults(array_merge($_GET, is_array($data) ? $data : [])));
+    }
+
+    /** POST /api/academic/national-results-review/{id} - approve or reject */
+    public function postNationalResultsReview($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Result ID is required');
+        $payload = is_array($data) ? $data : [];
+        $payload['user_id'] = (int) $this->getUserId();
+        return $this->handleResponse($this->academicManager->postNationalResultReview((int)$id, $payload));
     }
 
     // ==================== CBC: STRAND-COMPETENCY CROSSWALK ====================

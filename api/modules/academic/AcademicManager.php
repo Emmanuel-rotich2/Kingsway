@@ -3,6 +3,7 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\AssessmentAggregationService;
 use App\API\Services\CalendarSyncService;
 use App\API\Services\ExtraChargeService;
 use App\API\Services\TermResultsService;
@@ -317,16 +318,16 @@ class AcademicManager extends BaseAPI
             if (!empty($data['term_id']))             { $where[] = 'a.academic_year_term_id=:tid';      $params[':tid']  = (int) $data['term_id']; }
             if (!empty($data['subject_id']))          { $where[] = 'a.learning_area_id=:sid';   $params[':sid']  = (int) $data['subject_id']; }
             if (!empty($data['status']))              { $where[] = 'a.status=:st';        $params[':st']   = $data['status']; }
-            if (!empty($data['assessment_type_id'])) { $where[] = 'a.assessment_type_id=:atid'; $params[':atid'] = (int) $data['assessment_type_id']; }
+            if (!empty($data['assessment_type_classification_id'])) { $where[] = 'a.assessment_type_classification_id=:atid'; $params[':atid'] = (int) $data['assessment_type_classification_id']; }
 
             $csd = ReadReplicaService::qualifiedRef('class_stream_directory');
             $aterm = ReadReplicaService::qualifiedRef('academic_term');
             $rows = $this->dbQuery(
                 "SELECT a.id, a.academic_year_class_stream_id, a.academic_year_term_id, a.learning_area_id, a.title, a.max_marks,
-                        a.assessment_date, a.status, a.assessment_type_id,
+                        a.assessment_date, a.status, a.assessment_type_classification_id,
                         csd.class_name, csd.stream_name,
                         la.name AS learning_area_name, la.code AS learning_area_code,
-                        at.name AS type_name, at.is_formative, at.is_summative,
+                        atc.name AS type_name, a.is_formative, (a.is_formative = 0) AS is_summative,
                         aterm.term_name, aterm.term_code AS term_number,
                         COUNT(DISTINCT fs.student_id) AS graded_count,
                         COUNT(DISTINCT sae.student_id) AS total_students,
@@ -334,7 +335,7 @@ class AcademicManager extends BaseAPI
                  FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
                  LEFT JOIN {$csd} csd ON csd.id = a.academic_year_class_stream_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
-                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                  LEFT JOIN {$aterm} aterm ON aterm.academic_year_term_id = a.academic_year_term_id
                  LEFT JOIN formative_scores fs ON fs.assessment_id = a.id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.academic_year_class_stream_id = a.academic_year_class_stream_id
@@ -358,7 +359,8 @@ class AcademicManager extends BaseAPI
     public function getFormativeAssessments(array $data, ?int $staffId = null): array
     {
         try {
-            $where  = ["a.assessment_type_id IS NOT NULL", "at.is_formative = 1"];
+            // Formative assessments have NO types — filters are strands, sub-strands, objectives only.
+            $where  = ["a.is_formative = 1"];
             $params = [];
 
             if (!empty($data['class_id'])) {
@@ -367,13 +369,24 @@ class AcademicManager extends BaseAPI
                     WHERE class_id = :cid)";
                 $params[':cid'] = (int) $data['class_id'];
             }
+            if (!empty($data['stream_id'])) {
+                $where[] = "a.academic_year_class_stream_id IN (
+                    SELECT id FROM " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . "
+                    WHERE stream_id = :strid)";
+                $params[':strid'] = (int) $data['stream_id'];
+            }
             if (!empty($data['subject_id']))  { $where[] = "a.learning_area_id=:sid";   $params[':sid'] = (int) $data['subject_id']; }
             if (!empty($data['term_id']))     { $where[] = "a.academic_year_term_id=:tid";      $params[':tid'] = (int) $data['term_id']; }
-            if (!empty($data['type_id']))     { $where[] = "a.assessment_type_id=:atid"; $params[':atid'] = (int) $data['type_id']; }
             if (!empty($data['year_id']))     { $where[] = "aterm.academic_year_id=:yid"; $params[':yid'] = (int) $data['year_id']; }
+            if (!empty($data['strand_id']))   { $where[] = "a.strand_id=:strandid"; $params[':strandid'] = (int) $data['strand_id']; }
+            if (!empty($data['sub_strand_id'])){ $where[] = "(a.sub_strand_id=:ssid OR EXISTS (SELECT 1 FROM assessment_sub_strands xass WHERE xass.assessment_id = a.id AND xass.sub_strand_id = :ssid2))"; $params[':ssid'] = (int) $data['sub_strand_id']; $params[':ssid2'] = (int) $data['sub_strand_id']; }
+            if (!empty($data['scheme_of_work_id'])) { $where[] = "a.scheme_of_work_id=:sowid"; $params[':sowid'] = (int) $data['scheme_of_work_id']; }
+            if (!empty($data['lesson_plan_id']))    { $where[] = "a.lesson_plan_id=:lpid";   $params[':lpid'] = (int) $data['lesson_plan_id']; }
             if (!empty($data['search'])) {
-                $where[] = "(a.title LIKE :search OR la.name LIKE :search OR c.name LIKE :search OR sn.name LIKE :search OR tool.tool_name LIKE :search)";
-                $params[':search'] = '%' . trim((string) $data['search']) . '%';
+                $needle = '%' . trim((string) $data['search']) . '%';
+                $where[] = "(a.title LIKE :s1 OR la.name LIKE :s2 OR csd.class_name LIKE :s3 OR strand.name LIKE :s4 OR sub.name LIKE :s5 OR tool.tool_name LIKE :s6)";
+                $params[':s1'] = $needle; $params[':s2'] = $needle; $params[':s3'] = $needle;
+                $params[':s4'] = $needle; $params[':s5'] = $needle; $params[':s6'] = $needle;
             }
             if (!empty($data['teacher_only']) && $staffId) {
                 $where[] = "(EXISTS (SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope WHERE tscope.staff_id = :ctid AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id AND tscope.scope_type = 'class_teacher') OR a.assigned_by = :ctid2)";
@@ -406,9 +419,9 @@ class AcademicManager extends BaseAPI
                 "SELECT a.*,
                         a.assessment_date AS cat_date,
                         a.title AS name,
-                        lp.class_id,
-                        lp.stream_id,
-                        lp.stream_name,
+                        csd.class_id,
+                        csd.stream_id,
+                        csd.stream_name,
                         a.learning_area_id AS subject_id,
                         CASE a.status
                             WHEN 'pending_submission' THEN 'draft'
@@ -418,20 +431,24 @@ class AcademicManager extends BaseAPI
                             ELSE a.status
                         END AS status,
                         (SELECT COUNT(*) FROM formative_scores xfs WHERE xfs.assessment_id = a.id) AS student_count,
-                        at.name AS type_name, at.name AS type, at.is_formative, at.is_summative,
+                        a.is_formative,
                         la.name AS subject_name, la.code AS subject_code,
-                        lp.class_name,
+                        csd.class_name,
                         strand.name AS strand_name,
                         sub.name AS sub_strand_name,
+                        (SELECT GROUP_CONCAT(ss.name ORDER BY ass.sort_order SEPARATOR ', ')
+                           FROM assessment_sub_strands ass
+                           JOIN sub_strands ss ON ss.id = ass.sub_strand_id
+                          WHERE ass.assessment_id = a.id) AS sub_strand_names,
                         slc.scheme_title AS scheme_title,
                         slc.week_number,
                         tool.tool_name AS assessment_tool_name,
                         aterm.term_name,
                         CONCAT(sctx.first_name,' ',sctx.last_name) AS assigned_by_name
                  FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
-                 JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.aycs_id = a.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('class_stream_directory') . " csd ON csd.id = a.academic_year_class_stream_id
                  LEFT JOIN strands strand ON strand.id = a.strand_id
                  LEFT JOIN sub_strands sub ON sub.id = a.sub_strand_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef('scheme_lesson_context') . " slc ON slc.scheme_id = a.scheme_of_work_id
@@ -448,7 +465,7 @@ class AcademicManager extends BaseAPI
                 $placeholders = implode(',', array_fill(0, count($assessmentIds), '?'));
                 $outcomeRows = $this->dbQuery(
                     "SELECT map.assessment_id, outcome.id, outcome.outcome, map.sort_order
-                     FROM " . ReadReplicaService::qualifiedRef("assessment_learning_outcomes") . "
+                     FROM " . ReadReplicaService::qualifiedRef("assessment_learning_outcomes") . " map
                      JOIN " . ReadReplicaService::qualifiedRef("learning_outcomes") . " outcome ON outcome.id = map.learning_outcome_id
                      WHERE map.assessment_id IN ($placeholders)
                      ORDER BY map.assessment_id, map.sort_order, outcome.id",
@@ -459,7 +476,7 @@ class AcademicManager extends BaseAPI
                             rubric.level_1_descriptor, rubric.level_2_descriptor,
                             rubric.level_3_descriptor, rubric.level_4_descriptor,
                             rubric.points_per_level, map.weight, map.sort_order
-                     FROM " . ReadReplicaService::qualifiedRef("assessment_rubric_criteria") . "
+                     FROM " . ReadReplicaService::qualifiedRef("assessment_rubric_criteria") . " map
                      JOIN " . ReadReplicaService::qualifiedRef("assessment_rubrics") . " rubric ON rubric.id = map.assessment_rubric_id
                      WHERE map.assessment_id IN ($placeholders)
                      ORDER BY map.assessment_id, map.sort_order, rubric.id",
@@ -498,29 +515,44 @@ class AcademicManager extends BaseAPI
     public function getResultsManagementSummative(array $data): array
     {
         try {
-            $where = ["ep.status <> 'cancelled'"];
+            $where = ["ep.status <> 'cancelled'", 'ep.deleted_at IS NULL'];
             $params = [];
             if (!empty($data['year_id']))  { $where[] = 'ayt.academic_year_id = ?';  $params[] = (int) $data['year_id']; }
             if (!empty($data['term_id']))  { $where[] = 'ep.academic_year_term_id = ?'; $params[] = (int) $data['term_id']; }
-            if (!empty($data['class_id'])) { $where[] = 'ayc.class_id = ?'; $params[] = (int) $data['class_id']; }
+            if (!empty($data['exam_period_id'])) { $where[] = 'ec.exam_period_id = ?'; $params[] = (int) $data['exam_period_id']; }
+            if (!empty($data['class_id'])) { $where[] = 'ec.class_id = ?'; $params[] = (int) $data['class_id']; }
+            if (!empty($data['stream_id'])) { $where[] = 'ec.stream_id = ?'; $params[] = (int) $data['stream_id']; }
+            if (!empty($data['learning_area_id'])) { $where[] = 'ec.learning_area_id = ?'; $params[] = (int) $data['learning_area_id']; }
+            if (!empty($data['series'])) { $where[] = 'ep.series = ?'; $params[] = (string) $data['series']; }
+            if (!empty($data['assessment_kind'])) { $where[] = 'ep.assessment_kind = ?'; $params[] = (string) $data['assessment_kind']; }
+            if (!empty($data['assessment_type_classification_id'])) { $where[] = 'ep.assessment_type_classification_id = ?'; $params[] = (int) $data['assessment_type_classification_id']; }
+            if (!empty($data['assessment_status'])) { $where[] = 'ec.assessment_status = ?'; $params[] = (string) $data['assessment_status']; }
             if (!empty($data['search'])) {
                 $where[] = "(p.first_name LIKE ? OR p.middle_name LIKE ? OR p.last_name LIKE ? OR s.admission_no LIKE ? OR la.name LIKE ? OR ep.title LIKE ?)";
                 $like = '%' . trim((string) $data['search']) . '%';
                 array_push($params, $like, $like, $like, $like, $like, $like);
             }
             $ec = ReadReplicaService::qualifiedRef('exam_context');
-            $sql = "SELECT ec.result_id, ec.result_deleted_at,
-                           ec.marks_obtained, ec.entry_status, ec.grade, ec.remarks,
-                           ROUND(ec.marks_obtained / NULLIF(ec.assessment_max_marks, 0) * 100, 2) AS percentage,
+            $sql = "SELECT ar.id AS result_id, ar.deleted_at AS result_deleted_at,
+                           ar.marks_obtained, ar.entry_status, ar.grade, ar.remarks,
+                           ROUND(ar.marks_obtained / NULLIF(ec.assessment_max_marks, 0) * 100, 2) AS percentage,
                            ec.assessment_id, ec.assessment_max_marks AS max_marks, ec.assessment_status,
-                           ec.exam_period_id, ec.period_title AS exam_period_title, ec.period_status AS period_status,
+                           ec.learning_area_id,
+                           ec.exam_period_id, ec.period_title AS exam_period_title, ec.period_status as period_status_entry,
                            ep.results_published_at,
+                           ep.series,
+                           eplcla.counts_toward_overall,
                            ec.class_name, ec.stream_name, ec.learning_area_name AS learning_area,
                            ec.learner_name,
                            ec.admission_no, ec.enrollment_id,
+                           ar.updated_at AS result_updated_at,
                            ec.academic_year_term_id AS term_id, t.name AS term_name, ay.year_name AS academic_year_name
                     FROM {$ec} ec
                     JOIN exam_periods ep ON ep.id = ec.exam_period_id
+                    LEFT JOIN exam_period_class_learning_areas eplcla ON eplcla.id = ec.exam_period_class_learning_area_id
+                    LEFT JOIN assessment_results ar
+                           ON ar.assessment_id = ec.assessment_id
+                          AND ar.student_academic_enrollment_id = ec.enrollment_id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ec.academic_year_term_id
                     JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                     LEFT JOIN terms t ON t.id = ayt.term_id
@@ -532,6 +564,267 @@ class AcademicManager extends BaseAPI
             return $this->successResponse(['items' => $rows, 'row_count' => count($rows)]);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getResultsManagementSummative');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Results-management workspace: Table B-1 — all learning areas matrix.
+     * One row per learner, one column per learning area, with the aggregated
+     * formative CBC level per area (EE / ME / AE / BE).
+     */
+    public function getFormativeAreaMatrix(array $data): array
+    {
+        try {
+            $where = ['fs.percentage IS NOT NULL'];
+            $params = [];
+            if (!empty($data['term_id']))     { $where[] = 'a.academic_year_term_id = ?'; $params[] = (int) $data['term_id']; }
+            if (!empty($data['class_id']))    { $where[] = 'lp.class_id = ?';             $params[] = (int) $data['class_id']; }
+            if (!empty($data['stream_id']))   { $where[] = 'lp.stream_id = ?';            $params[] = (int) $data['stream_id']; }
+            if (!empty($data['year_id']))     { $where[] = 'lp.academic_year_id = ?';      $params[] = (int) $data['year_id']; }
+            if (!empty($data['learning_area_id'])) { $where[] = 'la.id = ?'; $params[] = (int) $data['learning_area_id']; }
+            if (!empty($data['search'])) {
+                $where[] = "(p.first_name LIKE ? OR p.last_name LIKE ? OR s.admission_no LIKE ?)";
+                $like = '%' . trim((string) $data['search']) . '%';
+                array_push($params, $like, $like, $like);
+            }
+
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $sql = "SELECT fs.student_id, s.admission_no,
+                           CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
+                           lp.class_name, lp.stream_name,
+                           la.id AS area_id, la.name AS learning_area,
+                           ROUND(AVG(fs.percentage), 1) AS avg_pct,
+                           COUNT(DISTINCT a.id) AS assessment_count
+                    FROM formative_scores fs
+                    JOIN assessments a ON a.id = fs.assessment_id
+                    JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                    JOIN students s ON s.id = fs.student_id
+                    JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id
+                    WHERE " . implode(' AND ', $where) . "
+                    GROUP BY fs.student_id, la.id
+                    ORDER BY lp.class_name, learner_name, la.name
+                    LIMIT 2000";
+            $rows = $this->dbQuery($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
+
+            // Pivot: one row per learner, areas become columns.
+            $learners = [];
+            $areas = [];
+            foreach ($rows as $row) {
+                $key = (int) $row['student_id'];
+                if (!isset($learners[$key])) {
+                    $learners[$key] = [
+                        'student_id'    => $key,
+                        'admission_no'  => $row['admission_no'],
+                        'learner_name'  => $row['learner_name'],
+                        'class_name'    => $row['class_name'],
+                        'stream_name'   => $row['stream_name'],
+                        'areas'         => [],
+                    ];
+                }
+                $pct = (float) $row['avg_pct'];
+                $level = $pct >= 80 ? 'EE' : ($pct >= 50 ? 'ME' : ($pct >= 25 ? 'AE' : 'BE'));
+                $areaId = (int) $row['area_id'];
+                $learners[$key]['areas'][$areaId] = [
+                    'avg_pct' => $row['avg_pct'],
+                    'level' => $level,
+                    'count' => (int) $row['assessment_count'],
+                ];
+                if (!isset($areas[$areaId])) $areas[$areaId] = $row['learning_area'];
+            }
+
+            return $this->successResponse([
+                'learners' => array_values($learners),
+                'areas' => $areas,
+                'row_count' => count($learners),
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getFormativeAreaMatrix');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Results-management workspace: Table B-2 — single learning area sub-strand
+     * matrix. One row per learner, one column per sub-strand, with strand
+     * headers grouping their sub-strands.
+     */
+    public function getFormativeSubStrandMatrix(array $data): array
+    {
+        try {
+            if (empty($data['learning_area_id'])) {
+                return $this->errorResponse('learning_area_id is required', 400);
+            }
+            $areaId = (int) $data['learning_area_id'];
+
+            $where = ['fs.percentage IS NOT NULL', 'a.learning_area_id = :aid'];
+            $params = [':aid' => $areaId];
+            if (!empty($data['term_id']))     { $where[] = 'a.academic_year_term_id = :tid'; $params[':tid'] = (int) $data['term_id']; }
+            if (!empty($data['class_id']))    { $where[] = 'lp.class_id = :cid';             $params[':cid'] = (int) $data['class_id']; }
+            if (!empty($data['year_id']))     { $where[] = 'lp.academic_year_id = :yid';     $params[':yid'] = (int) $data['year_id']; }
+            if (!empty($data['strand_id']))   { $where[] = 'st.id = :sid';                   $params[':sid'] = (int) $data['strand_id']; }
+            if (!empty($data['sub_strand_id'])) { $where[] = 'ss.id = :ssid';                $params[':ssid'] = (int) $data['sub_strand_id']; }
+
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $sql = "SELECT fs.student_id, s.admission_no,
+                           CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
+                           lp.class_name, lp.stream_name,
+                           st.id AS strand_id, st.name AS strand,
+                           ss.id AS sub_strand_id, ss.name AS sub_strand,
+                           ROUND(AVG(fs.percentage), 1) AS avg_pct,
+                           COUNT(DISTINCT a.id) AS assessment_count
+                    FROM formative_scores fs
+                    JOIN assessments a ON a.id = fs.assessment_id
+                    JOIN assessment_sub_strands ass ON ass.assessment_id = a.id
+                    JOIN sub_strands ss ON ss.id = ass.sub_strand_id
+                    JOIN strands st ON st.id = ss.strand_id
+                    JOIN students s ON s.id = fs.student_id
+                    JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id" . (!empty($data['year_id']) ? " AND lp.academic_year_id = :yid2" : "") . "
+                    WHERE " . implode(' AND ', $where) . "
+                    GROUP BY fs.student_id, ss.id
+                    ORDER BY lp.class_name, learner_name, st.name, ss.name
+                    LIMIT 2000";
+            if (!empty($data['year_id'])) $params[':yid2'] = (int) $data['year_id'];
+            $rows = $this->dbQuery($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
+
+            // Pivot: one row per learner, sub-strands become columns grouped by strand.
+            $learners = [];
+            $strands = [];
+            foreach ($rows as $row) {
+                $key = (int) $row['student_id'];
+                if (!isset($learners[$key])) {
+                    $learners[$key] = [
+                        'student_id'    => $key,
+                        'admission_no'  => $row['admission_no'],
+                        'learner_name'  => $row['learner_name'],
+                        'class_name'    => $row['class_name'],
+                        'stream_name'   => $row['stream_name'],
+                        'sub_strands'   => [],
+                    ];
+                }
+                $pct = (float) $row['avg_pct'];
+                $level = $pct >= 80 ? 'EE' : ($pct >= 50 ? 'ME' : ($pct >= 25 ? 'AE' : 'BE'));
+                $strandId = (int) $row['strand_id'];
+                $ssId = (int) $row['sub_strand_id'];
+                $learners[$key]['sub_strands'][$ssId] = [
+                    'avg_pct' => $row['avg_pct'],
+                    'level' => $level,
+                    'count' => (int) $row['assessment_count'],
+                ];
+                if (!isset($strands[$strandId])) {
+                    $strands[$strandId] = ['name' => $row['strand'], 'sub_strands' => []];
+                }
+                if (!isset($strands[$strandId]['sub_strands'][$ssId])) {
+                    $strands[$strandId]['sub_strands'][$ssId] = $row['sub_strand'];
+                }
+            }
+
+            return $this->successResponse([
+                'learners' => array_values($learners),
+                'strands' => $strands,
+                'row_count' => count($learners),
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getFormativeSubStrandMatrix');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Results-management workspace: Table B-2 editable grain. Returns the
+     * actual formative assessments (columns) and the learners' marks (cells)
+     * for ONE learning area, optionally narrowed to a strand or sub-strand.
+     * A sub-strand "average" spans several assessments and is not a single
+     * writable record, so the inline-editable grid is expressed at the real
+     * assessment grain; saving uses the existing POST /academic/formative-
+     * assessment-marks path per assessment. Strand/sub-strand grouping comes
+     * from each assessment's taxonomy pointers.
+     */
+    public function getFormativeAreaDetail(array $data): array
+    {
+        try {
+            $areaId = (int) ($data['learning_area_id'] ?? 0);
+            $classId = (int) ($data['class_id'] ?? 0);
+            if ($areaId < 1 || $classId < 1) {
+                return $this->errorResponse('learning_area_id and class_id are required', 400);
+            }
+            $yearId = (int) ($data['year_id'] ?? 0);
+            if ($yearId < 1 && !empty($data['term_id'])) {
+                $stmt = $this->db->prepare("SELECT academic_year_id FROM academic_year_terms WHERE id = ?");
+                $stmt->execute([(int) $data['term_id']]);
+                $yearId = (int) ($stmt->fetchColumn() ?: 0);
+            }
+            if ($yearId < 1) {
+                return $this->successResponse(['assessments' => [], 'learners' => [], 'marks' => []]);
+            }
+
+            $aycId = (int) ($this->dbQuery(
+                "SELECT ayc.id FROM academic_year_classes ayc WHERE ayc.academic_year_id = ? AND ayc.class_id = ? LIMIT 1",
+                [$yearId, $classId]
+            )->fetchColumn() ?: 0);
+            if ($aycId < 1) {
+                return $this->successResponse(['assessments' => [], 'learners' => [], 'marks' => []]);
+            }
+
+            $aWhere = ['a.learning_area_id = ?', 'a.is_formative = 1', 'ayc.id = ?'];
+            $aParams = [$areaId, $aycId];
+            if (!empty($data['term_id'])) { $aWhere[] = 'a.academic_year_term_id = ?'; $aParams[] = (int) $data['term_id']; }
+            if (!empty($data['strand_id'])) { $aWhere[] = 'a.strand_id = ?'; $aParams[] = (int) $data['strand_id']; }
+            if (!empty($data['sub_strand_id'])) { $aWhere[] = 'a.sub_strand_id = ?'; $aParams[] = (int) $data['sub_strand_id']; }
+
+            $assessments = $this->dbQuery(
+                "SELECT a.id AS assessment_id, a.title, a.max_marks, a.assessment_date, a.status,
+                        a.academic_year_class_stream_id, a.strand_id, st.name AS strand,
+                        a.sub_strand_id, ss.name AS sub_strand, sn.name AS stream_name
+                   FROM " . ReadReplicaService::qualifiedRef('assessments') . " a
+                   JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs ON aycs.id = a.academic_year_class_stream_id
+                   JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+                   LEFT JOIN " . ReadReplicaService::qualifiedRef('strands') . " st ON st.id = a.strand_id
+                   LEFT JOIN " . ReadReplicaService::qualifiedRef('sub_strands') . " ss ON ss.id = a.sub_strand_id
+                   LEFT JOIN " . ReadReplicaService::qualifiedRef('streams') . " sn ON sn.id = aycs.stream_id
+                  WHERE " . implode(' AND ', $aWhere) . "
+                  ORDER BY st.name, ss.name, a.assessment_date, a.id",
+                $aParams
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $learners = $this->dbQuery(
+                "SELECT sae.student_id, s.admission_no,
+                        CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name,
+                        aycs.stream_id, sn.name AS stream_name
+                   FROM student_academic_enrollments sae
+                   JOIN students s ON s.id = sae.student_id
+                   JOIN persons p ON p.id = s.person_id
+                   JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                   LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                  WHERE aycs.academic_year_class_id = ?
+                    AND sae.academic_year_id = ?
+                    AND sae.enrollment_status IN ('active','completed')
+                  ORDER BY p.last_name, p.first_name",
+                [$aycId, $yearId]
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $assessmentIds = array_map(static fn ($a) => (int) $a['assessment_id'], $assessments);
+            $marks = [];
+            if ($assessmentIds) {
+                $placeholders = implode(',', array_fill(0, count($assessmentIds), '?'));
+                $marks = $this->dbQuery(
+                    "SELECT assessment_id, student_id, score, score AS marks_obtained,
+                            max_score, percentage, cbc_grade AS grade, remarks
+                       FROM formative_scores
+                      WHERE assessment_id IN ({$placeholders})",
+                    $assessmentIds
+                )->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            return $this->successResponse([
+                'assessments' => $assessments,
+                'learners' => $learners,
+                'marks' => $marks,
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getFormativeAreaDetail');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -584,13 +877,13 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
                            UNION ALL
 
-                           SELECT ar.student_academic_enrollment_id AS student_id, a.learning_area_id, la.name AS learning_area,
+                           SELECT ec.student_id AS student_id, a.learning_area_id, la.name AS learning_area,
                                   ec.class_id, ec.class_name, ec.stream_name,
                                   ec.academic_year_term_id AS term_id, ec.academic_year_id, aterm.year_name AS academic_year_name, aterm.term_name,
                                   'summative' AS result_kind, ROUND(ar.marks_obtained / NULLIF(a.max_marks, 0) * 100, 2) AS pct
                            FROM assessment_results ar
                            JOIN assessments a ON a.id = ar.assessment_id
-                           JOIN " . $ec . " ec ON ec.assessment_id = a.id AND ec.student_academic_enrollment_id = ar.student_academic_enrollment_id
+                           JOIN " . $ec . " ec ON ec.assessment_id = a.id AND ec.enrollment_id = ar.student_academic_enrollment_id
                            LEFT JOIN learning_areas la ON la.id = a.learning_area_id
                            LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id = a.academic_year_term_id
                            WHERE ar.deleted_at IS NULL AND a.max_marks > 0 AND ar.marks_obtained IS NOT NULL
@@ -612,6 +905,311 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
             $this->logError($e, 'AcademicManager::getResultsManagementAverage');
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Results-management workspace: the learning areas taught in one class for
+     * an academic year, plus the strand/sub-strand taxonomy for a chosen area.
+     * This is the semantic backbone of the workspace — it tells the matrix
+     * which columns exist regardless of whether a register has been recorded
+     * yet (empty columns are read-only), and drives the strand filter cascade.
+     */
+    public function getResultsManagementClassAreas(array $data): array
+    {
+        try {
+            $classId = (int) ($data['class_id'] ?? 0);
+            if ($classId < 1) {
+                return $this->errorResponse('class_id is required', 400);
+            }
+            $yearId = (int) ($data['year_id'] ?? 0);
+            if ($yearId < 1 && !empty($data['term_id'])) {
+                $termStmt = $this->db->prepare("SELECT academic_year_id FROM academic_year_terms WHERE id = ?");
+                $termStmt->execute([(int) $data['term_id']]);
+                $yearId = (int) ($termStmt->fetchColumn() ?: 0);
+            }
+
+            $areas = [];
+            if ($yearId > 0) {
+                $ayc = ReadReplicaService::qualifiedRef('academic_year_classes');
+                $aycla = ReadReplicaService::qualifiedRef('academic_year_class_learning_areas');
+                $la = ReadReplicaService::qualifiedRef('learning_areas');
+                $areas = $this->dbQuery(
+                    "SELECT la.id AS learning_area_id, la.name, la.code
+                       FROM {$aycla} aycla
+                       JOIN {$ayc} ayc ON ayc.id = aycla.academic_year_class_id
+                       JOIN {$la} la ON la.id = aycla.learning_area_id
+                      WHERE ayc.academic_year_id = ? AND ayc.class_id = ? AND la.status = 'active'
+                      GROUP BY la.id, la.name, la.code
+                      ORDER BY la.name",
+                    [$yearId, $classId]
+                )->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $strands = [];
+            if (!empty($data['learning_area_id'])) {
+                $st = ReadReplicaService::qualifiedRef('strands');
+                $ss = ReadReplicaService::qualifiedRef('sub_strands');
+                $strands = $this->dbQuery(
+                    "SELECT st.id AS strand_id, st.name AS strand,
+                            ss.id AS sub_strand_id, ss.name AS sub_strand
+                       FROM {$st} st
+                       JOIN {$ss} ss ON ss.strand_id = st.id
+                      WHERE st.learning_area_id = ? AND st.status = 'active' AND ss.status = 'active'
+                      ORDER BY st.sort_order, ss.sort_order",
+                    [(int) $data['learning_area_id']]
+                )->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            return $this->successResponse(['areas' => $areas, 'strands' => $strands]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getResultsManagementClassAreas');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Results-management workspace: the Analytics tab aggregations. Pools the
+     * same formative + summative evidence used by getResultsManagementAverage
+     * but reports the comparisons school leadership asks for: overall mean and
+     * grade spread, best learner, class, learning area, gender split, teaching
+     * staff performance and the top learners. Every figure is a deterministic
+     * aggregation over recorded evidence — never a fabricated or optimistic view.
+     */
+    public function getResultsManagementAnalytics(array $data): array
+    {
+        try {
+            $where = [];
+            $params = [];
+            if (!empty($data['year_id']))  { $where[] = 'u.academic_year_id = ?'; $params[] = (int) $data['year_id']; }
+            if (!empty($data['term_id']))  { $where[] = 'u.term_id = ?'; $params[] = (int) $data['term_id']; }
+            if (!empty($data['class_id'])) { $where[] = 'u.class_id = ?'; $params[] = (int) $data['class_id']; }
+            $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+            // Exam category filter = the DB classification (CA/SBA/SA). Applied
+            // inside each branch against the assessment's own classification so
+            // the same category narrows both formative and summative evidence.
+            $classificationId = (int) ($data['assessment_type_classification_id'] ?? 0);
+            $formativeCls = $classificationId ? " AND a.assessment_type_classification_id = {$classificationId}" : '';
+            $summativeCls = $classificationId ? " AND a.assessment_type_classification_id = {$classificationId}" : '';
+
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $ec = ReadReplicaService::qualifiedRef('exam_context');
+            $sql = "SELECT u.student_id, u.learning_area_id, u.learning_area, u.class_id, u.class_name,
+                           u.result_kind, u.pct, per.gender,
+                           CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS learner_name,
+                           s.admission_no
+                      FROM (
+                        SELECT fs.student_id, a.learning_area_id, la.name AS learning_area,
+                               lp.class_id, lp.class_name, aterm.academic_year_term_id AS term_id,
+                               aterm.academic_year_id, 'formative' AS result_kind, fs.percentage AS pct
+                          FROM formative_scores fs
+                          JOIN " . ReadReplicaService::qualifiedRef('assessments') . " a ON a.id = fs.assessment_id
+                          LEFT JOIN " . ReadReplicaService::qualifiedRef('learning_areas') . " la ON la.id = a.learning_area_id
+                          LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id = a.academic_year_term_id
+                           LEFT JOIN {$lp} lp ON lp.student_id = fs.student_id AND lp.academic_year_id = aterm.academic_year_id
+                          WHERE fs.percentage IS NOT NULL{$formativeCls}
+                         UNION ALL
+                         SELECT ec.student_id, a.learning_area_id, la.name,
+                                ec.class_id, ec.class_name, ec.academic_year_term_id,
+                                ec.academic_year_id, 'summative',
+                                ROUND(ar.marks_obtained / NULLIF(a.max_marks, 0) * 100, 2)
+                           FROM assessment_results ar
+                           JOIN assessments a ON a.id = ar.assessment_id
+                           JOIN {$ec} ec ON ec.assessment_id = a.id AND ec.enrollment_id = ar.student_academic_enrollment_id
+                           JOIN exam_periods ep ON ep.id = ec.exam_period_id AND ep.deleted_at IS NULL AND ep.status <> 'cancelled'
+                           LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                           LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON aterm.academic_year_term_id = a.academic_year_term_id
+                          WHERE ar.deleted_at IS NULL AND a.max_marks > 0 AND ar.marks_obtained IS NOT NULL{$summativeCls}
+                       ) u
+                      JOIN students s ON s.id = u.student_id
+                      JOIN persons per ON per.id = s.person_id
+                      {$whereClause}
+                      LIMIT 30000";
+            $rows = $this->dbQuery($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
+
+            // Teacher map: class + learning area -> assigned teacher for the term.
+            $teacherMap = [];
+            if (!empty($data['term_id'])) {
+                try {
+                    $aclat = ReadReplicaService::qualifiedRef('academic_year_class_learning_area_teachers');
+                    $aycla = ReadReplicaService::qualifiedRef('academic_year_class_learning_areas');
+                    $ayc = ReadReplicaService::qualifiedRef('academic_year_classes');
+                    $la = ReadReplicaService::qualifiedRef('learning_areas');
+                    $tRows = $this->dbQuery(
+                        "SELECT ayc.class_id, la.id AS learning_area_id,
+                                CONCAT_WS(' ', pp.first_name, pp.last_name) AS teacher
+                           FROM {$aclat} t
+                           JOIN {$aycla} aycla ON aycla.id = t.academic_year_class_learning_area_id
+                           JOIN {$ayc} ayc ON ayc.id = aycla.academic_year_class_id
+                           JOIN {$la} la ON la.id = aycla.learning_area_id
+                           JOIN staff stf ON stf.id = t.staff_id
+                           JOIN persons pp ON pp.id = stf.person_id
+                          WHERE t.academic_year_term_id = ?",
+                        [(int) $data['term_id']]
+                    )->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($tRows as $t) {
+                        $teacherMap[(int) $t['class_id'] . '|' . (int) $t['learning_area_id']] = trim((string) $t['teacher']);
+                    }
+                } catch (Exception $ignored) {
+                    $teacherMap = [];
+                }
+            }
+
+            $pcts = [];
+            $byArea = [];
+            $byClass = [];
+            $byGender = [];
+            $byTeacher = [];
+            $byStudent = [];
+            $kindSum = ['formative' => [0.0, 0], 'summative' => [0.0, 0]];
+            foreach ($rows as $r) {
+                $pct = (float) $r['pct'];
+                if ($pct < 0 || $pct > 100) { continue; }
+                $pcts[] = $pct;
+                if (isset($kindSum[$r['result_kind']])) {
+                    $kindSum[$r['result_kind']][0] += $pct;
+                    $kindSum[$r['result_kind']][1]++;
+                }
+                $area = (string) ($r['learning_area'] ?? '—');
+                $byArea[$area][] = $pct;
+                $class = (string) ($r['class_name'] ?? '—');
+                $byClass[$class][] = $pct;
+                $gender = (string) ($r['gender'] ?? 'unspecified');
+                $byGender[$gender][] = $pct;
+                if (!empty($teacherMap)) {
+                    $teacher = $teacherMap[(int) $r['class_id'] . '|' . (int) $r['learning_area_id']] ?? 'Unassigned';
+                    $byTeacher[$teacher][] = $pct;
+                }
+                $sid = (int) $r['student_id'];
+                if (!isset($byStudent[$sid])) {
+                    $byStudent[$sid] = ['student_id' => $sid, 'learner_name' => $r['learner_name'], 'admission_no' => $r['admission_no'], 'class_name' => $r['class_name'], 'gender' => $gender, 'sum' => 0.0, 'n' => 0];
+                }
+                $byStudent[$sid]['sum'] += $pct;
+                $byStudent[$sid]['n']++;
+            }
+
+            $count = count($pcts);
+            $mean = $count ? array_sum($pcts) / $count : 0.0;
+            sort($pcts);
+            $median = 0.0;
+            if ($count) {
+                $mid = intdiv($count, 2);
+                $median = $count % 2 ? $pcts[$mid] : ($pcts[$mid - 1] + $pcts[$mid]) / 2;
+            }
+            $band = static function (float $p): string {
+                return $p >= 80 ? 'EE' : ($p >= 50 ? 'ME' : ($p >= 25 ? 'AE' : 'BE'));
+            };
+            $distribution = ['EE' => 0, 'ME' => 0, 'AE' => 0, 'BE' => 0];
+            foreach ($pcts as $p) { $distribution[$band($p)]++; }
+
+            $summarise = static function (array $groups) use ($band): array {
+                $out = [];
+                foreach ($groups as $label => $values) {
+                    $n = count($values);
+                    if (!$n) { continue; }
+                    $m = array_sum($values) / $n;
+                    $out[] = [
+                        'label' => (string) $label,
+                        'mean' => round($m, 1),
+                        'entries' => $n,
+                        'band' => $band($m),
+                        'meeting_rate' => round((count(array_filter($values, static fn ($v) => $v >= 50)) / $n) * 100, 1),
+                    ];
+                }
+                usort($out, static fn ($a, $b) => $b['mean'] <=> $a['mean']);
+                return $out;
+            };
+
+            $studentRows = [];
+            foreach ($byStudent as $s) {
+                if ($s['n'] < 1) { continue; }
+                $s['overall'] = round($s['sum'] / $s['n'], 1);
+                $s['band'] = $band($s['overall']);
+                unset($s['sum']);
+                $studentRows[] = $s;
+            }
+            usort($studentRows, static fn ($a, $b) => $b['overall'] <=> $a['overall']);
+
+            $genderLabels = ['male' => 'Male', 'female' => 'Female', 'other' => 'Other', 'unspecified' => 'Unspecified'];
+            $genderData = $summarise($byGender);
+            foreach ($genderData as &$g) {
+                $g['label'] = $genderLabels[strtolower((string) $g['label'])] ?? ucfirst((string) $g['label']);
+            }
+            unset($g);
+
+            return $this->successResponse([
+                'overview' => [
+                    'records' => $count,
+                    'learners' => count($studentRows),
+                    'mean' => round($mean, 1),
+                    'median' => round($median, 1),
+                    'band' => $band($mean),
+                    'pass_rate' => $count ? round((count(array_filter($pcts, static fn ($p) => $p >= 50)) / $count) * 100, 1) : 0.0,
+                    'distinction_rate' => $count ? round((count(array_filter($pcts, static fn ($p) => $p >= 80)) / $count) * 100, 1) : 0.0,
+                    'formative_mean' => $kindSum['formative'][1] ? round($kindSum['formative'][0] / $kindSum['formative'][1], 1) : null,
+                    'summative_mean' => $kindSum['summative'][1] ? round($kindSum['summative'][0] / $kindSum['summative'][1], 1) : null,
+                    'distribution' => $distribution,
+                ],
+                'by_learning_area' => $summarise($byArea),
+                'by_class' => $summarise($byClass),
+                'by_gender' => $genderData,
+                'by_teacher' => $summarise($byTeacher),
+                'top_students' => array_slice($studentRows, 0, 10),
+                'bottom_students' => array_slice(array_reverse($studentRows), 0, 5),
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getResultsManagementAnalytics');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Moodle-style multi-sub-strand alignment: one formative task may
+     * evidence several sub-strands. The junction carries the full set while
+     * assessments.sub_strand_id keeps the primary/dominant link (it stays
+     * first in the set when already aligned) so existing CBC lineage,
+     * scheme linkage, and reporting keep working unchanged.
+     */
+    private function syncAssessmentSubStrands(int $assessmentId, array $subStrandIds): void
+    {
+        $ids = [];
+        foreach ((array) $subStrandIds as $sid) {
+            $value = (int) $sid;
+            if ($value > 0) $ids[$value] = true;
+        }
+        $ids = array_keys($ids);
+        if (!$ids) return;
+
+        $marks = implode(',', array_fill(0, count($ids), '?'));
+        $this->dbQuery(
+            "DELETE FROM assessment_sub_strands WHERE assessment_id = ? AND sub_strand_id NOT IN ($marks)",
+            array_merge([$assessmentId], $ids)
+        );
+        $position = 0;
+        foreach ($ids as $sid) {
+            $position++;
+            $this->dbQuery(
+                'INSERT IGNORE INTO assessment_sub_strands (assessment_id, sub_strand_id, sort_order) VALUES (?,?,?)',
+                [$assessmentId, $sid, $position]
+            );
+        }
+        // Keep the primary link inside the evidenced set; when the current
+        // primary is not part of the selection, the first selected sub-strand
+        // becomes primary.
+        $this->dbQuery(
+            "UPDATE assessments SET sub_strand_id = ? WHERE id = ? AND (sub_strand_id IS NULL OR sub_strand_id NOT IN ($marks))",
+            array_merge([$ids[0], $assessmentId], $ids)
+        );
+    }
+
+    /** Collect the requested extra sub-strand links from a create/update payload. */
+    private function requestedSubStrandIds(array $data, int $primaryId): array
+    {
+        $raw = $data['sub_strand_ids'] ?? $data['substrand_ids'] ?? [];
+        if (!is_array($raw)) $raw = array_filter(array_map('trim', explode(',', (string) $raw)), 'strlen');
+        $ids = array_map('intval', $raw);
+        if ($primaryId > 0) array_unshift($ids, $primaryId);
+        return array_values(array_unique(array_filter($ids, static fn ($v) => $v > 0)));
     }
 
     /**
@@ -1006,12 +1604,12 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
         }
         if (is_numeric($type)) {
             $id = (int) $type;
-            $ok = $this->dbQuery("SELECT id FROM assessment_types WHERE id=? AND is_formative=1 LIMIT 1", [$id])->fetchColumn();
+            $ok = $this->dbQuery("SELECT id FROM assessment_type_classifications WHERE id=? AND is_formative=1 LIMIT 1", [$id])->fetchColumn();
             return $ok ? (int) $ok : null;
         }
         $name = trim((string) $type);
         $row = $this->dbQuery(
-            "SELECT id FROM assessment_types WHERE is_formative=1 AND (name = ? OR name LIKE ?) ORDER BY (name = ?) DESC LIMIT 1",
+            "SELECT id FROM assessment_type_classifications WHERE is_formative=1 AND (name = ? OR name LIKE ?) ORDER BY (name = ?) DESC LIMIT 1",
             [$name, "%{$name}%", $name]
         )->fetchColumn();
         return $row ? (int) $row : null;
@@ -1019,7 +1617,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
     /**
      * PUT /api/academic/formative-assessments/{id} - Update a formative assessment.
-     * Accepts both the canonical contract keys (title, assessment_type_id, term_id,
+     * Accepts both the canonical contract keys (title, assessment_type_classification_id, term_id,
      * assessment_date, class_id, subject_id, max_marks, status) and the legacy
      * my_cats/my_subject_cats form keys (name, type, cat_date).
      */
@@ -1036,7 +1634,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                         academic_year_calendar_day_id, learning_area_id,
                         academic_year_term_id, strand_id, sub_strand_id,
                         scheme_of_work_id, lesson_plan_id, assessment_tool_id,
-                        assessment_type_id, title, description, max_marks,
+                        assessment_type_classification_id, title, description, max_marks,
                         assessment_date, status
                  FROM assessments WHERE id = :id LIMIT 1",
                 [':id' => $id]
@@ -1074,10 +1672,10 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                 return $this->errorResponse('max_marks must be greater than zero', 400);
             }
 
-            $typeInput = $data['assessment_type_id'] ?? $data['type'] ?? $existing['assessment_type_id'];
+            $typeInput = $data['assessment_type_classification_id'] ?? $data['type'] ?? $existing['assessment_type_classification_id'];
             $typeId = $this->resolveFormativeTypeId($typeInput);
             if (!$typeId) {
-                return $this->errorResponse('assessment_type_id must refer to a formative type', 400);
+                return $this->errorResponse('assessment_type_classification_id must refer to a formative type', 400);
             }
 
             $status = isset($data['status'])
@@ -1098,7 +1696,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                     sub_strand_id = :sub_strand_id,
                     scheme_of_work_id = :scheme_id,
                     lesson_plan_id = :lesson_plan_id,
-                    assessment_type_id = :type_id,
+                    assessment_type_classification_id = :type_id,
                     assessment_tool_id = :tool_id,
                     title = :title,
                     description = :description,
@@ -1126,8 +1724,10 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                 ]
             );
             $this->replaceFormativeMappings($id, $context);
+            $subStrandIds = $this->requestedSubStrandIds($data, (int) ($context['sub_strand_id'] ?? (int) $existing['sub_strand_id']));
+            if ($subStrandIds) $this->syncAssessmentSubStrands($id, $subStrandIds);
             $this->db->commit();
-            return $this->successResponse(array_merge(['id' => $id], $context), 'Formative assessment updated');
+            return $this->successResponse(array_merge(['id' => $id], $context, ['sub_strand_ids' => $subStrandIds]), 'Formative assessment updated');
         } catch (\InvalidArgumentException $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollback();
@@ -1600,10 +2200,10 @@ if ($classId) {
     ): array
     {
         try {
-            // Canonical contract keys (title/assessment_type_id/term_id) are preferred;
+            // Canonical contract keys (title/assessment_type_classification_id/term_id) are preferred;
             // the legacy my_cats form keys (name/type) are mapped onto the schema.
             $title = $data['title'] ?? $data['name'] ?? null;
-            $typeId = $this->resolveFormativeTypeId($data['assessment_type_id'] ?? $data['type'] ?? null);
+            $typeId = $this->resolveFormativeTypeId($data['assessment_type_classification_id'] ?? $data['type'] ?? null);
             $termId = $data['term_id'] ?? null;
             if (!$termId) {
                 $termId = $this->dbQuery(
@@ -1617,7 +2217,7 @@ if ($classId) {
                 if (empty($data[$f])) return $this->errorResponse("$f is required", 400);
             }
             if (!$title) return $this->errorResponse('title is required', 400);
-            if (!$typeId) return $this->errorResponse('assessment_type_id must refer to a formative type', 400);
+            if (!$typeId) return $this->errorResponse('assessment_type_classification_id must refer to a formative type', 400);
             if (!$termId) return $this->errorResponse('term_id is required', 400);
 
             $staffId = $user['staff_id'] ?? null;
@@ -1655,7 +2255,7 @@ if ($classId) {
                     (academic_year_class_stream_id, learning_area_id,
                      academic_year_term_id, academic_year_calendar_day_id,
                      strand_id, sub_strand_id, scheme_of_work_id, lesson_plan_id,
-                     assessment_type_id, assessment_tool_id, title, description,
+                     assessment_type_classification_id, assessment_tool_id, title, description,
                      max_marks, assessment_date, opens_at, due_at, visible_to_parents, assigned_by, status)
                  VALUES
                     (:cid, :sid, :tid, :calendar_day_id, :strand_id,
@@ -1685,6 +2285,9 @@ if ($classId) {
             );
             $assessmentId = (int) $this->db->lastInsertId();
             $this->replaceFormativeMappings($assessmentId, $context);
+            $subStrandIds = $this->requestedSubStrandIds($data, (int) ($context['sub_strand_id'] ?? 0));
+            $this->syncAssessmentSubStrands($assessmentId, $subStrandIds);
+            $context['sub_strand_ids'] = $subStrandIds;
             $this->db->commit();
             return $this->successResponse(
                 array_merge(['id' => $assessmentId], $context),
@@ -1924,10 +2527,10 @@ if ($classId) {
             $params = [];
             $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'tool_scope');
             $rows = $this->dbQuery(
-                "SELECT at.id, at.tool_name, at.tool_code, at.description, at.assessment_type_id, at.learning_area_id, at.grade_level,
+                "SELECT at.id, at.tool_name, at.tool_code, at.description, at.assessment_type_classification_id, at.learning_area_id, at.grade_level,
                         a_type.name AS assessment_type_name, la.name AS learning_area_name
                  FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at
-                 LEFT JOIN assessment_type_classifications a_type ON a_type.id = at.assessment_type_id
+                 LEFT JOIN assessment_type_classifications a_type ON a_type.id = at.assessment_type_classification_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = at.learning_area_id
                  WHERE " . implode(' AND ', $conditions) . "
                  ORDER BY at.tool_name",
@@ -1944,10 +2547,10 @@ if ($classId) {
     {
         try {
             $name = trim((string) ($data['tool_name'] ?? ''));
-            $typeId = (int) ($data['assessment_type_id'] ?? 0);
+            $typeId = (int) ($data['assessment_type_classification_id'] ?? 0);
             $areaId = (int) ($data['learning_area_id'] ?? 0);
             if ($name === '' || !$typeId || !$areaId) {
-                return $this->errorResponse('tool_name, assessment_type_id, and learning_area_id are required', 400);
+                return $this->errorResponse('tool_name, assessment_type_classification_id, and learning_area_id are required', 400);
             }
 
             $type = $this->dbQuery(
@@ -1963,7 +2566,7 @@ if ($classId) {
 
             $this->dbQuery(
                 "INSERT INTO assessment_tools
-                    (tool_name, tool_code, description, assessment_type_id, learning_area_id,
+                    (tool_name, tool_code, description, assessment_type_classification_id, learning_area_id,
                      grade_level, competencies_assessed, created_by, status)
                  VALUES (:name, :code, :description, :type_id, :area_id, :grade, :competencies, :created_by, 'active')",
                 [
@@ -1995,10 +2598,10 @@ if ($classId) {
                     $params[":$field"] = $data[$field] === '' ? null : $data[$field];
                 }
             }
-            foreach (['assessment_type_id', 'learning_area_id'] as $field) {
+            foreach (['assessment_type_classification_id', 'learning_area_id'] as $field) {
                 if (array_key_exists($field, $data)) {
                     $value = (int) $data[$field];
-                    $table = $field === 'assessment_type_id' ? 'assessment_type_classifications' : 'learning_areas';
+                    $table = $field === 'assessment_type_classification_id' ? 'assessment_type_classifications' : 'learning_areas';
                     $valid = $this->dbQuery(
                         "SELECT id FROM $table WHERE id = :id AND status = 'active'",
                         [':id' => $value]
@@ -2032,12 +2635,14 @@ if ($classId) {
     {
         try {
             $filter = $data['filter'] ?? 'all';
+            // Formative assessments have NO types — only strands, sub-strands, objectives.
+            // CA/SBA/SA are all summative EXAM types.
+            if ($filter === 'formative')  return $this->successResponse([]);
             $where  = ["status='active'"];
-            if ($filter === 'formative')  $where[] = "is_formative=1";
             if ($filter === 'summative')  $where[] = "is_summative=1";
-            if ($filter === 'national')   $where[] = "name IN ('KNEC Grade 3 Assessment','KPSEA','KJSEA')";
+            if ($filter === 'national')   $where[] = "is_national=1";
 
-            $rows = $this->dbQuery("SELECT * FROM assessment_types WHERE " . implode(' AND ', $where) . " ORDER BY is_formative DESC, name")->fetchAll(PDO::FETCH_ASSOC);
+            $rows = $this->dbQuery("SELECT * FROM assessment_type_classifications WHERE " . implode(' AND ', $where) . " ORDER BY is_formative DESC, name")->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getAssessmentTypes');
@@ -2269,11 +2874,9 @@ if ($classId) {
             $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
             $rows = $this->dbQuery(
                 "SELECT s.id, s.code, s.name, s.grade_level, s.level_range, s.sort_order,
-                        la.id AS learning_area_id, la.name AS learning_area_name,
-                        la.learning_area_family_id, laf.name AS learning_area_family
+                        la.id AS learning_area_id, la.name AS learning_area_name
                  FROM " . ReadReplicaService::qualifiedRef("strands") . " s
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = s.learning_area_id
-                 LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                  $where
                  ORDER BY s.grade_level, s.sort_order, s.id",
                 $params
@@ -2446,7 +3049,7 @@ if ($classId) {
                 "SELECT DISTINCT scored.student_id, a.learning_area_id AS subject_id
                  FROM ({$scoreSourceSql}) scored
                  JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = scored.assessment_id
-                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                  WHERE " . implode(' AND ', $where),
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
@@ -2496,17 +3099,17 @@ if ($classId) {
 
                 $agg = $this->dbQuery(
                     "SELECT
-                        SUM(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN scored.score ELSE 0 END)     AS ft,
-                        SUM(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN scored.max_score ELSE 0 END) AS fm,
-                        COUNT(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN 1 END)                     AS fc,
-                        SUM(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN scored.score ELSE 0 END)     AS st,
-                        SUM(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN scored.max_score ELSE 0 END) AS sm,
-                        COUNT(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN 1 END)                     AS sc,
+                        SUM(CASE WHEN COALESCE(a.is_formative, 0)=1 THEN scored.score ELSE 0 END)     AS ft,
+                        SUM(CASE WHEN COALESCE(a.is_formative, 0)=1 THEN scored.max_score ELSE 0 END) AS fm,
+                        COUNT(CASE WHEN COALESCE(a.is_formative, 0)=1 THEN 1 END)                     AS fc,
+                        SUM(CASE WHEN COALESCE(a.is_formative = 0, 1)=1 THEN scored.score ELSE 0 END)     AS st,
+                        SUM(CASE WHEN COALESCE(a.is_formative = 0, 1)=1 THEN scored.max_score ELSE 0 END) AS sm,
+                        COUNT(CASE WHEN COALESCE(a.is_formative = 0, 1)=1 THEN 1 END)                     AS sc,
                         COUNT(scored.score_id) AS ac
                      FROM ({$scoreSourceSql}) scored
                      JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = scored.assessment_id
                         AND a.academic_year_term_id=:tid AND a.learning_area_id=:subid
-                     LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                     LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                      WHERE scored.student_id=:stu",
                     [':tid' => $termId, ':subid' => $subj, ':stu' => $stu]
                 )->fetch(PDO::FETCH_ASSOC);
@@ -2718,12 +3321,12 @@ if ($classId) {
             $rows = $this->dbQuery(
                 "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.max_marks,
                         fs.score, fs.percentage, fs.cbc_grade,
-                        at.name AS type_name, at.is_formative, at.is_summative,
+                        atc.name AS type_name, a.is_formative, (a.is_formative = 0) AS is_summative,
                         la.name AS subject_name, la.code AS subject_code,
                         t.name AS term_name, ayt.id AS term_id, ay.year_code
                  FROM formative_scores fs
                  JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a       ON a.id  = fs.assessment_id
-                 JOIN assessment_types at ON at.id = a.assessment_type_id
+                 JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
                  LEFT JOIN terms t  ON t.id  = ayt.term_id
@@ -4501,170 +5104,281 @@ if ($classId) {
     }
 
     /** GET /api/academic/grading-scale|/grading-scale/{id} - Fetch a grading scale + its grade rules */
+    /**
+     * GET /api/academic/grading-systems — all active grading systems + their
+     * bands, straight from grading_systems + grading_system_bands. The
+     * frontend renders the scale toggle from this; nothing is hardcoded.
+     */
+    public function getGradingSystems(): array
+    {
+        try {
+            $systems = $this->dbQuery(
+                "SELECT gs.id, gs.code, gs.name, gs.levels_count, gs.category, gs.description
+                 FROM grading_systems gs WHERE gs.status = 'active' ORDER BY gs.id"
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $bandsStmt = $this->db->prepare(
+                "SELECT band_code, band_name, min_percentage, max_percentage, points, performance_level, description
+                 FROM grading_system_bands WHERE grading_system_id = ? ORDER BY sort_order"
+            );
+            foreach ($systems as &$system) {
+                $bandsStmt->execute([(int) $system['id']]);
+                $system['bands'] = $bandsStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+            unset($system);
+
+            return $this->successResponse(['systems' => $systems]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getGradingSystems');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * GET /api/academic/streams-list?class_id= — streams for a class (from DB).
+     */
+    public function getStreamsList(array $data): array
+    {
+        try {
+            $classId = (int) ($data['class_id'] ?? 0);
+            $where = ['s.status = \'active\''];
+            $params = [];
+            if ($classId) {
+                $where[] = 'ayc.class_id = ?';
+                $params[] = $classId;
+            }
+            $whereClause = ' WHERE ' . implode(' AND ', $where);
+            $aycs = ReadReplicaService::qualifiedRef('academic_year_class_streams');
+            $ayc = ReadReplicaService::qualifiedRef('academic_year_classes');
+            $streams = ReadReplicaService::qualifiedRef('streams');
+            $rows = $this->dbQuery("
+                SELECT DISTINCT ays.stream_id, s.name AS stream_name, ays.academic_year_class_id
+                FROM {$aycs} ays
+                JOIN {$ayc} ayc2 ON ayc2.id = ays.academic_year_class_id
+                JOIN {$streams} s ON s.id = ays.stream_id
+                {$whereClause}
+                ORDER BY s.name
+            ", $params)->fetchAll(PDO::FETCH_ASSOC);
+            return $this->successResponse(['streams' => $rows]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getStreamsList');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * GET /api/academic/exam-series-list — distinct series values from the
+     * exam_periods table, scoped to the current term. Nothing hardcoded.
+     */
+    public function getExamSeriesList(array $data): array
+    {
+        try {
+            $where = ["ep.status <> 'cancelled'"];
+            $params = [];
+            if (!empty($data['term_id'])) { $where[] = 'ep.academic_year_term_id = ?'; $params[] = (int) $data['term_id']; }
+            $rows = $this->dbQuery(
+                "SELECT DISTINCT ep.series FROM exam_periods ep WHERE " . implode(' AND ', $where) . " ORDER BY ep.series",
+                $params
+            )->fetchAll(PDO::FETCH_COLUMN);
+            return $this->successResponse(['series' => array_values(array_filter($rows))]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getExamSeriesList');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * GET /api/academic/grading-scale — compatibility surface (was grading_scales
+     * + grade_rules, both dropped). Now resolves the ACTIVE grading systems and
+     * bands from grading_systems + grading_system_bands, and optionally the
+     * resolved term aggregation profile when term_id/exam_period_id/year_id given.
+     */
     public function getGradingScale(?int $id, array $query): array
     {
         try {
-            if (isset($query['all'])) {
-                $scales = $this->dbQuery(
-                    "SELECT * FROM grading_scales ORDER BY (status='active') DESC, id"
-                )->fetchAll(PDO::FETCH_ASSOC);
-                $result = [];
-                foreach ($scales as $sc) {
-                    $rules = $this->dbQuery(
-                        "SELECT id, grade_code, grade_name, min_mark, max_mark, grade_points, performance_level, description, sort_order
-                         FROM grade_rules
-                         WHERE scale_id=:sid
-                         ORDER BY sort_order, min_mark DESC",
-                        [':sid' => $sc['id']]
-                    )->fetchAll(PDO::FETCH_ASSOC);
-                    $result[] = ['scale' => $sc, 'rules' => $rules];
-                }
-                return $this->successResponse($result);
+            $svc = new AssessmentAggregationService($this->db);
+            $payload = ['systems' => $svc->listGradingSystems()];
+            if (isset($query['term_id']) || isset($query['exam_period_id']) || isset($query['year_id'])) {
+                $payload['resolved_profile'] = $svc->resolveProfile(
+                    isset($query['exam_period_id']) ? (int) $query['exam_period_id'] : null,
+                    isset($query['term_id']) ? (int) $query['term_id'] : null,
+                    isset($query['year_id']) ? (int) $query['year_id'] : null
+                );
             }
-            if ($id) {
-                $scale = $this->dbQuery(
-                    "SELECT * FROM grading_scales WHERE id=:id",
-                    [':id' => $id]
-                )->fetch(PDO::FETCH_ASSOC);
-                if (!$scale) return $this->errorResponse('Grading scale not found', 404);
-            } else {
-                $scale = $this->dbQuery(
-                    "SELECT * FROM grading_scales WHERE status='active' ORDER BY id LIMIT 1"
-                )->fetch(PDO::FETCH_ASSOC);
-                if (!$scale) return $this->successResponse(['scale' => null, 'rules' => []]);
-            }
-            $rules = $this->dbQuery(
-                "SELECT id, grade_code, grade_name, min_mark, max_mark, grade_points, performance_level, description, sort_order
-                 FROM grade_rules
-                 WHERE scale_id=:sid
-                 ORDER BY sort_order, min_mark DESC",
-                [':sid' => $scale['id']]
-            )->fetchAll(PDO::FETCH_ASSOC);
-            return $this->successResponse(['scale' => $scale, 'rules' => $rules]);
+            return $this->successResponse($payload);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getGradingScale');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    /** POST /api/academic/grading-scale - Create a grading scale */
-    public function postGradingScale(array $data): array
+    /**
+     * GET /api/academic/aggregation-overview — the grading management page data:
+     * grading systems + bands, term aggregation profiles, national composite
+     * profiles and the school default in one call.
+     */
+    public function getAggregationOverview(array $data): array
     {
-        if (empty($data['name'])) return $this->errorResponse('Scale name is required', 400);
         try {
-            $this->dbQuery(
-                "INSERT INTO grading_scales (name, description, min_mark, max_mark, status)
-                 VALUES (:name, :desc, :min, :max, :status)",
-                [
-                    ':name' => $data['name'],
-                    ':desc' => $data['description'] ?? null,
-                    ':min' => (float) ($data['min_mark'] ?? 0),
-                    ':max' => (float) ($data['max_mark'] ?? 100),
-                    ':status' => in_array($data['status'] ?? 'active', ['active', 'inactive']) ? $data['status'] : 'active',
-                ]
+            $svc = new AssessmentAggregationService($this->db);
+            return $this->successResponse([
+                'systems' => $svc->listGradingSystems(),
+                'term_profiles' => $svc->listTermProfiles(),
+                'composite_profiles' => $svc->listCompositeProfiles(),
+                'school_default' => $svc->resolveProfile(null, null, null),
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getAggregationOverview');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * GET /api/academic/aggregation-profile-resolve?exam_period_id=&term_id=&year_id=
+     * — the profile that applies for a given scope (exam -> term -> year -> default).
+     */
+    public function getAggregationResolve(array $data): array
+    {
+        try {
+            $svc = new AssessmentAggregationService($this->db);
+            $profile = $svc->resolveProfile(
+                !empty($data['exam_period_id']) ? (int) $data['exam_period_id'] : null,
+                !empty($data['term_id']) ? (int) $data['term_id'] : null,
+                !empty($data['year_id']) ? (int) $data['year_id'] : null
             );
-            $newId = (int) $this->db->lastInsertId();
-            if (($data['status'] ?? 'active') === 'active') {
-                $this->dbQuery("UPDATE grading_scales SET status='inactive' WHERE status='active' AND id<>:id", [':id' => $newId]);
-            }
-            return $this->successResponse(['id' => $newId], 'Grading scale created');
+            return $this->successResponse(['profile' => $profile]);
         } catch (Exception $e) {
-            $this->logError($e, 'AcademicManager::postGradingScale');
+            $this->logError($e, 'AcademicManager::getAggregationResolve');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    /** PUT /api/academic/grading-scale/{id} - Update a grading scale */
-    public function putGradingScale(int $id, array $data): array
+    /** POST /api/academic/aggregation-profile — upsert a term aggregation profile. */
+    public function postAggregationProfile(array $data): array
     {
         try {
-            $fields = [];
-            $params = [':id' => $id];
-            foreach (['name', 'description', 'min_mark', 'max_mark', 'status'] as $col) {
-                if (array_key_exists($col, $data)) {
-                    $fields[] = "$col=:$col";
-                    if ($col === 'name') $params[":$col"] = $data[$col];
-                    elseif ($col === 'description') $params[":$col"] = $data[$col];
-                    elseif ($col === 'status') $params[":$col"] = in_array($data[$col], ['active', 'inactive']) ? $data[$col] : 'active';
-                    else $params[":$col"] = (float) $data[$col];
-                }
-            }
-            if (empty($fields)) return $this->errorResponse('No fields to update', 400);
-            $this->dbQuery("UPDATE grading_scales SET " . implode(', ', $fields) . " WHERE id=:id", $params);
-            if (($data['status'] ?? '') === 'active') {
-                $this->dbQuery("UPDATE grading_scales SET status='inactive' WHERE status='active' AND id<>:id", [':id' => $id]);
-            }
-            return $this->successResponse(['id' => (int) $id], 'Grading scale updated');
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->upsertTermProfile($data, (int) ($data['user_id'] ?? 0) ?: null);
+            if (!$r['ok']) return $this->errorResponse($r['error'], 400);
+            return $this->successResponse(['id' => $r['id']], 'Aggregation profile saved');
         } catch (Exception $e) {
-            $this->logError($e, 'AcademicManager::putGradingScale');
+            $this->logError($e, 'AcademicManager::postAggregationProfile');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    /** POST /api/academic/grade-rules - Create a grade rule (range → grade) */
-    public function postGradeRules(array $data): array
+    /** DELETE /api/academic/aggregation-profile/{id} — deactivate a profile. */
+    public function deleteAggregationProfile(int $id): array
     {
-        $required = ['scale_id', 'grade_code', 'grade_name', 'min_mark', 'max_mark'];
-        foreach ($required as $k) {
-            if (empty($data[$k])) return $this->errorResponse("{$k} is required", 400);
-        }
         try {
-            $scale = $this->dbQuery("SELECT id FROM grading_scales WHERE id=:id", [':id' => (int) $data['scale_id']])->fetch(PDO::FETCH_ASSOC);
-            if (!$scale) return $this->errorResponse('The selected grading scale does not exist', 400);
-            $this->dbQuery(
-                "INSERT INTO grade_rules (scale_id, grade_code, grade_name, min_mark, max_mark, grade_points, performance_level, description, sort_order)
-                 VALUES (:sid, :code, :name, :min, :max, :points, :level, :desc, :sort)",
-                [
-                    ':sid' => (int) $data['scale_id'],
-                    ':code' => strtoupper($data['grade_code']),
-                    ':name' => $data['grade_name'],
-                    ':min' => (float) $data['min_mark'],
-                    ':max' => (float) $data['max_mark'],
-                    ':points' => (float) ($data['grade_points'] ?? 0),
-                    ':level' => $data['performance_level'] ?? '',
-                    ':desc' => $data['description'] ?? null,
-                    ':sort' => (int) ($data['sort_order'] ?? 1),
-                ]
+            $svc = new AssessmentAggregationService($this->db);
+            $svc->deactivateTermProfile($id);
+            return $this->successResponse(null, 'Aggregation profile deactivated');
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::deleteAggregationProfile');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** POST /api/academic/grading-band — create or update a grading band. */
+    public function postGradingBand(array $data): array
+    {
+        try {
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->upsertBand($data);
+            if (!$r['ok']) return $this->errorResponse($r['error'], 400);
+            return $this->successResponse(['id' => $r['id']], 'Grading band saved');
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::postGradingBand');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** DELETE /api/academic/grading-band/{id} — delete a band. */
+    public function deleteGradingBand(int $id): array
+    {
+        try {
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->deleteBand($id);
+            if (!$r['ok']) return $this->errorResponse('Band not found', 404);
+            return $this->successResponse(null, 'Grading band deleted');
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::deleteGradingBand');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** GET /api/academic/sba-cba-export?term_id=&class_stream_ids=1,2 — CBA CSV. */
+    public function getCbaExport(array $data): array
+    {
+        try {
+            $termId = (int) ($data['term_id'] ?? 0);
+            if (!$termId) return $this->errorResponse('term_id is required', 400);
+            $ids = array_map('intval', array_filter(explode(',', (string) ($data['class_stream_ids'] ?? ''))));
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->buildCbaExport(
+                $ids,
+                $termId,
+                !empty($data['class_id']) ? (int) $data['class_id'] : null,
+                !empty($data['stream_id']) ? (int) $data['stream_id'] : null
             );
-            return $this->successResponse(['id' => (int) $this->db->lastInsertId()], 'Grade rule created');
+            if (!$r['ok']) return $this->errorResponse($r['error'], 400);
+            return $this->successResponse([
+                'filename' => $r['filename'],
+                'csv' => $r['csv'],
+                'learner_count' => $r['learner_count'],
+                'area_count' => $r['area_count'],
+            ]);
         } catch (Exception $e) {
-            $this->logError($e, 'AcademicManager::postGradeRules');
+            $this->logError($e, 'AcademicManager::getCbaExport');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    /** PUT /api/academic/grade-rules/{id} - Update a grade rule */
-    public function putGradeRules(int $id, array $data): array
+    /** POST /api/academic/national-results-import — CSV upload (pending_review). */
+    public function postNationalResultsImport(array $data): array
     {
         try {
-            $fields = [];
-            $params = [':id' => $id];
-            foreach (['scale_id', 'grade_code', 'grade_name', 'min_mark', 'max_mark', 'grade_points', 'performance_level', 'description', 'sort_order'] as $col) {
-                if (array_key_exists($col, $data)) {
-                    $fields[] = "$col=:$col";
-                    if ($col === 'grade_code') $params[":$col"] = strtoupper($data[$col]);
-                    elseif (in_array($col, ['scale_id', 'sort_order'])) $params[":$col"] = (int) $data[$col];
-                    elseif (in_array($col, ['min_mark', 'max_mark', 'grade_points'])) $params[":$col"] = (float) $data[$col];
-                    else $params[":$col"] = $data[$col];
-                }
+            $csv = trim((string) ($data['csv'] ?? ''));
+            if ($csv === '') return $this->errorResponse('csv content is required', 400);
+            $yearId = (int) ($data['year_id'] ?? 0);
+            if (!$yearId) return $this->errorResponse('year_id is required', 400);
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->importNationalResultsCsv($csv, $yearId, (int) ($data['user_id'] ?? 0) ?: null);
+            if (!$r['ok']) return $this->errorResponse($r['error'], 400);
+            return $this->successResponse($r, 'National results imported (pending review)');
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::postNationalResultsImport');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** GET /api/academic/national-results — list imported national results. */
+    public function getNationalResults(array $data): array
+    {
+        try {
+            $svc = new AssessmentAggregationService($this->db);
+            return $this->successResponse(['results' => $svc->listNationalResults($data)]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getNationalResults');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** POST /api/academic/national-results-review/{id} — approve or reject. */
+    public function postNationalResultReview(int $id, array $data): array
+    {
+        try {
+            $decision = (string) ($data['decision'] ?? '');
+            if (!in_array($decision, ['approved', 'rejected'], true)) {
+                return $this->errorResponse('decision must be approved or rejected', 400);
             }
-            if (empty($fields)) return $this->errorResponse('No fields to update', 400);
-            $this->dbQuery("UPDATE grade_rules SET " . implode(', ', $fields) . " WHERE id=:id", $params);
-            return $this->successResponse(['id' => (int) $id], 'Grade rule updated');
+            $svc = new AssessmentAggregationService($this->db);
+            $r = $svc->reviewNationalResult($id, $decision, (int) ($data['user_id'] ?? 0) ?: null);
+            if (!$r['ok']) return $this->errorResponse('Result not found or already reviewed', 404);
+            return $this->successResponse(null, 'National result ' . $decision);
         } catch (Exception $e) {
-            $this->logError($e, 'AcademicManager::putGradeRules');
-            return $this->errorResponse('An internal error occurred.', 500);
-        }
-    }
-
-    /** DELETE /api/academic/grade-rules/{id} - Delete a grade rule */
-    public function deleteGradeRules(int $id): array
-    {
-        try {
-            $this->dbQuery("DELETE FROM grade_rules WHERE id=:id", [':id' => $id]);
-            return $this->successResponse(null, 'Grade rule deleted');
-        } catch (Exception $e) {
-            $this->logError($e, 'AcademicManager::deleteGradeRules');
+            $this->logError($e, 'AcademicManager::postNationalResultReview');
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -4967,7 +5681,6 @@ if ($classId) {
                             (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("learning_outcomes") . " lo WHERE lo.strand_id = s.id) AS outcome_count
                      FROM " . ReadReplicaService::qualifiedRef("strands") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = s.learning_area_id
-                LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                      WHERE " . implode(' AND ', $conditions),
                     $params
                 )->fetch(PDO::FETCH_ASSOC);
@@ -5061,9 +5774,8 @@ if ($classId) {
                         (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("learning_outcomes") . " lo WHERE lo.strand_id = s.id) AS outcome_count
                  FROM " . ReadReplicaService::qualifiedRef("strands") . " s
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = s.learning_area_id
-                 LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                  $where
-                 ORDER BY s.grade_level, COALESCE(laf.name, la.name), s.sort_order, s.id
+                 ORDER BY s.grade_level, la.name, s.sort_order, s.id
                  LIMIT $limit OFFSET $offset",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);

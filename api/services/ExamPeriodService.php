@@ -82,9 +82,9 @@ final class ExamPeriodService
 
     public function list(bool $includeDeleted = false): array
     {
-        $where = $includeDeleted ? '' : "WHERE ep.status <> 'cancelled'";
+        $where = $includeDeleted ? '' : "WHERE ep.deleted_at IS NULL AND ep.status <> 'cancelled'";
         $extended=$this->hasColumn('exam_periods','assessment_kind');
-        $kindSelect=$extended?'ep.assessment_kind, ep.assessment_authority, ep.national_assessment_code,':'\'school_based\' AS assessment_kind, NULL AS assessment_authority, NULL AS national_assessment_code,';
+        $kindSelect=$extended?'ep.assessment_kind, ep.assessment_authority, ep.national_assessment_code, ep.assessment_type_classification_id,':'\'school_based\' AS assessment_kind, NULL AS assessment_authority, NULL AS national_assessment_code, NULL AS assessment_type_classification_id,';
         $publicationSelect=$this->hasColumn('exam_periods','results_published_at')?'ep.results_published_by, ep.results_published_at, ep.results_release_mode,':'NULL AS results_published_by, NULL AS results_published_at, NULL AS results_release_mode,';
         return $this->db->query(
             "SELECT ep.id, ep.title, ep.academic_year_term_id, aterm.term_id, aterm.year_name AS academic_year_name,
@@ -284,16 +284,26 @@ final class ExamPeriodService
         if(!in_array($assessmentKind,['school_based','national','mock','other'],true))throw new RuntimeException('Choose a valid summative assessment type.',422);
         $authority=trim((string)($data['assessment_authority']??'')) ?: null;
         $nationalCode=strtoupper(trim((string)($data['national_assessment_code']??''))) ?: null;
+        // Summative exam TYPE (CA / SBA / SA) — classification dimension, kept
+        // separate from the authority dimension (assessment_kind). DB-driven.
+        $classificationId=$this->resolveClassificationId($data);
         $classIds=array_values(array_unique(array_filter(array_map('intval',(array)($data['academic_year_class_ids']??$data['class_ids']??[])))));
         if(!$this->hasColumn('exam_periods','assessment_kind') && $assessmentKind!=='school_based')throw new RuntimeException('Apply the summative-assessment migration before creating this assessment type.',409);
-        if($assessmentKind==='national'){
+        // Per-class entitlements (mixed cohorts in one period). The period-level
+        // type stays as the DEFAULT for classes without an explicit override.
+        $entitlements=$this->classEntitlements($data,$classIds);
+        $this->assertClassTypeCompliance($classIds,$entitlements,$termId,$classificationId);
+        if($assessmentKind==='national' && !array_filter($entitlements)){
+            // Legacy single-type period: no per-class overrides were sent, so the
+            // period-wide national gates apply to every class. (With overrides,
+            // assertClassTypeCompliance already validated each class.)
             if(!$this->hasColumn('exam_periods','assessment_kind'))throw new RuntimeException('The summative-assessment migration must be applied before creating national assessments.',409);
             if(!$authority)$authority='KNEC';
             if(!$nationalCode)throw new RuntimeException('Select the national assessment (KPSEA, KJSEA, or other).',422);
             if(!in_array($nationalCode,['KPSEA','KJSEA','OTHER'],true))throw new RuntimeException('Choose KPSEA, KJSEA, or another national assessment.',422);
             if($nationalCode==='KPSEA' && count(array_filter($classIds,fn(int $id):bool=>$this->classMatchesGrade($id,'6')))!==count($classIds))throw new RuntimeException('KPSEA is configured for Grade 6 classes only.',422);
             if($nationalCode==='KJSEA' && count(array_filter($classIds,fn(int $id):bool=>$this->classMatchesGrade($id,'9')))!==count($classIds))throw new RuntimeException('KJSEA is configured for Grade 9 classes only.',422);
-        } else { $nationalCode=null; }
+        } elseif($assessmentKind!=='national') { $nationalCode=null; }
         if (!$termId || $title==='' || !$starts || !$ends || !$classIds) throw new RuntimeException('Term, exam name, dates, and at least one class are required',422);
         if ($this->date($starts)>$this->date($ends)) throw new RuntimeException('The exam period end date must be on or after its start date',422);
         $term=$this->term($termId);
@@ -328,8 +338,8 @@ final class ExamPeriodService
         $this->db->beginTransaction();
         try {
             if($this->hasColumn('exam_periods','assessment_kind')){
-                $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,kind,entry_mode,assessment_kind,assessment_authority,national_assessment_code,grading_system_id,created_by) VALUES (?,?,?,?,'draft',?,?,?,?,?,?,?)");
-                $insert->execute([$termId,$title,$starts,$ends,$kind,$entryMode,$assessmentKind,$authority,$nationalCode,$gradingSystemId,$this->userId]);
+                $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,kind,entry_mode,assessment_kind,assessment_authority,national_assessment_code,assessment_type_classification_id,grading_system_id,created_by) VALUES (?,?,?,?,'draft',?,?,?,?,?,?,?,?)");
+                $insert->execute([$termId,$title,$starts,$ends,$kind,$entryMode,$assessmentKind,$authority,$nationalCode,$classificationId,$gradingSystemId,$this->userId]);
             } else {
                 $insert=$this->db->prepare("INSERT INTO exam_periods (academic_year_term_id,title,starts_on,ends_on,status,kind,entry_mode,created_by) VALUES (?,?,?,?,'draft',?,?,?)");
                 $insert->execute([$termId,$title,$starts,$ends,$kind,$entryMode,$this->userId]);
@@ -473,14 +483,17 @@ final class ExamPeriodService
             $this->assertSbaCompliance($classIds, $assessmentKind, (int) $term['academic_year_term_id'], $authority);
             $authority=$this->sbaPolicy()->resolveAuthority($assessmentKind, $authority, (int) ($term['term_id'] ?? 0));
         }
+        $classificationId=array_key_exists('assessment_type_classification_id',$data)||array_key_exists('assessment_type_code',$data)
+            ?$this->resolveClassificationId($data)
+            :(($period['assessment_type_classification_id']??null)?(int)$period['assessment_type_classification_id']:null);
         $currentIds=$this->periodClassIds($periodId);
         $structuralChange=$entryMode!==(string)($period['entry_mode']??'timetable')||$classIds!==$currentIds;
 
         $this->db->beginTransaction();
         try {
             if($extended){
-                $this->db->prepare('UPDATE exam_periods SET title=?,starts_on=?,ends_on=?,assessment_kind=?,assessment_authority=?,national_assessment_code=? WHERE id=?')
-                    ->execute([$title,$starts,$ends,$assessmentKind,$authority,$nationalCode,$periodId]);
+                $this->db->prepare('UPDATE exam_periods SET title=?,starts_on=?,ends_on=?,assessment_kind=?,assessment_authority=?,national_assessment_code=?,assessment_type_classification_id=? WHERE id=?')
+                    ->execute([$title,$starts,$ends,$assessmentKind,$authority,$nationalCode,$classificationId,$periodId]);
             } else {
                 $this->db->prepare('UPDATE exam_periods SET title=?,starts_on=?,ends_on=? WHERE id=?')->execute([$title,$starts,$ends,$periodId]);
             }
@@ -689,12 +702,12 @@ final class ExamPeriodService
             $this->assertNoClashes($normalized);
             $this->assertNoAssignedTeacherClashes($normalized,(int)$period['academic_year_term_id']);
         }
-        $typeId=(int)($this->db->query("SELECT id FROM assessment_types WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn()?:0);
+        $typeId=(int)($this->db->query("SELECT id FROM assessment_type_classifications WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn()?:0);
         if(!$typeId)throw new RuntimeException('No active summative assessment type is configured',409);
         $insertSchedule=$this->db->prepare("INSERT INTO exam_schedules (academic_year_class_id,academic_year_term_id,learning_area_id,max_marks,exam_name,exam_type,exam_date,start_time,end_time,duration_minutes,room_id,venue,invigilator_id,notes,created_by,status,source) VALUES (?,?,?,? ,?,'summative',?,?,?,?,?,?,?,?,?,'scheduled',?)");
         $linkTimetable=$this->db->prepare('INSERT INTO exam_period_timetable_entries (exam_period_class_learning_area_id,exam_schedule_id) VALUES (?,?)');
         $streamCache=[];
-        $insertAssessment=$this->db->prepare("INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_id,title,max_marks,assessment_date,assigned_by,status) VALUES (?,?,?,?,?,?,?,?,'pending_submission')");
+        $insertAssessment=$this->db->prepare("INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_classification_id,title,max_marks,assessment_date,assigned_by,status) VALUES (?,?,?,?,?,?,?,?,'pending_submission')");
         $insertAssessmentLink=$this->db->prepare('INSERT INTO exam_schedule_assessments (exam_schedule_id,academic_year_class_stream_id,assessment_id) VALUES (?,?,?)');
         $saved=0;
         foreach($normalized as $item){
@@ -739,7 +752,7 @@ final class ExamPeriodService
         $this->assertNoClashes($normalized);$this->assertNoExistingClashes($normalized,$periodId);$this->assertNoAssignedTeacherClashes($normalized,(int)$period['academic_year_term_id']);
         $this->db->beginTransaction();
         try{
-            $typeId=(int)($this->db->query("SELECT id FROM assessment_types WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn()?:0);
+            $typeId=(int)($this->db->query("SELECT id FROM assessment_type_classifications WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn()?:0);
             if(!$typeId)throw new RuntimeException('No active summative assessment type is configured',409);
             $existingLink=$this->db->prepare('SELECT exam_schedule_id FROM exam_period_timetable_entries WHERE exam_period_class_learning_area_id=?');
             $insertSchedule=$this->db->prepare("INSERT INTO exam_schedules (academic_year_class_id,academic_year_term_id,learning_area_id,max_marks,exam_name,exam_type,exam_date,start_time,end_time,duration_minutes,room_id,venue,invigilator_id,notes,created_by,status,source) VALUES (?,?,?,? ,?,'summative',?,?,?,?,?,?,?,?,?,'scheduled','manual')");
@@ -747,7 +760,7 @@ final class ExamPeriodService
             $linkTimetable=$this->db->prepare('INSERT INTO exam_period_timetable_entries (exam_period_class_learning_area_id,exam_schedule_id) VALUES (?,?)');
             $streamCache=[];
             $assessmentByStream=$this->db->prepare("SELECT esa.assessment_id FROM exam_schedule_assessments esa WHERE esa.exam_schedule_id=? AND esa.academic_year_class_stream_id=?");
-            $insertAssessment=$this->db->prepare("INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_id,title,max_marks,assessment_date,assigned_by,status) VALUES (?,?,?,?,?,?,?,?,'pending_submission')");
+            $insertAssessment=$this->db->prepare("INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_classification_id,title,max_marks,assessment_date,assigned_by,status) VALUES (?,?,?,?,?,?,?,?,'pending_submission')");
             $insertAssessmentLink=$this->db->prepare('INSERT INTO exam_schedule_assessments (exam_schedule_id,academic_year_class_stream_id,assessment_id) VALUES (?,?,?)');
             $updateAssessment=$this->db->prepare("UPDATE assessments SET title=?,max_marks=?,assessment_date=?,assigned_by=? WHERE id=? AND status='pending_submission'");
             $markCount=$this->db->prepare('SELECT COUNT(*) FROM assessment_results WHERE assessment_id=? AND deleted_at IS NULL');
@@ -983,6 +996,137 @@ private function resultRows(int $periodId,?int $staffId,bool $includeDeleted=fal
     {
         $stmt=$this->db->prepare('SELECT * FROM exam_periods WHERE id=?'.($lock?' FOR UPDATE':''));$stmt->execute([$periodId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Exam period not found',404);return $row;
     }
+
+    /**
+     * Resolve the summative exam TYPE (CA / SBA / SA) from request data.
+     * Accepts the classification id directly, or a code (CA/SBA/SA) when the
+     * frontend sends the label. Null keeps any existing value on update.
+     */
+    private function resolveClassificationId(array $data):?int
+    {
+        $raw=$data['assessment_type_classification_id'] ?? $data['assessment_type_code'] ?? null;
+        if($raw===null || $raw==='') return null;
+        if(!$this->hasColumn('exam_periods','assessment_type_classification_id')) return null;
+        if(is_numeric($raw)){
+            $stmt=$this->db->prepare("SELECT id FROM assessment_type_classifications WHERE id=? AND status='active'");
+            $stmt->execute([(int)$raw]);
+            $row=$stmt->fetch(PDO::FETCH_ASSOC);
+            if(!$row)throw new RuntimeException('Unknown summative assessment type.',422);
+            return (int)$row['id'];
+        }
+        $stmt=$this->db->prepare("SELECT id FROM assessment_type_classifications WHERE code=? AND status='active'");
+        $stmt->execute([strtoupper(trim((string)$raw))]);
+        $row=$stmt->fetch(PDO::FETCH_ASSOC);
+        if(!$row)throw new RuntimeException('Unknown summative assessment type.',422);
+        return (int)$row['id'];
+    }
+
+    /**
+     * Normalize per-class assessment entitlements from request data:
+     *   class_assessment_types: {<academic_year_class_id>: <classification id|CA|SBA|SA>}
+     *   class_national_codes:   {<academic_year_class_id>: KPSEA|KJSEA|OTHER}
+     * NULL/absent type = inherit the period default. Returns
+     * classId => {classification_id, code, national_code}.
+     */
+    private function classEntitlements(array $data, array $classIds): array
+    {
+        if(!$this->hasColumn('exam_period_classes','assessment_type_classification_id')) return [];
+        $types=$data['class_assessment_types'] ?? $data['class_types'] ?? [];
+        $codes=$data['class_national_codes'] ?? [];
+        if(!is_array($types) && !is_array($codes)) return [];
+        $lookup=$this->db->prepare("SELECT id, code FROM assessment_type_classifications WHERE status='active'");
+        $lookup->execute();
+        $byId=[]; $byCode=[];
+        foreach($lookup->fetchAll(PDO::FETCH_ASSOC) as $row){
+            $byId[(int)$row['id']]=$row;
+            $byCode[strtoupper((string)$row['code'])]=$row;
+        }
+        $entitlements=[];
+        foreach($classIds as $classId){
+            $raw=$types[(string)$classId] ?? $types[$classId] ?? null;
+            $code=strtoupper(trim((string)($codes[(string)$classId] ?? $codes[$classId] ?? ''))) ?: null;
+            if($raw===null || $raw==='' ){
+                if($code) { $entitlements[(int)$classId]=['classification_id'=>null,'code'=>'SA','national_code'=>$code]; }
+                continue;
+            }
+            $row=is_numeric($raw)?($byId[(int)$raw] ?? null):($byCode[strtoupper(trim((string)$raw))] ?? null);
+            if(!$row)throw new RuntimeException('Unknown summative assessment type for one of the selected classes.',422);
+            $entitlements[(int)$classId]=['classification_id'=>(int)$row['id'],'code'=>strtoupper((string)$row['code']),'national_code'=>null];
+        }
+        foreach($entitlements as $classId=>$e){
+            if(($e['code']??'')==='SA') $entitlements[$classId]['national_code']=$entitlements[$classId]['national_code'] ?? (strtoupper(trim((string)($codes[(string)$classId] ?? ''))) ?: null);
+        }
+        return $entitlements;
+    }
+
+    /**
+     * KNEC gates PER CLASS against its EFFECTIVE type (override -> period default):
+     *  - CA: allowed everywhere.
+     *  - SBA: never on Grade 6 / Grade 9 (exempt cohorts — KPSEA/KJSEA preparation).
+     *  - SA + KPSEA: Grade 6 classes only. SA + KJSEA: Grade 9 classes only.
+     *  - SA always requires a national assessment code.
+     * Classes absent from $entitlements inherit the period default.
+     */
+    private function assertClassTypeCompliance(array $classIds, array $entitlements, int $termId, ?int $periodDefaultId): void
+    {
+        $defaultCode=null;
+        if($periodDefaultId){
+            $stmt=$this->db->prepare("SELECT code FROM assessment_type_classifications WHERE id=?");
+            $stmt->execute([$periodDefaultId]);
+            $defaultCode=strtoupper(trim((string)$stmt->fetchColumn()));
+        }
+        $sbaClassIds=[];
+        foreach ($classIds as $classId) {
+            $e=$entitlements[(int)$classId] ?? null;
+            $code=$e['code'] ?? $defaultCode;
+            $nationalCode=$e['national_code'] ?? null;
+            if($code==='SA'){
+                if(!$nationalCode) throw new RuntimeException("A national-exam class requires its national assessment (KPSEA, KJSEA, or other).",422);
+                if(!in_array($nationalCode,['KPSEA','KJSEA','OTHER'],true)) throw new RuntimeException('Choose KPSEA, KJSEA, or another national assessment.',422);
+                if($nationalCode==='KPSEA' && !$this->classMatchesGrade((int)$classId,'6')) throw new RuntimeException('KPSEA is configured for Grade 6 classes only.',422);
+                if($nationalCode==='KJSEA' && !$this->classMatchesGrade((int)$classId,'9')) throw new RuntimeException('KJSEA is configured for Grade 9 classes only.',422);
+            }
+            if($code==='SBA') $sbaClassIds[]=(int)$classId;
+        }
+        if($sbaClassIds){
+            $report=$this->sbaPolicy()->validateExamPeriod(
+                $this->classGrades($sbaClassIds),
+                'school_based',
+                (int)($this->term($termId)['term_id'] ?? 0),
+                'KNEC'
+            );
+            if(!empty($report['violations'])) throw new RuntimeException((string)$report['violations'][0]['message'],422);
+        }
+    }
+
+    /**
+     * Effective class types for a period: classId => {classification_id, code, national_code}
+     * after override -> period-default resolution.
+     */
+    private function effectiveClassTypes(int $periodId): array
+    {
+        $period=$this->period($periodId);
+        $defaultId=(int)($period['assessment_type_classification_id'] ?? 0) ?: null;
+        $stmt=$this->db->prepare(
+            "SELECT epc.academic_year_class_id, epc.assessment_type_classification_id,
+                    atc.code AS classification_code, epc.national_assessment_code
+             FROM exam_period_classes epc
+             LEFT JOIN assessment_type_classifications atc ON atc.id=epc.assessment_type_classification_id
+             WHERE epc.exam_period_id=? ORDER BY epc.academic_year_class_id"
+        );
+        $stmt->execute([$periodId]);
+        $out=[];
+        foreach($stmt->fetchAll(PDO::FETCH_ASSOC) as $row){
+            $classId=(int)$row['academic_year_class_id'];
+            $out[$classId]=[
+                'classification_id'=>$row['assessment_type_classification_id']!==null?(int)$row['assessment_type_classification_id']:$defaultId,
+                'code'=>$row['classification_code']!==null?strtoupper((string)$row['classification_code']):null,
+                'national_code'=>$row['national_assessment_code']!==null?strtoupper((string)$row['national_assessment_code']):null,
+            ];
+        }
+        return $out;
+    }
+
     private function term(int $termId):array
     {
         $stmt=$this->db->prepare('SELECT *, id AS academic_year_term_id FROM academic_year_terms WHERE id=?');$stmt->execute([$termId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Academic-year term not found',404);return $row;

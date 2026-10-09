@@ -328,7 +328,7 @@ final class NationalTimetableService
             throw new RuntimeException('This period has no class learning areas', 409);
         }
 
-        $typeId = (int) ($this->db->query("SELECT id FROM assessment_types WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn() ?: 0);
+        $typeId = (int) ($this->db->query("SELECT id FROM assessment_type_classifications WHERE is_summative=1 AND status='active' ORDER BY (LOWER(name)='end of term exam') DESC,id LIMIT 1")->fetchColumn() ?: 0);
         if (!$typeId) {
             throw new RuntimeException('No active summative assessment type is configured', 409);
         }
@@ -350,7 +350,7 @@ final class NationalTimetableService
         );
         $linkTimetable = $this->db->prepare('INSERT INTO exam_period_timetable_entries (exam_period_class_learning_area_id, exam_schedule_id) VALUES (?,?)');
         $insertAssessment = $this->db->prepare(
-            "INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_id,title,max_marks,assessment_date,assigned_by,status)
+            "INSERT INTO assessments (academic_year_class_stream_id,academic_year_term_id,learning_area_id,assessment_type_classification_id,title,max_marks,assessment_date,assigned_by,status)
              VALUES (?,?,?,?,?,?,?,?,'pending_submission')"
         );
         $insertAssessmentLink = $this->db->prepare('INSERT INTO exam_schedule_assessments (exam_schedule_id,academic_year_class_stream_id,assessment_id) VALUES (?,?,?)');

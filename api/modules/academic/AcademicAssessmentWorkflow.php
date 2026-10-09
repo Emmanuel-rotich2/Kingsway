@@ -86,10 +86,10 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             $assessmentStmt = $this->db->prepare(
                 "INSERT INTO assessments (
                     title, learning_area_id, academic_year_class_stream_id, academic_year_term_id,
-                    max_marks, assessment_date, assessment_type_id, status
+                    max_marks, assessment_date, assessment_type_classification_id, status
                 ) VALUES (
                     :title, :learning_area_id, :academic_year_class_stream_id, :academic_year_term_id,
-                    :max_marks, :assessment_date, :assessment_type_id, 'pending_submission'
+                    :max_marks, :assessment_date, :assessment_type_classification_id, 'pending_submission'
                 )"
             );
             $assessmentStmt->execute([
@@ -99,7 +99,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                 'academic_year_term_id' => (int)$plan['term_id'],
                 'max_marks' => (int)$plan['total_marks'],
                 'assessment_date' => $plan['assessment_date'] ?? date('Y-m-d'),
-                'assessment_type_id' => $assessmentTypeId,
+                'assessment_type_classification_id' => $assessmentTypeId,
             ]);
             $assessmentId = (int)$this->db->lastInsertId();
 
@@ -733,14 +733,14 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
     }
 
     /**
-     * Resolve the assessment_types row id from a CBC classification (CA/SBA/SA)
+     * Resolve the assessment_type_classifications row id from a CBC classification (CA/SBA/SA)
      * and an optional assessment type name, falling back to the first active
      * formative (CA) or summative (SBA/SA) type.
      */
     private function resolveAssessmentTypeId(string $classification, $assessmentType = null): ?int
     {
         if ($assessmentType) {
-            $stmt = $this->db->prepare("SELECT id FROM assessment_types WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id FROM assessment_type_classifications WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1");
             $stmt->execute([(string) $assessmentType]);
             $id = $stmt->fetchColumn();
             if ($id) {
@@ -748,7 +748,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             }
         }
         $isSummative = in_array(strtoupper($classification), ['SBA', 'SA'], true) ? 1 : 0;
-        $stmt = $this->db->query("SELECT id FROM assessment_types WHERE status='active' AND is_summative = {$isSummative} ORDER BY id LIMIT 1");
+        $stmt = $this->db->query("SELECT id FROM assessment_type_classifications WHERE status='active' AND is_summative = {$isSummative} ORDER BY id LIMIT 1");
         $id = $stmt->fetchColumn();
         return $id ? (int) $id : null;
     }

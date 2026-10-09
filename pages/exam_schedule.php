@@ -93,25 +93,12 @@
 <section class="academic-card p-3 mb-4" id="examPeriodWorkflow">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
         <div><h3 class="h5 mb-1">Exam periods and results</h3><p class="text-muted mb-0">Select the academic term and classes. Every stream in a class takes each learning area paper at the same sitting time.</p></div>
-        <div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-primary" id="openExamDocumentImport"><i class="bi bi-file-earmark-arrow-up me-1"></i>Import timetable / results</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsCsv"><i class="bi bi-download me-1"></i>Export CSV</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
+        <div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsCsv"><i class="bi bi-download me-1"></i>Export CSV</button><button type="button" class="btn btn-sm btn-outline-secondary" id="examPeriodsPrint"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
     </div>
     <div class="table-responsive"><table class="table table-hover align-middle" id="examPeriodsTable">
         <thead><tr><th>Exam period</th><th>Summative type</th><th>Academic term</th><th>Dates</th><th>Classes</th><th>Learning areas</th><th>Scheduled</th><th>Results</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody id="examPeriodsBody"><tr><td colspan="10" class="text-center text-muted">Loading exam periods…</td></tr></tbody>
     </table></div>
-</section>
-
-<section class="card shadow-sm mb-4" id="gradingScopeCard">
- <div class="card-body">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h2 class="h6 mb-0"><i class="bi bi-award me-2"></i>Grading system per term</h2><span class="small text-muted" id="gradingScopeNote">Versioned: existing exams keep their snapshots.</span></div>
-  <form class="row g-2 align-items-end" id="gradingScopeForm">
-   <div class="col-md-4"><label class="form-label" for="gradingTermSelect">Academic year term</label><select class="form-select" id="gradingTermSelect" required></select></div>
-   <div class="col-md-4"><label class="form-label" for="gradingSystemSelect">Grading system</label><select class="form-select" id="gradingSystemSelect" required></select></div>
-   <div class="col-md-4"><button class="btn btn-academic w-100" type="submit" id="gradingScopeSave"><i class="bi bi-check2-circle me-1"></i>Bind for this term</button></div>
-  </form>
-  <div class="small mt-2" id="gradingScopeStatus" aria-live="polite"></div>
-  <div class="table-responsive mt-2 d-none" id="gradingBindingsWrap"><table class="table table-sm table-bordered align-middle" id="gradingBindingsTable"><thead class="table-light"><tr><th>Scope</th><th>Class</th><th>Learning area</th><th>System</th><th>Levels</th></tr></thead><tbody></tbody></table></div>
- </div>
 </section>
 
 <div class="modal fade" id="examPeriodWorkspace" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-fullscreen-xl-down modal-xl modal-dialog-scrollable"><div class="modal-content"></div></div></div>
@@ -149,7 +136,7 @@
    <div class="col-md-6"><label class="form-label" for="examPeriodTitle">Exam period name *</label><input class="form-control" id="examPeriodTitle" maxlength="150" required placeholder="e.g. Term 2 Assessment"></div>
    <div class="col-md-6"><label class="form-label" for="examPeriodStart">Starts *</label><input type="date" class="form-control" id="examPeriodStart" required></div>
    <div class="col-md-6"><label class="form-label" for="examPeriodEnd">Ends *</label><input type="date" class="form-control" id="examPeriodEnd" required></div></div>
-   <div class="row g-3 mt-1"><div class="col-md-4"><label class="form-label" for="examPeriodAssessmentKind">Summative assessment type *</label><select class="form-select" id="examPeriodAssessmentKind" required><option value="school_based">School based</option><option value="national">National (KNEC)</option><option value="mock">Mock examination</option><option value="other">Other summative assessment</option></select></div><div class="col-md-4 d-none" id="nationalAssessmentWrap"><label class="form-label" for="nationalAssessmentCode">National assessment *</label><select class="form-select" id="nationalAssessmentCode"><option value="">Select assessment</option><option value="KPSEA">KPSEA · Grade 6</option><option value="KJSEA">KJSEA · Grade 9</option><option value="OTHER">Other national assessment</option></select></div><div class="col-md-4"><label class="form-label" for="examPeriodEntryMode">Result setup</label><select class="form-select" id="examPeriodEntryMode"><option value="timetable">Create timetable first</option><option value="results_only">Results entry only (no timetable)</option></select></div></div>
+       <div class="row g-3 mt-1"><div class="col-md-4"><label class="form-label" for="examPeriodAssessmentKind">Summative assessment type *</label><select class="form-select" id="examPeriodAssessmentKind" required><option value="">Loading from database…</option></select></div><div class="col-md-4 d-none" id="nationalAssessmentWrap"><label class="form-label" for="nationalAssessmentCode">National assessment *</label><select class="form-select" id="nationalAssessmentCode"><option value="">Select assessment</option><option value="KPSEA">KPSEA · Grade 6</option><option value="KJSEA">KJSEA · Grade 9</option><option value="OTHER">Other national assessment</option></select></div><div class="col-md-4"><label class="form-label" for="examPeriodEntryMode">Result setup</label><select class="form-select" id="examPeriodEntryMode"><option value="timetable">Create timetable first</option><option value="results_only">Results entry only (no timetable)</option></select></div></div>
    <div class="mt-3"><div class="d-flex justify-content-between"><label class="form-label">Applicable classes *</label><button class="btn btn-sm btn-link p-0" type="button" id="examPeriodToggleClasses">Select all</button></div><div class="row g-2" id="examPeriodClasses"><div class="text-muted">Choose an academic term first.</div></div></div>
   </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="createExamPeriodBtn">Create period</button></div></form>
  </div></div>
@@ -166,13 +153,16 @@
     <div class="col-md-6"><label class="form-label" for="examPeriodEditEnd">Ends *</label><input type="date" class="form-control" id="examPeriodEditEnd" required></div>
    </div>
    <div class="row g-3 mt-1">
-    <div class="col-md-4"><label class="form-label" for="examPeriodEditAssessmentKind">Summative assessment type *</label><select class="form-select" id="examPeriodEditAssessmentKind" required><option value="school_based">School based</option><option value="national">National (KNEC)</option><option value="mock">Mock examination</option><option value="other">Other summative assessment</option></select></div>
+     <div class="col-md-4"><label class="form-label" for="examPeriodEditAssessmentKind">Summative assessment type *</label><select class="form-select" id="examPeriodEditAssessmentKind" required><option value="">Loading from database…</option></select></div>
     <div class="col-md-4 d-none" id="examPeriodEditNationalWrap"><label class="form-label" for="examPeriodEditNationalCode">National assessment *</label><select class="form-select" id="examPeriodEditNationalCode"><option value="">Select assessment</option><option value="KPSEA">KPSEA · Grade 6</option><option value="KJSEA">KJSEA · Grade 9</option><option value="OTHER">Other national assessment</option></select></div>
     <div class="col-md-4"><label class="form-label" for="examPeriodEditEntryMode">Result setup</label><select class="form-select" id="examPeriodEditEntryMode"><option value="timetable">Create timetable first</option><option value="results_only">Results entry only (no timetable)</option></select></div>
    </div>
    <div class="mt-3"><div class="d-flex justify-content-between"><label class="form-label">Applicable classes *</label><button class="btn btn-sm btn-link p-0" type="button" id="examPeriodEditToggleClasses">Select all</button></div><div class="row g-2" id="examPeriodEditClasses"><div class="text-muted">Loading classes…</div></div><small class="text-muted d-block mt-1" id="examPeriodEditClassesHint"></small></div>
-   <p class="small text-muted mt-3 mb-0" id="examPeriodEditModalNote">Exam dates must remain within the academic term shown above.</p>
-  </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="saveExamPeriodEditBtn"><i class="bi bi-check2 me-1"></i>Save changes</button></div></form>
+    <p class="small text-muted mt-3 mb-0" id="examPeriodEditModalNote">Exam dates must remain within the academic term shown above.</p>
+    <div class="d-flex gap-2 mt-2" id="examPeriodEditImportRow">
+      <button class="btn btn-sm btn-outline-primary" type="button" id="openExamDocumentImport"><i class="bi bi-file-earmark-arrow-up me-1"></i>Import timetable / results</button>
+    </div>
+   </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-academic" type="submit" id="saveExamPeriodEditBtn"><i class="bi bi-check2 me-1"></i>Save changes</button></div></form>
  </div></div>
 </div>
 

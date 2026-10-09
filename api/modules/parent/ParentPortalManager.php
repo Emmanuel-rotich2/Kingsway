@@ -1984,7 +1984,7 @@ class ParentPortalManager extends BaseAPI
                    ON lg.academic_year_class_stream_id = a.academic_year_class_stream_id
                   AND lg.parent_id = :pid
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
-                 LEFT JOIN assessment_types aty ON aty.id = a.assessment_type_id
+                 LEFT JOIN assessment_type_classifications aty ON aty.id = a.assessment_type_classification_id
                  WHERE a.assessment_date >= CURDATE()
                    AND a.status IN ('pending_submission', 'submitted')
                  GROUP BY a.id

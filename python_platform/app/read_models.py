@@ -684,10 +684,6 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
         "indexes": {
             "idx_curriculum_grade_status": ("grade_level", "status"),
             "idx_curriculum_strand": ("strand_id",),
-            "idx_learning_area_family_grade": (
-                "learning_area_family_id",
-                "grade_level",
-            ),
             "idx_learning_area_grade_status": (
                 "learning_area_id",
                 "grade_level",
@@ -2915,8 +2911,12 @@ class PolarsReadModelRefresher:
 
         source_name = str(definition["source"])
         target_name = str(definition["target"])
-        if not re.fullmatch(r"[A-Za-z0-9_]+", source_name) or not re.fullmatch(r"[A-Za-z0-9_]+", target_name):
-            raise ReadModelError("Read projection definition contains an invalid object name")
+        if not re.fullmatch(r"[A-Za-z0-9_]+", source_name) or not re.fullmatch(
+            r"[A-Za-z0-9_]+", target_name
+        ):
+            raise ReadModelError(
+                "Read projection definition contains an invalid object name"
+            )
 
         master = self._connect_master()
         reads = self._connect_reads()
@@ -2933,7 +2933,9 @@ class PolarsReadModelRefresher:
                 cursor.execute("SELECT GET_LOCK(%s, 0)", (lock_name,))
                 locked = cursor.fetchone()[0] == 1
                 if not locked:
-                    raise ReadModelError("This read projection is already being refreshed")
+                    raise ReadModelError(
+                        "This read projection is already being refreshed"
+                    )
                 cursor.execute(
                     "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s",
                     (self.config.db_reads_schema, target_name),
@@ -2946,26 +2948,40 @@ class PolarsReadModelRefresher:
             with master.cursor(pymysql.cursors.SSCursor) as source_cursor:
                 phase = time.perf_counter()
                 source_cursor.execute(f"SELECT * FROM {source}")
-                source_columns = [str(column[0]) for column in source_cursor.description or ()]
+                source_columns = [
+                    str(column[0]) for column in source_cursor.description or ()
+                ]
                 source_ms = int((time.perf_counter() - phase) * 1000)
-                if not source_columns or any(not re.fullmatch(r"[A-Za-z0-9_]+", column) for column in source_columns):
-                    raise ReadModelError("Read projection source has an invalid column set")
+                if not source_columns or any(
+                    not re.fullmatch(r"[A-Za-z0-9_]+", column)
+                    for column in source_columns
+                ):
+                    raise ReadModelError(
+                        "Read projection source has an invalid column set"
+                    )
                 with reads.cursor() as cursor:
                     cursor.execute(f"SHOW COLUMNS FROM {target}")
                     target_columns = [str(row[0]) for row in cursor.fetchall()]
                 if source_columns != target_columns:
-                    raise ReadModelError("Read projection source and target schemas differ")
+                    raise ReadModelError(
+                        "Read projection source and target schemas differ"
+                    )
 
                 names_sql = ",".join(_qid(column) for column in source_columns)
                 placeholders = ",".join(["%s"] * len(source_columns))
-                insert_sql = f"INSERT INTO {stage} ({names_sql}) VALUES ({placeholders})"
+                insert_sql = (
+                    f"INSERT INTO {stage} ({names_sql}) VALUES ({placeholders})"
+                )
                 write_started = time.perf_counter()
                 while True:
                     batch = source_cursor.fetchmany(1000)
                     if not batch:
                         break
                     frame = self.pl.DataFrame(
-                        batch, schema=source_columns, orient="row", infer_schema_length=None
+                        batch,
+                        schema=source_columns,
+                        orient="row",
+                        infer_schema_length=None,
                     )
                     with reads.cursor() as cursor:
                         cursor.executemany(insert_sql, frame.rows())
@@ -2976,19 +2992,31 @@ class PolarsReadModelRefresher:
                 cursor.execute(
                     f"RENAME TABLE {target} TO `{self.config.db_reads_schema}`.`{old_name}`, {stage} TO {target}"
                 )
-                cursor.execute(f"DROP TABLE IF EXISTS `{self.config.db_reads_schema}`.`{old_name}`")
+                cursor.execute(
+                    f"DROP TABLE IF EXISTS `{self.config.db_reads_schema}`.`{old_name}`"
+                )
                 cursor.execute(
                     f"INSERT INTO `{self.config.db_reads_schema}`.`reads_meta` "
                     "(projection, source_view, rows_count, source_watermark, as_of, refreshed_at, status, storage_mode, sensitivity, max_age_seconds, last_error) "
                     "VALUES (%s,%s,%s,NULL,NOW(),NOW(),'live','materialized_table',%s,%s,NULL) "
                     "ON DUPLICATE KEY UPDATE source_view=VALUES(source_view), rows_count=VALUES(rows_count), source_watermark=NULL, as_of=NOW(), refreshed_at=NOW(), status='live', storage_mode='materialized_table', sensitivity=VALUES(sensitivity), max_age_seconds=VALUES(max_age_seconds), last_error=NULL",
-                    (projection, f"{self.config.db_master_schema}.{source_name}", rows_written, definition["sensitivity"], definition["max_age_seconds"]),
+                    (
+                        projection,
+                        f"{self.config.db_master_schema}.{source_name}",
+                        rows_written,
+                        definition["sensitivity"],
+                        definition["max_age_seconds"],
+                    ),
                 )
 
             return {
-                "status": "published", "projection": projection, "target": target_name,
-                "rows_count": rows_written, "source_query_ms": source_ms,
-                "index_build_ms": 0, "duration_ms": int((time.perf_counter() - started) * 1000),
+                "status": "published",
+                "projection": projection,
+                "target": target_name,
+                "rows_count": rows_written,
+                "source_query_ms": source_ms,
+                "index_build_ms": 0,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
             }
         except Exception as error:
             try:

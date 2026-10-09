@@ -83,7 +83,7 @@ final class GradingScopeService
         $stmt = $this->db->prepare(
             "SELECT b.grading_system_id,
                     CASE WHEN b.class_id IS NULL THEN 'term' WHEN b.learning_area_id IS NULL THEN 'class' ELSE 'learning_area' END AS binding_scope
-             FROM " . ReadReplicaService::masterRef("academic_year_term_grading_bindings") . "
+             FROM " . ReadReplicaService::masterRef("academic_year_term_grading_bindings") . " b
              JOIN grading_systems gs ON gs.id = b.grading_system_id AND gs.status = 'active'
              WHERE b.academic_year_term_id = ? AND b.status = 'active'
                AND (b.class_id IS NULL OR b.class_id = ?)

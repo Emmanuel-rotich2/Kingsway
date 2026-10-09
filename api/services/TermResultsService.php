@@ -163,7 +163,7 @@ final class TermResultsService
     private function learningAreas(int $streamId, ?int $areaId): array
     {
         $sql = "SELECT DISTINCT cla.learning_area_id
-                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                 WHERE sla.academic_year_class_stream_id = ?
                   AND sla.status IN ('planned','active','in_progress','covered')";
@@ -186,7 +186,7 @@ final class TermResultsService
                     fs.score, fs.max_score, 'present' AS entry_status
              FROM formative_scores fs
              JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id
-             JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_formative = 1
+             JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id AND a.is_formative = 1
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
                AND a.status = 'approved'{$areaFilter}
              UNION ALL
@@ -194,7 +194,7 @@ final class TermResultsService
                     a.max_marks, ar.entry_status
              FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
              JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
-             JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_summative = 1
+             JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id AND a.is_formative = 0 = 1
              JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ar.student_academic_enrollment_id
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
                AND a.status = 'approved' AND ar.deleted_at IS NULL

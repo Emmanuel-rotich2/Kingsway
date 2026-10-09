@@ -1868,13 +1868,13 @@ class SchedulesAPI extends BaseAPI {
                  LIMIT 1"
             );
             $typeCheck = $this->db->prepare(
-                "SELECT name FROM assessment_types
+                "SELECT name FROM assessment_type_classifications
                  WHERE id = ? AND is_summative = 1 AND status = 'active' LIMIT 1"
             );
             $insert = $this->db->prepare(
                 'INSERT INTO exam_timetable_draft_entries
                     (draft_id, academic_year_class_stream_id, learning_area_id, exam_name, exam_type,
-                     assessment_type_id, max_marks, exam_date, start_time, end_time, duration_minutes,
+                     assessment_type_classification_id, max_marks, exam_date, start_time, end_time, duration_minutes,
                      room_id, venue, invigilator_id, supervisor_id, notes)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), NULLIF(?, 0), ?)'
             );
@@ -1884,7 +1884,7 @@ class SchedulesAPI extends BaseAPI {
                 $number = $index + 1;
                 $streamId = (int) ($entry['academic_year_class_stream_id'] ?? 0);
                 $learningAreaId = (int) ($entry['learning_area_id'] ?? 0);
-                $assessmentTypeId = (int) ($entry['assessment_type_id'] ?? 0);
+                $assessmentTypeId = (int) ($entry['assessment_type_classification_id'] ?? 0);
                 $maxMarks = (float) ($entry['max_marks'] ?? 0);
                 $examName = trim((string) ($entry['exam_name'] ?? ''));
                 $date = (string) ($entry['exam_date'] ?? '');
@@ -1967,7 +1967,7 @@ class SchedulesAPI extends BaseAPI {
         $query = $this->db->prepare(
             'SELECT e.*, at.name AS assessment_type_name
              FROM ' . ReadReplicaService::qualifiedRef('exam_timetable_draft_entries') . ' e
-             LEFT JOIN assessment_types at ON at.id = e.assessment_type_id
+             LEFT JOIN assessment_type_classifications at ON at.id = e.assessment_type_classification_id
              WHERE e.draft_id = ? ORDER BY e.exam_date, e.start_time'
         );
         $query->execute([(int) $id]);
@@ -2066,7 +2066,7 @@ class SchedulesAPI extends BaseAPI {
             $assessmentInsert = $this->db->prepare(
                 "INSERT INTO assessments
                     (academic_year_class_stream_id, academic_year_term_id, learning_area_id,
-                     assessment_type_id, title, max_marks, assessment_date, assigned_by, status)
+                     assessment_type_classification_id, title, max_marks, assessment_date, assigned_by, status)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_submission')"
             );
             $scheduleInsert = $this->db->prepare(
@@ -2117,7 +2117,7 @@ class SchedulesAPI extends BaseAPI {
                     (int) $entry['academic_year_class_stream_id'],
                     (int) $entry['academic_year_term_id'],
                     (int) $entry['learning_area_id'],
-                    (int) $entry['assessment_type_id'],
+                    (int) $entry['assessment_type_classification_id'],
                     $entry['exam_name'],
                     (float) $entry['max_marks'],
                     $entry['exam_date'],

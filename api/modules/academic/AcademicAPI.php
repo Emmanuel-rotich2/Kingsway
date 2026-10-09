@@ -3257,7 +3257,7 @@ return errorResponse($e->getMessage(), 400);
                         $rubric = $this->db->prepare("SELECT id, level_number, level_label, descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order, level_number");
                         $rubric->execute([(int)$row['sub_strand_id']]);
                         $row['rubrics'] = $rubric->fetchAll(PDO::FETCH_ASSOC);
-                        $tools = $this->db->prepare("SELECT DISTINCT at.id, at.tool_name AS name, at.tool_code, at.description, at.assessment_type_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " LEFT JOIN sub_strand_assessment_tools ssat ON ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=? WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY (ssat.is_recommended IS NULL), ssat.sort_order, at.tool_name");
+                        $tools = $this->db->prepare("SELECT DISTINCT at.id, at.tool_name AS name, at.tool_code, at.description, at.assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " LEFT JOIN sub_strand_assessment_tools ssat ON ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=? WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY (ssat.is_recommended IS NULL), ssat.sort_order, at.tool_name");
                         $tools->execute([(int)$row['sub_strand_id'], (int)$row['learning_area_id'], (int)$row['learning_area_id']]);
                         $row['assessment_tools'] = $tools->fetchAll(PDO::FETCH_ASSOC);
                         $toolIds = array_values(array_filter(array_map('intval', array_column($row['assessment_tools'], 'id'))));
@@ -3294,7 +3294,7 @@ return errorResponse($e->getMessage(), 400);
             $res = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id"); $res->execute([$sub]);
             $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM " . ReadReplicaService::qualifiedRef("sub_strand_competencies") . " JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
             $rub = $this->db->prepare('SELECT id,level_number,level_label,descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order,level_number'); $rub->execute([$sub]);
-            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,at.assessment_type_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
+            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,at.assessment_type_classification_id FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
             $days = $this->db->prepare('SELECT id,date,title FROM academic_year_calendar_days WHERE academic_year_calendar_id=? ORDER BY date'); $days->execute([(int)$scheme['calendar_week_id']]);
             $toolRows = $tools->fetchAll(PDO::FETCH_ASSOC);
             $toolIds = array_values(array_filter(array_map('intval', array_column($toolRows, 'id'))));
@@ -4907,7 +4907,7 @@ return errorResponse($e->getMessage(), 400);
                     NULL AS exam_period_status,
                     a.title AS assessment_title,
                     es.max_marks,
-                    a.assessment_type_id,
+                    a.assessment_type_classification_id,
                     a.status AS assessment_status,
                     a.assigned_by,
                     at.name AS assessment_type_name,
@@ -4925,7 +4925,7 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN {$staffDirectory} inv ON inv.staff_id = es.invigilator_id
                 LEFT JOIN {$staffDirectory} sup ON sup.staff_id = es.supervisor_id
                 LEFT JOIN {$assessments} a ON a.id = es.assessment_id
-                LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
                 WHERE {$whereClause}
                 ORDER BY es.exam_date ASC, es.start_time ASC
                 LIMIT ? OFFSET ?
@@ -7083,12 +7083,12 @@ return errorResponse($e->getMessage(), 400);
             $status = $data['status'] ?? 'pending_submission';
 
             $assessmentTypeId = null;
-            if (!empty($data['assessment_type_id'])) {
-                $assessmentTypeId = (int) $data['assessment_type_id'];
+            if (!empty($data['assessment_type_classification_id'])) {
+                $assessmentTypeId = (int) $data['assessment_type_classification_id'];
             } elseif (!empty($data['assessment_type'])) {
                 $typeStmt = $this->db->prepare("
                     SELECT id
-                    FROM assessment_types
+                    FROM assessment_type_classifications
                     WHERE LOWER(name) = LOWER(?)
                     LIMIT 1
                 ");
@@ -7096,7 +7096,7 @@ return errorResponse($e->getMessage(), 400);
                 $typeId = $typeStmt->fetchColumn();
                 $assessmentTypeId = $typeId ? (int) $typeId : null;
                 if (empty($assessmentTypeId)) {
-                    $lookupStmt = $this->db->query("SELECT id, name, is_formative, is_summative FROM assessment_types WHERE status='active'");
+                    $lookupStmt = $this->db->query("SELECT id, name, is_formative, is_summative FROM assessment_type_classifications WHERE status='active'");
                     $types = $lookupStmt->fetchAll(PDO::FETCH_ASSOC);
                     $input = strtolower((string) $data['assessment_type']);
                     foreach ($types as $type) {
@@ -7135,7 +7135,7 @@ return errorResponse($e->getMessage(), 400);
                     assessment_date,
                     assigned_by,
                     status,
-                    assessment_type_id
+                    assessment_type_classification_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
@@ -7785,9 +7785,9 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $params['status'];
             }
 
-            if (!empty($params['assessment_type_id'])) {
-                $where[] = "a.assessment_type_id = ?";
-                $bindings[] = (int) $params['assessment_type_id'];
+            if (!empty($params['assessment_type_classification_id'])) {
+                $where[] = "a.assessment_type_classification_id = ?";
+                $bindings[] = (int) $params['assessment_type_classification_id'];
             }
 
             $whereClause = implode(' AND ', $where);
@@ -7816,7 +7816,7 @@ return errorResponse($e->getMessage(), 400);
                     a.max_marks,
                     a.assessment_date,
                     a.status,
-                    a.assessment_type_id,
+                    a.assessment_type_classification_id,
                     csd.class_name,
                     csd.stream_name,
                     COALESCE(la.name, CONCAT('Subject ', a.learning_area_id)) AS subject_name,
@@ -7841,7 +7841,7 @@ return errorResponse($e->getMessage(), 400);
                 JOIN {$csd} csd ON csd.id = a.academic_year_class_stream_id
                 JOIN {$aterm} aterm ON aterm.academic_year_term_id = a.academic_year_term_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
-                LEFT JOIN assessment_types atp ON atp.id = a.assessment_type_id
+                LEFT JOIN assessment_type_classifications atp ON atp.id = a.assessment_type_classification_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("assessment_results") . " ar ON ar.assessment_id = a.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.academic_year_class_stream_id = a.academic_year_class_stream_id
@@ -9594,9 +9594,8 @@ return errorResponse($e->getMessage(), 400);
         try {
             $includeInactive = !empty($params['include_inactive']);
             $sql = "
-                SELECT la.*, laf.name AS learning_area_family, laf.code AS learning_area_family_code
+                SELECT la.*
                 FROM " . ReadReplicaService::qualifiedRef("learning_areas") . " la
-                LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                 " . ($includeInactive ? '' : "WHERE la.status = 'active'") . "
                     ORDER BY la.name
             ";

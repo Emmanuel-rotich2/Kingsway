@@ -305,6 +305,386 @@ final class AssessmentResultsService
         return $driverCode === 1213 || $driverCode === 1205 || $sqlState === '40001';
     }
 
+    /**
+     * Batched single-learner save for the pivoted results workspace: accepts
+     * ONLY the changed subject cells for one learner so one call covers the
+     * whole row. Validation runs for every cell up-front (no partial apply on
+     * a bad payload), updates carry an optimistic updated_at concurrency
+     * guard checked for the whole batch before any write, and each returned
+     * item carries the authoritative post-save values plus the new
+     * updated_at token so the client can reconcile without waiting for the
+     * read projection to refresh.
+     */
+    public function adminSaveResultBatch(array $data): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to record exam results.', 403);
+        $items = array_values((array) ($data['results'] ?? []));
+        $reason = trim((string) ($data['reason'] ?? 'Results workspace row save'));
+
+        $batch = SummativeBatchValidator::validateBatch($items);
+        if (!$batch['ok']) {
+            throw new RuntimeException('Some subject cells failed validation: ' . implode(' ', array_map('strval', array_unique($batch['errors']))), 422);
+        }
+
+        $prepared = [];
+        foreach ($items as $index => $raw) {
+            $item = (array) $raw;
+            $entry = [
+                'index' => $index,
+                'assessment_id' => (int) ($item['assessment_id'] ?? 0),
+                'enrollment_id' => (int) ($item['student_academic_enrollment_id'] ?? $item['enrollment_id'] ?? 0),
+                'result_id' => (int) ($item['result_id'] ?? 0),
+                'marks_obtained' => $item['marks_obtained'] ?? null,
+                'entry_status' => strtolower(trim((string) ($item['entry_status'] ?? 'present'))),
+                'remarks' => trim((string) ($item['remarks'] ?? '')),
+                'expected_updated_at' => trim((string) ($item['expected_updated_at'] ?? '')) ?: null,
+            ];
+            if (!$entry['assessment_id'] || !$entry['enrollment_id']) {
+                throw new RuntimeException('Each changed subject cell needs its assessment and learner enrollment.', 422);
+            }
+            $prepared[] = $entry;
+        }
+
+        // Phase 1 - read-only conflict resolution for the whole batch. No
+        // writes happen until every optimistic updated_at expectation holds,
+        // so a concurrent editor can never lose marks to a partial batch.
+        foreach ($prepared as $entry) {
+            if (!$entry['result_id']) continue;
+            $stmt = $this->db->prepare('SELECT id, updated_at FROM assessment_results WHERE id=?');
+            $stmt->execute([$entry['result_id']]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new RuntimeException('Result record not found.', 404);
+            if (!SummativeBatchValidator::updateMatches($entry['expected_updated_at'], (string) $row['updated_at'])) {
+                throw new RuntimeException('Another teacher updated one of these subject cells while you were editing. Reload the row and re-enter your change.', 409);
+            }
+        }
+
+        // Phase 2 - apply each changed cell through the same reviewed paths
+        // the single-result modal uses (grading, journaling, term recompute).
+        $outcomes = [];
+        foreach ($prepared as $entry) {
+            if ($entry['result_id']) {
+                $payload = ['marks_obtained' => $entry['entry_status'] === 'present' ? $entry['marks_obtained'] : null, 'entry_status' => $entry['entry_status'], 'reason' => $reason];
+                if ($entry['remarks'] !== '') $payload['remarks'] = $entry['remarks'];
+                $saved = $this->adminUpdateResult($entry['result_id'], $payload);
+                $resultId = $entry['result_id'];
+            } else {
+                $saved = $this->adminCreateResult([
+                    'assessment_id' => $entry['assessment_id'],
+                    'student_academic_enrollment_id' => $entry['enrollment_id'],
+                    'marks_obtained' => $entry['marks_obtained'],
+                    'entry_status' => $entry['entry_status'],
+                    'remarks' => $entry['remarks'],
+                    'reason' => $reason,
+                ]);
+                $resultId = (int) ($saved['id'] ?? 0);
+            }
+            $stamp = $this->db->prepare('SELECT updated_at FROM assessment_results WHERE id=?');
+            $stamp->execute([$resultId]);
+            $outcomes[] = [
+                'index' => $entry['index'],
+                'assessment_id' => $entry['assessment_id'],
+                'result_id' => $resultId,
+                'marks_obtained' => $saved['marks_obtained'] ?? null,
+                'entry_status' => $saved['entry_status'] ?? null,
+                'grade' => $saved['grade'] ?? null,
+                'updated_at' => (string) ($stamp->fetchColumn() ?: ''),
+                'ok' => true,
+            ];
+        }
+        return ['saved' => count($outcomes), 'results' => $outcomes];
+    }
+
+    // ==================== PAPER-BASED SUMMATIVE GRID ====================
+
+    /**
+     * Grid payload for one exam register: papers, learner roster (from the
+     * exam_context read model), existing per-paper results, and the parent
+     * total rows so the UI can show calculated state without typing it.
+     */
+    public function adminListPaperGrid(int $assessmentId): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to view this paper grid.', 403);
+        $stmt = $this->db->prepare('SELECT id, title, max_marks, status, learning_area_id, academic_year_class_stream_id, academic_year_term_id FROM assessments WHERE id=?');
+        $stmt->execute([$assessmentId]);
+        $assessment = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$assessment) throw new RuntimeException('Assessment register not found.', 404);
+
+        $papers = $this->db->prepare('SELECT id, paper_number, title, max_marks, is_active FROM assessment_papers WHERE assessment_id=? ORDER BY paper_number');
+        $papers->execute([$assessmentId]);
+        $paperRows = $papers->fetchAll(PDO::FETCH_ASSOC);
+
+        $roster = $this->db->prepare(
+            'SELECT DISTINCT ec.enrollment_id, ec.learner_name, ec.admission_no, ec.class_name, ec.stream_name
+             FROM ' . ReadReplicaService::qualifiedRef('exam_context') . ' ec WHERE ec.assessment_id=?'
+        );
+        $roster->execute([$assessmentId]);
+        $learners = $roster->fetchAll(PDO::FETCH_ASSOC);
+
+        $results = $this->db->prepare(
+            'SELECT r.id, r.assessment_paper_id, r.student_academic_enrollment_id, r.marks_obtained,
+                    r.entry_status, r.remarks, r.updated_at
+             FROM assessment_paper_results r
+             JOIN assessment_papers p ON p.id = r.assessment_paper_id
+             WHERE p.assessment_id=?'
+        );
+        $results->execute([$assessmentId]);
+        $paperResults = $results->fetchAll(PDO::FETCH_ASSOC);
+
+        $parents = $this->db->prepare(
+            'SELECT id, student_academic_enrollment_id, marks_obtained, entry_status, grade, updated_at
+             FROM assessment_results WHERE assessment_id=? AND deleted_at IS NULL'
+        );
+        $parents->execute([$assessmentId]);
+
+        return [
+            'assessment' => $assessment,
+            'papers' => $paperRows,
+            'learners' => $learners,
+            'paper_results' => $paperResults,
+            'parent_results' => $parents->fetchAll(PDO::FETCH_ASSOC),
+        ];
+    }
+
+    /**
+     * Replace a register's paper set. Papers are per-register so each class
+     * and learning area decides its own structure (1 paper, 2 papers, ...).
+     * Integrity: a paper carrying recorded results cannot be deleted or have
+     * its maximum changed; the register total resyncs to the paper sum.
+     */
+    public function adminSavePapers(int $assessmentId, array $papers): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to manage papers.', 403);
+        $check = $this->db->prepare('SELECT id FROM assessments WHERE id=?');
+        $check->execute([$assessmentId]);
+        if (!$check->fetchColumn()) throw new RuntimeException('Assessment register not found.', 404);
+
+        $current = $this->db->prepare('SELECT id, paper_number, max_marks FROM assessment_papers WHERE assessment_id=?');
+        $current->execute([$assessmentId]);
+        $currentRows = [];
+        foreach ($current->fetchAll(PDO::FETCH_ASSOC) as $row) $currentRows[(int) $row['id']] = $row;
+
+        $kept = [];
+        foreach (array_values($papers) as $paper) {
+            $paper = (array) $paper;
+            $paperId = (int) ($paper['id'] ?? $paper['paper_id'] ?? 0);
+            $maxMarks = (float) ($paper['max_marks'] ?? 0);
+            if ($maxMarks <= 0) throw new RuntimeException('Every paper needs a positive maximum mark.', 422);
+            $number = (int) ($paper['paper_number'] ?? 0);
+            if ($number <= 0) throw new RuntimeException('Every paper needs a paper number.', 422);
+            if ($paperId > 0 && isset($currentRows[$paperId])) {
+                $count = $this->db->prepare('SELECT COUNT(*) FROM assessment_paper_results WHERE assessment_paper_id=?');
+                $count->execute([$paperId]);
+                if ((int) $count->fetchColumn() > 0 && (float) $currentRows[$paperId]['max_marks'] !== $maxMarks) {
+                    throw new RuntimeException(sprintf('Paper %d already has recorded marks; its maximum cannot change.', $number), 422);
+                }
+            }
+            $kept[$paperId] = ['number' => $number, 'title' => trim((string) ($paper['title'] ?? '')), 'max' => $maxMarks];
+        }
+        // Deleting a paper that carries results would silently erase marks.
+        foreach (array_keys(array_diff_key($currentRows, $kept)) as $deadId) {
+            $count = $this->db->prepare('SELECT COUNT(*) FROM assessment_paper_results WHERE assessment_paper_id=?');
+            $count->execute([$deadId]);
+            if ((int) $count->fetchColumn() > 0) {
+                throw new RuntimeException('A paper with recorded marks cannot be deleted; remove its marks first.', 422);
+            }
+        }
+
+        $this->db->beginTransaction();
+        try {
+            if ($kept !== []) {
+                $marks = implode(',', array_fill(0, count($kept), '?'));
+                $this->db->prepare("DELETE FROM assessment_papers WHERE assessment_id=? AND id NOT IN ($marks)")
+                    ->execute(array_merge([$assessmentId], array_keys($kept)));
+            } else {
+                $this->db->prepare('DELETE FROM assessment_papers WHERE assessment_id=?')->execute([$assessmentId]);
+            }
+            $maxSum = 0.0;
+            foreach ($kept as $paperId => $spec) {
+                $this->db->prepare(
+                    'INSERT INTO assessment_papers (id, assessment_id, paper_number, title, max_marks)
+                     VALUES (?,?,?,?,?)
+                     ON DUPLICATE KEY UPDATE paper_number=VALUES(paper_number), title=VALUES(title), max_marks=VALUES(max_marks)'
+                )->execute([$paperId ?: null, $assessmentId, $spec['number'], $spec['title'], $spec['max']]);
+                $maxSum += $spec['max'];
+            }
+            // The register's out-of stays the paper sum so grading, registers,
+            // and report cards see one consistent maximum.
+            if ($kept !== []) {
+                $this->db->prepare('UPDATE assessments SET max_marks=? WHERE id=?')->execute([$maxSum, $assessmentId]);
+            }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+        return $this->adminListPaperGrid($assessmentId);
+    }
+
+    /**
+     * Batched per-learner paper-marks save: accepts only the changed paper
+     * cells for one learner, validates each against its own paper maximum,
+     * checks optimistic updated_at expectations for the whole batch before
+     * writing, and re-materializes the register total once every active
+     * paper is settled (absent anywhere withholds the total).
+     */
+    public function adminSavePaperResultBatch(array $data): array
+    {
+        if (!$this->isAcademicLeader()) throw new RuntimeException('Academic leadership access is required to record paper marks.', 403);
+        $items = array_values((array) ($data['results'] ?? []));
+        $reason = trim((string) ($data['reason'] ?? 'Paper marks entry'));
+
+        $papersById = [];
+        $assessmentId = 0;
+        foreach ($items as $raw) {
+            $item = (array) $raw;
+            $paperId = (int) ($item['paper_id'] ?? 0);
+            if (!$paperId) throw new RuntimeException('Each changed paper cell needs its paper id.', 422);
+            if (!$papersById) {
+                $find = $this->db->prepare('SELECT p.id, p.assessment_id, p.max_marks, p.paper_number FROM assessment_papers p WHERE p.id=?');
+            } else {
+                $find = $this->db->prepare('SELECT p.id, p.assessment_id, p.max_marks, p.paper_number FROM assessment_papers p WHERE p.id=? AND p.assessment_id=?');
+            }
+            $find->execute($papersById ? [$paperId, $assessmentId] : [$paperId]);
+            $paper = $find->fetch(PDO::FETCH_ASSOC);
+            if (!$paper) throw new RuntimeException('Unknown paper for this register.', 404);
+            $assessmentId = (int) $paper['assessment_id'];
+            $papersById[$paperId] = $paper;
+        }
+        if (!$items) throw new RuntimeException('At least one changed paper cell is required.', 422);
+
+        $enrollmentId = (int) (($items[0]['student_academic_enrollment_id'] ?? $items[0]['enrollment_id'] ?? 0));
+        foreach ($items as $raw) {
+            $item = (array) $raw;
+            $enrollment = (int) ($item['student_academic_enrollment_id'] ?? $item['enrollment_id'] ?? 0);
+            if ($enrollment !== $enrollmentId) throw new RuntimeException('One save covers the papers of a single learner.', 422);
+        }
+
+        // Validation up-front against each paper's own maximum.
+        $validated = [];
+        foreach (array_values($items) as $index => $raw) {
+            $item = (array) $raw;
+            $paperId = (int) $item['paper_id'];
+            $outcome = SummativeBatchValidator::validateItem([
+                'marks_obtained' => $item['marks_obtained'] ?? null,
+                'entry_status' => $item['entry_status'] ?? 'present',
+                'max_marks' => (float) $papersById[$paperId]['max_marks'],
+            ]);
+            if (!$outcome['ok']) {
+                throw new RuntimeException("Paper {$papersById[$paperId]['paper_number']}: " . implode(' ', $outcome['errors']), 422);
+            }
+            $validated[] = [
+                'paper_id' => $paperId,
+                'enrollment_id' => $enrollmentId,
+                'marks_obtained' => $outcome['value'],
+                'entry_status' => strtolower(trim((string) ($item['entry_status'] ?? 'present'))),
+                'remarks' => trim((string) ($item['remarks'] ?? '')),
+                'expected_updated_at' => trim((string) ($item['expected_updated_at'] ?? '')) ?: null,
+                'index' => $index,
+            ];
+        }
+
+        // Concurrency pre-check for existing paper rows.
+        foreach ($validated as $entry) {
+            $stmt = $this->db->prepare('SELECT id, updated_at FROM assessment_paper_results WHERE assessment_paper_id=? AND student_academic_enrollment_id=?');
+            $stmt->execute([$entry['paper_id'], $entry['enrollment_id']]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row && !SummativeBatchValidator::updateMatches($entry['expected_updated_at'], (string) $row['updated_at'])) {
+                throw new RuntimeException('Another teacher updated one of these paper marks while you were editing. Reload the row and re-enter your change.', 409);
+            }
+        }
+
+        $outcomes = [];
+        $this->db->beginTransaction();
+        try {
+            foreach ($validated as $entry) {
+                $this->db->prepare(
+                    'INSERT INTO assessment_paper_results
+                        (assessment_paper_id, student_academic_enrollment_id, marks_obtained, entry_status, remarks, entered_by)
+                     VALUES (?,?,?,?,?,?)
+                     ON DUPLICATE KEY UPDATE marks_obtained=VALUES(marks_obtained), entry_status=VALUES(entry_status),
+                        remarks=VALUES(remarks), entered_by=VALUES(entered_by), updated_at=NOW()'
+                )->execute([$entry['paper_id'], $entry['enrollment_id'], $entry['marks_obtained'], $entry['entry_status'], $entry['remarks'] ?: null, $this->userId ?: null]);
+                $stamp = $this->db->prepare('SELECT id, updated_at FROM assessment_paper_results WHERE assessment_paper_id=? AND student_academic_enrollment_id=?');
+                $stamp->execute([$entry['paper_id'], $entry['enrollment_id']]);
+                $saved = $stamp->fetch(PDO::FETCH_ASSOC);
+                $outcomes[] = [
+                    'index' => $entry['index'],
+                    'paper_id' => $entry['paper_id'],
+                    'result_id' => (int) $saved['id'],
+                    'marks_obtained' => $entry['marks_obtained'],
+                    'entry_status' => $entry['entry_status'],
+                    'updated_at' => (string) $saved['updated_at'],
+                    'ok' => true,
+                ];
+            }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        $rollup = $this->materializeParentTotal($assessmentId, $enrollmentId, $reason);
+        return ['saved' => count($outcomes), 'results' => $outcomes, 'parent' => $rollup];
+    }
+
+    /**
+     * Recompute the register total for one learner from their paper rows.
+     * The parent assessment_results row is only touched when every active
+     * paper is settled, mirroring the classroom rule that a total is
+     * calculated, never typed, and withheld when a paper is missed.
+     */
+    private function materializeParentTotal(int $assessmentId, int $enrollmentId, string $reason): ?array
+    {
+        $papersStmt = $this->db->prepare('SELECT id, max_marks, is_active, paper_number FROM assessment_papers WHERE assessment_id=?');
+        $papersStmt->execute([$assessmentId]);
+        $papers = $papersStmt->fetchAll(PDO::FETCH_ASSOC);
+        $resultsStmt = $this->db->prepare(
+            'SELECT assessment_paper_id, marks_obtained, entry_status FROM assessment_paper_results
+             WHERE student_academic_enrollment_id=? AND assessment_paper_id IN (SELECT id FROM assessment_papers WHERE assessment_id=?)'
+        );
+        $resultsStmt->execute([$enrollmentId, $assessmentId]);
+        $rollup = SummativeBatchValidator::computePaperRollup($papers, $resultsStmt->fetchAll(PDO::FETCH_ASSOC));
+        if (!$rollup['complete']) return $rollup;
+
+        $assessment = $this->db->prepare('SELECT id, max_marks, academic_year_class_stream_id, academic_year_term_id, learning_area_id FROM assessments WHERE id=?');
+        $assessment->execute([$assessmentId]);
+        $meta = $assessment->fetch(PDO::FETCH_ASSOC);
+        if (!$meta) throw new RuntimeException('Assessment register not found.', 404);
+
+        $score = $rollup['entry_status'] === 'present' ? (float) $rollup['total'] : null;
+        $grade = null;
+        $points = null;
+        if ($score !== null) {
+            $graded = $this->grading->gradeForSystem($score, (float) $meta['max_marks'], $this->gradingSystemFor($assessmentId));
+            $grade = $graded['grade_code'] ?? null;
+            $points = $graded['points'] ?? null;
+        }
+        $remarks = $rollup['absent_paper_ids'] !== [] ? 'Absent paper(s): ' . count($rollup['absent_paper_ids']) : '';
+
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare(
+                "INSERT INTO assessment_results
+                    (assessment_id, student_academic_enrollment_id, marks_obtained, entry_status, grade, points, remarks, submitted_at, is_submitted, is_approved, responder_type, responder_id)
+                 VALUES (?,?,?,?,?,?,?,NOW(),1,0,'teacher',?)
+                 ON DUPLICATE KEY UPDATE
+                    marks_obtained=VALUES(marks_obtained), entry_status=VALUES(entry_status), grade=VALUES(grade),
+                    points=VALUES(points), remarks=VALUES(remarks), deleted_at=NULL, deleted_by=NULL"
+            )->execute([$assessmentId, $enrollmentId, $score, $rollup['entry_status'], $grade, $points, $remarks, $this->userId]);
+            $idStmt = $this->db->prepare('SELECT id, updated_at FROM assessment_results WHERE assessment_id=? AND student_academic_enrollment_id=?');
+            $idStmt->execute([$assessmentId, $enrollmentId]);
+            $parent = $idStmt->fetch(PDO::FETCH_ASSOC);
+            $this->recordEvent($assessmentId, (int) $parent['id'], $enrollmentId, 'paper_rollup', null, ['marks_obtained' => $score, 'entry_status' => $rollup['entry_status'], 'grade' => $grade, 'paper_total' => $rollup['total'], 'paper_max' => $rollup['max_marks']], $reason ?: 'Paper marks rollup');
+            (new TermResultsService($this->db))->compute((int) $meta['academic_year_class_stream_id'], (int) $meta['academic_year_term_id'], (int) $meta['learning_area_id']);
+            $this->db->commit();
+            return $rollup + ['result_id' => (int) $parent['id'], 'updated_at' => (string) $parent['updated_at'], 'grade' => $grade];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
     private function recordResultRow(array $data, int $assessmentId, int $enrollmentId, string $status): array
     {
         $this->db->beginTransaction();

@@ -199,6 +199,12 @@ if (!headers_sent()) {
 
 <?php
 echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
+// Cache-bust the service worker registration URL: static proxy caches (nginx
+// proxy_cache in dev and production CDNs) can otherwise serve a stale SW
+// script at an unversioned URL for weeks, freezing every browser on an old
+// CACHE_VERSION. filemtime changes whenever service-worker.js is edited.
+$__swMtime = @filemtime(__DIR__ . '/service-worker.js');
+echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
 $files = [
     'js/api.js',
     'js/core/frontend_logger.js',

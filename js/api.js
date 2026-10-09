@@ -1734,6 +1734,43 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/results-management-formative": { GET: "academic_view" },
   "/academic/results-management-summative": { GET: "academic_view" },
   "/academic/results-management-average": { GET: "academic_view" },
+  "/academic/results-management-formative-matrix": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-substrand-matrix": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-area-detail": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-class-areas": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-analytics": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/assessment-classifications": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/grading-systems": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/streams-list": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/exam-series-list": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/results-management-summative-batch": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/assessment-papers": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/assessment-paper-results-batch": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
   "/academic/exam-periods": {
     GET: "academic_view",
     POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
@@ -1741,6 +1778,20 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/exam-periods-options": { GET: "academic_view" },
   "/academic/sba-policy": { GET: ["academic_view", "assessments_view"] },
   "/academic/grading-systems": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-overview": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-profile-resolve": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-profile": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    DELETE: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/grading-band": {
+    POST: ["academic_manage", "academics_manage", "assessments_rubric_manage"],
+    DELETE: ["academic_manage", "academics_manage", "assessments_rubric_manage"],
+  },
+  "/academic/sba-cba-export": { GET: ["academic_view", "assessments_view", "academic_manage"] },
+  "/academic/national-results-import": { POST: ["academic_manage", "academics_manage"] },
+  "/academic/national-results": { GET: ["academic_view", "assessments_view", "academic_manage"] },
+  "/academic/national-results-review": { POST: ["academic_manage", "academics_manage"] },
   "/academic/grading-systems-binding": {
     POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
   },
@@ -4485,6 +4536,35 @@ window.API = {
       apiCall("/academic/assessments-analyze-results", "POST", data),
     getAssessmentTypes: async (params) =>
       apiCall("/academic/assessment-types", "GET", null, params),
+
+    getExamPeriodsOptions: async (params) =>
+      apiCall("/academic/exam-periods-options", "GET", null, params),
+    getExamPeriods: async (params) =>
+      apiCall("/academic/exam-periods", "GET", null, params),
+
+    // Grading & aggregation management
+    getGradingScale: async (params) =>
+      apiCall("/academic/grading-scale", "GET", null, params),
+    getAggregationOverview: async () =>
+      apiCall("/academic/aggregation-overview", "GET"),
+    resolveAggregationProfile: async (params) =>
+      apiCall("/academic/aggregation-profile-resolve", "GET", null, params),
+    saveAggregationProfile: async (data) =>
+      apiCall("/academic/aggregation-profile", "POST", data),
+    deleteAggregationProfile: async (id) =>
+      apiCall(`/academic/aggregation-profile/${id}`, "DELETE"),
+    saveGradingBand: async (data) =>
+      apiCall("/academic/grading-band", "POST", data),
+    deleteGradingBand: async (id) =>
+      apiCall(`/academic/grading-band/${id}`, "DELETE"),
+    exportSbaCba: async (params) =>
+      apiCall("/academic/sba-cba-export", "GET", null, params),
+    importNationalResults: async (data) =>
+      apiCall("/academic/national-results-import", "POST", data),
+    getNationalResults: async (params) =>
+      apiCall("/academic/national-results", "GET", null, params),
+    reviewNationalResult: async (id, decision) =>
+      apiCall(`/academic/national-results-review/${id}`, "POST", { decision }),
 
     // Reports workflow
     startReportsWorkflow: async (data) =>
