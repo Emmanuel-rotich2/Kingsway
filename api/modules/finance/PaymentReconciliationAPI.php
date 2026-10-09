@@ -4,6 +4,7 @@ namespace App\API\Modules\finance;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 class PaymentReconciliationAPI extends BaseAPI {
     public function __construct() {
@@ -22,12 +23,12 @@ class PaymentReconciliationAPI extends BaseAPI {
                     s.admission_no AS admission_number,
                     CONCAT(pers.first_name, ' ', pers.last_name) AS student_name,
                     u.username as received_by_name
-                FROM payments p
-                LEFT JOIN students s ON p.student_id = s.id
-                LEFT JOIN persons pers ON pers.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON p.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pers ON pers.id = s.person_id
                 LEFT JOIN users u ON p.received_by = u.id
                 WHERE p.status = 'confirmed'
-                AND p.id NOT IN (SELECT transaction_id FROM payment_reconciliations)
+                AND p.id NOT IN (SELECT transaction_id FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . ")
                 ORDER BY p.payment_date DESC
             ";
 
@@ -96,7 +97,7 @@ class PaymentReconciliationAPI extends BaseAPI {
             $reconciliationId = $this->db->lastInsertId();
 
             // Fetch inserted reconciliation record
-            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM payment_reconciliations pr LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
             $stmt->execute([$reconciliationId]);
             $reconRecord = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -134,8 +135,8 @@ class PaymentReconciliationAPI extends BaseAPI {
                     COUNT(pr.id) as reconciled_count,
                     SUM(p.amount) as total_amount,
                     SUM(CASE WHEN pr.id IS NOT NULL THEN p.amount ELSE 0 END) as reconciled_amount
-                FROM payments p
-                LEFT JOIN payment_reconciliations pr ON p.id = pr.transaction_id
+                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr ON p.id = pr.transaction_id
                 WHERE p.payment_date BETWEEN ? AND ?
                 GROUP BY p.method
             ";

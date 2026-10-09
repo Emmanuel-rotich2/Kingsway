@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\academic;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 
 /**
@@ -42,11 +43,11 @@ class LearningAreaSetupService
     public function seedForYear(int $academicYearId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT ayc.id AS ayc_id, c.name AS class_name
-             FROM academic_year_classes ayc
-             JOIN classes c ON c.id = ayc.class_id
-             WHERE ayc.academic_year_id = ?
-             ORDER BY c.id"
+            "SELECT academic_year_class_id AS ayc_id, class_name
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?
+             GROUP BY academic_year_class_id, class_name
+             ORDER BY class_id"
         );
         $stmt->execute([$academicYearId]);
 
@@ -132,6 +133,85 @@ class LearningAreaSetupService
     }
 
     /**
+     * Assign one curriculum learning area to selected classes in one year.
+     * Existing skipped links are reactivated, and stream links are kept in sync.
+     */
+    public function assignToClasses(int $learningAreaId, int $academicYearId, array $classIds): array
+    {
+        $classIds = array_values(array_unique(array_filter(array_map('intval', $classIds))));
+        if ($learningAreaId < 1 || $academicYearId < 1 || !$classIds) {
+            throw new \InvalidArgumentException('Select a learning area, academic year, and at least one class.');
+        }
+
+        $area = $this->db->prepare("SELECT id FROM learning_areas WHERE id = ? AND status = 'active'");
+        $area->execute([$learningAreaId]);
+        if (!$area->fetchColumn()) throw new \InvalidArgumentException('The learning area is missing or inactive.');
+
+        $this->db->beginTransaction();
+        try {
+            $classQuery = $this->db->prepare(
+                "SELECT ayc.id, c.name
+                   FROM academic_year_classes ayc
+                   JOIN classes c ON c.id = ayc.class_id
+                  WHERE ayc.id = ? AND ayc.academic_year_id = ? AND ayc.status = 'active'
+                  LIMIT 1"
+            );
+            $findLink = $this->db->prepare(
+                'SELECT id, status FROM academic_year_class_learning_areas WHERE academic_year_class_id = ? AND learning_area_id = ? LIMIT 1'
+            );
+            $insertLink = $this->db->prepare(
+                "INSERT INTO academic_year_class_learning_areas (academic_year_class_id, learning_area_id, status) VALUES (?, ?, 'planned')"
+            );
+            $restoreLink = $this->db->prepare(
+                "UPDATE academic_year_class_learning_areas SET status='planned' WHERE id=? AND status='skipped'"
+            );
+            $streams = $this->db->prepare(
+                "SELECT id FROM academic_year_class_streams WHERE academic_year_class_id = ? AND status = 'active'"
+            );
+            $findStreamLink = $this->db->prepare(
+                'SELECT id, status FROM academic_year_class_stream_learning_areas WHERE academic_year_class_stream_id = ? AND academic_year_class_learning_area_id = ? LIMIT 1'
+            );
+            $insertStreamLink = $this->db->prepare(
+                "INSERT INTO academic_year_class_stream_learning_areas (academic_year_class_stream_id, academic_year_class_learning_area_id, status) VALUES (?, ?, 'active')"
+            );
+            $restoreStreamLink = $this->db->prepare(
+                "UPDATE academic_year_class_stream_learning_areas SET status='active' WHERE id=? AND status='skipped'"
+            );
+
+            $assigned = [];
+            foreach ($classIds as $classId) {
+                $classQuery->execute([$classId, $academicYearId]);
+                $class = $classQuery->fetch(PDO::FETCH_ASSOC);
+                if (!$class) throw new \InvalidArgumentException('One or more selected classes are not active in the chosen academic year.');
+
+                $findLink->execute([$classId, $learningAreaId]);
+                $link = $findLink->fetch(PDO::FETCH_ASSOC);
+                if (!$link) {
+                    $insertLink->execute([$classId, $learningAreaId]);
+                    $linkId = (int) $this->db->lastInsertId();
+                } else {
+                    $linkId = (int) $link['id'];
+                    $restoreLink->execute([$linkId]);
+                }
+
+                $streams->execute([$classId]);
+                foreach ($streams->fetchAll(PDO::FETCH_COLUMN) as $streamId) {
+                    $findStreamLink->execute([(int) $streamId, $linkId]);
+                    $streamLink = $findStreamLink->fetch(PDO::FETCH_ASSOC);
+                    if (!$streamLink) $insertStreamLink->execute([(int) $streamId, $linkId]);
+                    elseif ($streamLink['status'] === 'skipped') $restoreStreamLink->execute([(int) $streamLink['id']]);
+                }
+                $assigned[] = ['academic_year_class_id' => $classId, 'class_name' => $class['name']];
+            }
+            $this->db->commit();
+            return ['learning_area_id' => $learningAreaId, 'academic_year_id' => $academicYearId, 'classes' => $assigned];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Return the curriculum coverage for one class: each learning area with its
      * strand and sub-strand counts for that grade (for display/planning).
      */
@@ -140,17 +220,17 @@ class LearningAreaSetupService
         $sql = "
             SELECT la.id AS learning_area_id, la.name AS learning_area_name, la.code,
                    la.is_optional,
-                   (SELECT COUNT(*) FROM strands st
+                   (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("strands") . " st
                      WHERE st.learning_area_id = la.id
                        AND st.grade_level = c.name AND st.status = 'active') AS strand_count,
-                   (SELECT COUNT(*) FROM sub_strands ss
-                     JOIN strands st2 ON st2.id = ss.strand_id
+                   (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ss
+                     JOIN " . ReadReplicaService::qualifiedRef("strands") . " st2 ON st2.id = ss.strand_id
                      WHERE st2.learning_area_id = la.id
                        AND ss.grade_level = c.name AND ss.status = 'active') AS sub_strand_count
-            FROM academic_year_class_learning_areas acla
-            JOIN learning_areas la ON la.id = acla.learning_area_id
-            JOIN academic_year_classes ayc ON ayc.id = acla.academic_year_class_id
-            JOIN classes c ON c.id = ayc.class_id
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " acla
+            JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = acla.learning_area_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = acla.academic_year_class_id
+            JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
             WHERE acla.academic_year_class_id = ?
             ORDER BY la.id
         ";

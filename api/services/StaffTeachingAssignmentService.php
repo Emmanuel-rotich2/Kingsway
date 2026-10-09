@@ -43,9 +43,7 @@ final class StaffTeachingAssignmentService
     {
         $row = $this->db->query(
             "SELECT s.id, p.first_name, p.last_name, s.status, st.name staff_type
-               FROM staff s
-               JOIN persons p ON p.id = s.person_id
-               LEFT JOIN staff_types st ON st.id = s.staff_type_id
+               FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
               WHERE s.id = ? LIMIT 1",
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
@@ -55,7 +53,7 @@ final class StaffTeachingAssignmentService
             "SELECT r.name
                FROM user_roles ur
                JOIN users u ON u.id = ur.user_id
-               JOIN staff s ON s.person_id = u.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.person_id = u.person_id
                JOIN roles r ON r.id = ur.role_id
               WHERE s.id = ?
                 AND (LOWER(r.name) LIKE '%teacher%'
@@ -115,22 +113,18 @@ final class StaffTeachingAssignmentService
 
     public function listClassTeachers(array $filters = []): array
     {
-        $where = ['aycs.class_teacher_id IS NOT NULL']; $params = [];
-        if (!empty($filters['academic_year_id'])) { $where[] = 'ayc.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
-        if (!empty($filters['teacher_id']))       { $where[] = 'aycs.class_teacher_id = ?'; $params[] = (int)$filters['teacher_id']; }
+        $where = ['csd.class_teacher_id IS NOT NULL']; $params = [];
+        if (!empty($filters['academic_year_id'])) { $where[] = 'csd.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
+        if (!empty($filters['teacher_id']))       { $where[] = 'csd.class_teacher_id = ?'; $params[] = (int)$filters['teacher_id']; }
         return $this->db->query(
-            "SELECT aycs.id, aycs.class_teacher_id teacher_id, ayc.class_id, aycs.stream_id,
-                    aycs.id class_stream_id, ayc.academic_year_id, aycs.status,
-                    c.name class_name, st.name stream_name,
-                    CONCAT(p.first_name,' ',p.last_name) teacher_name, p.email teacher_email
-               FROM academic_year_class_streams aycs
-               JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-               JOIN classes c ON c.id = ayc.class_id
-               LEFT JOIN streams st ON st.id = aycs.stream_id
-               JOIN staff s ON s.id = aycs.class_teacher_id
-               JOIN persons p ON p.id = s.person_id
+            "SELECT csd.id, csd.class_teacher_id teacher_id, csd.class_id, csd.stream_id,
+                    csd.id class_stream_id, csd.academic_year_id, csd.class_stream_status status,
+                    csd.class_name class_name, csd.stream_name stream_name,
+                    CONCAT(sctx.first_name,' ',sctx.last_name) teacher_name, sctx.email teacher_email
+               FROM " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = csd.class_teacher_id
               WHERE " . implode(' AND ', $where) . "
-              ORDER BY c.name, st.name",
+              ORDER BY csd.class_name, csd.stream_name",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -257,8 +251,8 @@ final class StaffTeachingAssignmentService
             )->fetchColumn();
             if (!$streamValid) throw new RuntimeException('This stream is not part of the selected class and academic year', 422);
             $contextId = (int)$this->db->query(
-                "SELECT sla.id FROM academic_year_class_stream_learning_areas sla
-                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                "SELECT sla.id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                  WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
                 [$streamId, $subjectId]
             )->fetchColumn();

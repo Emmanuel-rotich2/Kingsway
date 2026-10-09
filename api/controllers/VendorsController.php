@@ -170,11 +170,11 @@ class VendorsController extends BaseController
         $supplierId = (int) $id;
         if (!$supplierId) return $this->badRequest('Vendor ID required');
         try {
-            $bank = $this->db->getConnection()->prepare("SELECT id, bank_name, bank_code, account_name, account_number, currency, is_primary, verification_status, active FROM supplier_bank_accounts WHERE supplier_id = ? ORDER BY is_primary DESC, id DESC");
-            $bank->execute([$supplierId]);
-            $mobile = $this->db->getConnection()->prepare("SELECT id, provider, phone_number, account_name, is_primary, verification_status, active FROM supplier_mobile_accounts WHERE supplier_id = ? ORDER BY is_primary DESC, id DESC");
-            $mobile->execute([$supplierId]);
-            return $this->success(['bank_accounts' => $bank->fetchAll(\PDO::FETCH_ASSOC), 'mobile_accounts' => $mobile->fetchAll(\PDO::FETCH_ASSOC)]);
+            $suppliers = $this->contract('App\API\Modules\inventory\SuppliersManager');
+            return $this->success([
+                'bank_accounts' => $suppliers->bankAccountsFor($supplierId),
+                'mobile_accounts' => $suppliers->mobileAccountsFor($supplierId),
+            ]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[VendorsController] payment accounts: ' . $e->getMessage());
             return $this->badRequest('Failed to load vendor payment accounts.');
@@ -189,10 +189,8 @@ class VendorsController extends BaseController
         $supplierId = (int) $id;
         if (!$supplierId || empty($data['bank_name']) || empty($data['account_name']) || empty($data['account_number'])) return $this->badRequest('Vendor, bank name, account name and account number are required.');
         try {
-            $pdo = $this->db->getConnection();
-            $stmt = $pdo->prepare("INSERT INTO supplier_bank_accounts (supplier_id, bank_name, bank_code, account_name, account_number, currency, is_primary, verification_status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
-            $stmt->execute([$supplierId, $data['bank_name'], $data['bank_code'] ?? null, $data['account_name'], $data['account_number'], $data['currency'] ?? 'KES', !empty($data['is_primary']) ? 1 : 0]);
-            return $this->created(['id' => (int) $pdo->lastInsertId()], 'Bank account saved for verification.');
+            $newId = $this->contract('App\API\Modules\inventory\SuppliersManager')->createBankAccount($supplierId, $data);
+            return $this->created(['id' => $newId], 'Bank account saved for verification.');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[VendorsController] bank account: ' . $e->getMessage());
             return $this->badRequest('Unable to save bank account.');
@@ -207,10 +205,8 @@ class VendorsController extends BaseController
         $supplierId = (int) $id;
         if (!$supplierId || empty($data['phone_number']) || empty($data['account_name'])) return $this->badRequest('Vendor, phone number and account name are required.');
         try {
-            $pdo = $this->db->getConnection();
-            $stmt = $pdo->prepare("INSERT INTO supplier_mobile_accounts (supplier_id, provider, phone_number, account_name, is_primary, verification_status) VALUES (?, 'mpesa', ?, ?, ?, 'pending')");
-            $stmt->execute([$supplierId, $data['phone_number'], $data['account_name'], !empty($data['is_primary']) ? 1 : 0]);
-            return $this->created(['id' => (int) $pdo->lastInsertId()], 'M-Pesa account saved for verification.');
+            $newId = $this->contract('App\API\Modules\inventory\SuppliersManager')->createMobileAccount($supplierId, $data);
+            return $this->created(['id' => $newId], 'M-Pesa account saved for verification.');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[VendorsController] mobile account: ' . $e->getMessage());
             return $this->badRequest('Unable to save mobile account.');
@@ -234,18 +230,8 @@ class VendorsController extends BaseController
         if (!$this->user) return $this->unauthorized('Authentication required');
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         if (!$id || !in_array($table, ['supplier_bank_accounts', 'supplier_mobile_accounts'], true)) return $this->badRequest('Payment account ID required');
-        $allowedStatus = ['unverified', 'pending', 'verified', 'rejected'];
-        $updates = [];
-        $params = [];
-        if (isset($data['verification_status']) && in_array($data['verification_status'], $allowedStatus, true)) { $updates[] = 'verification_status = ?'; $params[] = $data['verification_status']; }
-        if (array_key_exists('active', $data)) { $updates[] = 'active = ?'; $params[] = !empty($data['active']) ? 1 : 0; }
-        if (array_key_exists('is_primary', $data)) { $updates[] = 'is_primary = ?'; $params[] = !empty($data['is_primary']) ? 1 : 0; }
-        if (!$updates) return $this->badRequest('No supported account fields supplied.');
         try {
-            $pdo = $this->db->getConnection();
-            $params[] = $id;
-            $stmt = $pdo->prepare("UPDATE {$table} SET " . implode(', ', $updates) . ", updated_at = NOW() WHERE id = ?");
-            $stmt->execute($params);
+            $this->contract('App\API\Modules\inventory\SuppliersManager')->updatePaymentAccount($table, $id, $data);
             return $this->success(['id' => $id], 'Payment account updated.');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[VendorsController] update payment account: ' . $e->getMessage());

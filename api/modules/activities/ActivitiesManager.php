@@ -4,6 +4,7 @@ namespace App\API\Modules\activities;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * ActivitiesManager - Core CRUD operations for activities
@@ -84,10 +85,10 @@ class ActivitiesManager extends BaseAPI
                     COUNT(DISTINCT ap.id) as participant_count,
                     COUNT(DISTINCT ar.id) as resource_count,
                     SUM(CASE WHEN ap.status = 'active' THEN 1 ELSE 0 END) as active_participants
-                FROM activities a
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
-                LEFT JOIN activity_participants ap ON a.id = ap.activity_id
-                LEFT JOIN activity_resources ar ON a.id = ar.activity_id
+                FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_participants") . " ap ON a.id = ap.activity_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_resources") . " ar ON a.id = ar.activity_id
                 WHERE $whereClause
                 GROUP BY a.id
                 ORDER BY a.start_date DESC, a.created_at DESC
@@ -129,8 +130,8 @@ class ActivitiesManager extends BaseAPI
                     a.*,
                     ac.name as category_name,
                     ac.description as category_description
-                FROM activities a
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 WHERE a.id = ?
             ";
 
@@ -293,7 +294,7 @@ class ActivitiesManager extends BaseAPI
         $transactionStarted = false;
         try {
             // Check if activity exists
-            $stmt = $this->db->prepare("SELECT id, title, status FROM activities WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT id, title, status FROM " . ReadReplicaService::qualifiedRef("activities") . " id = ?");
             $stmt->execute([$id]);
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -403,7 +404,7 @@ class ActivitiesManager extends BaseAPI
                     a.title, 
                     a.status,
                     COUNT(ap.id) as participant_count
-                FROM activities a
+                FROM " . ReadReplicaService::qualifiedRef("activities") . "
                 LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
                 WHERE a.id = ?
                 GROUP BY a.id
@@ -479,8 +480,8 @@ class ActivitiesManager extends BaseAPI
                     COUNT(DISTINCT ap.id) as participant_count,
                     DATEDIFF(a.start_date, CURDATE()) as days_until_start
                 FROM activities a
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
-                LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_participants") . " ap ON a.id = ap.activity_id AND ap.status = 'active'
                 WHERE a.start_date >= CURDATE()
                 AND a.status IN ('planned', 'ongoing')
                 GROUP BY a.id

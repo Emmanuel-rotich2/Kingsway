@@ -232,6 +232,7 @@ const gradeEntryCtrl = (() => {
             });
 
             state.grades = response.data?.items || [];
+            window.AssessmentMarks?.remember?.(state.currentAssessmentId, state.grades);
         } catch (error) {
             console.error('Failed to load existing grades:', error);
             state.grades = [];
@@ -376,7 +377,11 @@ const gradeEntryCtrl = (() => {
 
             await apiCall('academic/assessments-mark-and-grade', 'POST', {
                 assessment_id: state.currentAssessmentId,
-                grading_data: gradingData
+                // Tokens let the server refuse a stale save instead of silently
+                // overwriting a colleague's marks.
+                grading_data: window.AssessmentMarks?.withTokens
+                    ? window.AssessmentMarks.withTokens(state.currentAssessmentId, gradingData)
+                    : gradingData
             });
 
             toast('Grades saved successfully', 'success');
@@ -384,6 +389,17 @@ const gradeEntryCtrl = (() => {
             renderGradesTable();
         } catch (error) {
             console.error('Failed to save grades:', error);
+            const conflicts = error?.data?.conflicts || error?.payload?.conflicts || [];
+            if (conflicts.length || error?.status === 409 || error?.code === 409) {
+                toast(
+                    `Someone else changed ${conflicts.length || 'some'} of these marks. `
+                    + 'The sheet has been reloaded - re-enter your marks.',
+                    'warning',
+                );
+                await loadExistingGrades(examId);
+                renderGradesTable();
+                return;
+            }
             toast('Failed to save grades', 'error');
         } finally {
             const saveBtn = document.getElementById('saveAllBtn');

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:8000';
+const baseUrl = process.env.BASE_URL || 'https://localhost/Kingsway';
 
 function assert(condition, message) {
     if (!condition) throw new Error(message);

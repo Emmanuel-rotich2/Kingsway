@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Services\DashboardPeriodService;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * CounselingAPI
@@ -83,10 +84,10 @@ class CounselingAPI extends BaseAPI
                         ) AS counselee_name,
                         s.admission_no, st.staff_no
                  FROM counseling_cases c
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = c.staff_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                  WHERE c.status IN ('open', 'in_progress') AND DATE(c.opened_at) BETWEEN ? AND ?
                  ORDER BY FIELD(c.priority, 'urgent', 'high', 'medium', 'low'),
                           COALESCE(c.next_follow_up_at, c.created_at), c.id DESC
@@ -103,10 +104,10 @@ class CounselingAPI extends BaseAPI
                         ) AS counselee_name,
                         s.admission_no, st.staff_no
                  FROM counseling_cases c
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = c.staff_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                  WHERE c.next_follow_up_at IS NOT NULL
                    AND c.next_follow_up_at <= DATE_ADD(NOW(), INTERVAL 14 DAY)
                    AND c.status IN ('open', 'in_progress')
@@ -155,12 +156,12 @@ class CounselingAPI extends BaseAPI
                 "SELECT COALESCE(cls.name, IF(c.counselee_type = 'staff', 'Staff', 'Unassigned')) AS grade,
                         COUNT(*) AS case_count
                  FROM counseling_cases c
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN student_academic_enrollments sae
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                      ON sae.student_id = c.student_id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cls ON cls.id = ayc.class_id
                  WHERE DATE(c.opened_at) BETWEEN ? AND ?
                  GROUP BY grade
                  ORDER BY case_count DESC, grade
@@ -185,14 +186,14 @@ class CounselingAPI extends BaseAPI
                             CONCAT_WS(' ', sp.first_name, sp.last_name)
                         ) AS counselee_name,
                         CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
-                 FROM counseling_sessions cs
+                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . " cs
                  JOIN counseling_cases c ON c.id = cs.case_id
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = c.staff_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                  LEFT JOIN users u ON u.id = c.assigned_to
-                 LEFT JOIN persons up ON up.id = u.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                  WHERE cs.session_date BETWEEN ? AND ?
                  ORDER BY cs.session_date DESC, cs.id DESC
                  LIMIT 8"
@@ -209,12 +210,12 @@ class CounselingAPI extends BaseAPI
                         s.admission_no,
                         CONCAT_WS(' ', op.first_name, op.last_name) AS referred_by
                  FROM counseling_cases c
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = c.staff_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                  LEFT JOIN users uo ON uo.id = c.opened_by
-                 LEFT JOIN persons op ON op.id = uo.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " op ON op.id = uo.person_id
                  WHERE c.referral_source IS NOT NULL AND c.referral_source <> ''
                    AND DATE(c.opened_at) BETWEEN ? AND ?
                  ORDER BY c.opened_at DESC
@@ -277,7 +278,7 @@ class CounselingAPI extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(DISTINCT IF(c.counselee_type = 'staff', c.staff_id, c.student_id))
-                 FROM counseling_sessions cs
+                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . "
                  JOIN counseling_cases c ON c.id = cs.case_id
                  WHERE cs.session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
             );
@@ -313,12 +314,12 @@ class CounselingAPI extends BaseAPI
                         CONCAT_WS(' ', stp.first_name, stp.last_name) AS staff_name,
                         st.staff_no,
                         c.case_type, c.status AS case_status
-                 FROM counseling_sessions cs
+                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . " cs
                  JOIN counseling_cases c ON c.id = cs.case_id
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons p ON p.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = c.staff_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " stp ON stp.id = st.person_id
                  ORDER BY cs.session_date {$sort} LIMIT :lim"
             );
             $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
@@ -449,35 +450,30 @@ class CounselingAPI extends BaseAPI
     public function get($id)
     {
         try {
+            $sd = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
+            $sctx = \App\API\Services\ReadReplicaService::qualifiedRef('staff_context');
             $stmt = $this->db->prepare(
                 "SELECT
                     cs.*,
                     c.case_code, c.counselee_type, c.case_type, c.priority,
                     c.status AS case_status, c.referral_source, c.title,
                     c.student_id, c.staff_id, c.next_follow_up_at,
-                    s.admission_no,
-                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS student_name,
-                    st.staff_no,
-                    CONCAT_WS(' ', stp.first_name, stp.last_name) AS staff_name,
+                    sd.admission_no,
+                    CONCAT_WS(' ', sd.first_name, sd.last_name) AS student_name,
+                    sctx.staff_no,
+                    CONCAT_WS(' ', sctx.first_name, sctx.last_name) AS staff_name,
                     COALESCE(
-                        CONCAT_WS(' ', stp.first_name, stp.last_name),
-                        CONCAT_WS(' ', sp.first_name, sp.last_name)
+                        CONCAT_WS(' ', sctx.first_name, sctx.last_name),
+                        CONCAT_WS(' ', sd.first_name, sd.last_name)
                     ) AS counselee_name,
-                    cls.name AS class_name,
+                    sd.class_name,
                     CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
-                 FROM counseling_sessions cs
+                 FROM " . ReadReplicaService::qualifiedRef("counseling_sessions") . " cs
                  INNER JOIN counseling_cases c ON c.id = cs.case_id
-                 LEFT JOIN students s ON s.id = c.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
-                 LEFT JOIN staff st ON st.id = c.staff_id
-                 LEFT JOIN persons stp ON stp.id = st.person_id
-                 LEFT JOIN student_academic_enrollments sae
-                     ON sae.student_id = c.student_id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
+                 LEFT JOIN {$sd} sd ON sd.student_id = c.student_id
+                 LEFT JOIN {$sctx} sctx ON sctx.staff_id = c.staff_id
                  LEFT JOIN users u ON u.id = c.assigned_to
-                 LEFT JOIN persons up ON up.id = u.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                  WHERE cs.id = ?"
             );
             $stmt->execute([$id]);

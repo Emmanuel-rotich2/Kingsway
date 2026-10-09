@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Modules\students;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 use RuntimeException;
 
@@ -43,12 +44,7 @@ class StudentInsightsService
                     st2.name AS stream_name,
                     hr.disability_notes, hr.chronic_conditions, hr.allergies,
                     hr.special_diet, hr.blood_group, hr.notes AS health_notes
-                FROM students s
-                JOIN persons per ON per.id = s.person_id
-                LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
-                LEFT JOIN student_health_records hr ON hr.student_id = s.id
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                 WHERE s.status = 'active' AND {$whereClause}
                 ORDER BY per.first_name, per.last_name
                 LIMIT ? OFFSET ?";
@@ -57,9 +53,7 @@ class StudentInsightsService
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $countSql = "SELECT COUNT(*)
-                     FROM students s
-                     JOIN persons per ON per.id = s.person_id
-                     LEFT JOIN student_health_records hr ON hr.student_id = s.id
+                     FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                      WHERE s.status = 'active' AND {$whereClause}";
         $stmt = $this->db->prepare($countSql);
         $stmt->execute($params);
@@ -76,19 +70,20 @@ class StudentInsightsService
 
     public function getPerformanceMeta(): array
     {
+        $academicCalendar = \App\API\Services\ReadReplicaService::qualifiedRef('academic_calendar');
+        $academicTerm = \App\API\Services\ReadReplicaService::qualifiedRef('academic_term');
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
-                                          FROM academic_year_class_streams aycs
-                                          JOIN streams sm ON sm.id = aycs.stream_id
-                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                          WHERE aycs.status = 'active'
-                                          ORDER BY sm.name ASC"),
+            'streams' => $this->fetchAll("SELECT DISTINCT class_stream_id AS id, class_id, stream_name
+                                          FROM {$academicCalendar}
+                                          WHERE class_stream_status = 'active'
+                                          ORDER BY stream_name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
-            'terms' => $this->fetchAll("SELECT ayt.id, ayt.academic_year_id, t.name, t.code AS term_number, ayt.status
-                                        FROM academic_year_terms ayt
-                                        JOIN terms t ON t.id = ayt.term_id
-                                        ORDER BY t.code ASC"),
+            'terms' => $this->fetchAll("SELECT academic_year_term_id AS id, academic_year_id,
+                                               term_name AS name, term_code AS term_number,
+                                               term_period_status AS status
+                                        FROM {$academicTerm}
+                                        ORDER BY term_code ASC"),
             'assessments' => $this->fetchAll("SELECT DISTINCT title AS name, id FROM assessments ORDER BY title ASC"),
         ];
     }
@@ -137,43 +132,38 @@ class StudentInsightsService
                 s.id AS student_id,
                 s.admission_no,
                 CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
-                c.name AS class_name,
-                sm.name AS stream_name,
+                lp.class_name,
+                lp.stream_name,
                 per.gender,
                 COALESCE((
                     SELECT ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2)
-                    FROM assessment_results ar
-                    JOIN assessments a ON a.id = ar.assessment_id
-                    JOIN student_academic_enrollments ae ON ae.id = ar.student_academic_enrollment_id
+                    FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                    JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+                    JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = ar.student_academic_enrollment_id
                     WHERE ae.student_id = s.id AND (? IS NULL OR a.academic_year_term_id = ?)
                 ), 0.00) AS average_score,
                 COALESCE((
                     SELECT ROUND(COUNT(CASE WHEN sa.status IN ('present', 'late') THEN 1 END) / COUNT(*) * 100, 2)
-                    FROM student_attendance sa
+                    FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
                     JOIN student_academic_enrollments ae ON ae.id = sa.student_academic_enrollment_id
                     WHERE ae.student_id = s.id AND (? IS NULL OR ae.academic_year_id = ?)
                 ), 100.00) AS attendance_rate,
                 COALESCE((
                     SELECT SUM(sfo.amount_due)
-                    FROM student_fee_obligations sfo
+                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                     JOIN student_academic_enrollments ae ON ae.id = sfo.student_academic_enrollment_id
                     WHERE ae.student_id = s.id AND (? IS NULL OR sfo.academic_year_id = ?)
                 ), 0.00) AS fee_balance,
                 (SELECT COUNT(*) FROM discipline_incidents di
-                 JOIN student_academic_enrollments ae ON ae.id = di.student_academic_enrollment_id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = di.student_academic_enrollment_id
                  WHERE ae.student_id = s.id) AS discipline_cases,
-                (SELECT COUNT(*) FROM activity_participants ap
-                 JOIN student_academic_enrollments ae ON ae.id = ap.student_academic_enrollment_id
+                (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = ap.student_academic_enrollment_id
                  WHERE ae.student_id = s.id) AS activities_count,
                 '-' AS position
-            FROM students s
-            JOIN persons per ON per.id = s.person_id
-            LEFT JOIN student_academic_enrollments sae 
-                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN streams sm ON sm.id = aycs.stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN classes c ON c.id = ayc.class_id
+            FROM " . ReadReplicaService::qualifiedRef("students") . " s
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
             WHERE " . implode(' AND ', $conditions);
 
         $stmt = $this->db->prepare($sql);
@@ -199,13 +189,7 @@ class StudentInsightsService
             SELECT s.id, s.admission_no, per.first_name, per.middle_name, per.last_name,
                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                    per.gender, per.photo_url, c.name AS class_name, st2.name AS stream_name
-            FROM students s
-            JOIN persons per ON per.id = s.person_id
-            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN classes c ON c.id = ayc.class_id
-            LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+            FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
             WHERE s.id = ?
             LIMIT 1
         ", [$studentId]);
@@ -221,16 +205,16 @@ class StudentInsightsService
         $attendance = $this->fetchAttendanceSummary($studentId, $termId, $yearId);
         $disciplineRecords = $this->fetchAll(
             "SELECT di.id, di.incident_date AS date, di.description AS case_title, di.severity, di.status, di.action_taken
-             FROM discipline_incidents di
-             JOIN student_academic_enrollments ae ON ae.id = di.student_academic_enrollment_id
+             FROM " . ReadReplicaService::qualifiedRef("discipline_incidents") . "
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = di.student_academic_enrollment_id
              WHERE ae.student_id = ? ORDER BY di.incident_date DESC",
             [$studentId]
         );
         $activities = $this->fetchAll(
             "SELECT ap.activity_id as id, ac.name as title, ap.joined_at
-             FROM activity_participants ap
-             LEFT JOIN activity_categories ac ON ac.id = ap.activity_id
-             JOIN student_academic_enrollments ae ON ae.id = ap.student_academic_enrollment_id
+             FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = ap.activity_id
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = ap.student_academic_enrollment_id
              WHERE ae.student_id = ?
              ORDER BY ap.joined_at DESC",
             [$studentId]
@@ -246,13 +230,12 @@ class StudentInsightsService
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
 
         $interview = $this->fetchOne(
-            "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
-                    ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
-                    ai.overall_score, ai.recommendation, ai.remarks
-               FROM admission_applications aa
-               JOIN admission_interviews ai ON ai.application_id = aa.id
-              WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
-              ORDER BY ai.id DESC LIMIT 1",
+            "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
+                    academic_readiness_score, behavior_score, communication_score,
+                    overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
+               FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
+              WHERE enrolled_student_id = ? AND interview_status = 'completed'
+              ORDER BY interview_record_id DESC LIMIT 1",
             [$studentId]
         );
         $finance['financial_relief'] = (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId);
@@ -276,17 +259,15 @@ class StudentInsightsService
     {
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
-                                          FROM academic_year_class_streams aycs
-                                          JOIN streams sm ON sm.id = aycs.stream_id
-                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                          WHERE aycs.status = 'active'
-                                          ORDER BY sm.name ASC"),
+            'streams' => $this->fetchAll("SELECT DISTINCT class_stream_id AS id, class_id, stream_name
+                                          FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_calendar') . "
+                                          WHERE class_stream_status = 'active'
+                                          ORDER BY stream_name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
-            'terms' => $this->fetchAll("SELECT ayt.id, ayt.academic_year_id, t.name, t.code AS term_number, ayt.status
-                                        FROM academic_year_terms ayt
-                                        JOIN terms t ON t.id = ayt.term_id
-                                        ORDER BY t.code ASC"),
+            'terms' => $this->fetchAll("SELECT academic_year_term_id AS id, academic_year_id, term_name AS name,
+                                               term_code AS term_number, term_period_status AS status
+                                        FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+                                        ORDER BY term_code ASC"),
             'statuses' => ['pending', 'resolved', 'escalated'],
             'severities' => ['low', 'medium', 'high'],
         ];
@@ -321,13 +302,13 @@ class StudentInsightsService
                        CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                        c.name AS class_name, st2.name AS stream_name, per.photo_url
                 FROM discipline_incidents di
-                JOIN student_academic_enrollments sae ON sae.id = di.student_academic_enrollment_id
-                JOIN students s ON s.id = sae.student_id
-                JOIN persons per ON per.id = s.person_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = di.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st2 ON st2.id = aycs.stream_id
                 WHERE " . implode(' AND ', $conditions) . "
                 ORDER BY di.incident_date DESC, di.created_at DESC";
 
@@ -341,13 +322,13 @@ class StudentInsightsService
                     CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS student_name,
                     s.admission_no, per.photo_url, c.name AS class_name, st2.name AS stream_name
              FROM discipline_incidents di
-             JOIN student_academic_enrollments sae ON sae.id = di.student_academic_enrollment_id
-             JOIN students s ON s.id = sae.student_id
-             JOIN persons per ON per.id = s.person_id
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = di.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st2 ON st2.id = aycs.stream_id
              WHERE di.id = ?
              LIMIT 1",
             [$caseId]
@@ -397,11 +378,7 @@ class StudentInsightsService
     {
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
-                                          FROM academic_year_class_streams aycs
-                                          JOIN streams sm ON sm.id = aycs.stream_id
-                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                          ORDER BY sm.name ASC"),
+            'streams' => $this->fetchAll("SELECT class_stream_id AS id, class_id, stream_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " ORDER BY stream_name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
             'dormitories' => $this->fetchAll("SELECT id, name AS dormitory_name, gender FROM dormitories WHERE status = 'active' ORDER BY name ASC"),
             'statuses' => ['draft', 'active', 'completed', 'archived'],
@@ -455,16 +432,12 @@ class StudentInsightsService
                     i.status, i.approved_date, i.created_at,
                     s.admission_no,
                     CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
-                    c.name AS class_name, sm.name AS stream_name, d.name AS dormitory_name, per.photo_url
+                    lp.class_name, lp.stream_name, d.name AS dormitory_name, per.photo_url
              FROM ieps i
-             JOIN students s ON s.id = i.student_id
-             JOIN persons per ON per.id = s.person_id
-             LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN streams sm ON sm.id = aycs.stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = sae.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = i.student_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = lp.enrollment_id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
              LEFT JOIN dormitories d ON d.id = da.dormitory_id
              WHERE " . implode(' AND ', $conditions) . "
              ORDER BY i.created_at DESC",
@@ -477,18 +450,14 @@ class StudentInsightsService
         $iep = $this->fetchOne(
             "SELECT i.*,
                     CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS student_name,
-                    s.admission_no, per.photo_url, c.name AS class_name, sm.name AS stream_name, d.name AS dormitory_name,
+                    s.admission_no, per.photo_url, lp.class_name, lp.stream_name, d.name AS dormitory_name,
                     CONCAT_WS(' ', cb.first_name, cb.last_name) AS created_by_name,
                     CONCAT_WS(' ', ab.first_name, ab.last_name) AS approved_by_name
              FROM ieps i
-             JOIN students s ON s.id = i.student_id
-             JOIN persons per ON per.id = s.person_id
-             LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN streams sm ON sm.id = aycs.stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = sae.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = i.student_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = lp.enrollment_id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
              LEFT JOIN dormitories d ON d.id = da.dormitory_id
              LEFT JOIN users cbu ON cbu.id = i.created_by
              LEFT JOIN persons cb ON cb.id = cbu.person_id
@@ -617,11 +586,11 @@ class StudentInsightsService
                         tss.overall_percentage AS score, tss.overall_grade AS grade,
                         class_subject_avg.class_average AS classAverage,
                         NULL AS position, NULL AS teacher, NULL AS remarks
-                 FROM term_subject_scores tss
-                 LEFT JOIN learning_areas la ON la.id = tss.subject_id
+                 FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
                  LEFT JOIN (
                     SELECT subject_id, ROUND(AVG(overall_percentage), 2) AS class_average
-                    FROM term_subject_scores
+                    FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . "
                     WHERE term_id = ?
                     GROUP BY subject_id
                  ) class_subject_avg ON class_subject_avg.subject_id = tss.subject_id
@@ -637,10 +606,10 @@ class StudentInsightsService
                            ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2) AS score,
                            NULL AS grade, NULL AS classAverage, NULL AS position, NULL AS teacher,
                            MIN(ar.remarks) AS remarks
-                    FROM assessment_results ar
-                    JOIN assessments a ON a.id = ar.assessment_id
-                    JOIN student_academic_enrollments ae ON ae.id = ar.student_academic_enrollment_id
-                    LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                    FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                    JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+                    JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = ar.student_academic_enrollment_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
                     WHERE ae.student_id = ?";
             $bindings = [$studentId];
             if ($termId !== null) {
@@ -683,8 +652,7 @@ class StudentInsightsService
                     COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as days_absent,
                     COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as days_late,
                     ROUND((COUNT(CASE WHEN sa.status = 'present' OR sa.status = 'late' THEN 1 END) / COUNT(*)) * 100, 2) as attendance_rate
-             FROM student_attendance sa
-             JOIN student_academic_enrollments ae ON ae.id = sa.student_academic_enrollment_id
+             FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
              WHERE " . implode(' AND ', $conditions),
             $bindings
         ) ?: ['days_present' => 0, 'days_absent' => 0, 'days_late' => 0, 'attendance_rate' => 100.00];

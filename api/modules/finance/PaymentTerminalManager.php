@@ -7,6 +7,7 @@ use App\API\Services\payments\UniformPaymentService;
 use PDO;
 use RuntimeException;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /** Configuration and controlled capture of uniform-store card terminals. */
 class PaymentTerminalManager extends BaseAPI
@@ -19,8 +20,8 @@ class PaymentTerminalManager extends BaseAPI
     public function listTerminals(): array
     {
         $sql = "SELECT t.*, a.account_name settlement_account_name, a.account_identifier settlement_account_identifier
-                FROM payment_pos_terminals t
-                JOIN school_financial_accounts a ON a.id=t.settlement_financial_account_id
+                FROM " . ReadReplicaService::qualifiedRef("payment_pos_terminals") . "
+                JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id=t.settlement_financial_account_id
                 ORDER BY t.terminal_name";
         return formatResponse(true, ['terminals' => $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC)]);
     }
@@ -81,7 +82,7 @@ class PaymentTerminalManager extends BaseAPI
 
     private function assertSettlement(int $id): void
     {
-        $s=$this->db->prepare("SELECT a.id FROM school_financial_accounts a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status='active' AND k.code IN ('bank','cash','clearing') LIMIT 1"); $s->execute([$id]);
+        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status='active' AND k.code IN ('bank','cash','clearing') LIMIT 1"); $s->execute([$id]);
         if (!$s->fetchColumn()) throw new RuntimeException('Settlement account must be an active school financial account.');
     }
 }

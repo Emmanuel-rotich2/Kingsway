@@ -26,7 +26,7 @@
       <div class="row g-3" id="proposalCards"></div>
     </section>
     <section class="tab-pane fade" id="historyPane">
-      <div class="d-flex gap-2 flex-wrap mb-3"><select class="form-select form-select-sm w-auto" id="historyYear"><option value="">All academic years</option></select><select class="form-select form-select-sm w-auto" id="historyArea"><option value="">All assigned learning areas</option></select><select class="form-select form-select-sm w-auto" id="historyEntity"><option value="">All levels</option><option value="learning_area">Learning area</option><option value="strand">Strand</option><option value="sub_strand">Sub-strand</option></select></div>
+      <div class="d-flex gap-2 flex-wrap mb-3"><select class="form-select form-select-sm w-auto" id="historyArea"><option value="">All assigned learning areas</option></select><select class="form-select form-select-sm w-auto" id="historyEntity"><option value="">All levels</option><option value="learning_area">Learning area</option><option value="strand">Strand</option><option value="sub_strand">Sub-strand</option></select></div>
       <div class="cw-timeline" id="historyTimeline"></div>
     </section>
   </div>

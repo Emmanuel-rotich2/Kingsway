@@ -324,31 +324,12 @@ const classResultsController = (() => {
     }
 
     function bindEvents() {
-        document.getElementById('loadResultsBtn')?.addEventListener('click', loadResults);
-        document.getElementById('loadResultsBtn')?.classList.add('d-none');
+        document.getElementById('loadResultsBtn')?.remove();
         document.getElementById('exportBtn')?.addEventListener('click', exportResults);
         document.getElementById('printBtn')?.addEventListener('click', printResults);
         
-        document.getElementById('yearFilter')?.addEventListener('change', () => {
-            // Auto-load results when filters change
-            if (document.getElementById('classFilter').value && document.getElementById('subjectFilter').value) {
-                loadResults();
-            }
-        });
-        document.getElementById('termFilter')?.addEventListener('change', () => {
-            if (document.getElementById('classFilter').value && document.getElementById('subjectFilter').value) {
-                loadResults();
-            }
-        });
-        document.getElementById('classFilter')?.addEventListener('change', () => {
-            if (document.getElementById('subjectFilter').value) {
-                loadResults();
-            }
-        });
-        document.getElementById('subjectFilter')?.addEventListener('change', () => {
-            if (document.getElementById('classFilter').value) {
-                loadResults();
-            }
+        ['yearFilter', 'termFilter', 'classFilter', 'subjectFilter'].forEach((id) => {
+            document.getElementById(id)?.addEventListener('change', loadResults);
         });
     }
 
@@ -386,6 +367,7 @@ const classResultsController = (() => {
 
         await Promise.all([loadYears(), loadTerms(), loadClasses(), loadSubjects()]);
         bindEvents();
+        await loadResults();
     }
 
     return { init };

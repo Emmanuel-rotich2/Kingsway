@@ -7,6 +7,7 @@ use App\Database\Database;
 use App\API\Modules\transport\StudentTransportEntitlementManager;
 use App\API\Services\ServiceContractBroker;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * TransportBillingManager
@@ -40,7 +41,7 @@ class TransportBillingManager
         }
 
         // Get route fee
-        $stmt = $this->db->prepare("SELECT fee, name FROM transport_routes WHERE id = :id LIMIT 1");
+        $stmt = $this->db->prepare("SELECT fee, name FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " id = :id LIMIT 1");
         $stmt->execute([':id' => $routeId]);
         $route = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$route) throw new Exception("Route {$routeId} not found");
@@ -94,8 +95,8 @@ class TransportBillingManager
         $billingYear = (int)date('Y', strtotime($billingMonth));
         $stmt = $this->db->prepare("
             SELECT sta.*, tr.name AS route_name, tr.fee AS route_fee
-            FROM student_transport_assignments sta
-            JOIN transport_routes tr ON tr.id = sta.route_id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta
+            JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = sta.route_id
             WHERE sta.status = 'active'
               AND sta.month <= :bm
               AND sta.year = :by
@@ -172,10 +173,10 @@ class TransportBillingManager
                    tr.name AS route_name, tr.code AS route_code,
                    COALESCE(tbp_sum.amount_paid, 0) AS amount_paid,
                    tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0) AS balance
-            FROM transport_monthly_bills tmb
-            JOIN students s ON s.id = tmb.student_id
-            JOIN persons p ON p.id = s.person_id
-            JOIN transport_routes tr ON tr.id = tmb.route_id
+            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = tmb.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = tmb.route_id
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid
                 FROM transport_bill_payments
@@ -208,8 +209,7 @@ class TransportBillingManager
             FROM transport_monthly_bills tmb
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid
-                FROM transport_bill_payments
-                GROUP BY bill_id
+                FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " BY bill_id
             ) tbp_sum ON tbp_sum.bill_id = tmb.id
             WHERE tmb.billing_month = :bm
         ");
@@ -221,8 +221,8 @@ class TransportBillingManager
             SELECT tr.name AS route_name, COUNT(*) AS bills, SUM(tmb.amount_due) AS total_due,
                    SUM(COALESCE(tbp_sum.amount_paid, 0)) AS total_paid,
                    SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)) AS outstanding
-            FROM transport_monthly_bills tmb
-            JOIN transport_routes tr ON tr.id = tmb.route_id
+            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . "
+            JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = tmb.route_id
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid
                 FROM transport_bill_payments
@@ -337,10 +337,10 @@ class TransportBillingManager
         $stmt = $this->db->prepare("
             SELECT sta.*, p.first_name, p.last_name, s.admission_no,
                    tr.name AS route_name, tr.code AS route_code
-            FROM student_transport_assignments sta
-            JOIN students s ON s.id = sta.student_id
-            JOIN persons p ON p.id = s.person_id
-            JOIN transport_routes tr ON tr.id = sta.route_id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sta.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = sta.route_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY p.last_name, p.first_name
         ");

@@ -1071,6 +1071,7 @@ const APIState = (() => {
 const APIRealtime = (() => {
   const dependencies = new Set();
   const registered = new Map();
+  const patches = new Map();
   let refreshTimer = null;
   let refreshRunning = false;
   let refreshAgain = false;
@@ -1192,6 +1193,59 @@ const APIRealtime = (() => {
     refreshTimer = window.setTimeout(() => runRefresh(normalizedTargets), 500);
   }
 
+  /**
+   * Register an incremental row updater.
+   *
+   * The fallback path for every change is a full loader refresh, which is
+   * correct but throws away the page state the user is working in: scroll
+   * position, an open filter panel, a half-typed cell, and focus. A patch
+   * handler lets a page update just the affected row instead.
+   *
+   * @param {object}   options
+   * @param {string}   [options.id]       stable name, for deregistration
+   * @param {string[]} [options.targets]  cache targets this patch handles
+   * @param {Function} options.apply      (descriptor) => boolean
+   *   Return true ONLY when the change was genuinely applied to the view.
+   *   Returning false is not a failure: the caller then falls back to a normal
+   *   refresh, so an unhandled row is never silently left stale on screen.
+   * @returns {Function} deregister
+   */
+  function registerPatch({ id, targets = [], apply } = {}) {
+    if (typeof apply !== "function") return () => {};
+    const key = id || `patch_${patches.size + 1}`;
+    patches.set(key, { targets: new Set(targets.map(normalize).filter(Boolean)), apply });
+    return () => { patches.delete(key); };
+  }
+
+  /** @returns {boolean} true when a patch handled the descriptor. */
+  function applyPatch(descriptor) {
+    if (!patches.size || !descriptor) return false;
+    const descriptorTargets = new Set(
+      (Array.isArray(descriptor.targets) ? descriptor.targets : []).map(normalize).filter(Boolean),
+    );
+    const domain = normalize(descriptor.domain || "");
+    if (domain) descriptorTargets.add(domain);
+
+    let handled = false;
+    for (const patch of patches.values()) {
+      const relevant = [...descriptorTargets].some((target) => {
+        if (patch.targets.has(target)) return true;
+        if (!patch.targets.size) return false;
+        return [...patch.targets].some((known) => (
+          known === target || target.startsWith(`${known}/`) || known.startsWith(`${target}/`)
+        ));
+      });
+      if (!relevant) continue;
+      try {
+        if (patch.apply(descriptor) === true) handled = true;
+      } catch (error) {
+        // A broken patch must degrade to a refresh, never break the stream.
+        console.warn("[APIRealtime] Patch handler failed:", error);
+      }
+    }
+    return handled;
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && refreshAgain) {
       refreshAgain = false;
@@ -1199,13 +1253,75 @@ const APIRealtime = (() => {
     }
   });
 
-  return { track, register, schedule, dependencies: () => [...dependencies] };
+  return {
+    track, register, schedule, registerPatch, applyPatch,
+    dependencies: () => [...dependencies],
+  };
 })();
 
+/**
+ * Grade-entry realtime contract, defined ONCE.
+ *
+ * Two page controllers can enter marks (grade_entry.js and assessments_exams.js).
+ * Both need the same three things, and both were doing them ad hoc: remember the
+ * optimistic-concurrency token each loaded row carries, echo it back on save, and
+ * patch a row in place when a peer changes it. Keeping that here means a fix to
+ * the concurrency contract is a single edit, and neither controller can drift
+ * into sending a shape the server does not understand.
+ */
+const AssessmentMarks = (() => {
+  // `assessmentId:studentId` -> token, so two open assessments cannot collide.
+  const tokens = new Map();
+  const key = (assessmentId, studentId) => `${Number(assessmentId) || 0}:${Number(studentId) || 0}`;
+
+  /** Record the tokens the server returned with a loaded mark sheet. */
+  function remember(assessmentId, rows) {
+    if (!Array.isArray(rows)) return 0;
+    let count = 0;
+    for (const row of rows) {
+      if (!row?.result_token) continue;
+      tokens.set(key(assessmentId, row.student_id), String(row.result_token));
+      count += 1;
+    }
+    return count;
+  }
+
+  /** Forget an assessment's tokens once its sheet is closed or reloaded. */
+  function forget(assessmentId) {
+    const prefix = `${Number(assessmentId) || 0}:`;
+    for (const existing of [...tokens.keys()]) {
+      if (existing.startsWith(prefix)) tokens.delete(existing);
+    }
+  }
+
+  /**
+   * Attach each row's token so the server can refuse a stale save.
+   *
+   * A row with no remembered token is sent unchanged: the server then treats it
+   * as an unconditional write, which is the correct behaviour for a sheet the
+   * user has not loaded from this tab (an import, or a fresh page that has not
+   * rendered rows yet).
+   */
+  function withTokens(assessmentId, rows) {
+    if (!Array.isArray(rows)) return rows;
+    return rows.map((row) => {
+      const token = tokens.get(key(assessmentId, row?.student_id));
+      return token ? { ...row, expected_token: token } : row;
+    });
+  }
+
+  return { remember, forget, withTokens };
+})();
+
+window.AssessmentMarks = AssessmentMarks;
 window.APIRealtime = APIRealtime;
-window.addEventListener("kingsway:data-mutated", (event) => {
-  window.APIRealtime?.schedule?.(Array.isArray(event?.detail?.targets) ? event.detail.targets : []);
-});
+
+// NOTE: deliberately no `kingsway:data-mutated` listener here.
+// APIRealtime schedules its own refresh for exactly the changes it is given, and
+// every producer of kingsway:data-mutated (RealtimeDispatch, data_store's
+// cross-tab handler) already schedules. A listener on the notification event
+// re-scheduled all of them a second time, so each mutation refreshed twice.
+
 
 // Infer primary resource from endpoint for automatic invalidation
 function inferResourceKey(endpoint = "") {
@@ -1612,6 +1728,110 @@ const ENDPOINT_PERMISSIONS = {
     DELETE: "academic_update",
   },
   "/academic/ai-scheme-draft-queue": { POST: "academic_view" },
+  // Results Management workspace + exam-period result workflow
+  // (pages/view_results.php, js/pages/view_results.js). Server-side RBAC and
+  // row scope remain authoritative; these entries only drive the UI affordances.
+  "/academic/results-management-formative": { GET: "academic_view" },
+  "/academic/results-management-summative": { GET: "academic_view" },
+  "/academic/results-management-average": { GET: "academic_view" },
+  "/academic/results-management-formative-matrix": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-substrand-matrix": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-area-detail": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-class-areas": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/results-management-analytics": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/assessment-classifications": {
+    GET: ["academic_view", "assessments_view"],
+  },
+  "/academic/grading-systems": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/streams-list": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/exam-series-list": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academic_edit"],
+  },
+  "/academic/results-management-summative-batch": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/assessment-papers": {
+    GET: ["academic_view", "assessments_view", "academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/assessment-paper-results-batch": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-periods": {
+    GET: "academic_view",
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-periods-options": { GET: "academic_view" },
+  "/academic/sba-policy": { GET: ["academic_view", "assessments_view"] },
+  "/academic/grading-systems": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-overview": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-profile-resolve": { GET: ["academic_view", "assessments_view"] },
+  "/academic/aggregation-profile": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    DELETE: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/grading-band": {
+    POST: ["academic_manage", "academics_manage", "assessments_rubric_manage"],
+    DELETE: ["academic_manage", "academics_manage", "assessments_rubric_manage"],
+  },
+  "/academic/sba-cba-export": { GET: ["academic_view", "assessments_view", "academic_manage"] },
+  "/academic/national-results-import": { POST: ["academic_manage", "academics_manage"] },
+  "/academic/national-results": { GET: ["academic_view", "assessments_view", "academic_manage"] },
+  "/academic/national-results-review": { POST: ["academic_manage", "academics_manage"] },
+  "/academic/grading-systems-binding": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-period-timetable": {
+    GET: ["academic_view", "assessments_view"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/portfolio-hub": { GET: ["academic_view", "assessments_view"] },
+  "/academic/my-default-class": { GET: ["academic_view", "assessments_view"] },
+  "/academic/composite": { GET: ["academic_view", "assessments_view"] },
+  "/academic/knec-uploads": {
+    GET: ["academic_view", "assessments_view"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-period-timetable-sittings": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-period-result": {
+    GET: "academic_view",
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    PUT: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+    DELETE: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/exam-period-assessment-submit": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/formative-assessment-marks": {
+    GET: ["academic_view", "assessments_view"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/reports-generate-student-reports": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/reports-review-and-approve": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/reports-distribute": {
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
+  "/academic/report-card-releases": { GET: "academic_view" },
   "/academic/ai-scheme-drafts": { GET: "academic_view" },
   "/academic/ai-scheme-draft-approve": { POST: ["academic_approve", "academic_manage", "academics_manage", "curriculum_approve"] },
   "/academic/ai-lesson-plan-draft-queue": { POST: "academic_view" },
@@ -2209,6 +2429,19 @@ function validatePermission(endpoint, method) {
   const hasPermission = [...aliases].some((permissionCode) =>
     AuthContext.hasPermission(permissionCode),
   );
+  const leadershipManagerRole = [
+    "school administrator",
+    "headteacher",
+    "deputy head - academic",
+    "deputy head - discipline",
+  ].some((roleName) => AuthContext.hasRole?.(roleName));
+  const isLeadershipManagementRequest =
+    (normalizedEndpoint === "/students/leadership" || normalizedEndpoint.startsWith("/students/leadership/")) &&
+    ["POST", "PUT", "DELETE"].includes(String(method).toUpperCase());
+
+  if (!hasPermission && leadershipManagerRole && isLeadershipManagementRequest) {
+    return;
+  }
 
   if (!hasPermission) {
     const isAdmissionEndpoint =
@@ -3926,6 +4159,10 @@ window.API = {
         apiCall("/students/leadership", "GET", null, params),
       positions: async (params = {}) =>
         apiCall("/students/leadership/positions", "GET", null, params),
+      createPosition: async (data) =>
+        apiCall("/students/leadership/positions", "POST", data),
+      updatePosition: async (id, data) =>
+        apiCall(`/students/leadership/positions/${Number(id)}`, "PUT", data),
       history: async (studentId) =>
         apiCall(`/students/leadership/history/${studentId}`, "GET"),
       create: async (data) => apiCall("/students/leadership", "POST", data),
@@ -4299,6 +4536,35 @@ window.API = {
       apiCall("/academic/assessments-analyze-results", "POST", data),
     getAssessmentTypes: async (params) =>
       apiCall("/academic/assessment-types", "GET", null, params),
+
+    getExamPeriodsOptions: async (params) =>
+      apiCall("/academic/exam-periods-options", "GET", null, params),
+    getExamPeriods: async (params) =>
+      apiCall("/academic/exam-periods", "GET", null, params),
+
+    // Grading & aggregation management
+    getGradingScale: async (params) =>
+      apiCall("/academic/grading-scale", "GET", null, params),
+    getAggregationOverview: async () =>
+      apiCall("/academic/aggregation-overview", "GET"),
+    resolveAggregationProfile: async (params) =>
+      apiCall("/academic/aggregation-profile-resolve", "GET", null, params),
+    saveAggregationProfile: async (data) =>
+      apiCall("/academic/aggregation-profile", "POST", data),
+    deleteAggregationProfile: async (id) =>
+      apiCall(`/academic/aggregation-profile/${id}`, "DELETE"),
+    saveGradingBand: async (data) =>
+      apiCall("/academic/grading-band", "POST", data),
+    deleteGradingBand: async (id) =>
+      apiCall(`/academic/grading-band/${id}`, "DELETE"),
+    exportSbaCba: async (params) =>
+      apiCall("/academic/sba-cba-export", "GET", null, params),
+    importNationalResults: async (data) =>
+      apiCall("/academic/national-results-import", "POST", data),
+    getNationalResults: async (params) =>
+      apiCall("/academic/national-results", "GET", null, params),
+    reviewNationalResult: async (id, decision) =>
+      apiCall(`/academic/national-results-review/${id}`, "POST", { decision }),
 
     // Reports workflow
     startReportsWorkflow: async (data) =>

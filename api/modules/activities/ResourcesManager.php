@@ -4,6 +4,7 @@ namespace App\API\Modules\activities;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * ResourcesManager - Manages equipment, venues, and materials for activities
@@ -60,9 +61,9 @@ class ResourcesManager extends BaseAPI
                     a.start_date,
                     a.end_date,
                     ac.name as category_name
-                FROM activity_resources ar
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " ar
                 LEFT JOIN activities a ON ar.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 WHERE $whereClause
                 ORDER BY ar.resource_type, ar.resource_name
             ";
@@ -99,9 +100,9 @@ class ResourcesManager extends BaseAPI
                     a.end_date,
                     a.status as activity_status,
                     ac.name as category_name
-                FROM activity_resources ar
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " ar
                 LEFT JOIN activities a ON ar.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 WHERE ar.id = ?
             ";
 
@@ -326,8 +327,7 @@ class ResourcesManager extends BaseAPI
         try {
             $sql = "
                 SELECT * 
-                FROM activity_resources 
-                WHERE activity_id = ?
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . " activity_id = ?
                 ORDER BY type, name
             ";
 
@@ -389,7 +389,7 @@ class ResourcesManager extends BaseAPI
                     a.title as activity_title,
                     a.start_date,
                     a.end_date
-                FROM activity_resources ar
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . "
                 JOIN activities a ON ar.activity_id = a.id
                 WHERE ar.type = ?
                 AND ar.status = 'available'
@@ -480,7 +480,7 @@ class ResourcesManager extends BaseAPI
                     SUM(ar.cost) as total_cost,
                     COUNT(DISTINCT ar.activity_id) as activities_count,
                     AVG(ar.cost) as avg_cost_per_resource
-                FROM activity_resources ar
+                FROM " . ReadReplicaService::qualifiedRef("activity_resources") . "
                 JOIN activities a ON ar.activity_id = a.id
                 WHERE $whereClause
                 GROUP BY ar.resource_type

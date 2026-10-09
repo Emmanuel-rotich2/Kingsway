@@ -2,9 +2,11 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\RealtimeGatewayPublisher;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Academic Assessment Workflow - CBC-Compliant
@@ -84,10 +86,10 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             $assessmentStmt = $this->db->prepare(
                 "INSERT INTO assessments (
                     title, learning_area_id, academic_year_class_stream_id, academic_year_term_id,
-                    max_marks, assessment_date, assessment_type_id, status
+                    max_marks, assessment_date, assessment_type_classification_id, status
                 ) VALUES (
                     :title, :learning_area_id, :academic_year_class_stream_id, :academic_year_term_id,
-                    :max_marks, :assessment_date, :assessment_type_id, 'pending_submission'
+                    :max_marks, :assessment_date, :assessment_type_classification_id, 'pending_submission'
                 )"
             );
             $assessmentStmt->execute([
@@ -97,7 +99,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                 'academic_year_term_id' => (int)$plan['term_id'],
                 'max_marks' => (int)$plan['total_marks'],
                 'assessment_date' => $plan['assessment_date'] ?? date('Y-m-d'),
-                'assessment_type_id' => $assessmentTypeId,
+                'assessment_type_classification_id' => $assessmentTypeId,
             ]);
             $assessmentId = (int)$this->db->lastInsertId();
 
@@ -274,6 +276,58 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
     }
 
     /**
+     * Opaque token describing the observable state of one mark row.
+     *
+     * Sent to the client when results are read and echoed back on save. It
+     * combines the row's timestamp with the values a marker could have been
+     * looking at, so it detects a same-second concurrent edit that a timestamp
+     * comparison alone would miss.
+     */
+    public static function resultRowToken(array $row): string
+    {
+        return implode('|', [
+            (string) ($row['updated_at'] ?? ''),
+            (string) ($row['marks_obtained'] ?? ''),
+            (string) ($row['grade'] ?? ''),
+            (string) ($row['remarks'] ?? ''),
+        ]);
+    }
+
+    /**
+     * Publish one ROW_UPDATED descriptor per saved mark.
+     *
+     * Bounded descriptors only: the row identity and the fields that changed,
+     * never the mark sheet, the learner record or any other body. Parents hold
+     * family channels and therefore never receive scope 'all' staff traffic.
+     *
+     * @param int   $assessmentId
+     * @param array $writtenRows Rows written by this call
+     */
+    private function publishMarkUpdates(int $assessmentId, array $writtenRows): void
+    {
+        if ($writtenRows === []) {
+            return;
+        }
+        foreach ($writtenRows as $row) {
+            try {
+                RealtimeGatewayPublisher::publish('ROW_UPDATED', 'all', [
+                    'entity_id' => (int) $row['enrollment_id'],
+                    'domain' => 'assessment_result',
+                    'action' => 'marked',
+                    'targets' => ['academic/grading-results', 'academic/assessments-mark-and-grade'],
+                    'changed_fields' => ['marks_obtained', 'grade', 'points', 'remarks'],
+                    'version' => $assessmentId,
+                    'responder_id' => (int) $row['responder_id'],
+                ]);
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError(
+                    'Realtime mark publish failed: ' . $e->getMessage()
+                );
+            }
+        }
+    }
+
+    /**
      * Stage 4: Mark and grade
      * 
      * Records student marks and applies CBC grading.
@@ -337,6 +391,19 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
 
             $gradedCount = 0;
             $gradeDistribution = [];
+            $conflicts = [];
+            $writtenRows = [];
+
+            // Lock the current row so a concurrent marker cannot change it
+            // between the staleness check and the write below.
+            $lockStmt = $this->db->prepare(
+                "SELECT id, marks_obtained, grade, remarks, updated_at
+                FROM assessment_results
+                WHERE assessment_id = :assessment_id
+                  AND student_academic_enrollment_id = :enrollment_id
+                  AND deleted_at IS NULL
+                FOR UPDATE"
+            );
 
             foreach ($marks as $mark) {
                 $studentId = (int)$mark['student_id'];
@@ -360,6 +427,50 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                     continue; // Skip if no grade match
                 }
 
+                // Optimistic concurrency. Two markers (or one marker in two
+                // tabs) loading the same sheet and saving must not silently
+                // overwrite each other — a mark is an official record.
+                //
+                // The token covers the row's VALUES as well as its timestamp:
+                // `updated_at` is a TIMESTAMP with one-second resolution, so a
+                // timestamp-only check would accept a second save made inside
+                // the same second. Comparing the observed state means a
+                // conflict is only raised when the state the marker actually
+                // saw is genuinely gone, and an identical re-save (which
+                // changes nothing) is correctly not a conflict.
+                $lockStmt->execute([
+                    'assessment_id' => $assessmentId,
+                    'enrollment_id' => $enrollmentId,
+                ]);
+                $existing = $lockStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($existing) {
+                    $expectedToken = isset($mark['expected_token'])
+                        ? trim((string) $mark['expected_token']) : '';
+                    $expectedUpdatedAt = isset($mark['expected_updated_at'])
+                        ? trim((string) $mark['expected_updated_at']) : '';
+                    $stale = false;
+                    if ($expectedToken !== '') {
+                        $stale = !hash_equals(self::resultRowToken($existing), $expectedToken);
+                    } elseif ($expectedUpdatedAt !== '') {
+                        $stale = (string) $existing['updated_at'] !== $expectedUpdatedAt;
+                    }
+                    if ($stale) {
+                        $conflicts[] = [
+                            'student_id' => $studentId,
+                            'enrollment_id' => $enrollmentId,
+                            'expected_token' => $expectedToken !== '' ? $expectedToken : null,
+                            'expected_updated_at' => $expectedUpdatedAt !== '' ? $expectedUpdatedAt : null,
+                            'current_token' => self::resultRowToken($existing),
+                            'current_updated_at' => $existing['updated_at'],
+                            'current_marks' => $existing['marks_obtained'] !== null
+                                ? (float) $existing['marks_obtained'] : null,
+                            'current_grade' => $existing['grade'],
+                        ];
+                        continue;
+                    }
+                }
+
                 $insertStmt->execute([
                     'assessment_id' => $assessmentId,
                     'enrollment_id' => $enrollmentId,
@@ -371,10 +482,32 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                 ]);
 
                 $gradedCount++;
-                
+
+                $writtenRows[] = [
+                    'student_id' => $studentId,
+                    'enrollment_id' => $enrollmentId,
+                    'marks_obtained' => $score,
+                    'grade' => $gradeInfo['grade_code'],
+                    'responder_id' => (int) $this->user_id,
+                ];
+
                 // Track grade distribution
                 $grade = $gradeInfo['grade_code'];
                 $gradeDistribution[$grade] = ($gradeDistribution[$grade] ?? 0) + 1;
+            }
+
+            // A mark sheet is one unit of work. Writing the rows that happened to be
+            // clean while silently dropping the stale ones would flip the
+            // assessment to 'submitted' with a partial, misleading set of
+            // marks — worse than refusing. Roll the whole save back and let
+            // the marker reconcile.
+            if ($conflicts) {
+                $this->db->rollBack();
+                return formatResponse(false, [
+                    'conflict_count' => count($conflicts),
+                    'conflicts' => $conflicts,
+                ], 'Assessment result conflict: these marks were changed by someone else after you loaded them. '
+                    . 'Reload the sheet and re-enter your marks to avoid overwriting their work.');
             }
 
             // Update assessment status
@@ -392,7 +525,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                     MAX(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as highest_percentage,
                     MIN(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as lowest_percentage,
                     STDDEV(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as std_deviation
-                FROM assessment_results ar
+                FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
                 JOIN assessments a ON a.id = ar.assessment_id
                 WHERE ar.assessment_id = :id"
             );
@@ -413,6 +546,12 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             );
 
             $this->db->commit();
+
+            // Tell connected browsers which specific marks changed, so an open
+            // mark sheet can patch those rows instead of reloading the table.
+            // Fire-and-forget by design: realtime is an acceleration layer and
+            // must never fail a successful save.
+            $this->publishMarkUpdates($assessmentId, $writtenRows);
 
             return formatResponse(true, [
                 'graded_count' => $gradedCount,
@@ -483,7 +622,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                             WHEN plc.name = 'Approaching Expectations' THEN 2
                             ELSE 1
                         END) as avg_level
-                    FROM learner_competencies lc
+                    FROM " . ReadReplicaService::qualifiedRef("learner_competencies") . "
                     INNER JOIN performance_levels_cbc plc ON lc.performance_level_id = plc.id
                     WHERE lc.competency_id = :comp_id
                     AND lc.term_id = :term_id"
@@ -542,13 +681,13 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                     st.name as stream_name,
                     t.name as term_name,
                     CAST(NULL AS CHAR) AS classification_name
-                FROM assessments a
-                LEFT JOIN learning_areas la ON a.learning_area_id = la.id
-                LEFT JOIN academic_year_class_streams aycs ON a.academic_year_class_stream_id = aycs.id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams st ON st.id = aycs.stream_id
-                LEFT JOIN academic_year_terms ayt ON a.academic_year_term_id = ayt.id
+                FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON a.learning_area_id = la.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON a.academic_year_class_stream_id = aycs.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON a.academic_year_term_id = ayt.id
                 LEFT JOIN terms t ON t.id = ayt.term_id
                 WHERE a.id = :id"
             );
@@ -583,8 +722,8 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
         }
         $stmt = $this->db->prepare(
             "SELECT aycs.id
-             FROM academic_year_classes ayc
-             JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
              WHERE ayc.class_id = ?
              ORDER BY ayc.academic_year_id DESC, aycs.id
              LIMIT 1"
@@ -594,14 +733,14 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
     }
 
     /**
-     * Resolve the assessment_types row id from a CBC classification (CA/SBA/SA)
+     * Resolve the assessment_type_classifications row id from a CBC classification (CA/SBA/SA)
      * and an optional assessment type name, falling back to the first active
      * formative (CA) or summative (SBA/SA) type.
      */
     private function resolveAssessmentTypeId(string $classification, $assessmentType = null): ?int
     {
         if ($assessmentType) {
-            $stmt = $this->db->prepare("SELECT id FROM assessment_types WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id FROM assessment_type_classifications WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1");
             $stmt->execute([(string) $assessmentType]);
             $id = $stmt->fetchColumn();
             if ($id) {
@@ -609,7 +748,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             }
         }
         $isSummative = in_array(strtoupper($classification), ['SBA', 'SA'], true) ? 1 : 0;
-        $stmt = $this->db->query("SELECT id FROM assessment_types WHERE status='active' AND is_summative = {$isSummative} ORDER BY id LIMIT 1");
+        $stmt = $this->db->query("SELECT id FROM assessment_type_classifications WHERE status='active' AND is_summative = {$isSummative} ORDER BY id LIMIT 1");
         $id = $stmt->fetchColumn();
         return $id ? (int) $id : null;
     }

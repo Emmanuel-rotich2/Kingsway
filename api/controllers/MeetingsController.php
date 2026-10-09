@@ -42,12 +42,10 @@ class MeetingsController extends BaseController
         if (!$userId) {
             return null;
         }
-        $stmt = $this->db->getConnection()->prepare(
-            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1"
+        $staffId = \App\API\Services\StaffRecordsService::staffIdForUserId(
+            $this->db->getConnection(), (int) $userId
         );
-        $stmt->execute([(int) $userId]);
-        $id = $stmt->fetchColumn();
-        return $id ? (int) $id : null;
+        return $staffId ?: null;
     }
 
     private function currentUserId(): ?int

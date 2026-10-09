@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\payments;
+use App\API\Services\ReadReplicaService;
 use App\API\Modules\communications\CommunicationsAPI;
 /**
  * PaymentsAPI - Handles all payment webhook logic for bank, mpesa, etc.
@@ -296,7 +297,7 @@ class PaymentsAPI extends BaseAPI
                     $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('mpesa_daraja', $confirmationData, $mpesaCode, $amount, $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null, $admissionNumber);
                     $settlement = $this->db->prepare(
                         "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id)
-                         FROM payment_collection_routes r
+                         FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . "
                          JOIN payment_providers p ON p.id = r.provider_id
                          WHERE p.code = 'mpesa_daraja' AND r.normalized_account_identifier = ?
                            AND r.active = 1 ORDER BY r.id LIMIT 1"
@@ -344,8 +345,7 @@ class PaymentsAPI extends BaseAPI
                               AND sae.enrollment_status = 'active'
                         ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
                  FROM admission_applications aa
-                 LEFT JOIN students sx ON sx.id = aa.enrolled_student_id
-                 WHERE aa.application_no = :application_reference OR sx.admission_no = :admission_reference
+                 WHERE aa.application_no = :application_reference OR (SELECT sx.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " sx WHERE sx.student_id = aa.enrolled_student_id LIMIT 1) = :admission_reference
                  LIMIT 1"
             );
             // Keep the two placeholders distinct. PDO with native prepares
@@ -453,8 +453,10 @@ class PaymentsAPI extends BaseAPI
                 return ['ResultCode' => 0, 'ResultDesc' => 'Application payment received successfully'];
             }
 
-            // Look up student by admission number (names live on persons)
-            $stmt = $this->db->prepare("SELECT s.id, p.first_name, p.last_name, s.status FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1");
+            // The read projection carries the exact admission/name/status fields
+            // needed by this callback without joining master tables per request.
+            $studentDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
+            $stmt = $this->db->prepare("SELECT student_id AS id, first_name, last_name, student_status AS status FROM {$studentDirectory} WHERE admission_no = :admission_no LIMIT 1");
             $stmt->execute(['admission_no' => $admissionNumber]);
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
             
@@ -858,9 +860,16 @@ class PaymentsAPI extends BaseAPI
                     'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
                 ];
             }
-            $stmt = $this->db->prepare("SELECT s.id, s.admission_no, CONCAT(p.first_name, ' ', p.last_name) as full_name, s.status, COALESCE((SELECT SUM(v.balance) FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " v WHERE v.student_id = s.id), 0) as current_balance FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1");
+            $studentDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
+            $stmt = $this->db->prepare("SELECT student_id AS id, admission_no, CONCAT(first_name, ' ', last_name) AS full_name, student_status AS status FROM {$studentDirectory} WHERE admission_no = :admission_no LIMIT 1");
             $stmt->execute(['admission_no' => $customerReference]);
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($student) {
+                $feeBalances = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances');
+                $balanceStmt = $this->db->prepare("SELECT COALESCE(SUM(balance), 0) FROM {$feeBalances} WHERE student_id = :student_id");
+                $balanceStmt->execute(['student_id' => $student['id']]);
+                $student['current_balance'] = (float) $balanceStmt->fetchColumn();
+            }
             if (!$student) {
                 (new \App\API\Services\UploadService())->writeFile(
                     $logFile,
@@ -1151,7 +1160,8 @@ class PaymentsAPI extends BaseAPI
             $email = null;
             $recipientName = null;
             if ($disbursement['disbursement_type'] === 'salary') {
-                $stmt = $this->db->prepare("SELECT p.phone AS phone_number, p.email, p.first_name, p.last_name FROM staff s JOIN persons p ON p.id = s.person_id WHERE s.id = ?");
+                $staffDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('staff_directory');
+                $stmt = $this->db->prepare("SELECT phone AS phone_number, email, first_name, last_name FROM {$staffDirectory} WHERE staff_id = ? LIMIT 1");
                 $stmt->execute([$disbursement['recipient_id']]);
                 $contact = $stmt->fetch(\PDO::FETCH_ASSOC);
                 if ($contact) {
@@ -1290,7 +1300,8 @@ class PaymentsAPI extends BaseAPI
             }
             $this->db->beginTransaction();
             try {
-                $studentQuery = "SELECT s.id, p.first_name, p.last_name, s.status FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1";
+                $studentDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
+                $studentQuery = "SELECT student_id AS id, first_name, last_name, student_status AS status FROM {$studentDirectory} WHERE admission_no = :admission_no LIMIT 1";
                 $stmt = $this->db->prepare($studentQuery);
                 $stmt->execute(['admission_no' => $customerReference]);
                 $student = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -1339,7 +1350,7 @@ class PaymentsAPI extends BaseAPI
                 $bankTransactionId = $this->db->lastInsertId();
 
                 // Get parent_id for this student (for fee allocation)
-                $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
+                $parentStmt = $this->db->prepare("SELECT parent_id FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " student_id = ? LIMIT 1");
                 $parentStmt->execute([$studentId]);
                 $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
                 $parentId = $parentRow ? $parentRow['parent_id'] : null;
@@ -1624,11 +1635,11 @@ class PaymentsAPI extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT GREATEST(
                     COALESCE((SELECT SUM(sfo.amount_due)
-                              FROM student_fee_obligations sfo
-                              JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+                              FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations_enrolled") . "
+                              JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
                               WHERE sae.student_id = ?), 0)
                     - COALESCE((SELECT SUM(p.amount)
-                                FROM payments p
+                                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                                 WHERE p.student_id = ? AND p.status = 'confirmed'), 0),
                     0
                 ) AS outstanding
@@ -1691,9 +1702,9 @@ class PaymentsAPI extends BaseAPI
                 "SELECT p.id, p.receipt_no, p.amount, p.payment_date, p.reference, p.notes,
                         COALESCE(CONCAT(sp.first_name, ' ', sp.last_name), 'Walk-in') AS student_name,
                         'fees' AS source
-                 FROM payments p
-                 LEFT JOIN students s ON s.id = p.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = p.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
                  WHERE p.method = 'cash' AND p.status = 'confirmed' AND DATE(p.payment_date) = ?
                  UNION ALL
                  SELECT tbp.id, tbp.transaction_id, tbp.amount,
@@ -1702,9 +1713,9 @@ class PaymentsAPI extends BaseAPI
                         COALESCE(CONCAT(sp.first_name, ' ', sp.last_name), 'Walk-in'),
                         'transport'
                  FROM transport_bill_payments tbp
-                 LEFT JOIN transport_monthly_bills tmb ON tmb.id = tbp.bill_id
-                 LEFT JOIN students s ON s.id = tmb.student_id
-                 LEFT JOIN persons sp ON sp.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb ON tmb.id = tbp.bill_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = tmb.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = s.person_id
                  WHERE tbp.payment_method = 'cash' AND tbp.payment_date = ?
                  ORDER BY payment_date DESC"
             );
@@ -1742,8 +1753,8 @@ class PaymentsAPI extends BaseAPI
             $feeLedgerRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_ledger');
             $overdue = $this->db->query(
                 "SELECT COUNT(DISTINCT e.student_id) AS overdue_count
-                 FROM student_fee_obligations sfo
-                 JOIN student_academic_enrollments e ON e.id = sfo.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e ON e.id = sfo.student_academic_enrollment_id
                  WHERE sfo.due_date < NOW()
                    AND COALESCE((SELECT MAX(l.balance) FROM {$feeLedgerRef} l
                                  WHERE l.student_academic_enrollment_id = sfo.student_academic_enrollment_id), 0) > 0"
@@ -1869,7 +1880,7 @@ class PaymentsAPI extends BaseAPI
                                 FROM mpesa_transactions mt
                                 LEFT JOIN students s ON s.id = mt.student_id
                                 LEFT JOIN persons p ON p.id = s.person_id
-                                LEFT JOIN payments pay ON pay.reference = mt.mpesa_code COLLATE utf8mb4_general_ci
+                                LEFT JOIN payments pay ON pay.reference = mt.mpesa_code
                                 ORDER BY mt.transaction_date DESC
                                 LIMIT 500";
                 $rows = $this->db->query($providerSql)->fetchAll(\PDO::FETCH_ASSOC);
@@ -1889,11 +1900,11 @@ class PaymentsAPI extends BaseAPI
                                      pay.id AS payment_id, pay.receipt_no,
                                      pay.reference AS ledger_reference, pay.status AS payment_status,
                                      pay.payment_date AS ledger_payment_date
-                              FROM payments pay
-                              LEFT JOIN students s ON s.id = pay.student_id
-                              LEFT JOIN persons p ON p.id = s.person_id
-                              LEFT JOIN mpesa_transactions mt
-                                ON mt.mpesa_code = pay.reference COLLATE utf8mb4_general_ci
+                              FROM " . ReadReplicaService::qualifiedRef("payments") . " pay
+                              LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = pay.student_id
+                              LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                              LEFT JOIN " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " mt
+                                ON mt.mpesa_code = pay.reference
                               WHERE pay.method = 'mpesa'
                                 AND pay.status IN ('confirmed', 'pending')
                                 AND pay.reference IS NOT NULL
@@ -1940,9 +1951,8 @@ class PaymentsAPI extends BaseAPI
             }
             $rows = $this->db->query(
                 "SELECT mt.*
-                 FROM mpesa_transactions mt
-                 LEFT JOIN payments pt ON mt.mpesa_code = pt.reference COLLATE utf8mb4_general_ci
-                 WHERE pt.reference IS NULL
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
+                 WHERE mt.payment_id IS NULL
                    AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed', 'matched'))
                  ORDER BY mt.transaction_date DESC
                  LIMIT 200"
@@ -2149,7 +2159,7 @@ class PaymentsAPI extends BaseAPI
 
             $rows = $this->db->prepare(
                 "SELECT pr.*, u.username AS reconciled_by_name, st.reference AS school_reference, st.transaction_date AS school_transaction_date
-                 FROM payment_reconciliations pr
+                 FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . " pr
                  JOIN school_transactions st ON pr.transaction_id = st.id
                  LEFT JOIN users u ON pr.reconciled_by = u.id
                  WHERE st.source = 'mpesa' AND st.reference = ?
@@ -2185,9 +2195,9 @@ class PaymentsAPI extends BaseAPI
                     parent_person.phone AS parent_phone,
                     parent_person.national_id_no,
                     GROUP_CONCAT(DISTINCT sp.relationship SEPARATOR ', ') AS relationship
-                FROM persons parent_person
-                JOIN parents p ON p.person_id = parent_person.id
-                LEFT JOIN student_parents sp ON p.id = sp.parent_id
+                FROM " . ReadReplicaService::qualifiedRef("persons") . " parent_person
+                JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.person_id = parent_person.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON p.id = sp.parent_id
                 WHERE (
                     REPLACE(REPLACE(REPLACE(parent_person.phone, '+', ''), ' ', ''), '-', '') LIKE ?
                     OR parent_person.phone LIKE ?
@@ -2212,10 +2222,10 @@ class PaymentsAPI extends BaseAPI
                         parent_person.phone AS parent_phone,
                         parent_person.national_id_no,
                         'M-Pesa payer history' AS relationship
-                    FROM mpesa_transactions m
-                    JOIN student_parents sp ON sp.student_id = m.student_id
-                    JOIN parents p ON p.id = sp.parent_id
-                    JOIN persons parent_person ON parent_person.id = p.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " m
+                    JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = m.student_id
+                    JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.id = sp.parent_id
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " parent_person ON parent_person.id = p.person_id
                     WHERE m.student_id IS NOT NULL
                       AND REPLACE(REPLACE(REPLACE(m.phone_number, '+', ''), ' ', ''), '-', '') LIKE ?
                 ";
@@ -2236,14 +2246,14 @@ class PaymentsAPI extends BaseAPI
                     c.name AS class_name,
                     st.name AS stream_name,
                     sp.relationship
-                FROM student_parents sp
-                JOIN students s ON sp.student_id = s.id
-                JOIN persons pp ON pp.id = s.person_id
-                LEFT JOIN student_academic_enrollments e ON e.student_id = s.id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = e.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams st ON st.id = aycs.stream_id
+                FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sp.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e ON e.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = e.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                 WHERE sp.parent_id = ?
                 ORDER BY pp.first_name, pp.last_name
             ");
@@ -2296,10 +2306,9 @@ class PaymentsAPI extends BaseAPI
             }
 
             $checkStudent = $this->db->prepare(
-                "SELECT s.id, s.admission_no, p.first_name, p.last_name
-                 FROM students s
-                 JOIN persons p ON p.id = s.person_id
-                 WHERE s.id = ? AND s.status = 'active' LIMIT 1"
+                "SELECT s.student_id AS id, s.admission_no, s.first_name, s.last_name
+                 FROM " . ReadReplicaService::qualifiedRef('person_directory') . " s
+                 WHERE s.student_id = ? AND s.student_status = 'active' LIMIT 1"
             );
             $checkStudent->execute([$studentId]);
             $student = $checkStudent->fetch(\PDO::FETCH_ASSOC);

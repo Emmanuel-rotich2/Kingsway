@@ -19,6 +19,7 @@ use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbFundsTransferService;
 use App\API\Services\workflows\PayrollApprovalWorkflow;
 use App\API\Services\DataScopeService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -869,8 +870,8 @@ class FinanceAPI extends BaseAPI
                     COALESCE(SUM(ps.net_salary), 0) AS total_net,
                     pr.status,
                     pr.created_at
-                FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE $prScope
                 GROUP BY pr.id, pr.month, pr.year, pr.status, pr.created_at
                 ORDER BY pr.year DESC, pr.month DESC
@@ -898,17 +899,51 @@ class FinanceAPI extends BaseAPI
     public function listStaffPayments($payrollId)
     {
         [$psScope, $psParams] = DataScopeService::predicateFor('payslips', 'ps');
-        [$sScope, $sParams] = DataScopeService::predicateFor('staff', 's');
-        $sql = "SELECT 
-                    ps.*,
-                    p.first_name,
-                    p.last_name,
-                    s.staff_no
-                FROM payslips ps
-                JOIN staff s ON ps.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                WHERE ps.id = ? AND $psScope AND $sScope
-                ORDER BY p.last_name, p.first_name";
+        [$sScope, $sParams] = DataScopeService::predicateFor('staff', 's2');
+        $sScope = str_replace('s2.data_scope', 'ps.staff_data_scope', $sScope);
+        $sql = "SELECT
+                    ps.payslip_id AS id,
+                    ps.staff_id,
+                    ps.data_scope,
+                    ps.payroll_month,
+                    ps.payroll_year,
+                    ps.basic_salary,
+                    ps.allowances_total,
+                    ps.gross_salary,
+                    ps.paye_tax,
+                    ps.nssf_contribution,
+                    ps.employer_nssf_contribution,
+                    ps.nhif_contribution,
+                    ps.shif_contribution,
+                    ps.loan_deduction,
+                    ps.child_fees_deduction,
+                    ps.sacco_deduction,
+                    ps.housing_levy,
+                    ps.employer_housing_levy,
+                    ps.salary_advance_deduction,
+                    ps.other_deductions_total,
+                    ps.net_salary,
+                    ps.payment_method,
+                    ps.source_financial_account_id,
+                    ps.payment_date,
+                    ps.payslip_status,
+                    ps.payment_status,
+                    ps.payment_reference,
+                    ps.paid_at,
+                    ps.signed_by,
+                    ps.notes,
+                    ps.allowances_breakdown,
+                    ps.deductions_breakdown,
+                    ps.child_fees_breakdown,
+                    ps.payroll_awards_breakdown,
+                    ps.created_at,
+                    ps.updated_at,
+                    ps.staff_first_name AS first_name,
+                    ps.staff_last_name AS last_name,
+                    ps.staff_no
+                FROM " . ReadReplicaService::qualifiedRef('payslip') . " ps
+                WHERE ps.payslip_id = ? AND $psScope AND $sScope
+                ORDER BY ps.staff_last_name, ps.staff_first_name";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute(array_merge([$payrollId], $psParams, $sParams));
@@ -929,21 +964,55 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll not found', 404);
         }
 
-        [$payScope, $payParams] = DataScopeService::predicateFor('payslips', 'ps');
-        [$staffScope, $staffParams] = DataScopeService::predicateFor('staff', 's');
-        $sql = "SELECT 
-                    ps.*,
-                    p.first_name,
-                    p.last_name,
-                    s.staff_no
-                FROM payslips ps
-                JOIN staff s ON ps.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                WHERE ps.payroll_month = ? AND ps.payroll_year = ? AND $payScope AND $staffScope
-                ORDER BY p.last_name, p.first_name";
+        [$payScope2, $payParams2] = DataScopeService::predicateFor('payslips', 'ps');
+        [$staffScope, $staffParams] = DataScopeService::predicateFor('staff', 's2');
+        $staffScope = str_replace('s2.data_scope', 'ps.staff_data_scope', $staffScope);
+        $sql = "SELECT
+                    ps.payslip_id AS id,
+                    ps.staff_id,
+                    ps.data_scope,
+                    ps.payroll_month,
+                    ps.payroll_year,
+                    ps.basic_salary,
+                    ps.allowances_total,
+                    ps.gross_salary,
+                    ps.paye_tax,
+                    ps.nssf_contribution,
+                    ps.employer_nssf_contribution,
+                    ps.nhif_contribution,
+                    ps.shif_contribution,
+                    ps.loan_deduction,
+                    ps.child_fees_deduction,
+                    ps.sacco_deduction,
+                    ps.housing_levy,
+                    ps.employer_housing_levy,
+                    ps.salary_advance_deduction,
+                    ps.other_deductions_total,
+                    ps.net_salary,
+                    ps.payment_method,
+                    ps.source_financial_account_id,
+                    ps.payment_date,
+                    ps.payslip_status,
+                    ps.payment_status,
+                    ps.payment_reference,
+                    ps.paid_at,
+                    ps.signed_by,
+                    ps.notes,
+                    ps.allowances_breakdown,
+                    ps.deductions_breakdown,
+                    ps.child_fees_breakdown,
+                    ps.payroll_awards_breakdown,
+                    ps.created_at,
+                    ps.updated_at,
+                    ps.staff_first_name AS first_name,
+                    ps.staff_last_name AS last_name,
+                    ps.staff_no
+                FROM " . ReadReplicaService::qualifiedRef('payslip') . " ps
+                WHERE ps.payroll_month = ? AND ps.payroll_year = ? AND $payScope2 AND $staffScope
+                ORDER BY ps.staff_last_name, ps.staff_first_name";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_merge([$payroll['payroll_month'], $payroll['payroll_year']], $payParams, $staffParams));
+        $stmt->execute(array_merge([$payroll['payroll_month'], $payroll['payroll_year']], $payParams2, $staffParams));
         $payroll['staff_payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return formatResponse(true, ['payroll' => $payroll], 'Payroll retrieved successfully');
@@ -1166,8 +1235,8 @@ class FinanceAPI extends BaseAPI
                     pr.year AS payroll_year,
                     pr.status,
                     COUNT(ps.id) AS staff_count
-                FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE pr.id = ? AND $scopeSql
                 GROUP BY pr.id, pr.month, pr.year, pr.status";
 
@@ -1289,9 +1358,9 @@ class FinanceAPI extends BaseAPI
                     spp.bank_account,
                     ps.payroll_month as month,
                     ps.payroll_year as year
-                FROM payslips ps
-                JOIN staff s ON ps.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON ps.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 WHERE ps.id = ? AND $psScope AND $sScope";
 
@@ -1323,8 +1392,8 @@ class FinanceAPI extends BaseAPI
                     COALESCE(SUM(ps.gross_salary - ps.net_salary), 0) AS total_deductions,
                     COALESCE(SUM(ps.net_salary), 0) AS total_net,
                     pr.created_at
-                FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE $scopeSql";
 
         $bindings = $scopeParams;
@@ -1471,8 +1540,8 @@ class FinanceAPI extends BaseAPI
             }
 
             $sql = "SELECT ay.year_code AS year, SUM(p.amount) AS total
-                    FROM payments p
-                    JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
                     WHERE p.status = 'confirmed' AND ay.year_code IN (?, ?)
                     GROUP BY ay.year_code";
             $stmt = $this->db->prepare($sql);
@@ -1763,8 +1832,8 @@ class FinanceAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT ayc.class_id
-                FROM academic_year_fee_schedules afs
-                LEFT JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = afs.academic_year_class_id
                 WHERE afs.id = ?
             ");
             $stmt->execute([$structureId]);
@@ -1840,7 +1909,7 @@ class FinanceAPI extends BaseAPI
             }
 
             // Cannot delete if structure is active
-            $stmt = $this->db->prepare("SELECT status FROM academic_year_fee_schedules WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT status FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE id = ?");
             $stmt->execute([$structureId]);
             $structure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1858,11 +1927,7 @@ class FinanceAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT ayc.class_id 
-                FROM students s
-                LEFT JOIN users u ON u.person_id = s.person_id
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                 WHERE u.id = ?
                 LIMIT 1
             ");
@@ -1882,13 +1947,13 @@ class FinanceAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT DISTINCT ayc.class_id 
-                FROM students s
-                LEFT JOIN student_parents sp ON sp.student_id = s.id
-                LEFT JOIN parents par ON par.id = sp.parent_id
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.id = sp.parent_id
                 LEFT JOIN users u ON u.person_id = par.person_id
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
@@ -1908,11 +1973,7 @@ class FinanceAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT DISTINCT ayc.class_id 
-                FROM staff st
-                LEFT JOIN users u ON u.person_id = st.person_id
-                LEFT JOIN academic_year_class_learning_area_teachers acylt ON acylt.staff_id = st.id
-                LEFT JOIN academic_year_class_learning_areas aycla ON aycla.id = acylt.academic_year_class_learning_area_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                 WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
@@ -1937,11 +1998,10 @@ class FinanceAPI extends BaseAPI
     protected function getUserRole($userId)
     {
         try {
-            $sql = "SELECT r.name FROM users u
-                    JOIN user_roles ur ON u.id = ur.user_id
-                    JOIN roles r ON ur.role_id = r.id
-                    WHERE u.id = ?
-                    ORDER BY ur.created_at ASC
+            $sql = "SELECT role_name AS name
+                    FROM " . ReadReplicaService::masterRef('user_role_grant') . "
+                    WHERE user_id = ?
+                    ORDER BY user_role_created_at ASC
                     LIMIT 1";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$userId]);
@@ -2063,8 +2123,8 @@ class FinanceAPI extends BaseAPI
                     spp.bank_account,
                     spp.mpesa_phone,
                     COUNT(DISTINCT ur.role_id) AS role_count
-                FROM staff s
-                LEFT JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
                 LEFT JOIN users u ON u.person_id = s.person_id
@@ -2132,7 +2192,7 @@ class FinanceAPI extends BaseAPI
     {
         [$year,$month]=array_map('intval',explode('-',substr($periodStart,0,7)));
         $stmt=$this->db->prepare("SELECT b.id AS batch_id,b.award_kind,b.award_name,b.award_type,b.amount_per_month AS amount
-            FROM staff_payroll_award_recipients r
+            FROM " . ReadReplicaService::qualifiedRef("staff_payroll_award_recipients") . " r
             JOIN staff_payroll_award_batches b ON b.id=r.batch_id AND b.status='active'
             JOIN staff_payroll_award_periods p ON p.batch_id=b.id AND p.payroll_year=? AND p.payroll_month=?
             WHERE r.staff_id=? ORDER BY b.id");
@@ -2171,12 +2231,12 @@ class FinanceAPI extends BaseAPI
                         spp.bank_name,
                         spp.bank_account,
                         COUNT(DISTINCT ur.role_id) AS role_count,
-                        (SELECT COUNT(*) FROM staff_children sc WHERE sc.staff_id = s.id) AS children_count
-                    FROM staff s
-                    LEFT JOIN persons p ON p.id = s.person_id
+                        (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc WHERE sc.staff_id = s.id) AS children_count
+                    FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                    LEFT JOIN departments d ON d.id = sep.department_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
                     LEFT JOIN users u ON u.person_id = s.person_id
                     LEFT JOIN user_roles ur ON ur.user_id = u.id
                     WHERE s.status = 'active' AND $scopeSql
@@ -2219,9 +2279,10 @@ class FinanceAPI extends BaseAPI
             foreach ($staffList as $staff) {
                 $eligible = !empty($staff['payroll_eligible']);
                 $existingStmt = $this->db->prepare(
-                    'SELECT id, payslip_status FROM payslips
+                    'SELECT id, payslip_status FROM ' . ReadReplicaService::qualifiedRef('payslips') . '
                      WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                       AND data_scope = (SELECT data_scope FROM staff WHERE id = ?)
+                       AND data_scope =
+                           (SELECT staff.data_scope FROM ' . ReadReplicaService::qualifiedRef('staff') . ' WHERE id = ?)
                      LIMIT 1'
                 );
                 $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year, (int) $staff['id']]);
@@ -2294,11 +2355,7 @@ class FinanceAPI extends BaseAPI
                         p.phone,
                         spp.bank_name,
                         spp.bank_account
-                    FROM staff s
-                    LEFT JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                    LEFT JOIN departments d ON d.id = sep.department_id
+                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                     WHERE s.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$staffId]);
@@ -2312,7 +2369,7 @@ class FinanceAPI extends BaseAPI
             $staff['basic_salary'] = (float)($compensation['basic_salary'] ?? 0);
 
             $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-            $termId = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1")->fetchColumn();
+            $termId = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1")->fetchColumn();
             $invoiceWarnings = [];
 
             // Get children with fee balances (current term/year)
@@ -2325,28 +2382,24 @@ class FinanceAPI extends BaseAPI
                                 sc.fee_deduction_amount,
                                 st.admission_no,
                                 CONCAT(p.first_name, ' ', p.last_name) AS student_name,
-                                c.name AS class_name,
-                                sn.name AS stream_name,
+                                sd.class_name,
+                                sd.stream_name,
                                 vfb.student_academic_enrollment_id AS fee_invoice_id,
                                 vfb.amount_due AS total_amount,
                                 vfb.amount_paid AS amount_paid,
                                 vfb.balance AS fee_balance,
                                 vfb.payment_status AS invoice_status,
                                 vfb.term_id,
-                                (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1) AS academic_year_id
-                            FROM staff_children sc
-                            JOIN students st ON sc.student_id = st.id
-                            LEFT JOIN persons p ON p.id = st.person_id
-                            LEFT JOIN student_academic_enrollments sae
-                                ON sae.student_id = st.id AND sae.academic_year_id = ?
-                                AND sae.enrollment_status = 'active'
-                            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                            LEFT JOIN classes c ON c.id = ayc.class_id
-                            LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                                (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current = 1 LIMIT 1) AS academic_year_id
+                            FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc
+                            JOIN " . ReadReplicaService::qualifiedRef("students") . " st ON sc.student_id = st.id
+                            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
+                            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                                ON sd.student_id = st.id AND sd.academic_year_id = ?
+                                AND sd.enrollment_status = 'active'
                             LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                                 ON vfb.student_id = st.id
-                                AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE id = ? LIMIT 1)
+                                AND vfb.academic_year = (SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ? LIMIT 1)
                                 AND vfb.academic_year_term_id = ?
                             WHERE sc.staff_id = ? AND st.status = 'active'
                             ORDER BY p.first_name";
@@ -2509,6 +2562,15 @@ class FinanceAPI extends BaseAPI
 
             $payrollPeriod = sprintf('%04d-%02d', $payrollYear, $payrollMonth);
 
+            // Resolve the financial read model before opening the payroll
+            // transaction. If its scheduled snapshot is stale, the shared
+            // read boundary can repair it through Python without holding
+            // payroll locks during the inter-service request. Later balance
+            // reads in this transaction reuse the validated projection ref.
+            if (!$isTestWorkspace && !$preparationOnly && !empty($childrenDeductions)) {
+                ReadReplicaService::qualifiedRef('student_fee_balances');
+            }
+
             // Start transaction
             $this->db->beginTransaction();
 
@@ -2516,7 +2578,7 @@ class FinanceAPI extends BaseAPI
             $childFeesBreakdown = [];
             if (!empty($childrenDeductions)) {
                 $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-                $termId = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1")->fetchColumn();
+                $termId = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1")->fetchColumn();
 
                 foreach ($childrenDeductions as $deduction) {
                     $studentId = $deduction['student_id'] ?? null;
@@ -2754,15 +2816,15 @@ class FinanceAPI extends BaseAPI
         $sql = "SELECT sc.id AS staff_child_id, sc.student_id,
                        sc.fee_deduction_percentage, sc.fee_deduction_amount,
                        vfb.student_academic_enrollment_id AS fee_invoice_id,
-                       (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1) AS academic_year_id,
+                       (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " is_current = 1 LIMIT 1) AS academic_year_id,
                        vfb.academic_year_term_id AS term_id,
                        COALESCE(vfb.balance, 0) AS fee_balance
-                FROM staff_children sc
+                FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc
                 LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                   ON vfb.student_id = sc.student_id
                  AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1)
-                 AND vfb.academic_year_term_id = (SELECT ayt.id FROM academic_year_terms ayt
-                      JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 AND vfb.academic_year_term_id = (SELECT ayt.id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
+                      JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                       WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1)
                 WHERE sc.staff_id = ? AND sc.fee_deduction_enabled = 1
                 ORDER BY sc.id";
@@ -2898,12 +2960,12 @@ class FinanceAPI extends BaseAPI
                         spp.kra_pin,
                         spp.nssf_no,
                         spp.nhif_no
-                    FROM payslips ps
-                    JOIN staff s ON ps.staff_id = s.id
-                    LEFT JOIN persons p ON p.id = s.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                    JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON ps.staff_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                    LEFT JOIN departments d ON d.id = sep.department_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
                     WHERE ps.id = ? AND $psScope AND $sScope";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge([$payrollId], $psParams, $sParams));
@@ -2933,12 +2995,7 @@ class FinanceAPI extends BaseAPI
                                             st.admission_no,
                                             CONCAT(p.first_name, ' ', p.last_name) AS student_name,
                                             c.name AS class_name
-                                        FROM students st
-                                        LEFT JOIN persons p ON p.id = st.person_id
-                                        LEFT JOIN student_academic_enrollments sae ON sae.student_id = st.id AND sae.enrollment_status = 'active'
-                                        LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                                        LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                                        LEFT JOIN classes c ON c.id = ayc.class_id
+                                        FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                                         WHERE st.id = ?
                                         LIMIT 1";
                         $childrenStmt = $this->db->prepare($childrenSql);
@@ -2996,7 +3053,7 @@ class FinanceAPI extends BaseAPI
             $totalStaff = $staffStmt->fetchColumn();
 
             // Staff with children
-            $childrenStmt = $this->db->prepare("SELECT COUNT(DISTINCT sc.staff_id) FROM staff_children sc JOIN staff s ON s.id=sc.staff_id WHERE $sScope");
+            $childrenStmt = $this->db->prepare("SELECT COUNT(DISTINCT sc.staff_id) FROM " . ReadReplicaService::qualifiedRef("staff_children") . " sc JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=sc.staff_id WHERE $sScope");
             $childrenStmt->execute($sParams);
             $staffWithChildren = $childrenStmt->fetchColumn();
 
@@ -3113,13 +3170,13 @@ class FinanceAPI extends BaseAPI
                         ps.paye_tax AS paye_deduction,
                         ps.other_deductions_total AS other_deductions,
                         pr.status AS payroll_run_status
-                    FROM payslips ps
-                    LEFT JOIN payroll_runs pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year AND pr.data_scope COLLATE utf8mb4_unicode_ci = ps.data_scope COLLATE utf8mb4_unicode_ci
-                    JOIN staff s ON ps.staff_id = s.id
-                    LEFT JOIN persons p ON p.id = s.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year AND pr.data_scope = ps.data_scope
+                    JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON ps.staff_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                    LEFT JOIN departments d ON d.id = sep.department_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
                     WHERE $psScope AND $sScope";
             $params = array_merge($psParams, $sParams);
 
@@ -3451,12 +3508,12 @@ class FinanceAPI extends BaseAPI
                     CASE WHEN COALESCE(b.allocated, 0) > 0
                         THEN ROUND(COALESCE(e_spent.spent, 0) / b.allocated * 100, 2)
                         ELSE 0 END AS utilization_percent
-                FROM departments d
-                LEFT JOIN (SELECT description, SUM(total_amount) AS allocated FROM budgets
+                FROM " . ReadReplicaService::qualifiedRef("departments") . " d
+                LEFT JOIN (SELECT description, SUM(total_amount) AS allocated FROM " . ReadReplicaService::qualifiedRef("budgets") . "
                            WHERE description LIKE '[dept_id:%]%' AND status IN ('approved', 'active')
                            GROUP BY description) b ON b.description LIKE CONCAT('%[dept_id:', d.id, ']%')
-                LEFT JOIN (SELECT department_id, SUM(amount) AS spent FROM expenses WHERE status IN ('approved','paid') GROUP BY department_id) e_spent ON e_spent.department_id = d.id
-                LEFT JOIN (SELECT department_id, SUM(amount) AS pending FROM expenses WHERE status = 'pending' GROUP BY department_id) e_pending ON e_pending.department_id = d.id
+                LEFT JOIN (SELECT department_id, SUM(amount) AS spent FROM " . ReadReplicaService::qualifiedRef("expenses") . " WHERE status IN ('approved','paid') GROUP BY department_id) e_spent ON e_spent.department_id = d.id
+                LEFT JOIN (SELECT department_id, SUM(amount) AS pending FROM " . ReadReplicaService::qualifiedRef("expenses") . " WHERE status = 'pending' GROUP BY department_id) e_pending ON e_pending.department_id = d.id
                 ORDER BY d.name
             ");
             $departments = $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -3532,9 +3589,10 @@ class FinanceAPI extends BaseAPI
                 // existing drafts are already prepared and are not failures.
                 if ($preparationOnly) {
                     $existingStmt = $this->db->prepare(
-                        'SELECT id, payslip_status FROM payslips
+                        'SELECT id, payslip_status FROM ' . ReadReplicaService::qualifiedRef('payslips') . '
                          WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
-                           AND data_scope = (SELECT data_scope FROM staff WHERE id = ?)
+                           AND data_scope =
+                               (SELECT staff.data_scope FROM ' . ReadReplicaService::qualifiedRef('staff') . ' WHERE id = ?)
                          LIMIT 1'
                     );
                     $existingStmt->execute([(int) $staffId, (int) $month, (int) $year, (int) $staffId]);
@@ -3600,8 +3658,8 @@ class FinanceAPI extends BaseAPI
                 throw new Exception('Payroll must be approved by the director before payment can be released');
             }
 
-            $runStmt = $this->db->prepare("SELECT id, month, year, status FROM payroll_runs WHERE data_scope='live' AND month = (SELECT payroll_month FROM payslips WHERE id = ? AND data_scope='live') AND year = (SELECT payroll_year FROM payslips WHERE id = ? AND data_scope='live') LIMIT 1");
-            $runStmt->execute([$payrollId, $payrollId]);
+            $runStmt = $this->db->prepare("SELECT pr_id AS id, pr_month AS month, pr_year AS year, pr_status AS status FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND pr_data_scope='live' AND ps_data_scope='live' LIMIT 1");
+            $runStmt->execute([$payrollId]);
             $run = $runStmt->fetch(PDO::FETCH_ASSOC);
             if (!$run || $run['status'] !== 'approved') {
                 throw new Exception('The payroll run must be approved before payment can be released.');

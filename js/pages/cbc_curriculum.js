@@ -7,6 +7,10 @@ const CBCController = {
         strands: [],
         learningAreas: [],
         competencies: [],
+        years: [],
+        currentYearId: 0,
+        canManage: false,
+        summary: null,
     },
     esc: (s) => {
         const d = document.createElement('div');
@@ -20,12 +24,20 @@ const CBCController = {
     async init() {
         await window.AuthContext?.ready?.();
         if (!AuthContext.isAuthenticated()) return;
+        const roles = window.AuthContext?.getRoles?.() || [];
+        this.state.canManage = roles.some(role => {
+            const name = String(typeof role === 'object' ? (role.name || role.role_name || '') : role).toLowerCase();
+            return name === 'school administrator' || Number(role?.id || role) === 4;
+        });
+        document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.state.canManage));
         await this.loadReferences();
         this.setupFilters();
         await this.loadSubStrands();
         await this.loadLearningOutcomes();
         await this.loadCrosswalks();
+        this.updateSummaryCounts();
         this.bindEvents();
+        this.bindLearningAreaManagement();
     },
     async callAPI(endpoint, method, data) {
         const r = await window.API.apiCall(endpoint, method, data || undefined);
@@ -33,14 +45,118 @@ const CBCController = {
     },
     async loadReferences() {
         const [las, strands, comps] = await Promise.all([
-            this.callAPI('/academic/learning-areas', 'GET'),
+            this.callAPI('/academic/learning-areas' + (this.state.canManage ? '?include_inactive=1' : ''), 'GET'),
             this.callAPI('/academic/strands', 'GET'),
             this.callAPI('/academic/core-competencies', 'GET'),
         ]);
-        this.state.learningAreas = Array.isArray(las) ? las : [];
-        this.state.strands = Array.isArray(strands) ? strands : [];
-        this.state.competencies = Array.isArray(comps) ? comps : [];
+        this.state.learningAreas = this.toRows(las);
+        this.state.strands = this.toRows(strands);
+        this.state.competencies = this.toRows(comps);
+        try {
+            const summary = await this.callAPI('/academic/curriculum-summary' + (this.state.canManage ? '?include_inactive=1' : ''), 'GET');
+            this.state.summary = summary && !Array.isArray(summary) ? (summary.data || summary) : null;
+        } catch (error) {
+            console.warn('Could not load CBC summary:', error);
+        }
+        try {
+            this.state.years = this.toRows(await this.callAPI('/academic/years/list?limit=100', 'GET'));
+            const current = this.state.years.find(year => Number(year.is_current) === 1 || year.is_current === true);
+            this.state.currentYearId = Number(current?.id || this.state.years[0]?.id || 0);
+        } catch (error) {
+            console.warn('Could not load academic years for curriculum management:', error);
+        }
         this.populateSelects();
+        this.populateMainFilters();
+        this.renderCurriculumEntries();
+        this.updateSummaryCounts();
+    },
+    toRows(value) {
+        if (Array.isArray(value)) return value;
+        if (Array.isArray(value?.data)) return value.data;
+        if (Array.isArray(value?.items)) return value.items;
+        if (Array.isArray(value?.years)) return value.years;
+        if (Array.isArray(value?.data?.items)) return value.data.items;
+        return [];
+    },
+    populateMainFilters() {
+        const areaSelect = document.getElementById('learningAreaFilter');
+        if (areaSelect) {
+            areaSelect.innerHTML = '<option value="">All Learning Areas</option>' + this.state.learningAreas.map(area => `<option value="${area.id}">${this.esc(area.name)}</option>`).join('');
+        }
+        const grades = [...new Set(this.state.learningAreas.flatMap(area => String(area.levels || '').split(',').map(grade => grade.trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b, undefined, {numeric:true}));
+        const gradeSelect = document.getElementById('gradeLevelFilter');
+        if (gradeSelect) gradeSelect.innerHTML = '<option value="">All Grade Levels</option>' + grades.map(grade => `<option>${this.esc(grade)}</option>`).join('');
+        const strandSelect = document.getElementById('strandFilter');
+        if (strandSelect) strandSelect.innerHTML = '<option value="">All Strands</option>' + this.state.strands.map(strand => `<option value="${strand.id}">${this.esc(strand.code || '')} · ${this.esc(strand.name || '')}</option>`).join('');
+    },
+    renderCurriculumEntries() {
+        const tbody = document.getElementById('curriculumTableBody');
+        if (!tbody) return;
+        const areaId = document.getElementById('learningAreaFilter')?.value || '';
+        const grade = document.getElementById('gradeLevelFilter')?.value || '';
+        const strandId = document.getElementById('strandFilter')?.value || '';
+        const search = (document.getElementById('searchCurriculum')?.value || '').trim().toLowerCase();
+        const strandAreaIds = strandId ? new Set(this.state.strands.filter(strand => Number(strand.id) === Number(strandId)).map(strand => Number(strand.learning_area_id))) : null;
+        const areas = this.state.learningAreas.filter(area => {
+            const levels = String(area.levels || '').split(',').map(value => value.trim());
+            if (areaId && Number(area.id) !== Number(areaId)) return false;
+            if (grade && !levels.includes(grade)) return false;
+            if (strandAreaIds && !strandAreaIds.has(Number(area.id))) return false;
+            if (search && !`${area.name || ''} ${area.code || ''} ${area.levels || ''}`.toLowerCase().includes(search)) return false;
+            return true;
+        });
+        const perPage = 25;
+        const pages = Math.max(1, Math.ceil(areas.length / perPage));
+        this.state.areaPage = Math.min(Math.max(1, this.state.areaPage || 1), pages);
+        const start = (this.state.areaPage - 1) * perPage;
+        const visible = areas.slice(start, start + perPage);
+        tbody.innerHTML = visible.length ? visible.map((area, index) => {
+            const active = String(area.status || '').toLowerCase() === 'active';
+            const actionButtons = this.state.canManage ? `<button class="btn btn-sm btn-outline-primary me-1" data-assign-learning-area="${area.id}"><i class="bi bi-diagram-2"></i> Assign</button><button class="btn btn-sm ${active ? 'btn-outline-danger' : 'btn-outline-success'}" data-lifecycle-learning-area="${area.id}" data-active="${active ? '1' : '0'}">${active ? 'Propose deactivation' : 'Propose activation'}</button>` : '—';
+            return `<tr><td>${start + index + 1}</td><td><code>${this.esc(area.code || '')}</code></td><td><strong>${this.esc(area.name || '')}</strong>${area.description ? `<div class="small text-muted">${this.esc(area.description)}</div>` : ''}</td><td>${this.esc(area.levels || area.level_band || '—')}</td><td><span class="badge text-bg-${active ? 'success' : 'secondary'}">${this.esc(area.status || 'unknown')}</span></td><td class="text-nowrap">${actionButtons}</td></tr>`;
+        }).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">No learning areas match these filters.</td></tr>';
+        document.getElementById('showingFrom').textContent = areas.length ? String(start + 1) : '0';
+        document.getElementById('showingTo').textContent = String(Math.min(start + perPage, areas.length));
+        document.getElementById('totalRecords').textContent = String(areas.length);
+        const pagination = document.getElementById('pagination');
+        if (pagination) pagination.innerHTML = pages > 1 ? Array.from({length: pages}, (_, index) => `<li class="page-item ${index + 1 === this.state.areaPage ? 'active' : ''}"><button class="page-link" data-area-page="${index + 1}">${index + 1}</button></li>`).join('') : '';
+        tbody.querySelectorAll('[data-assign-learning-area]').forEach(button => button.addEventListener('click', () => this.openAssignmentModal(Number(button.dataset.assignLearningArea))));
+        tbody.querySelectorAll('[data-lifecycle-learning-area]').forEach(button => button.addEventListener('click', () => this.proposeAreaLifecycle(Number(button.dataset.lifecycleLearningArea), button.dataset.active === '1')));
+        pagination?.querySelectorAll('[data-area-page]').forEach(button => button.addEventListener('click', () => { this.state.areaPage = Number(button.dataset.areaPage); this.renderCurriculumEntries(); }));
+    },
+    filteredLearningAreas() {
+        const areaId = document.getElementById('learningAreaFilter')?.value || '';
+        const grade = document.getElementById('gradeLevelFilter')?.value || '';
+        const strandId = document.getElementById('strandFilter')?.value || '';
+        const search = (document.getElementById('searchCurriculum')?.value || '').trim().toLowerCase();
+        const strandAreaIds = strandId ? new Set(this.state.strands.filter(strand => Number(strand.id) === Number(strandId)).map(strand => Number(strand.learning_area_id))) : null;
+        return this.state.learningAreas.filter(area => {
+            const levels = String(area.levels || '').split(',').map(value => value.trim());
+            return (!areaId || Number(area.id) === Number(areaId))
+                && (!grade || levels.includes(grade))
+                && (!strandAreaIds || strandAreaIds.has(Number(area.id)))
+                && (!search || `${area.name || ''} ${area.code || ''} ${area.levels || ''}`.toLowerCase().includes(search));
+        });
+    },
+    exportLearningAreas() {
+        if (window.AuthContext?.canExport && !window.AuthContext.canExport('curriculum')) return window.showNotification?.('You do not have permission to export curriculum data.', 'error');
+        const quote = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const lines = [['Code', 'Learning Area', 'Applicable Grades', 'Status'], ...this.filteredLearningAreas().map(area => [area.code, area.name, area.levels || area.level_band, area.status])];
+        const csv = lines.map(row => row.map(quote).join(',')).join('\r\n');
+        window.KingswayFileLifecycle?.exportText(csv, `cbc_learning_areas_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    },
+    updateSummaryCounts() {
+        const summary = this.state.summary || {};
+        const counts = {
+            totalLearningAreas: Number(summary.learning_areas ?? this.state.learningAreas.length),
+            totalStrands: Number(summary.strands ?? this.state.strands.length),
+            totalSubStrands: Number(summary.sub_strands ?? this.state.subStrands.length),
+            totalLearningOutcomes: Number(summary.learning_outcomes ?? this.state.learningOutcomes.length),
+        };
+        Object.entries(counts).forEach(([id, count]) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = String(count);
+        });
     },
     populateSelects() {
         const laOpts = (sel, empty) => {
@@ -114,6 +230,104 @@ const CBCController = {
         document.getElementById('saveCwBtn')?.addEventListener('click', () => this.saveCrosswalk());
     },
 
+    bindLearningAreaManagement() {
+        const addButton = document.getElementById('addLearningAreaBtn');
+        addButton?.addEventListener('click', () => bootstrap.Modal.getOrCreateInstance(document.getElementById('learningAreaCreateModal')).show());
+        document.getElementById('saveLearningAreaBtn')?.addEventListener('click', () => this.createLearningArea());
+        document.getElementById('saveLearningAreaAssignmentBtn')?.addEventListener('click', () => this.saveLearningAreaAssignment());
+        document.getElementById('assignLearningAreaYear')?.addEventListener('change', () => this.loadAssignmentClasses());
+        ['learningAreaFilter', 'gradeLevelFilter', 'strandFilter'].forEach(id => document.getElementById(id)?.addEventListener('change', () => {
+            this.state.areaPage = 1;
+            this.renderCurriculumEntries();
+        }));
+        document.getElementById('searchCurriculum')?.addEventListener('input', () => {
+            clearTimeout(this._areaSearchTimer);
+            this._areaSearchTimer = setTimeout(() => { this.state.areaPage = 1; this.renderCurriculumEntries(); }, 250);
+        });
+        const yearSelect = document.getElementById('assignLearningAreaYear');
+        if (yearSelect) {
+            yearSelect.innerHTML = this.state.years.map(year => `<option value="${Number(year.id)}" ${Number(year.id) === this.state.currentYearId ? 'selected' : ''}>${this.esc(year.year_name || year.name || year.academic_year || year.year || year.id)}</option>`).join('');
+        }
+        document.getElementById('exportCurriculumBtn')?.addEventListener('click', () => this.exportLearningAreas());
+        document.getElementById('printCurriculumBtn')?.addEventListener('click', () => {
+            if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('curriculum')) return window.showNotification?.('You do not have permission to print curriculum data.', 'error');
+            window.print();
+        });
+    },
+
+    async createLearningArea() {
+        if (!this.state.canManage) return;
+        const name = document.getElementById('newLearningAreaName')?.value.trim();
+        const code = document.getElementById('newLearningAreaCode')?.value.trim();
+        const levels = [...(document.getElementById('newLearningAreaGrades')?.selectedOptions || [])].map(option => option.value);
+        if (!name || !code || !levels.length) return window.showNotification?.('Name, code, and at least one applicable grade are required.', 'error');
+        try {
+            await this.callAPI('/academic/learning-areas/create', 'POST', {name, code, levels: levels.join(', '), description: document.getElementById('newLearningAreaDescription')?.value.trim() || '', is_optional: 0});
+            bootstrap.Modal.getInstance(document.getElementById('learningAreaCreateModal'))?.hide();
+            document.getElementById('newLearningAreaName').value = '';
+            document.getElementById('newLearningAreaCode').value = '';
+            document.getElementById('newLearningAreaDescription').value = '';
+            window.showNotification?.('Learning area added to the school syllabus.', 'success');
+            await this.loadReferences();
+        } catch (error) { window.showNotification?.(error.message || 'Could not add learning area.', 'error'); }
+    },
+
+    openAssignmentModal(areaId) {
+        if (!this.state.canManage) return;
+        document.getElementById('assignLearningAreaId').value = String(areaId);
+        const yearSelect = document.getElementById('assignLearningAreaYear');
+        if (yearSelect && this.state.currentYearId) yearSelect.value = String(this.state.currentYearId);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('learningAreaAssignModal')).show();
+        this.loadAssignmentClasses();
+    },
+
+    async loadAssignmentClasses() {
+        const container = document.getElementById('assignLearningAreaClasses');
+        const yearId = Number(document.getElementById('assignLearningAreaYear')?.value || 0);
+        if (!container || !yearId) { if (container) container.textContent = 'Choose an academic year to load its classes.'; return; }
+        container.textContent = 'Loading classes…';
+        try {
+            const rows = this.toRows(await this.callAPI(`/academic/classes/list?academic_year_id=${yearId}&limit=100`, 'GET'));
+            if (!rows.length) { container.textContent = 'No active classes found for this academic year.'; return; }
+            container.innerHTML = rows.map(row => {
+                const id = Number(row.academic_year_class_id || row.id || 0);
+                const label = row.class_name || row.name || row.grade_level || `Class ${id}`;
+                return `<label class="form-check d-flex gap-2 mb-2"><input class="form-check-input mt-1" type="checkbox" value="${id}" data-assignment-class><span>${this.esc(label)}${row.stream_names ? ` · ${this.esc(row.stream_names)}` : ''}</span></label>`;
+            }).join('');
+        } catch (error) { container.textContent = error.message || 'Could not load classes.'; }
+    },
+
+    async saveLearningAreaAssignment() {
+        if (!this.state.canManage) return;
+        const classIds = [...document.querySelectorAll('[data-assignment-class]:checked')].map(input => Number(input.value)).filter(Boolean);
+        try {
+            await this.callAPI('/academic/learning-areas/assign', 'POST', {learning_area_id: Number(document.getElementById('assignLearningAreaId').value), academic_year_id: Number(document.getElementById('assignLearningAreaYear').value), academic_year_class_ids: classIds});
+            bootstrap.Modal.getInstance(document.getElementById('learningAreaAssignModal'))?.hide();
+            window.showNotification?.('Learning area assigned to selected classes.', 'success');
+        } catch (error) { window.showNotification?.(error.message || 'Could not assign learning area.', 'error'); }
+    },
+
+    async proposeAreaLifecycle(areaId, currentlyActive) {
+        if (!this.state.canManage) return;
+        const area = this.state.learningAreas.find(item => Number(item.id) === Number(areaId));
+        const yearId = this.state.currentYearId;
+        if (!area || !yearId) return window.showNotification?.('An academic year is required for a curriculum proposal.', 'error');
+        const rationale = window.prompt(`Why should ${currentlyActive ? 'this learning area be deactivated' : 'this learning area be activated'}?`);
+        if (!rationale?.trim()) return;
+        try {
+            const proposal = await this.callAPI('/academic/curriculum-proposals', 'POST', {
+                entity_type: 'learning_area', change_action: currentlyActive ? 'remove' : 'update',
+                target_entity_id: Number(area.id), learning_area_id: Number(area.id), grade_level: '',
+                academic_year_id: yearId, rationale: rationale.trim(), change_source: 'school',
+                proposed_data: currentlyActive ? {} : {name: area.name, code: area.code, level_band: area.level_band || '', description: area.description || '', levels: area.levels || '', status: 'active', is_optional: Number(area.is_optional || 0)},
+            });
+            const proposalId = Number(proposal?.id || proposal?.proposal_id || proposal?.data?.id || 0);
+            if (!proposalId) throw new Error('The proposal was saved, but no proposal ID was returned for submission.');
+            await this.callAPI('/academic/curriculum-proposals-submit', 'POST', {proposal_id: proposalId});
+            window.showNotification?.('Change submitted for School Administrator review.', 'success');
+        } catch (error) { window.showNotification?.(error.message || 'Could not submit the curriculum proposal.', 'error'); }
+    },
+
     // ==================== SUB-STRANDS ====================
     async loadSubStrands() {
         try {
@@ -144,6 +358,7 @@ const CBCController = {
             });
             this.state.subStrands = data;
             this.renderSubStrands();
+            this.updateSummaryCounts();
         } catch (e) { console.error('loadSubStrands:', e); }
     },
     renderSubStrands() {
@@ -256,6 +471,7 @@ const CBCController = {
             }
             this.state.learningOutcomes = data;
             this.renderLearningOutcomes();
+            this.updateSummaryCounts();
         } catch (e) { console.error('loadLearningOutcomes:', e); }
     },
     renderLearningOutcomes() {

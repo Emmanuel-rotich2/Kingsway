@@ -656,9 +656,7 @@ return $this->serverError('An internal error occurred.');
         $draftId = (int) ($id ?? $data['draft_id'] ?? $segments[0] ?? 0);
         if ($draftId < 1) return $this->badRequest('draft_id is required');
         try {
-            $stmt = $this->getDb()->getConnection()->prepare('SELECT workflow_id FROM ai_workflow_drafts WHERE id = ? LIMIT 1');
-            $stmt->execute([$draftId]);
-            $workflow = (string) ($stmt->fetchColumn() ?: '');
+            $workflow = $this->contract(AiDraftService::class)->workflowIdForDraft($this->getDb()->getConnection(), $draftId);
             if (!in_array($workflow, ['attendance.exception_summary', 'attendance.lateness_pattern_review'], true)) {
                 return $this->respond(null, 'This draft does not belong to an attendance review workflow.', 409, false);
             }

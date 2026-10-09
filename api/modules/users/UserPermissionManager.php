@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\users;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 
@@ -21,6 +22,39 @@ class UserPermissionManager
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    /** Distinct user ids holding ANY of the given effective permission codes. */
+    public function userIdsWithPermissions(array $codes): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map('strval', $codes))));
+        if ($codes === []) return [];
+        $marks = implode(',', array_fill(0, count($codes), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT user_id FROM v_user_permissions_effective
+             WHERE permission_code IN ($marks) AND user_id IS NOT NULL AND user_id > 0"
+        );
+        $stmt->execute($codes);
+        return array_values(array_unique(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN))));
+    }
+
+    /** Effective permissions keyed by user id for the given user id set. */
+    public function effectivePermissionsByUser(array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($userIds === []) return [];
+        $marks = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT user_id, permission_code FROM v_user_permissions_effective WHERE user_id IN ($marks)"
+        );
+        $stmt->execute($userIds);
+        $byUser = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $uid = (int) ($row['user_id'] ?? 0);
+            $perm = trim((string) ($row['permission_code'] ?? ''));
+            if ($uid > 0 && $perm !== '') $byUser[$uid][] = $perm;
+        }
+        return $byUser;
     }
 
     // ============================================================================
@@ -570,4 +604,42 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
 
         return null;
     }
+
+    /** Account-level profile for a user (person fields + auth shapes). */
+    public function profileForUser(int $userId): array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT p.first_name, p.middle_name, p.last_name, p.email,
+                    p.phone, p.gender, p.dob AS date_of_birth,
+                    u.username, u.status, u.last_login
+             FROM users u
+             JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = u.person_id
+             WHERE u.id = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Display labels (username + full name) for a set of user ids. */
+    public function displayNamesById(array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($userIds === []) return [];
+        $marks = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT u.id AS user_id, u.username,
+                    CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
+             FROM users u
+             LEFT JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
+             WHERE u.id IN ($marks)"
+        );
+        $stmt->execute($userIds);
+        $names = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $names[(int) $row['user_id']] = ['username' => $row['username'], 'full_name' => $row['full_name']];
+        }
+        return $names;
+    }
+
+
 }

@@ -93,11 +93,51 @@ final class CurriculumPolicyWatchAgent
      *
      * @return array{status:string,source?:string,current_hash?:string,previous_hash?:string,job_id?:int,reason?:string}
      */
+    /**
+     * Authorities this agent watches. Each is dormant until its env source is
+     * configured (same pattern as KICD_POLICY_SOURCE): KNEC and Ministry of
+     * Education assessment pages change just as often as KNEC circulars, and
+     * staff need the same deterministic change alert for them.
+     */
+    public const AUTHORITIES = [
+        'kicd' => ['env' => 'KICD_POLICY_SOURCE', 'workflow' => self::WORKFLOW, 'event' => 'curriculum.policy_change'],
+        'knec' => ['env' => 'KNEC_POLICY_SOURCE', 'workflow' => null, 'event' => 'assessment.policy_change'],
+        'moe'  => ['env' => 'MOE_POLICY_SOURCE', 'workflow' => null, 'event' => 'assessment.policy_change'],
+    ];
+
+    /**
+     * Watch every configured authority (KICD + KNEC + MoE) with an independent
+     * baseline per authority. KNEC/MoE changes journal + broadcast an alert for
+     * staff review; LLM interpretation is only queued where a governed
+     * workflow is registered (KICD today).
+     */
+    public function runSources(PDO $pdo, array $options = []): array
+    {
+        $results = [];
+        foreach (self::AUTHORITIES as $authority => $specification) {
+            $source = trim((string) ($options['sources'][$authority] ?? (string) (Config::get($specification['env']) ?? '')));
+            if ($source === '') {
+                $results[$authority] = ['status' => 'no_source'];
+                continue;
+            }
+            $results[$authority] = $this->run($pdo, array_merge($options, [
+                'source' => $source,
+                'authority' => $authority,
+                'workflow' => $specification['workflow'],
+                'event' => $specification['event'],
+            ]));
+        }
+        return $results;
+    }
+
     public function run(PDO $pdo, array $options = []): array
     {
         $source = trim((string) ($options['source'] ?? ''));
+        $authority = trim((string) ($options['authority'] ?? 'kicd'));
+        $workflowOverride = $options['workflow'] ?? null;
+        $eventOverride = trim((string) ($options['event'] ?? ''));
         if ($source === '') {
-            $source = trim((string) (Config::get('KICD_POLICY_SOURCE') ?? ''));
+            $source = trim((string) (Config::get(self::AUTHORITIES[$authority]['env'] ?? 'KICD_POLICY_SOURCE') ?? ''));
         }
         $content = (string) ($options['content'] ?? '');
         if ($content === '') {
@@ -112,13 +152,15 @@ final class CurriculumPolicyWatchAgent
             return ['status' => 'no_content', 'source' => $source];
         }
 
+        $stateFile = $this->stateFileFor($authority);
+
         $content = mb_substr($content, 0, self::MAX_SOURCE_BYTES);
         $currentHash = CurriculumChangeDetector::hashContent($content);
-        $state = $this->readState();
+        $state = $this->readState($stateFile);
         $baselineHash = trim((string) ($state['baseline_hash'] ?? ''));
 
         if ($baselineHash === '') {
-            $this->writeState(['baseline_hash' => $currentHash, 'last_status' => 'first_baseline']);
+            $this->writeState(['baseline_hash' => $currentHash, 'last_status' => 'first_baseline'], $stateFile);
             $this->log('first_baseline', ['source' => $source, 'current_hash' => $currentHash]);
             return ['status' => 'first_baseline', 'source' => $source, 'current_hash' => $currentHash];
         }
@@ -127,6 +169,8 @@ final class CurriculumPolicyWatchAgent
             $this->log('unchanged', ['source' => $source, 'current_hash' => $currentHash]);
             return ['status' => 'unchanged', 'source' => $source, 'current_hash' => $currentHash];
         }
+        $workflow = $workflowOverride ?? self::WORKFLOW;
+        $eventName = $eventOverride !== '' ? $eventOverride : 'curriculum.policy_change';
 
         $operatorUserId = (int) ($options['operator_user_id'] ?? 0);
         if ($operatorUserId >= 1) {
@@ -156,19 +200,19 @@ final class CurriculumPolicyWatchAgent
             'current_hash' => $currentHash,
             'content' => mb_substr($content, 0, self::MAX_CONTENT_CHARS),
         ];
-        $jobId = call_user_func($this->queuer, self::JOB_TYPE, [
-            'workflow_id' => self::WORKFLOW,
+        $jobId = $workflow !== null ? call_user_func($this->queuer, self::JOB_TYPE, [
+            'workflow_id' => $workflow,
             'input' => $payload,
             'user_id' => $userId,
             'permissions' => $permissions,
-            'request_id' => 'scheduled:kicd:' . mb_substr($currentHash, 0, 12),
-        ]);
+            'request_id' => 'scheduled:' . $authority . ':' . mb_substr($currentHash, 0, 12),
+        ]) : 0;
         $this->writeState([
             'baseline_hash' => $currentHash,
             'last_status' => 'change_queued',
             'last_job_id' => $jobId,
             'last_source' => $source,
-        ]);
+        ], $stateFile);
         $this->log('change_queued', [
             'source' => $source,
             'previous_hash' => $baselineHash,
@@ -176,7 +220,8 @@ final class CurriculumPolicyWatchAgent
             'job_id' => $jobId,
             'operator_id' => $userId,
         ]);
-        call_user_func($this->broadcaster, $pdo, 'curriculum', 'curriculum.policy_change', [
+        call_user_func($this->broadcaster, $pdo, 'assessment', $eventName, [
+            'authority' => $authority,
             'source' => $source,
             'previous_hash' => $baselineHash,
             'current_hash' => $currentHash,
@@ -303,9 +348,23 @@ final class CurriculumPolicyWatchAgent
         return [$userId, $permissions];
     }
 
-    private function readState(): array
+    /** Per-authority baseline path; KICD keeps its historical location. */
+    private function stateFileFor(string $authority): string
     {
-        $raw = @file_get_contents($this->stateFile);
+        if ($authority === '' || $authority === 'kicd') {
+            return $this->stateFile;
+        }
+        $directory = dirname(__DIR__, 2) . '/storage/assessment_policy';
+        if (!is_dir($directory)) {
+            @mkdir($directory, 0775, true);
+        }
+        return $directory . '/' . strtolower($authority) . '_baseline.json';
+    }
+
+    private function readState(?string $stateFile = null): array
+    {
+        $target = $stateFile ?? $this->stateFile;
+        $raw = @file_get_contents($target);
         if ($raw === false) {
             return [];
         }
@@ -313,19 +372,20 @@ final class CurriculumPolicyWatchAgent
         return is_array($decoded) ? $decoded : [];
     }
 
-    private function writeState(array $state): void
+    private function writeState(array $state, ?string $stateFile = null): void
     {
-        $dir = dirname($this->stateFile);
+        $target = $stateFile ?? $this->stateFile;
+        $dir = dirname($target);
         if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
         }
         $state['updated_at'] = gmdate('c');
         $bytes = @file_put_contents(
-            $this->stateFile,
+            $target,
             json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL
         );
         if ($bytes === false) {
-            throw new DomainException('Unable to persist the KICD policy baseline state.', 500);
+            throw new DomainException('Unable to persist the assessment policy baseline state.', 500);
         }
     }
 

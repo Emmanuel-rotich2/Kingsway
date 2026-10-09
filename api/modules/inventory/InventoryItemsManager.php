@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Inventory Items Manager
@@ -99,10 +100,10 @@ class InventoryItemsManager extends BaseAPI
                         ELSE 'In Stock'
                     END as stock_status,
                     DATEDIFF(i.expiry_date, CURDATE()) as days_to_expiry
-                FROM inventory_items i
-                LEFT JOIN inventory_categories c ON i.category_id = c.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
-                LEFT JOIN suppliers s ON i.supplier_id = s.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON i.supplier_id = s.id
                 $whereClause
                 ORDER BY i.$sort $order
                 LIMIT ? OFFSET ?
@@ -147,10 +148,10 @@ class InventoryItemsManager extends BaseAPI
                     i.last_purchase_date,
                     i.last_purchase_price,
                     i.last_audit_date
-                FROM inventory_items i
-                LEFT JOIN inventory_categories c ON i.category_id = c.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
-                LEFT JOIN suppliers s ON i.supplier_id = s.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON i.supplier_id = s.id
                 WHERE i.id = ?
             ";
             $stmt = $this->db->prepare($sql);
@@ -372,9 +373,9 @@ class InventoryItemsManager extends BaseAPI
                     c.category_name,
                     l.location_name,
                     (i.reorder_level - i.quantity_on_hand) as shortage_quantity
-                FROM inventory_items i
-                LEFT JOIN inventory_categories c ON i.category_id = c.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
                 WHERE i.quantity_on_hand <= i.reorder_level
                 AND i.status = 'active'
                 ORDER BY (i.reorder_level - i.quantity_on_hand) DESC
@@ -403,9 +404,9 @@ class InventoryItemsManager extends BaseAPI
                     c.category_name,
                     l.location_name,
                     DATEDIFF(i.expiry_date, CURDATE()) as days_to_expiry
-                FROM inventory_items i
-                LEFT JOIN inventory_categories c ON i.category_id = c.id
-                LEFT JOIN inventory_locations l ON i.location_id = l.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_locations") . " l ON i.location_id = l.id
                 WHERE i.expiry_date IS NOT NULL
                 AND i.expiry_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
                 AND i.status = 'active'
@@ -435,8 +436,8 @@ class InventoryItemsManager extends BaseAPI
                     COUNT(i.id) as item_count,
                     SUM(i.quantity_on_hand) as total_quantity,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM inventory_items i
-                LEFT JOIN inventory_categories c ON i.category_id = c.id
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
                 WHERE i.status = 'active'
                 GROUP BY c.id
                 ORDER BY total_value DESC

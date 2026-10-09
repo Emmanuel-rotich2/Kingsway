@@ -202,8 +202,8 @@ class HeadteacherAnalyticsService
         $stmtResults = $this->db->query("SELECT 
             AVG(marks_obtained) as average_score,
             COUNT(*) as total_results
-            FROM assessment_results ar
-            JOIN assessments a ON a.id = ar.assessment_id
+            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+            JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
             WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $resultsRow = $stmtResults->fetch(PDO::FETCH_ASSOC);
 
@@ -227,8 +227,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
             SUM(CASE WHEN marks_obtained BETWEEN 50 AND 74 THEN 1 ELSE 0 END) as average_performers,
             SUM(CASE WHEN marks_obtained < 50 THEN 1 ELSE 0 END) as low_performers
-            FROM assessment_results ar
-            JOIN assessments a ON a.id = ar.assessment_id
+            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+            JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
             WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
@@ -254,9 +254,9 @@ class HeadteacherAnalyticsService
                 DATEDIFF(NOW(), aa.created_at) as days_pending,
                 CONCAT(pp.first_name, ' ', pp.last_name) as parent_name,
                 COALESCE(pp.phone, pp.email, 'N/A') as contact
-            FROM admission_applications aa
-            LEFT JOIN parents pa ON aa.parent_id = pa.id
-            LEFT JOIN persons pp ON pa.person_id = pp.id
+            FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " pa ON aa.parent_id = pa.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pa.person_id = pp.id
             WHERE aa.status IN ('submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending')
               AND DATE(aa.created_at) BETWEEN ? AND ?
             ORDER BY aa.created_at ASC
@@ -283,21 +283,14 @@ class HeadteacherAnalyticsService
                 di.severity,
                 di.status,
                 di.action_taken,
-                CONCAT(p.first_name, ' ', p.last_name) as student_name,
-                st.admission_no,
+                TRIM(CONCAT(sd.first_name, ' ', sd.last_name)) as student_name,
+                sd.admission_no,
                 CASE 
-                    WHEN c.name = s.name THEN c.name
-                    WHEN s.name IS NULL THEN COALESCE(c.name, 'Unknown')
-                    ELSE CONCAT(c.name, ' - ', s.name)
+                    WHEN sd.stream_name IS NULL OR sd.stream_name = sd.class_name THEN COALESCE(sd.class_name, 'Unknown')
+                    ELSE CONCAT(sd.class_name, ' - ', sd.stream_name)
                 END as class_name
             FROM discipline_incidents di
-            LEFT JOIN student_academic_enrollments sae ON di.student_academic_enrollment_id = sae.id
-            LEFT JOIN students st ON sae.student_id = st.id
-            LEFT JOIN persons p ON st.person_id = p.id
-            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-            LEFT JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
-            LEFT JOIN classes c ON aac.class_id = c.id
-            LEFT JOIN streams s ON aycs.stream_id = s.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_directory") . " sd ON sd.enrollment_id = di.student_academic_enrollment_id
             WHERE di.status IN ('pending', 'escalated')
               AND di.incident_date BETWEEN ? AND ?
             ORDER BY 
@@ -361,21 +354,17 @@ class HeadteacherAnalyticsService
             // Map: class_streams → academic_year_class_streams
             $query = "SELECT 
                         CASE 
-                            WHEN c.name = s.name THEN c.name
-                            WHEN s.name IS NULL THEN COALESCE(c.name, 'Unknown')
-                            ELSE CONCAT(c.name, ' ', s.name)
+                            WHEN csd.stream_name IS NULL OR csd.stream_name = csd.class_name THEN COALESCE(csd.class_name, 'Unknown')
+                            ELSE CONCAT(csd.class_name, ' ', csd.stream_name)
                         END as class_name,
                         AVG(ar.marks_obtained) as average_score
-                      FROM assessment_results ar
-                      JOIN assessments a ON a.id = ar.assessment_id
-                      JOIN student_academic_enrollments sae ON ar.student_academic_enrollment_id = sae.id
-                      JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                      JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
-                      JOIN classes c ON aac.class_id = c.id
-                      JOIN streams s ON aycs.stream_id = s.id
+                      FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                      JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+                      JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON ar.student_academic_enrollment_id = sae.id
+                      JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
                       WHERE ar.is_submitted = 1 AND sae.enrollment_status = 'active'
                         AND a.assessment_date BETWEEN ? AND ?
-                      GROUP BY c.id, c.name, s.name
+                      GROUP BY csd.class_id, csd.class_name, csd.stream_name
                       ORDER BY average_score DESC
                       LIMIT 10";
             $stmt = $this->db->query($query, [$this->period['date_from'], $this->period['date_to']]);

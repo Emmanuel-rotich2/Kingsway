@@ -59,19 +59,16 @@ _CONFIDENTIAL_PATTERNS = tuple(
 
 # Nothing here may be answered from a school system context.
 _CONFIDENTIAL_REDIRECT = (
-    "That request touches how the system itself is built — its architecture, "
-    "file layout, database design or credentials. Those details are confidential "
-    "property of Kingsway Preparatory School and Angisoft Technologies, are not "
-    "available through this assistant, and your question was not sent to any "
-    "external service. For anything technical about the platform, please contact "
-    "Angisoft Technologies through the school's official channels — they built and "
-    "maintain the system and are the authorized technical and security contact."
+    "That asks how the system itself is built — its architecture, file layout, "
+    "database design or credentials. Those are confidential property of Kingsway "
+    "Preparatory School and Angisoft Technologies, are not available here, and "
+    "your question was not sent to any external service. For anything technical "
+    "about the platform, contact Angisoft Technologies through the school's "
+    "official channels."
 )
 _CONFIDENTIAL_NEXT_STEPS = [
-    "Contact Angisoft Technologies for technical questions about the platform.",
-    "Angisoft Technologies built and maintains the system and is the authorized "
-    "technical and security contact.",
-    "For school records, policies or reports, use the relevant module in this portal.",
+    "For technical platform questions, contact Angisoft Technologies.",
+    "For school records, policies or reports, use the relevant module.",
 ]
 
 _GREETINGS = tuple(
@@ -186,17 +183,16 @@ def greeting_response(question: str, agent: dict | None = None) -> dict:
         body = "You're welcome. Ask me about any module, report or pending review whenever you need it."
     elif _HELP.match(text):
         body = (
-            "I'm your staff co-worker. I can summarize your workspace, run authorized "
-            "reports, review pending approvals and explain school figures within your "
-            "role and permissions."
+            "I'm your staff co-worker: workspace summaries, authorized reports, "
+            "pending approvals, and school figures within your role."
         )
     elif _ACKS.match(text):
         body = "Understood. What would you like to look at next?"
     else:
         body = (
-            "Hello. I'm your staff co-worker for Kingsway Preparatory School. "
-            "I can summarize your workspace, surface anything pending your review, "
-            "and run authorized reports within your role."
+            "Hello. I'm your staff co-worker. I can summarize your workspace, "
+            "surface anything pending your review, and run authorized reports "
+            "within your role."
         )
     return {
         "status": "answered",

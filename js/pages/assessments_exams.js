@@ -798,9 +798,14 @@ const assessExamsCtrl = (() => {
     }
 
     try {
+      const assessmentId = Number(state.currentAssessment.id);
       await api("academic/assessments-mark-and-grade", "POST", {
-        assessment_id: Number(state.currentAssessment.id),
-        grading_data: rows,
+        assessment_id: assessmentId,
+        // Tokens come from the loaded sheet: the server refuses the whole save
+        // if a peer's marks changed since it was read.
+        grading_data: window.AssessmentMarks?.withTokens
+          ? window.AssessmentMarks.withTokens(assessmentId, rows)
+          : rows,
         is_final: !!isFinal,
       });
 
@@ -811,6 +816,18 @@ const assessExamsCtrl = (() => {
 
       await Promise.all([loadAssessments(state.assessmentPagination.page || 1), loadGradingResults(state.gradingPagination.page || 1)]);
     } catch (error) {
+      // 409 = someone else's marks changed. Reloading is safe here because the
+      // server rolled the whole save back, so nothing of ours was lost.
+      const conflicts = error?.data?.conflicts || error?.payload?.conflicts || [];
+      if (conflicts.length || error?.status === 409 || error?.code === 409) {
+        toast(
+          `Someone else changed ${conflicts.length || "some"} of these marks. `
+          + "The sheet has been reloaded — re-enter your marks.",
+          "warning",
+        );
+        await loadGradingResults(state.gradingPagination.page || 1);
+        return;
+      }
       toast(`Save failed: ${error.message}`, "error");
     }
   }

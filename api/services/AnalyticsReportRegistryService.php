@@ -146,7 +146,7 @@ final class AnalyticsReportRegistryService
         $stmt = $this->db->prepare(
             "SELECT DISTINCT md.*, owner.name AS owner_role_name
              FROM analytics_metric_definitions md
-             JOIN analytics_report_metrics arm ON arm.metric_definition_id = md.id
+             JOIN " . ReadReplicaService::qualifiedRef("analytics_report_metrics") . " arm ON arm.metric_definition_id = md.id
              JOIN analytics_report_definitions rd ON rd.id = arm.report_definition_id
              JOIN analytics_report_role_access ara
                ON ara.report_definition_id = rd.id
@@ -164,7 +164,7 @@ final class AnalyticsReportRegistryService
     {
         $stmt = $this->db->prepare(
             "SELECT md.*, arm.display_order, arm.is_primary
-             FROM analytics_report_metrics arm
+             FROM " . ReadReplicaService::qualifiedRef("analytics_report_metrics") . "
              JOIN analytics_metric_definitions md ON md.id = arm.metric_definition_id
              WHERE arm.report_definition_id = ?
                AND md.status = 'approved'
@@ -274,7 +274,7 @@ final class AnalyticsReportRegistryService
                        rr.completed_at, rr.as_of_at, rr.row_count, rr.duration_ms,
                        rr.warning_count, rr.warnings_json, rr.failure_code,
                        rr.failure_message, rr.result_summary_json
-                FROM analytics_report_runs rr
+                FROM " . ReadReplicaService::qualifiedRef("analytics_report_runs") . "
                 JOIN analytics_report_definitions rd ON rd.id = rr.report_definition_id
                 WHERE rr.id = ?";
         $params = [$runId];
@@ -409,6 +409,82 @@ final class AnalyticsReportRegistryService
             }
         }
         return $row;
+    }
+
+    /**
+     * Client-facing report definition allowlist.
+     *
+     * The registry rows are read with `SELECT rd.*`, so they carry internal
+     * implementation detail that must never reach a browser: the execution key
+     * (an internal handler name), the source type and source view name (schema
+     * disclosure), the full column mapping and filter definitions (a data
+     * dictionary), and the internal approval/author user IDs.
+     *
+     * This is an ALLOWLIST rather than a denylist so a column added to
+     * analytics_report_definitions later cannot silently start leaking.
+     * Server-side execution uses accessibleDefinition() directly and is
+     * unaffected; official PDF/CSV output carries report code, version, as-of
+     * date and the confidentiality classification as the reporting standard
+     * requires.
+     */
+    public function publicDefinition(array $definition): array
+    {
+        return array_intersect_key($definition, array_flip([
+            'id',
+            'code',
+            'version',
+            'title',
+            'description',
+            'decision_purpose',
+            'domain',
+            'category',
+            'grain',
+            'allowed_filters',
+            'required_filters',
+            'visualizations',
+            'export_formats',
+            'sensitivity',
+            'freshness_minutes',
+            'minimum_aggregation_size',
+            'status',
+            'is_current',
+            'scope_types',
+            'capabilities',
+        ]));
+    }
+
+    /**
+     * Client-facing metric definition allowlist.
+     *
+     * Drops the source view name, the source column map and the raw metric
+     * definition document, which together describe how the metric is computed
+     * against the database. The business-facing contract (name, purpose,
+     * formula, grain, freshness, sensitivity) is retained because the reporting
+     * standard requires every KPI to expose its definition, population and
+     * denominator.
+     */
+    public function publicMetric(array $metric): array
+    {
+        return array_intersect_key($metric, array_flip([
+            'id',
+            'code',
+            'version',
+            'name',
+            'description',
+            'business_purpose',
+            'domain',
+            'formula_text',
+            'grain',
+            'dimensions',
+            'calculation_mode',
+            'freshness_minutes',
+            'minimum_aggregation_size',
+            'sensitivity',
+            'status',
+            'is_current',
+            'is_primary',
+            'display_order',
+        ]));
     }
 
     private function userId(array $user): ?int

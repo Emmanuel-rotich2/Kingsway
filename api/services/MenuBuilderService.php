@@ -42,8 +42,8 @@ class MenuBuilderService
     public function getAllMenuItems(bool $activeOnly = true): array
     {
         $sql = "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain
-                FROM sidebar_menu_items mi
-                LEFT JOIN routes_registry r ON r.id = mi.route_id";
+                FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id";
         if ($activeOnly) {
             $sql .= " WHERE mi.is_active = 1";
         }
@@ -60,8 +60,8 @@ class MenuBuilderService
     {
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
-             FROM sidebar_menu_items mi
-             LEFT JOIN routes_registry r ON r.id = mi.route_id
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE mi.id = ?",
             [$id]
         );
@@ -75,8 +75,8 @@ class MenuBuilderService
     {
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
-             FROM sidebar_menu_items mi
-             LEFT JOIN routes_registry r ON r.id = mi.route_id
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE mi.parent_id = ? AND mi.is_active = 1
              ORDER BY mi.display_order",
             [$parentId]
@@ -201,9 +201,9 @@ class MenuBuilderService
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
                     rmi.is_default, rmi.custom_order
-             FROM sidebar_menu_items mi
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi
              JOIN role_sidebar_menus rmi ON rmi.menu_item_id = mi.id
-             LEFT JOIN routes_registry r ON r.id = mi.route_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE rmi.role_id = ? AND mi.is_active = 1
              ORDER BY COALESCE(rmi.custom_order, mi.display_order)",
             [$roleId]
@@ -387,7 +387,7 @@ class MenuBuilderService
             if ($staffRow) {
                 $staffId = (int) $staffRow['id'];
                 $stmt2 = $this->db->query(
-                    "SELECT DISTINCT c.level_id, c.name FROM vw_current_staff_assignments v JOIN classes c ON v.class_id = c.id WHERE v.staff_id = ?",
+                    "SELECT DISTINCT c.level_id, c.name FROM " . ReadReplicaService::qualifiedRef("vw_current_staff_assignments") . " JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON v.class_id = c.id WHERE v.staff_id = ?",
                     [$staffId]
                 );
                 $levels = $stmt2->fetchAll();

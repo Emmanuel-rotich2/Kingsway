@@ -1,6 +1,7 @@
 <?php
 
 namespace App\API\Modules\attendance;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Controllers\BaseController;
 
@@ -125,7 +126,7 @@ class AttendanceStaffService
                     if ($checkIn > $expectedPlus) $status = 'late';
                 }
                 $leave = $controller->getDb()->query("SELECT id FROM staff_leaves WHERE staff_id = ? AND ? BETWEEN start_date AND end_date AND status = 'approved'", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
-                $rosterOff = $controller->getDb()->query("SELECT sdr.id FROM staff_duty_roster sdr JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
+                $rosterOff = $controller->getDb()->query("SELECT sdr.id FROM " . ReadReplicaService::qualifiedRef("staff_duty_roster") . " JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
                 $patternOff = $controller->getDb()->query("SELECT id FROM staff_off_day_patterns WHERE staff_id = ? AND day_of_week = ? AND is_off = 1 AND ? >= effective_from AND (effective_to IS NULL OR ? <= effective_to)", [$staffId, $dayName, $date, $date])->fetch(\PDO::FETCH_ASSOC);
                 $isOffDay = ($rosterOff || $patternOff);
                 $isOnLeave = (bool)$leave;
@@ -161,7 +162,7 @@ class AttendanceStaffService
             $shift = $_GET['shift'] ?? 'full_day';
             $dayName = date('l', strtotime($date));
             $dayNumber = (int)date('N', strtotime($date));
-            $calEntry = $controller->getDb()->query("SELECT cdt.name AS day_type, acd.title, cdt.affects_day_students, cdt.affects_boarders FROM academic_year_calendar_days acd LEFT JOIN calendar_day_types cdt ON cdt.id = acd.calendar_day_type_id WHERE acd.date = ?", [$date])->fetch(\PDO::FETCH_ASSOC);
+            $calEntry = $controller->getDb()->query("SELECT type_name AS day_type, title, affects_day_students, affects_boarders FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " WHERE date = ?", [$date])->fetch(\PDO::FETCH_ASSOC);
             $dayType = $calEntry['day_type'] ?? ($dayNumber >= 6 ? 'weekend' : 'school_day');
             $eventName = $calEntry['title'] ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
             $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday']);
@@ -199,7 +200,7 @@ class AttendanceStaffService
             $joinDept = "LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id";
             $joinDuty = "";
             if ($dutyTypeId) { $joinDuty = "JOIN staff_duty_roster sdr ON sdr.staff_id = s.id AND sdr.date = sa.date"; $where[] = "sdr.duty_type_id = ?"; $params[] = (int)$dutyTypeId; }
-            $sql = "SELECT s.id, s.staff_no, CONCAT(p.first_name, ' ', p.last_name) AS staff_name, d.name AS department, sa.date, sa.status, sa.check_in, sa.check_out, sa.absence_reason, sa.notes FROM staff_attendance sa JOIN staff s ON s.id = sa.staff_id LEFT JOIN persons p ON p.id = s.person_id {$joinDept} LEFT JOIN departments d ON d.id = sda.department_id {$joinDuty} WHERE " . implode(' AND ', $where) . " ORDER BY p.last_name, sa.date";
+            $sql = "SELECT sd.staff_id AS id, sd.staff_no, sd.full_name AS staff_name, d.name AS department, sa.date, sa.status, sa.check_in, sa.check_out, sa.absence_reason, sa.notes FROM staff_attendance sa JOIN " . ReadReplicaService::qualifiedRef("staff_directory") . " sd ON sd.staff_id = sa.staff_id {$joinDept} LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id {$joinDuty} WHERE " . implode(' AND ', $where) . " ORDER BY sd.last_name, sa.date";
             $rows = $controller->getDb()->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
             $aggregate = ['present' => 0, 'absent' => 0, 'late' => 0, 'total' => 0];
             foreach ($rows as $r) { $aggregate[$r['status'] ?? 'absent']++; $aggregate['total']++; }

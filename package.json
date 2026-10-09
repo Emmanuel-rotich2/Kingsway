@@ -4,6 +4,7 @@
   "description": "Lightweight UI smoke tests for Kingsway dashboards",
   "scripts": {
     "test:ui": "node .github/scripts/public-ui-smoke.js",
+    "test:js": "node --test tests/js/*.test.js",
     "test:transport-ui": "node .github/scripts/transport-ui-smoke.js"
   },
   "dependencies": {

@@ -23,11 +23,11 @@ class SubjectTeacherAnalyticsService
         $sql = "SELECT COUNT(DISTINCT aac.id) as total_classes, 
                        COUNT(DISTINCT sae.student_id) as total_students,
                        IFNULL(ROUND(COUNT(DISTINCT sae.student_id)/NULLIF(COUNT(DISTINCT aac.id),0),0),0) as average_class_size
-                FROM academic_year_class_learning_area_teachers ayclat
-                JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
-                JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
-                LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " ayclat
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " aac ON aac.id = aycla.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = aac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON aycs.id = sae.academic_year_class_stream_id 
                   AND sae.enrollment_status = 'active'
                 WHERE ayclat.staff_id = ?";
         $stmt = $this->db->query($sql, [$this->userId]);
@@ -47,11 +47,11 @@ class SubjectTeacherAnalyticsService
         $sql = "SELECT COUNT(DISTINCT aycs.id) as total_sections, 
                        GROUP_CONCAT(DISTINCT c.name) as forms_taught, 
                        COUNT(DISTINCT aycs.id) as streams_count
-                FROM academic_year_class_learning_area_teachers ayclat
-                JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
-                JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
-                JOIN classes c ON aac.class_id = c.id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " ayclat
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " aac ON aac.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = aac.id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON aac.class_id = c.id
                 WHERE ayclat.staff_id = ?";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
@@ -70,12 +70,12 @@ class SubjectTeacherAnalyticsService
         $sql = "SELECT COUNT(DISTINCT a.id) as pending_assessments,
                        SUM(CASE WHEN a.assessment_date >= CURDATE() AND a.assessment_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as due_soon,
                        SUM(CASE WHEN a.assessment_date < CURDATE() THEN 1 ELSE 0 END) as overdue
-                FROM assessments a
-                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                   AND aycla.learning_area_id = a.learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                   AND aycs.id = a.academic_year_class_stream_id
                 WHERE a.status IN ('submitted','pending_approval')";
         $stmt = $this->db->query($sql, [$this->userId]);
@@ -83,13 +83,13 @@ class SubjectTeacherAnalyticsService
 
         // Count distinct students covered by these pending assessments (based on assessment_results)
         $studentCountSql = "SELECT COUNT(DISTINCT ar.student_academic_enrollment_id) as total_students_assessed
-                            FROM assessment_results ar
-                            JOIN assessments a ON ar.assessment_id = a.id
-                            JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                            JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                            JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
+                            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                               AND aycla.learning_area_id = a.learning_area_id
-                            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                            JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                               AND aycs.id = a.academic_year_class_stream_id
                             WHERE a.status IN ('submitted','pending_approval')";
         $scStmt = $this->db->query($studentCountSql, [$this->userId]);
@@ -111,13 +111,13 @@ class SubjectTeacherAnalyticsService
                        IFNULL(AVG(ar.marks_obtained),0) as average_score,
                        SUM(CASE WHEN ar.marks_obtained >= 70 THEN 1 ELSE 0 END) as high_performers,
                        SUM(CASE WHEN ar.marks_obtained < 40 THEN 1 ELSE 0 END) as low_performers
-                FROM assessment_results ar
-                JOIN assessments a ON ar.assessment_id = a.id
-                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                   AND aycla.learning_area_id = a.learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                   AND aycs.id = a.academic_year_class_stream_id
                 WHERE WEEK(ar.submitted_at) = WEEK(CURDATE()) AND ar.is_submitted = 1";
         $stmt = $this->db->query($sql, [$this->userId]);
@@ -138,14 +138,14 @@ class SubjectTeacherAnalyticsService
                        MIN(DATEDIFF(es.exam_date, CURDATE())) as next_exam_days,
                        COUNT(DISTINCT c.id) as forms_with_exams,
                        COUNT(DISTINCT es.id) as total_exam_sessions
-                FROM exam_schedules es
-                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("exam_schedules") . " es
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                   AND aycla.learning_area_id = es.learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                   AND aycs.id = es.academic_year_class_stream_id
-                JOIN classes c ON ayc.class_id = c.id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                 WHERE es.exam_date >= CURDATE()";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
@@ -182,12 +182,12 @@ class SubjectTeacherAnalyticsService
     {
         // Query DB for pending assessments list
         $sql = "SELECT a.id, a.academic_year_class_stream_id as class, a.title, a.assessment_date as due_date
-                FROM assessments a
-                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                   AND aycla.learning_area_id = a.learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                   AND aycs.id = a.academic_year_class_stream_id
                 WHERE a.status IN ('submitted','pending_approval')";
         $stmt = $this->db->query($sql, [$this->userId]);
@@ -203,12 +203,12 @@ class SubjectTeacherAnalyticsService
     {
         // Query DB for upcoming exam schedule scoped to this teacher via assignments
         $sql = "SELECT es.id, es.academic_year_class_stream_id as class, es.exam_date as date, es.start_time as time, es.room_id as room
-                FROM exam_schedules es
-                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("exam_schedules") . " es
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                   AND aycla.learning_area_id = es.learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                   AND aycs.id = es.academic_year_class_stream_id
                 WHERE es.exam_date >= CURDATE()
                 ORDER BY es.exam_date, es.start_time";
@@ -235,9 +235,9 @@ class SubjectTeacherAnalyticsService
                         END as class_name,
                         AVG(v.percentage) as average_score
                     FROM vw_assessment_results_detail v
-                    JOIN assessments a ON v.assessment_id = a.id
-                    JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                    JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                    JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON v.assessment_id = a.id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                       AND aycla.learning_area_id = a.learning_area_id
                     GROUP BY v.class_name, v.stream_name
                     ORDER BY average_score DESC
@@ -269,13 +269,13 @@ class SubjectTeacherAnalyticsService
                         DATE_FORMAT(ar.submitted_at, '%Y-%m') as month,
                         AVG(ar.marks_obtained) as average_score,
                         COUNT(DISTINCT a.id) as assessments_count
-                    FROM assessment_results ar
-                    JOIN assessments a ON ar.assessment_id = a.id
-                    JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
-                    JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                    FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                    JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " aclat ON aclat.staff_id = ?
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = aclat.academic_year_class_learning_area_id
                       AND aycla.learning_area_id = a.learning_area_id
-                    JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                    JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
                       AND aycs.id = a.academic_year_class_stream_id
                     WHERE ar.is_submitted = 1 
                         AND ar.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)

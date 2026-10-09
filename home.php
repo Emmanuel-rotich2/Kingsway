@@ -2,6 +2,7 @@
 // Main authenticated application shell.
 
 require_once __DIR__ . '/vendor/autoload.php';
+\App\Config\Config::init();
 
 $appBase = rtrim(
     str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),
@@ -13,6 +14,20 @@ if ($appBase === '.') {
 }
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
+$nodeRealtimeUrl = trim((string) \App\Config\Config::get(
+    'NODE_REALTIME_URL',
+    \App\Config\Config::get('NODE_REALTIME_PUBLIC_URL', '')
+));
+$nodeRealtimeParts = $nodeRealtimeUrl === '' ? false : parse_url($nodeRealtimeUrl);
+$nodeRealtimeOrigin = '';
+if (is_array($nodeRealtimeParts)
+    && in_array(strtolower((string) ($nodeRealtimeParts['scheme'] ?? '')), ['http', 'https'], true)
+    && !empty($nodeRealtimeParts['host'])
+    && !isset($nodeRealtimeParts['user'], $nodeRealtimeParts['pass'])) {
+    $nodeRealtimeOrigin = strtolower((string) $nodeRealtimeParts['scheme']) . '://'
+        . $nodeRealtimeParts['host']
+        . (isset($nodeRealtimeParts['port']) ? ':' . (int) $nodeRealtimeParts['port'] : '');
+}
 
 // Define the filesystem root so page files under pages/ can resolve
 // Absolute paths used by page asset helpers for cache-busting version parameters.
@@ -27,7 +42,11 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
+    $connectSources = "'self' http://localhost:* ws://localhost:*";
+    if ($nodeRealtimeOrigin !== '') {
+        $connectSources .= ' ' . $nodeRealtimeOrigin;
+    }
+    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -179,13 +198,22 @@ if (!headers_sent()) {
     ></script>
 
 <?php
+echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
+// Cache-bust the service worker registration URL: static proxy caches (nginx
+// proxy_cache in dev and production CDNs) can otherwise serve a stale SW
+// script at an unversioned URL for weeks, freezing every browser on an old
+// CACHE_VERSION. filemtime changes whenever service-worker.js is edited.
+$__swMtime = @filemtime(__DIR__ . '/service-worker.js');
+echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
 $files = [
     'js/api.js',
     'js/core/frontend_logger.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
+    'js/core/realtime_dispatch.js',
     'js/core/realtime_manager.js',
+    'js/core/realtime_sse.js',
     'js/core/connectivity_manager.js',
     'js/core/data_store.js',
     'js/core/storage_monitor.js',

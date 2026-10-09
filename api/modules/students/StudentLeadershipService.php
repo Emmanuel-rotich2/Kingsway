@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace App\API\Modules\students;
+use App\API\Services\ReadReplicaService;
 
 use PDO;
 
@@ -60,8 +61,8 @@ class StudentLeadershipService
     private function studentExists(int $id): bool
     {
         $stmt = $this->db->prepare(
-            "SELECT 1 FROM students st JOIN persons p ON p.id = st.person_id
-             WHERE st.id = ? AND p.data_scope = 'live'"
+            "SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " st
+             WHERE st.student_id = ? AND st.data_scope = 'live'"
         );
         $stmt->execute([$id]);
         return (bool) $stmt->fetchColumn();
@@ -163,21 +164,16 @@ class StudentLeadershipService
                    h.name AS house_name, h.code AS house_code, h.color AS house_color,
                    ay.year_name AS academic_year_name,
                    ayt.term_id AS term_number,
-                   TRIM(CONCAT(COALESCE(cls.name, ''), ' ', COALESCE(strm.name, ''))) AS class_stream
+                   TRIM(CONCAT(COALESCE(lp2.class_name, ''), ' ', COALESCE(lp2.stream_name, ''))) AS class_stream
             FROM school_leader l
-            JOIN leadership_positions lp ON lp.id = l.leadership_position_id
+            JOIN " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp ON lp.id = l.leadership_position_id
             JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
-            JOIN students st ON st.id = l.student_id
-            JOIN persons p ON p.id = st.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " st ON st.id = l.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
             LEFT JOIN houses h ON h.id = l.house_id
-            LEFT JOIN academic_years ay ON ay.id = l.academic_year_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id = l.academic_year_term_id
-            LEFT JOIN student_academic_enrollments sae ON sae.student_id = st.id
-                AND sae.academic_year_id = l.academic_year_id
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN streams strm ON strm.id = aycs.stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN classes cls ON cls.id = ayc.class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = l.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = l.academic_year_term_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp2 ON lp2.student_id = st.id AND lp2.academic_year_id = l.academic_year_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY lp.display_order ASC, p.first_name, p.last_name
         ";
@@ -207,16 +203,13 @@ class StudentLeadershipService
                    h.name AS house_name, h.code AS house_code, h.color AS house_color,
                    ay.year_code AS academic_year, ay.year_name,
                    ayt.term_id AS term_number,
-                   strm.name AS class_stream
+                   TRIM(CONCAT(COALESCE(lp2.class_name, ''), ' ', COALESCE(lp2.stream_name, ''))) AS class_stream
             FROM school_leader l
-            JOIN leadership_positions lp ON lp.id = l.leadership_position_id
+            JOIN " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp ON lp.id = l.leadership_position_id
             LEFT JOIN houses h ON h.id = l.house_id
-            LEFT JOIN academic_years ay ON ay.id = l.academic_year_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id = l.academic_year_term_id
-            LEFT JOIN student_academic_enrollments sae ON sae.student_id = l.student_id
-                AND sae.academic_year_id = l.academic_year_id
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN streams strm ON strm.id = aycs.stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = l.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = l.academic_year_term_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp2 ON lp2.student_id = l.student_id AND lp2.academic_year_id = l.academic_year_id
             WHERE l.student_id = ?
             ORDER BY l.academic_year_id DESC, l.academic_year_term_id DESC, lp.display_order ASC
         ");
@@ -231,8 +224,8 @@ class StudentLeadershipService
                    ay.year_code AS academic_year, ay.year_name,
                    ayt.term_id AS term_number
             FROM student_awards a
-            LEFT JOIN academic_years ay ON ay.id = a.academic_year_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id = a.academic_year_term_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = a.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
             WHERE a.student_id = ?
             ORDER BY COALESCE(a.issue_date, a.created_at) DESC
         ");
@@ -438,19 +431,104 @@ class StudentLeadershipService
      * POSITIONS & CATEGORIES (lookup)
      * =================================================================== */
 
-    public function positions(): array
+    public function positions(array $filters = []): array
     {
-        $stmt = $this->db->query("
+        $where = "lc.code = 'STUDENT_ORG'";
+        if (empty($filters['include_inactive'])) {
+            $where .= ' AND lp.is_active = 1';
+        }
+        $stmt = $this->db->prepare("
             SELECT lp.id, lp.name, lp.description, lp.display_order, lp.is_active,
                    lp.department_id, lp.max_holders,
                    lc.id AS leadership_category_id, lc.code AS leadership_category_code,
                    lc.name AS leadership_category_name, lc.holder_scope
-            FROM leadership_positions lp
+            FROM " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp
             JOIN leadership_categories lc ON lc.id = lp.leadership_category_id
-            WHERE lp.is_active = 1
+            WHERE {$where}
             ORDER BY lc.display_order, lp.display_order
         ");
+        $stmt->execute();
         return $this->ok($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function createPosition(array $data): array
+    {
+        $name = trim((string)($data['name'] ?? ''));
+        if ($name === '' || mb_strlen($name) > 150) {
+            return $this->fail(422, 'Position name is required and must be 150 characters or fewer');
+        }
+        $maxHolders = $data['max_holders'] ?? null;
+        if ($maxHolders !== null && $maxHolders !== '' && (filter_var($maxHolders, FILTER_VALIDATE_INT) === false || (int)$maxHolders < 1)) {
+            return $this->fail(422, 'Maximum holders must be a positive whole number');
+        }
+        $stmt = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE leadership_category_id = ? AND LOWER(name) = LOWER(?)");
+        $stmt->execute([self::STUDENT_ORGANISATION_CATEGORY_ID, $name]);
+        if ($stmt->fetchColumn()) {
+            return $this->fail(409, 'A student leadership position with this name already exists');
+        }
+        $stmt = $this->db->prepare("INSERT INTO leadership_positions
+            (leadership_category_id, name, description, max_holders, display_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            self::STUDENT_ORGANISATION_CATEGORY_ID,
+            $name,
+            trim((string)($data['description'] ?? '')) ?: null,
+            $maxHolders === null || $maxHolders === '' ? null : (int)$maxHolders,
+            (int)($data['display_order'] ?? 0),
+            array_key_exists('is_active', $data) ? (int)(bool)$data['is_active'] : 1,
+        ]);
+        return $this->created(['id' => (int)$this->db->lastInsertId()], 'Student leadership position created');
+    }
+
+    public function updatePosition(int $id, array $data): array
+    {
+        $check = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE id = ? AND leadership_category_id = ?");
+        $check->execute([$id, self::STUDENT_ORGANISATION_CATEGORY_ID]);
+        if (!$check->fetchColumn()) {
+            return $this->fail(404, 'Student leadership position not found');
+        }
+
+        $fields = [];
+        $params = [];
+        if (array_key_exists('name', $data)) {
+            $name = trim((string)$data['name']);
+            if ($name === '' || mb_strlen($name) > 150) {
+                return $this->fail(422, 'Position name is required and must be 150 characters or fewer');
+            }
+            $duplicate = $this->db->prepare("SELECT 1 FROM leadership_positions WHERE leadership_category_id = ? AND LOWER(name) = LOWER(?) AND id <> ?");
+            $duplicate->execute([self::STUDENT_ORGANISATION_CATEGORY_ID, $name, $id]);
+            if ($duplicate->fetchColumn()) {
+                return $this->fail(409, 'A student leadership position with this name already exists');
+            }
+            $fields[] = 'name = ?';
+            $params[] = $name;
+        }
+        foreach (['description', 'display_order', 'is_active', 'max_holders'] as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+            $value = $data[$field];
+            if ($field === 'description') {
+                $value = trim((string)$value) ?: null;
+            } elseif ($field === 'display_order') {
+                $value = (int)$value;
+            } elseif ($field === 'is_active') {
+                $value = (int)(bool)$value;
+            } elseif ($field === 'max_holders') {
+                if ($value !== null && $value !== '' && (filter_var($value, FILTER_VALIDATE_INT) === false || (int)$value < 1)) {
+                    return $this->fail(422, 'Maximum holders must be a positive whole number');
+                }
+                $value = ($value === null || $value === '') ? null : (int)$value;
+            }
+            $fields[] = "{$field} = ?";
+            $params[] = $value;
+        }
+        if (!$fields) {
+            return $this->ok(['id' => $id], 'Nothing to update');
+        }
+        $params[] = $id;
+        $this->db->prepare('UPDATE leadership_positions SET ' . implode(', ', $fields) . ' WHERE id = ?')->execute($params);
+        return $this->ok(['id' => $id], 'Student leadership position updated');
     }
 
     /* =====================================================================
@@ -468,12 +546,12 @@ class StudentLeadershipService
             SELECT h.id, h.name, h.code, h.motto, h.color, h.mascot, h.display_order,
                    h.is_active,
                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS patron_name,
-                   (SELECT COUNT(*) FROM students st JOIN persons p ON p.id=st.person_id
+                   (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("students") . " st JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=st.person_id
                       JOIN school_leader sl ON sl.student_id = st.id AND sl.house_id = h.id AND sl.is_active=1
                      WHERE p.data_scope='live') AS active_members
             FROM houses h
-            LEFT JOIN staff hs ON hs.id = h.patron_staff_id
-            LEFT JOIN persons sp ON sp.id = hs.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " hs ON hs.id = h.patron_staff_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = hs.person_id
             " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
             ORDER BY h.display_order, h.name
         ";
@@ -545,7 +623,7 @@ class StudentLeadershipService
     {
         $stmt = $this->db->prepare("
             SELECT c.id, c.code, c.name, c.description, c.sort_order
-            FROM student_award_categories c
+            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . " c
             WHERE c.is_active = 1
             ORDER BY c.sort_order, c.name
         ");
@@ -557,8 +635,8 @@ class StudentLeadershipService
                    t.description, t.number_prefix, t.signatory_label,
                    t.secondary_signatory_label, t.requires_certificate,
                    d.name AS department_name
-            FROM student_award_types t
-            LEFT JOIN departments d ON d.id = t.department_id
+            FROM " . ReadReplicaService::qualifiedRef("student_award_types") . " t
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = t.department_id
             WHERE t.is_active = 1
             ORDER BY t.sort_order, t.name
         ");
@@ -580,8 +658,8 @@ class StudentLeadershipService
         $stmt = $this->db->prepare("
             SELECT c.id, c.code, c.name, c.description, c.sort_order, c.is_active,
                    COUNT(t.id) AS type_count
-            FROM student_award_categories c
-            LEFT JOIN student_award_types t ON t.category_id = c.id
+            FROM " . ReadReplicaService::qualifiedRef("student_award_categories") . "
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_types") . " t ON t.category_id = c.id
             GROUP BY c.id
             ORDER BY c.sort_order, c.name
         ");
@@ -611,9 +689,9 @@ class StudentLeadershipService
                    t.secondary_signatory_label, t.requires_certificate, t.is_active,
                    t.sort_order, c.name AS category_name, c.code AS category_code,
                    d.name AS department_name
-            FROM student_award_types t
-            LEFT JOIN student_award_categories c ON c.id = t.category_id
-            LEFT JOIN departments d ON d.id = t.department_id
+            FROM " . ReadReplicaService::qualifiedRef("student_award_types") . " t
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_categories") . " c ON c.id = t.category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = t.department_id
         ";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
@@ -791,14 +869,14 @@ class StudentLeadershipService
                    ac.certificate_number AS generated_certificate_number,
                    ac.pdf_path AS certificate_pdf_path
             FROM student_awards a
-            JOIN students st ON st.id = a.student_id
-            JOIN persons p ON p.id = st.person_id
-            LEFT JOIN student_award_types t ON t.id = a.award_type_id
-            LEFT JOIN student_award_categories c ON c.id = t.category_id
-            LEFT JOIN departments d ON d.id = t.department_id
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " st ON st.id = a.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_types") . " t ON t.id = a.award_type_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_categories") . " c ON c.id = t.category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = t.department_id
             LEFT JOIN student_award_certificates ac ON ac.award_id = a.id
-            LEFT JOIN academic_years ay ON ay.id = a.academic_year_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id = a.academic_year_term_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = a.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY COALESCE(a.issue_date, a.created_at) DESC
         ";

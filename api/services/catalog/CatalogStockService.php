@@ -8,6 +8,7 @@ use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\SvgWriter;
 use PDO;
 use RuntimeException;
+use App\API\Services\ReadReplicaService;
 
 /** Unit-level stock identity, scanner events, receipt intake and governed offers. */
 final class CatalogStockService
@@ -17,7 +18,7 @@ final class CatalogStockService
     public function intakeOptions(): array
     {
         $products=$this->db->query("SELECT p.id,p.title,p.item_id FROM uniform_catalog_products p WHERE p.status<>'archived' ORDER BY p.title")->fetchAll(PDO::FETCH_ASSOC);
-        $sizes=$this->db->query("SELECT p.id product_id,NULL variant_id,NULL variant_name,us.id size_id,us.item_id,us.size,us.size_label,us.unit_price FROM uniform_catalog_products p JOIN uniform_sizes us ON us.item_id=p.item_id WHERE p.status<>'archived' UNION ALL SELECT v.product_id,v.id,v.name,us.id,us.item_id,us.size,us.size_label,us.unit_price FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id JOIN uniform_catalog_products p ON p.id=v.product_id WHERE p.status<>'archived' AND v.status='active' ORDER BY product_id,variant_id,size")->fetchAll(PDO::FETCH_ASSOC);
+        $sizes=$this->db->query("SELECT p.id product_id,NULL variant_id,NULL variant_name,us.id size_id,us.item_id,us.size,us.size_label,us.unit_price FROM " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p JOIN " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us ON us.item_id=p.item_id WHERE p.status<>'archived' UNION ALL SELECT v.product_id,v.id,v.name,us.id,us.item_id,us.size,us.size_label,us.unit_price FROM uniform_catalog_variants v JOIN " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us ON us.item_id=v.item_id JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.id=v.product_id WHERE p.status<>'archived' AND v.status='active' ORDER BY product_id,variant_id,size")->fetchAll(PDO::FETCH_ASSOC);
         foreach($products as &$product)$product['sizes']=array_values(array_filter($sizes,fn(array $size)=>(int)$size['product_id']===(int)$product['id']));
         unset($product);
         return [
@@ -27,7 +28,7 @@ final class CatalogStockService
         ];
     }
 
-    private function sizeLine(int $productId,?int $variantId,int $sizeId,bool $lock=false): array
+    public function sizeLine(int $productId,?int $variantId,int $sizeId,bool $lock=false): array
     {
         $sql="SELECT p.id product_id,p.title,v.id variant_id,v.name variant_name,us.id size_id,us.item_id,us.size,us.size_label,us.unit_price FROM uniform_catalog_products p LEFT JOIN uniform_catalog_variants v ON v.id=? AND v.product_id=p.id JOIN uniform_sizes us ON us.id=? AND us.item_id=COALESCE(v.item_id,p.item_id) WHERE p.id=?".($lock?' FOR UPDATE':'');
         $stmt=$this->db->prepare($sql);$stmt->execute([$variantId,$sizeId,$productId]);$line=$stmt->fetch(PDO::FETCH_ASSOC);
@@ -38,6 +39,25 @@ final class CatalogStockService
     private function unitCode(): string
     {
         return 'KPSU-'.date('y').'-'.strtoupper(bin2hex(random_bytes(6)));
+    }
+
+    /**
+     * Loose (+1 weight) availability check for a catalogue line before staff
+     * sale registration. Returns [item fields, available qty] or throws.
+     */
+    public function availableSaleLine(int $productId, ?int $variantId, int $sizeId, int $quantity): array
+    {
+        $line = $this->sizeLine($productId, $variantId, $sizeId);
+        $stmt = $this->db->prepare(
+            'SELECT quantity_available, quantity_reserved FROM uniform_sizes WHERE id = ?'
+        );
+        $stmt->execute([$sizeId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $available = (int) ($row['quantity_available'] ?? 0) - (int) ($row['quantity_reserved'] ?? 0);
+        if ($available < $quantity) {
+            throw new RuntimeException('Selected variant or size is unavailable');
+        }
+        return $line;
     }
 
     public function receive(array $data,int $actor): array
@@ -73,7 +93,7 @@ final class CatalogStockService
 
     public function identifyExistingStock(int $actor): array
     {
-        $rows=$this->db->query("SELECT p.id product_id,NULL variant_id,us.id size_id,us.item_id,us.quantity_available,(SELECT COUNT(*) FROM catalog_stock_units u WHERE u.size_id=us.id AND u.status IN ('in_stock','reserved')) identified FROM uniform_catalog_products p JOIN uniform_sizes us ON us.item_id=p.item_id UNION ALL SELECT v.product_id,v.id,us.id,us.item_id,us.quantity_available,(SELECT COUNT(*) FROM catalog_stock_units u WHERE u.size_id=us.id AND u.status IN ('in_stock','reserved')) FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.status='active'")->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$this->db->query("SELECT p.id product_id,NULL variant_id,us.id size_id,us.item_id,us.quantity_available,(SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("catalog_stock_units") . " WHERE u.size_id=us.id AND u.status IN ('in_stock','reserved')) identified FROM uniform_catalog_products p JOIN uniform_sizes us ON us.item_id=p.item_id UNION ALL SELECT v.product_id,v.id,us.id,us.item_id,us.quantity_available,(SELECT COUNT(*) FROM catalog_stock_units u WHERE u.size_id=us.id AND u.status IN ('in_stock','reserved')) FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.status='active'")->fetchAll(PDO::FETCH_ASSOC);
         $rows=array_values(array_filter($rows,fn(array $row)=>(int)$row['quantity_available']>(int)$row['identified']));if(!$rows)return ['unit_count'=>0,'units'=>[],'message'=>'All current stock is already identified'];
         $ref='KPS-OPENING-'.date('ymd-His');$this->db->beginTransaction();try{$this->db->prepare("INSERT INTO catalog_stock_receipts(receipt_reference,notes,received_by) VALUES(?,'Opening identification of stock that existed before unit labels',?)")->execute([$ref,$actor]);$receiptId=(int)$this->db->lastInsertId();$units=[];foreach($rows as $row){$qty=(int)$row['quantity_available']-(int)$row['identified'];$line=$this->sizeLine((int)$row['product_id'],(int)$row['variant_id']?:null,(int)$row['size_id'],true);$this->db->prepare('INSERT INTO catalog_stock_receipt_lines(receipt_id,product_id,variant_id,size_id,item_id,quantity,unit_cost,line_cost) VALUES(?,?,?,?,?,?,0,0)')->execute([$receiptId,$line['product_id'],$line['variant_id']?:null,$line['size_id'],$line['item_id'],$qty]);$receiptLine=(int)$this->db->lastInsertId();for($i=0;$i<$qty;$i++){$code=$this->unitCode();$this->db->prepare('INSERT INTO catalog_stock_units(unit_code,receipt_line_id,product_id,variant_id,size_id,item_id,received_by) VALUES(?,?,?,?,?,?,?)')->execute([$code,$receiptLine,$line['product_id'],$line['variant_id']?:null,$line['size_id'],$line['item_id'],$actor]);$unitId=(int)$this->db->lastInsertId();$this->db->prepare("INSERT INTO catalog_stock_unit_events(unit_id,event_type,from_status,to_status,notes,context_json,actor_user_id) VALUES(?,'received',NULL,'in_stock',?,?,?)")->execute([$unitId,'Opening stock identification',json_encode(['opening_balance'=>true,'receipt_id'=>$receiptId]),$actor]);$units[]=['id'=>$unitId,'unit_code'=>$code,'product_title'=>$line['title'],'variant_name'=>$line['variant_name'],'size_label'=>$line['size_label']?:$line['size']];}}$this->db->commit();Logger::audit('catalog_existing_stock_identified','catalog_stock_receipt',$receiptId,'Existing aggregate stock converted to unit identities',['receipt_reference'=>$ref,'unit_count'=>count($units)]);return ['receipt_id'=>$receiptId,'receipt_reference'=>$ref,'unit_count'=>count($units),'units'=>$units];}catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
@@ -81,7 +101,7 @@ final class CatalogStockService
     public function lookup(string $code,int $actor=0,?string $scanner=null,bool $recordScan=true): array
     {
         $code=strtoupper(trim($code));if($code==='')throw new RuntimeException('Scan or enter a unit code');
-        $stmt=$this->db->prepare("SELECT u.*,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label,us.unit_price,r.receipt_reference,rl.unit_cost,o.order_reference FROM catalog_stock_units u JOIN uniform_catalog_products p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN uniform_sizes us ON us.id=u.size_id JOIN catalog_stock_receipt_lines rl ON rl.id=u.receipt_line_id JOIN catalog_stock_receipts r ON r.id=rl.receipt_id LEFT JOIN catalog_orders o ON o.id=u.reserved_order_id WHERE u.unit_code=?");$stmt->execute([$code]);$unit=$stmt->fetch(PDO::FETCH_ASSOC);if(!$unit)throw new RuntimeException('This QR/barcode is not registered in uniform stock');
+        $stmt=$this->db->prepare("SELECT u.*,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label,us.unit_price,r.receipt_reference,rl.unit_cost,o.order_reference FROM " . ReadReplicaService::qualifiedRef("catalog_stock_units") . " u JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us ON us.id=u.size_id JOIN catalog_stock_receipt_lines rl ON rl.id=u.receipt_line_id JOIN catalog_stock_receipts r ON r.id=rl.receipt_id LEFT JOIN " . ReadReplicaService::qualifiedRef("catalog_orders") . " o ON o.id=u.reserved_order_id WHERE u.unit_code=?");$stmt->execute([$code]);$unit=$stmt->fetch(PDO::FETCH_ASSOC);if(!$unit)throw new RuntimeException('This QR/barcode is not registered in uniform stock');
         if($recordScan&&$actor)$this->db->prepare("INSERT INTO catalog_stock_unit_events(unit_id,event_type,from_status,to_status,scanner_reference,actor_user_id) VALUES(?,'scanned',?,?,?,?)")->execute([$unit['id'],$unit['status'],$unit['status'],$scanner,$actor]);
         return $unit;
     }
@@ -89,21 +109,21 @@ final class CatalogStockService
     public function units(array $filters=[]): array
     {
         $where=[];$args=[];if(!empty($filters['status'])){$where[]='u.status=?';$args[]=$filters['status'];}if(!empty($filters['q'])){$where[]='(u.unit_code LIKE ? OR p.title LIKE ? OR r.receipt_reference LIKE ?)';$q='%'.trim((string)$filters['q']).'%';array_push($args,$q,$q,$q);}
-        $sql="SELECT u.id,u.unit_code,u.status,u.received_at,u.dispatched_at,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label,r.receipt_reference,o.order_reference,CONCAT(pe.first_name,' ',pe.last_name) last_actor FROM catalog_stock_units u JOIN uniform_catalog_products p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN uniform_sizes us ON us.id=u.size_id JOIN catalog_stock_receipt_lines rl ON rl.id=u.receipt_line_id JOIN catalog_stock_receipts r ON r.id=rl.receipt_id LEFT JOIN catalog_orders o ON o.id=u.reserved_order_id LEFT JOIN users au ON au.id=COALESCE(u.dispatched_by,u.received_by) LEFT JOIN persons pe ON pe.id=au.person_id".($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY u.updated_at DESC LIMIT 500';$stmt=$this->db->prepare($sql);$stmt->execute($args);$units=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        $sql="SELECT u.id,u.unit_code,u.status,u.received_at,u.dispatched_at,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label,r.receipt_reference,o.order_reference,CONCAT(pe.first_name,' ',pe.last_name) last_actor FROM " . ReadReplicaService::qualifiedRef("catalog_stock_units") . " u JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us ON us.id=u.size_id JOIN catalog_stock_receipt_lines rl ON rl.id=u.receipt_line_id JOIN catalog_stock_receipts r ON r.id=rl.receipt_id LEFT JOIN " . ReadReplicaService::qualifiedRef("catalog_orders") . " o ON o.id=u.reserved_order_id LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pe ON pe.user_id=COALESCE(u.dispatched_by,u.received_by)".($where?' WHERE '.implode(' AND ',$where):'').' ORDER BY u.updated_at DESC LIMIT 500';$stmt=$this->db->prepare($sql);$stmt->execute($args);$units=$stmt->fetchAll(PDO::FETCH_ASSOC);
         $summary=$this->db->query("SELECT COUNT(*) total_units,COALESCE(SUM(status='in_stock'),0) in_stock,COALESCE(SUM(status='reserved'),0) reserved,COALESCE(SUM(status='dispatched'),0) dispatched,COALESCE(SUM(status IN ('damaged','lost','void')),0) exceptions FROM catalog_stock_units")->fetch(PDO::FETCH_ASSOC);
-        $variance=$this->db->query("SELECT us.id size_id,p.title,COALESCE(v.name,'Standard') variant_name,COALESCE(us.size_label,us.size) size_label,us.quantity_available aggregate_available,COALESCE(SUM(u.status IN ('in_stock','reserved')),0) identified_available,us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0) variance FROM uniform_sizes us JOIN inventory_items i ON i.id=us.item_id LEFT JOIN uniform_catalog_products p ON p.item_id=i.id LEFT JOIN uniform_catalog_variants v ON v.item_id=i.id LEFT JOIN catalog_stock_units u ON u.size_id=us.id WHERE p.id IS NOT NULL OR v.id IS NOT NULL GROUP BY us.id,p.title,v.name,us.size_label,us.size,us.quantity_available HAVING us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0)<>0 ORDER BY ABS(us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0)) DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $variance=$this->db->query("SELECT us.id size_id,p.title,COALESCE(v.name,'Standard') variant_name,COALESCE(us.size_label,us.size) size_label,us.quantity_available aggregate_available,COALESCE(SUM(u.status IN ('in_stock','reserved')),0) identified_available,us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0) variance FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON i.id=us.item_id LEFT JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.item_id=i.id LEFT JOIN uniform_catalog_variants v ON v.item_id=i.id LEFT JOIN " . ReadReplicaService::qualifiedRef("catalog_stock_units") . " u ON u.size_id=us.id WHERE p.id IS NOT NULL OR v.id IS NOT NULL GROUP BY us.id,p.title,v.name,us.size_label,us.size,us.quantity_available HAVING us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0)<>0 ORDER BY ABS(us.quantity_available-COALESCE(SUM(u.status IN ('in_stock','reserved')),0)) DESC")->fetchAll(PDO::FETCH_ASSOC);
         return ['units'=>$units,'summary'=>$summary,'variance'=>$variance];
     }
 
     public function unitEvents(int $unitId): array
     {
-        $stmt=$this->db->prepare("SELECT e.*,CONCAT(p.first_name,' ',p.last_name) actor_name,o.order_reference FROM catalog_stock_unit_events e JOIN users u ON u.id=e.actor_user_id JOIN persons p ON p.id=u.person_id LEFT JOIN catalog_orders o ON o.id=e.order_id WHERE e.unit_id=? ORDER BY e.created_at DESC");$stmt->execute([$unitId]);return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt=$this->db->prepare("SELECT e.*,CONCAT(p.first_name,' ',p.last_name) actor_name,o.order_reference FROM catalog_stock_unit_events e JOIN users u ON u.id=e.actor_user_id JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id LEFT JOIN " . ReadReplicaService::qualifiedRef("catalog_orders") . " o ON o.id=e.order_id WHERE e.unit_id=? ORDER BY e.created_at DESC");$stmt->execute([$unitId]);return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function labels(array $ids): array
     {
         $ids=array_values(array_unique(array_filter(array_map('intval',$ids))));if(!$ids||count($ids)>1000)throw new RuntimeException('Select between 1 and 1,000 unit labels');$marks=implode(',',array_fill(0,count($ids),'?'));
-        $stmt=$this->db->prepare("SELECT u.id,u.unit_code,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label FROM catalog_stock_units u JOIN uniform_catalog_products p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN uniform_sizes us ON us.id=u.size_id WHERE u.id IN ($marks) ORDER BY u.id");$stmt->execute($ids);$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);$writer=new SvgWriter();
+        $stmt=$this->db->prepare("SELECT u.id,u.unit_code,p.title product_title,v.name variant_name,COALESCE(us.size_label,us.size) size_label FROM " . ReadReplicaService::qualifiedRef("catalog_stock_units") . " u JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.id=u.product_id LEFT JOIN uniform_catalog_variants v ON v.id=u.variant_id JOIN " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us ON us.id=u.size_id WHERE u.id IN ($marks) ORDER BY u.id");$stmt->execute($ids);$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);$writer=new SvgWriter();
         foreach($rows as &$row){$qr=@$writer->write(new QrCode((string)$row['unit_code']));$row['qr_data_uri']=$qr->getDataUri();$row['barcode_svg']=$this->code39((string)$row['unit_code']);}unset($row);return $rows;
     }
 
@@ -118,7 +138,7 @@ final class CatalogStockService
     public function discounts(): array
     {
         $this->db->exec("UPDATE catalog_discount_campaigns SET status='expired' WHERE status='active' AND ends_at<NOW()");
-        $rows=$this->db->query("SELECT d.*,p.title product_title,v.name variant_name,CONCAT(cp.first_name,' ',cp.last_name) creator_name,CONCAT(ap.first_name,' ',ap.last_name) approver_name,(SELECT COUNT(*) FROM catalog_discount_redemptions r WHERE r.campaign_id=d.id) redemptions,(SELECT COALESCE(SUM(r.amount),0) FROM catalog_discount_redemptions r WHERE r.campaign_id=d.id) discount_cost FROM catalog_discount_campaigns d LEFT JOIN uniform_catalog_products p ON p.id=d.product_id LEFT JOIN uniform_catalog_variants v ON v.id=d.variant_id JOIN users cu ON cu.id=d.created_by JOIN persons cp ON cp.id=cu.person_id LEFT JOIN users au ON au.id=d.approved_by LEFT JOIN persons ap ON ap.id=au.person_id ORDER BY d.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$this->db->query("SELECT d.*,p.title product_title,v.name variant_name,CONCAT(cp.first_name,' ',cp.last_name) creator_name,CONCAT(ap.first_name,' ',ap.last_name) approver_name,(SELECT COUNT(*) FROM catalog_discount_redemptions r WHERE r.campaign_id=d.id) redemptions,(SELECT COALESCE(SUM(r.amount),0) FROM catalog_discount_redemptions r WHERE r.campaign_id=d.id) discount_cost FROM catalog_discount_campaigns d LEFT JOIN " . ReadReplicaService::qualifiedRef("uniform_catalog_products") . " p ON p.id=d.product_id LEFT JOIN uniform_catalog_variants v ON v.id=d.variant_id JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " cp ON cp.user_id=d.created_by LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.user_id=d.approved_by ORDER BY d.created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
         return ['campaigns'=>$rows,'products'=>$this->db->query("SELECT id,title FROM uniform_catalog_products WHERE status<>'archived' ORDER BY title")->fetchAll(PDO::FETCH_ASSOC)];
     }
 

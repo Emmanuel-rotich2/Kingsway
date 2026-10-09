@@ -66,9 +66,9 @@ class AnnouncementBulletinService
                         s.id AS staff_id, 
                         p.first_name, 
                         p.last_name
-                FROM announcements_bulletin a
-                LEFT JOIN staff s ON a.published_by = s.id
-                LEFT JOIN persons p ON s.person_id = p.id
+                FROM " . ReadReplicaService::qualifiedRef("announcements_bulletin") . " a
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON a.published_by = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
                 {$whereClause}
                 ORDER BY a.created_at DESC
                 LIMIT :limit OFFSET :offset";
@@ -103,9 +103,9 @@ class AnnouncementBulletinService
                        s.id AS staff_id, 
                        p.first_name, 
                        p.last_name
-                FROM announcements_bulletin a
-                LEFT JOIN staff s ON a.published_by = s.id
-                LEFT JOIN persons p ON s.person_id = p.id
+                FROM " . ReadReplicaService::qualifiedRef("announcements_bulletin") . " a
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON a.published_by = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
                 WHERE a.id = :id";
 
         $stmt = $this->db->prepare($sql);

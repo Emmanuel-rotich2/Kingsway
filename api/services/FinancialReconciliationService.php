@@ -37,7 +37,7 @@ final class FinancialReconciliationService
                 $normalized = $normalizer->reference($reference);
                 $existingTx = false;
                 if ($providerTx !== '') {
-                    $duplicateQuery = $this->db->prepare('SELECT 1 FROM financial_statement_lines l JOIN financial_statement_imports i ON i.id=l.import_id WHERE i.provider_code=? AND i.financial_account_id=? AND l.provider_transaction_id=? LIMIT 1');
+                    $duplicateQuery = $this->db->prepare('SELECT 1 FROM ' . ReadReplicaService::masterRef('financial_statement_lines') . ' l JOIN ' . ReadReplicaService::masterRef('financial_statement_imports') . ' i ON i.id=l.import_id WHERE i.provider_code=? AND i.financial_account_id=? AND l.provider_transaction_id=? LIMIT 1');
                     $duplicateQuery->execute([$provider, $accountId, $providerTx]);
                     $existingTx = (bool)$duplicateQuery->fetchColumn();
                 }
@@ -69,7 +69,7 @@ final class FinancialReconciliationService
     public function unresolved(int $limit = 200): array
     {
         $limit = min(1000, max(1, $limit));
-        $s = $this->db->query("SELECT l.*,i.provider_code,i.financial_account_id FROM financial_statement_lines l JOIN financial_statement_imports i ON i.id=l.import_id WHERE l.matching_status NOT IN ('matched','duplicate') ORDER BY l.id DESC LIMIT {$limit}");
+        $s = $this->db->query("SELECT l.*,i.provider_code,i.financial_account_id FROM " . ReadReplicaService::qualifiedRef("financial_statement_lines") . " JOIN financial_statement_imports i ON i.id=l.import_id WHERE l.matching_status NOT IN ('matched','duplicate') ORDER BY l.id DESC LIMIT {$limit}");
         return $s->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

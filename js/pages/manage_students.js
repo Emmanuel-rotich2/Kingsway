@@ -799,22 +799,39 @@ window.studentsManagementController = window.studentsManagementController || {
     if (!container) return;
 
     const { page, total, limit } = this.data.pagination;
-    const totalPages = Math.ceil(total / limit);
+    const safeLimit = Math.max(1, Number(limit) || 10);
+    const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+    const currentPage = Math.min(Math.max(1, Number(page) || 1), totalPages);
 
-    document.getElementById("showingFrom").textContent = total > 0 ? (page - 1) * limit + 1 : 0;
-    document.getElementById("showingTo").textContent = Math.min(
-      page * limit,
-      total,
-    );
-    document.getElementById("totalRecords").textContent = total;
+    document.getElementById("showingFrom").textContent = total > 0 ? (currentPage - 1) * safeLimit + 1 : 0;
+    document.getElementById("showingTo").textContent = Math.min(currentPage * safeLimit, total);
+    document.getElementById("totalRecords").textContent = Number(total) || 0;
 
-    let html = "";
-    for (let i = 1; i <= totalPages; i++) {
-      html += `<li class="page-item ${i === page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="studentsManagementController.loadStudents(${i}); return false;">${i}</a>
-            </li>`;
-    }
-    container.innerHTML = html;
+    const pageSizeSelect = document.getElementById("studentsPageSize");
+    if (pageSizeSelect) pageSizeSelect.value = String(safeLimit);
+
+    container.innerHTML = `
+      <div class="students-page-navigation">
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                ${currentPage <= 1 ? "disabled" : ""}
+                onclick="studentsManagementController.loadStudents(${currentPage - 1})"
+                aria-label="Previous page">
+          <i class="bi bi-chevron-left" aria-hidden="true"></i><span>Previous</span>
+        </button>
+        <span class="students-page-indicator" aria-live="polite">Page ${currentPage} of ${totalPages}</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm"
+                ${currentPage >= totalPages || total === 0 ? "disabled" : ""}
+                onclick="studentsManagementController.loadStudents(${currentPage + 1})"
+                aria-label="Next page">
+          <span>Next</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+        </button>
+      </div>`;
+  },
+
+  changePageSize: function (value) {
+    const limit = Math.min(100, Math.max(1, Number.parseInt(value, 10) || 10));
+    this.data.pagination.limit = limit;
+    this.loadStudents(1);
   },
 
   updateStatistics: async function (statistics = null) {
@@ -828,12 +845,30 @@ window.studentsManagementController = window.studentsManagementController || {
       document.getElementById("inactiveStudentsCount").textContent = inactive;
       const newCount = document.getElementById("newStudentsCount");
       if (newCount) newCount.textContent = Number(statistics?.new_this_term || 0);
+      // The server marks fee figures unavailable during a fee projection
+      // outage instead of serving stale balances. Never render them as 0.
+      const feeFiguresAvailable = statistics?.fee_balances_available !== false;
       const outstandingCount = document.getElementById("studentsWithBalanceCount");
-      if (outstandingCount) outstandingCount.textContent = Number(statistics?.with_outstanding_fees || 0);
+      if (outstandingCount) {
+        outstandingCount.textContent = feeFiguresAvailable
+          ? Number(statistics?.with_outstanding_fees || 0)
+          : "—";
+        outstandingCount.title = feeFiguresAvailable ? "" : "Fee data temporarily unavailable";
+      }
       const paidCount = document.getElementById("studentsPaidCount");
-      if (paidCount) paidCount.textContent = Number(statistics?.fully_paid || 0);
+      if (paidCount) {
+        paidCount.textContent = feeFiguresAvailable
+          ? Number(statistics?.fully_paid || 0)
+          : "—";
+        paidCount.title = feeFiguresAvailable ? "" : "Fee data temporarily unavailable";
+      }
       const outstandingTotal = document.getElementById("totalOutstandingFees");
-      if (outstandingTotal) outstandingTotal.textContent = `KES ${Number(statistics?.total_outstanding || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (outstandingTotal) {
+        outstandingTotal.textContent = feeFiguresAvailable
+          ? `KES ${Number(statistics?.total_outstanding || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : "Unavailable";
+        outstandingTotal.title = feeFiguresAvailable ? "" : "Fee data temporarily unavailable";
+      }
     } catch (e) {
       console.warn("Could not update statistics");
     }

@@ -17,6 +17,8 @@ const StudentLeadershipController = {
     awardTypes: [],
     departments: [],
     editLeadershipId: null,
+    editPositionId: null,
+    positionsLoadError: false,
     editHouseId: null,
     editAwardId: null,
     editAwardTypeId: null,
@@ -34,8 +36,15 @@ const StudentLeadershipController = {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    this.state.canManage = !!(window.AuthContext?.hasPermission &&
-      window.AuthContext.hasPermission("student_leadership_manage"));
+    const isLeadershipManager = [
+      "school administrator",
+      "headteacher",
+      "deputy head - academic",
+      "deputy head - discipline",
+    ].some((role) => window.AuthContext?.hasRole?.(role));
+    this.state.canManage = !!(
+      window.AuthContext?.hasPermission?.("student_leadership_manage") || isLeadershipManager
+    );
     this.applyRoleRendering();
     this.bindEvents();
     await this.loadReferences();
@@ -101,22 +110,67 @@ const StudentLeadershipController = {
   },
 
   /* ---------------- REFERENCES ---------------- */
+  async loadAssignableStudents() {
+    const context = this.state.canManage ? "full_management" : "teacher_class";
+    const collectPages = async (request) => {
+      const first = await request(1);
+      const payloadOf = (response) => response?.data?.data ?? response?.data ?? response ?? {};
+      const firstPayload = payloadOf(first);
+      const students = Array.isArray(firstPayload.students) ? firstPayload.students : this.toArray(first, "students");
+      const pagination = firstPayload.pagination || {};
+      const totalPages = Math.max(1, Number(pagination.total_pages || pagination.pages || 1));
+      const all = [...students];
+      for (let page = 2; page <= totalPages; page += 1) {
+        const response = await request(page);
+        const payload = payloadOf(response);
+        all.push(...(Array.isArray(payload.students) ? payload.students : this.toArray(response, "students")));
+      }
+      return all;
+    };
+
+    try {
+      return await collectPages((page) => window.API.students.contextList({ context, page, limit: 100 }));
+    } catch (error) {
+      console.warn("Could not load scoped leadership students; falling back to student list:", error);
+      return collectPages((page) => window.API.students.list({ page, limit: 100 }));
+    }
+  },
+
   async loadReferences() {
     try {
-      const [studentsRes, positionsRes, housesRes, yearsRes, leadershipRes, awardsRes, catalogRes, departmentsRes] =
-        await Promise.all([
-          window.API.students.contextList({ context: "teacher_class" }).catch(() => window.API.students.list({ limit: 2000 })),
-          window.API.students.leadership.positions(),
+      const results = await Promise.allSettled([
+          this.loadAssignableStudents(),
+          window.API.students.leadership.positions({ include_inactive: this.state.canManage ? 1 : 0 }),
           window.API.students.houses.list({ is_active: 1 }),
           Promise.resolve(this.currentYears()),
           window.API.students.leadership.list({}),
           window.API.students.awards.list({}),
           window.API.students.awards.catalogue().catch(() => null),
-          window.API.departments.list().catch(() => null),
-        ]);
+          window.API.staff.getDepartments().catch(() => null),
+      ]);
+      const resultValue = (index, fallback = null) => {
+        const result = results[index];
+        if (result.status === "rejected") {
+          console.error(`Leadership reference request ${index + 1} failed:`, result.reason);
+          if (index === 1) this.state.positionsLoadError = true;
+          return fallback;
+        }
+        if (index === 1) this.state.positionsLoadError = false;
+        return result.value ?? fallback;
+      };
+      const studentsRes = resultValue(0, []);
+      const positionsRes = resultValue(1, []);
+      const housesRes = resultValue(2, []);
+      const yearsRes = resultValue(3, []);
+      const leadershipRes = resultValue(4, []);
+      const awardsRes = resultValue(5, []);
+      const catalogRes = resultValue(6, {});
+      const departmentsRes = resultValue(7, []);
 
-      this.state.students = this.toArray(studentsRes, "students");
-      this.state.positions = this.toArray(positionsRes, null).filter((p) => String(p.level_id) === "5" || String(p.level_name).toLowerCase().includes("student"));
+      this.state.students = Array.isArray(studentsRes) ? studentsRes : this.toArray(studentsRes, "students");
+      this.state.positions = this.toArray(positionsRes, null).filter((p) =>
+        String(p.leadership_category_id) === "5" || String(p.leadership_category_code || "").toUpperCase() === "STUDENT_ORG"
+      );
       this.state.houses = this.toArray(housesRes, "houses");
       this.state.years = Array.isArray(yearsRes) ? yearsRes : [];
       this.state.leadership = this.toArray(leadershipRes, null);
@@ -129,12 +183,13 @@ const StudentLeadershipController = {
       this.populateSelects();
       this.renderKpis();
       this.loadLeadership();
+      this.renderPositionsTable();
       this.renderStudents();
       this.renderHousesGrid();
       this.renderAwardsTable();
     } catch (err) {
       console.error("Error loading references:", err);
-      this.showNotification("Failed to load leadership data", "error");
+      this.showNotification(err?.message || "Failed to load leadership data", "error");
     }
   },
 
@@ -167,7 +222,7 @@ const StudentLeadershipController = {
     const posSel = document.getElementById("leadPosition");
     if (posSel) {
       posSel.innerHTML = '<option value="">Select position...</option>' +
-        this.state.positions.map((p) => `<option value="${this.escapeHtml(p.id)}">${this.escapeHtml(p.name || p.position_name)}</option>`).join("");
+        this.state.positions.filter((p) => Number(p.is_active) === 1).map((p) => `<option value="${this.escapeHtml(p.id)}">${this.escapeHtml(p.name || p.position_name)}</option>`).join("");
       // ensure student-level positions present
       if (this.state.positions.length === 0) {
         posSel.innerHTML = '<option value="">No student positions found</option>';
@@ -215,6 +270,101 @@ const StudentLeadershipController = {
         this.state.students
           .map((s) => `<option value="${this.escapeHtml(s.id)}">${this.escapeHtml(s.full_name || s.first_name + " " + s.last_name)} (${this.escapeHtml(s.admission_no || s.adm_no || s.student_no || "")})</option>`)
           .join("");
+    }
+  },
+
+  renderPositionsTable() {
+    const body = document.getElementById("leadPositionsTable");
+    if (!body) return;
+    if (this.state.positionsLoadError) {
+      body.innerHTML = '<tr><td colspan="5" class="text-danger text-center py-3">Positions could not be loaded. Refresh the page or ask an administrator to check the leadership positions endpoint.</td></tr>';
+      return;
+    }
+    if (!this.state.positions.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">No student leadership positions yet. Add a position to make it available for assignments.</td></tr>';
+      return;
+    }
+    body.innerHTML = this.state.positions.map((position) => `
+      <tr>
+        <td class="fw-semibold">${this.escapeHtml(position.name)}</td>
+        <td>${this.escapeHtml(position.description || "—")}</td>
+        <td>${position.max_holders ? this.escapeHtml(position.max_holders) : "No limit"}</td>
+        <td><span class="badge ${Number(position.is_active) === 1 ? "bg-success" : "bg-secondary"}">${Number(position.is_active) === 1 ? "Active" : "Inactive"}</span></td>
+        <td class="text-end"><button type="button" class="btn btn-outline-primary btn-sm" onclick="StudentLeadershipController.openPosition(${Number(position.id)})" aria-label="Edit ${this.escapeHtml(position.name)}"><i class="fas fa-edit me-1" aria-hidden="true"></i>Edit</button></td>
+      </tr>`).join("");
+  },
+
+  exportPositionsCsv() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport("students")) {
+      this.showNotification("You are not permitted to export student leadership positions.", "error");
+      return;
+    }
+    const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = [
+      ["Position", "Description", "Maximum holders", "Status", "Display order"],
+      ...this.state.positions.map((position) => [
+        position.name,
+        position.description,
+        position.max_holders || "No limit",
+        Number(position.is_active) === 1 ? "Active" : "Inactive",
+        position.display_order,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(quote).join(",")).join("\r\n");
+    window.KingswayFileLifecycle?.exportText?.(csv, "student_leadership_positions.csv", "text/csv");
+  },
+
+  printPositions() {
+    if (window.AuthContext?.canPrint && !window.AuthContext.canPrint("students")) {
+      this.showNotification("You are not permitted to print student leadership positions.", "error");
+      return;
+    }
+    window.print();
+  },
+
+  openPosition(id = null) {
+    const position = id ? this.state.positions.find((item) => Number(item.id) === Number(id)) : null;
+    this.state.editPositionId = position ? Number(position.id) : null;
+    document.getElementById("leadPositionModalTitle").textContent = position ? "Update student leadership position" : "Add student leadership position";
+    document.getElementById("leadPositionName").value = position?.name || "";
+    document.getElementById("leadPositionDescription").value = position?.description || "";
+    document.getElementById("leadPositionMaxHolders").value = position?.max_holders || "";
+    document.getElementById("leadPositionOrder").value = position?.display_order ?? 0;
+    document.getElementById("leadPositionActive").checked = position ? Number(position.is_active) === 1 : true;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("leadPositionModal")).show();
+  },
+
+  async savePosition() {
+    const name = document.getElementById("leadPositionName").value.trim();
+    if (!name) {
+      this.showNotification("Enter a position name.", "warning");
+      return;
+    }
+    const maxHolders = document.getElementById("leadPositionMaxHolders").value;
+    const data = {
+      name,
+      description: document.getElementById("leadPositionDescription").value.trim(),
+      max_holders: maxHolders === "" ? null : Number(maxHolders),
+      display_order: Number(document.getElementById("leadPositionOrder").value || 0),
+      is_active: document.getElementById("leadPositionActive").checked ? 1 : 0,
+    };
+    try {
+      if (this.state.editPositionId) {
+        await window.API.students.leadership.updatePosition(this.state.editPositionId, data);
+      } else {
+        await window.API.students.leadership.createPosition(data);
+      }
+      bootstrap.Modal.getInstance(document.getElementById("leadPositionModal"))?.hide();
+      const response = await window.API.students.leadership.positions({ include_inactive: 1 });
+      this.state.positionsLoadError = false;
+      this.state.positions = this.toArray(response, null);
+      this.populateSelects();
+      this.renderPositionsTable();
+      this.showNotification(this.state.editPositionId ? "Position updated." : "Position created.", "success");
+      this.state.editPositionId = null;
+      await this.loadLeadership();
+    } catch (error) {
+      this.showNotification(error?.message || "Could not save the position.", "error");
     }
   },
 
@@ -699,9 +849,9 @@ const StudentLeadershipController = {
       const results = payload?.data?.data?.results ?? payload?.data?.results ?? [];
       const first = Array.isArray(results) ? results[0] : null;
       if (first?.file?.url) {
-        window.open(first.file.url, "_blank");
+        window.PrintManager?.openDocument(first.file.url, { title: 'Student leadership certificate' });
       } else if (first?.file_url) {
-        window.open(first.file_url, "_blank");
+        window.PrintManager?.openDocument(first.file_url, { title: 'Student leadership certificate' });
       } else {
         this.showNotification(first?.message || "Certificate generated", "success");
       }

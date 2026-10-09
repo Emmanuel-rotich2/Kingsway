@@ -3,12 +3,13 @@
 namespace App\API\Services;
 
 /**
- * Master pin used after a mutation.
+ * Legacy, explicit master-pin token support.
  *
- * The pin is request-local for CLI/internal work and is also carried in a
- * short-lived signed cookie for the next browser request. This makes the
- * policy effective behind a load balancer without using PHP session state as
- * a consistency mechanism.
+ * Do not apply this globally after mutations: explicit qualifiedRef reads
+ * remain routed to their materialized reads schema, while strong-consistency
+ * decisions must use masterRef()/masterSourceRef() at the query boundary.
+ * The signed cookie remains readable for compatibility with browsers that
+ * still hold a pin issued by an older application version.
  */
 final class StickyMasterService
 {
@@ -38,6 +39,16 @@ final class StickyMasterService
     public static function clear(): void
     {
         self::$until = null;
+        unset($_COOKIE[self::COOKIE]);
+        if (PHP_SAPI !== 'cli' && !headers_sent()) {
+            setcookie(self::COOKIE, '', [
+                'expires' => time() - 3600,
+                'path' => '/',
+                'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
     }
 
     public static function isPinned(): bool

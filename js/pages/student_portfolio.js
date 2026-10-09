@@ -20,12 +20,23 @@ const PortfolioController = {
     async loadReferences() {
         try {
             const [students, competencies, values] = await Promise.all([
-                window.API.apiCall('/students/context-list', 'GET', null, { context: 'teacher_class' }),
+                this.loadAllEnrolledStudents(),
                 window.API.apiCall('/academic/core-competencies-list', 'GET'),
                 window.API.apiCall('/academic/core-values-list', 'GET'),
             ]);
-            const studentPayload = students?.data?.students || students?.data?.data || students?.data || students || [];
-            this.state.students = Array.isArray(studentPayload) ? studentPayload : [];
+            this.state.students = Array.isArray(students) ? students : [];
+            try {
+                const termsPayload = await window.API.apiCall('/academic/exam-periods-options', 'GET');
+                const terms = termsPayload?.data?.terms || termsPayload?.data || [];
+                const termSelect = document.getElementById('pfArtifactTerm');
+                if (termSelect) termSelect.innerHTML = '<option value="">— Not set —</option>' + (Array.isArray(terms) ? terms : []).map(t => `<option value="${t.id}">${this.esc(t.academic_year_name || '')} · Term ${t.term_id || ''}</option>`).join('');
+            } catch (_) { /* term scope stays optional */ }
+            try {
+                const areasPayload = await window.API.apiCall('/academic/learning-areas/list', 'GET');
+                const areas = areasPayload?.data?.data || areasPayload?.data || [];
+                const areaSelect = document.getElementById('pfArtifactArea');
+                if (areaSelect) areaSelect.innerHTML = '<option value="">— Not set —</option>' + (Array.isArray(areas) ? areas : []).map(a => `<option value="${a.id}">${this.esc(a.name)}</option>`).join('');
+            } catch (_) { /* learning area stays optional */ }
             this.state.classes = [...new Map(this.state.students.map(s => [String(s.class_id), {
                 id: s.class_id, name: s.class_name
             }]).filter(([id, c]) => id && c.name)).values()];
@@ -35,7 +46,30 @@ const PortfolioController = {
             this.renderStudentList();
         } catch (err) {
             console.error('Error loading references:', err);
+            const list = document.getElementById('pfStudentList');
+            if (list) list.innerHTML = '<div class="text-danger py-2">Learners could not be loaded. Please refresh and try again.</div>';
         }
+    },
+
+    async loadAllEnrolledStudents() {
+        const limit = 100;
+        const students = [];
+        let page = 1;
+        let totalPages = 1;
+        do {
+            // Let the API choose this staff member's authorized default scope:
+            // management sees its school scope, teachers see their assignments.
+            const response = await window.API.apiCall('/students/context-list', 'GET', null, {
+                page, limit, enrolled_only: 'true',
+            });
+            const result = response?.data?.students
+                ? response.data
+                : (response?.data?.data?.students ? response.data.data : (response?.data ?? response ?? {}));
+            if (Array.isArray(result?.students)) students.push(...result.students);
+            totalPages = Math.max(1, Number(result?.pagination?.total_pages || 1));
+            page += 1;
+        } while (page <= totalPages);
+        return students;
     },
 
     bindEvents() {
@@ -54,7 +88,7 @@ const PortfolioController = {
     populateClassFilter() {
         const sel = document.getElementById('pfClassFilter');
         if (!sel) return;
-        sel.innerHTML = '<option value="">Select a class...</option>' +
+        sel.innerHTML = '<option value="">All assigned classes</option>' +
             this.state.classes.map(c =>
                 `<option value="${c.id}">${this.esc(c.name || c.class_name)}</option>`
             ).join('');
@@ -68,12 +102,11 @@ const PortfolioController = {
     renderStudentList(classId = '') {
         const list = document.getElementById('pfStudentList');
         const classWrap = document.getElementById('pfClassPickerWrap');
-        const needsClassChoice = this.state.classes.length > 1 && !classId;
-        const students = needsClassChoice ? [] : this.state.students.filter(s => !classId || String(s.class_id) === String(classId));
+        const students = this.state.students.filter(s => !classId || String(s.class_id) === String(classId));
         if (classWrap) classWrap.style.display = this.state.classes.length > 1 ? '' : 'none';
-        if (list) list.innerHTML = needsClassChoice
-            ? '<div class="text-muted py-2">Select a class to view its learners.</div>'
-            : (students.length ? students.map(s => `<button type="button" class="list-group-item list-group-item-action" data-student-id="${s.id}"><strong>${this.esc(s.admission_no || 'N/A')}</strong> <span>${this.esc([s.first_name, s.last_name].filter(Boolean).join(' '))}</span></button>`).join('') : '<div class="text-muted py-2">No learners assigned.</div>');
+        if (list) list.innerHTML = students.length
+            ? students.map(s => `<button type="button" class="list-group-item list-group-item-action" data-student-id="${s.id}"><strong>${this.esc(s.admission_no || 'N/A')}</strong> <span>${this.esc([s.first_name, s.last_name].filter(Boolean).join(' '))}</span></button>`).join('')
+            : '<div class="text-muted py-2">No actively enrolled learners are available in your authorized scope.</div>';
         list?.querySelectorAll('[data-student-id]').forEach(btn => btn.addEventListener('click', () => {
             this.state.selectedStudentId = btn.dataset.studentId;
             list.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
@@ -81,8 +114,17 @@ const PortfolioController = {
             document.getElementById('pfActionBtns').style.display = 'block';
             this.loadPortfolio();
         }));
-        if (this.state.classes.length === 1 && students.length === 1) {
+        if (students.length) {
             this.state.selectedStudentId = String(students[0].id);
+            const first = list?.querySelector(`[data-student-id="${this.state.selectedStudentId}"]`);
+            first?.classList.add('active');
+            const btns = document.getElementById('pfActionBtns');
+            if (btns) btns.style.display = 'block';
+            this.loadPortfolio();
+        } else {
+            this.state.selectedStudentId = null;
+            const btns = document.getElementById('pfActionBtns');
+            if (btns) btns.style.display = 'none';
         }
     },
 
@@ -476,6 +518,10 @@ const PortfolioController = {
             rating: rating !== undefined && rating !== '' ? Number(rating) : null,
             learner_reflection: document.getElementById('pfArtifactReflection')?.value?.trim() || '',
             teacher_feedback: document.getElementById('pfArtifactFeedback')?.value?.trim() || '',
+            academic_year_term_id: document.getElementById('pfArtifactTerm')?.value || null,
+            evidence_source: document.getElementById('pfArtifactSource')?.value || null,
+            learning_area_id: document.getElementById('pfArtifactArea')?.value || null,
+            knec_verification_ref: document.getElementById('pfArtifactKnecRef')?.value?.trim() || null,
         };
 
         const fileInput = document.getElementById('pfArtifactFile');
@@ -548,7 +594,7 @@ const PortfolioController = {
                 filename: `portfolio_student_${studentId}_${new Date().toISOString().slice(0,10)}`,
             });
             if (result?.file?.url) {
-                window.open(result.file.url, '_blank');
+                window.PrintManager?.openDocument(result.file.url, { title: 'Student portfolio' });
             }
         } else {
             this.showNotification('PrintManager not available', 'error');

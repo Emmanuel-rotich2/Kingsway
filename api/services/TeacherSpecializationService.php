@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Services;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 use RuntimeException;
 
@@ -32,10 +33,10 @@ final class TeacherSpecializationService
                     GROUP_CONCAT(DISTINCT q.id ORDER BY q.id SEPARATOR ',') qualification_ids,
                     GROUP_CONCAT(DISTINCT q.title ORDER BY q.id SEPARATOR ' | ') qualification_titles
                FROM staff_learning_area_specializations s
-               JOIN staff st ON st.id=s.staff_id JOIN persons p ON p.id=st.person_id
-               JOIN learning_areas la ON la.id=s.learning_area_id
-               LEFT JOIN staff_specialization_qualifications sq ON sq.specialization_id=s.id
-               LEFT JOIN staff_qualifications q ON q.id=sq.qualification_id
+               JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id=s.staff_id JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = st.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=s.learning_area_id
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " sq ON sq.specialization_id=s.id
+               LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_qualifications") . " q ON q.id=sq.qualification_id
               WHERE " . implode(' AND ', $where) . " GROUP BY s.id ORDER BY teacher_name,learning_area_name,s.id", $params);
     }
 
@@ -45,7 +46,7 @@ final class TeacherSpecializationService
         if (!$staffId || !$areaId) throw new RuntimeException('staff_id and learning_area_id are required', 422);
         $level = (string)($data['specialization_level'] ?? 'primary');
         if (!in_array($level, ['primary','secondary','advanced'], true)) throw new RuntimeException('Invalid specialization_level', 422);
-        $staff = $this->value("SELECT s.id FROM staff s LEFT JOIN staff_types st ON st.id=s.staff_type_id WHERE s.id=? AND s.status='active' AND LOWER(COALESCE(st.name,'')) LIKE '%teach%' LIMIT 1", [$staffId]);
+        $staff = $this->value("SELECT s.staff_id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.staff_id=? AND s.staff_status='active' AND LOWER(COALESCE(s.staff_type_name,'')) LIKE '%teach%' LIMIT 1", [$staffId]);
         if (!$staff) throw new RuntimeException('Active teaching staff member not found', 422);
         if (!$this->value("SELECT id FROM learning_areas WHERE id=? AND status='active' LIMIT 1", [$areaId])) throw new RuntimeException('Active learning area not found', 422);
         $qualificationIds = $data['qualification_ids'] ?? [];
@@ -80,7 +81,7 @@ final class TeacherSpecializationService
         $row = $this->rows('SELECT id,staff_id,created_by,status FROM staff_learning_area_specializations WHERE id=? LIMIT 1', [$id])[0] ?? null;
         if (!$row) throw new RuntimeException('Specialization record not found', 404);
         if ((int)$row['created_by'] === $actorId) throw new RuntimeException('A specialization must be approved by another authorised user', 403);
-        if (!(int)$this->value("SELECT COUNT(*) FROM staff_specialization_qualifications sq JOIN staff_qualifications q ON q.id=sq.qualification_id WHERE sq.specialization_id=? AND q.verification_status='verified'", [$id])) throw new RuntimeException('At least one school-verified qualification must support the specialization', 422);
+        if (!(int)$this->value("SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " JOIN staff_qualifications q ON q.id=sq.qualification_id WHERE sq.specialization_id=? AND q.verification_status='verified'", [$id])) throw new RuntimeException('At least one school-verified qualification must support the specialization', 422);
         $this->db->beginTransaction();
         try {
             $verify = $this->db->prepare("UPDATE staff_specialization_qualifications sq JOIN qualification_learning_areas qla ON qla.qualification_id=sq.qualification_id JOIN staff_learning_area_specializations s ON s.id=sq.specialization_id SET sq.evidence_status='verified',sq.verified_by=?,sq.verified_at=NOW(),qla.mapping_status='verified',qla.verified_by=?,qla.verified_at=NOW() WHERE sq.specialization_id=? AND qla.learning_area_id=s.learning_area_id");
@@ -113,7 +114,7 @@ final class TeacherSpecializationService
         $staffId=(int)($data['staff_id']??0); $band=(string)($data['level_band']??'');
         $bands=['playgroup','pp','lower_primary','upper_primary','junior_secondary'];
         if(!$staffId || !in_array($band,$bands,true)) throw new RuntimeException('staff_id and valid level_band are required',422);
-        if(!$this->value("SELECT s.id FROM staff s LEFT JOIN staff_types t ON t.id=s.staff_type_id WHERE s.id=? AND s.status='active' AND LOWER(COALESCE(t.name,'')) LIKE '%teach%' LIMIT 1",[$staffId])) throw new RuntimeException('Active teaching staff member not found',422);
+        if(!$this->value("SELECT s.staff_id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.staff_id=? AND s.staff_status='active' AND LOWER(COALESCE(s.staff_type_name,'')) LIKE '%teach%' LIMIT 1",[$staffId])) throw new RuntimeException('Active teaching staff member not found',422);
         $stmt=$this->db->prepare("INSERT INTO staff_teaching_level_authorizations (staff_id,created_by,level_band,grade_from,grade_to,status,effective_from,effective_to,notes) VALUES (?,?,?,?,?, 'pending',?,?,?) ON DUPLICATE KEY UPDATE created_by=VALUES(created_by),status='pending',grade_from=VALUES(grade_from),grade_to=VALUES(grade_to),effective_from=VALUES(effective_from),effective_to=VALUES(effective_to),notes=VALUES(notes),approved_by=NULL,approved_at=NULL");
         $stmt->execute([$staffId,$actorId,$band,$data['grade_from']??null,$data['grade_to']??null,$data['effective_from']??null,$data['effective_to']??null,$data['notes']??null]);
         return (int)$this->db->lastInsertId() ?: (int)$this->value('SELECT id FROM staff_teaching_level_authorizations WHERE staff_id=? AND level_band=? AND (grade_from <=> ?) AND (grade_to <=> ?) LIMIT 1',[$staffId,$band,$data['grade_from']??null,$data['grade_to']??null]);
@@ -137,14 +138,14 @@ final class TeacherSpecializationService
     public function eligibleTeachers(int $learningAreaId, ?int $academicYearId = null, ?int $classStreamId = null): array
     {
         $className='';$gradeLevel='';$classTeacherId=0;
-        if($classStreamId){$row=$this->rows('SELECT c.name class_name,c.grade_level,aycs.class_teacher_id FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id JOIN classes c ON c.id=ayc.class_id WHERE aycs.id=? LIMIT 1',[$classStreamId])[0]??[];$className=(string)($row['class_name']??'');$gradeLevel=$row['grade_level']??null;$classTeacherId=(int)($row['class_teacher_id']??0);}
+        if($classStreamId){$row=$this->rows('SELECT aycs.class_name,aycs.grade_level,aycs.class_teacher_id FROM ' . ReadReplicaService::qualifiedRef('academic_calendar') . ' aycs WHERE aycs.class_stream_id=? LIMIT 1',[$classStreamId])[0]??[];$className=(string)($row['class_name']??'');$gradeLevel=$row['grade_level']??null;$classTeacherId=(int)($row['class_teacher_id']??0);}
         $band=TeacherSpecializationPolicy::requiredLevelBand($className,$gradeLevel);
         $params=[$learningAreaId,$classTeacherId,$band];
         $rows=$this->rows("SELECT DISTINCT s.staff_id teacher_id,CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name) teacher_name,s.specialization_level,s.is_primary,la.name learning_area_name,
                     CASE WHEN s.staff_id=? THEN 'class_teacher' ELSE 'learning_area_specialist' END assignment_role,
                     'approved_specialization_and_level_authorization' eligibility_source
-               FROM staff_learning_area_specializations s JOIN staff st ON st.id=s.staff_id JOIN persons p ON p.id=st.person_id JOIN learning_areas la ON la.id=s.learning_area_id
-              WHERE s.learning_area_id=? AND s.status='approved' AND EXISTS (SELECT 1 FROM staff_specialization_qualifications sq JOIN qualification_learning_areas qla ON qla.qualification_id=sq.qualification_id WHERE sq.specialization_id=s.id AND sq.evidence_status='verified' AND qla.learning_area_id=s.learning_area_id AND qla.mapping_status='verified')
+               FROM staff_learning_area_specializations s JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id=s.staff_id JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = st.person_id JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=s.learning_area_id
+              WHERE s.learning_area_id=? AND s.status='approved' AND EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " sq JOIN qualification_learning_areas qla ON qla.qualification_id=sq.qualification_id WHERE sq.specialization_id=s.id AND sq.evidence_status='verified' AND qla.learning_area_id=s.learning_area_id AND qla.mapping_status='verified')
                 AND EXISTS (SELECT 1 FROM staff_teaching_level_authorizations a WHERE a.staff_id=s.staff_id AND a.level_band=? AND a.status='approved' AND (a.effective_from IS NULL OR a.effective_from<=CURDATE()) AND (a.effective_to IS NULL OR a.effective_to>=CURDATE())) AND st.status='active' ORDER BY s.is_primary DESC,teacher_name",[$classTeacherId,$learningAreaId,$band]);
         return TeacherSpecializationPolicy::rankCandidates($rows,$className,$gradeLevel);
     }
@@ -161,10 +162,10 @@ final class TeacherSpecializationService
                     'learning_area_specialist' assignment_role,
                     'approved_specialization_and_level_authorization' eligibility_source
                FROM staff_learning_area_specializations s
-               JOIN staff st ON st.id=s.staff_id JOIN persons p ON p.id=st.person_id
-               JOIN learning_areas la ON la.id=s.learning_area_id
+               JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id=s.staff_id JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = st.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=s.learning_area_id
               WHERE s.learning_area_id=? AND s.status='approved'
-                AND EXISTS (SELECT 1 FROM staff_specialization_qualifications sq
+                AND EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_specialization_qualifications") . " sq
                               JOIN qualification_learning_areas qla ON qla.qualification_id=sq.qualification_id
                              WHERE sq.specialization_id=s.id AND sq.evidence_status='verified'
                                AND qla.learning_area_id=s.learning_area_id AND qla.mapping_status='verified')

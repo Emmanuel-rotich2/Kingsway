@@ -2,6 +2,7 @@
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
 use App\API\Includes\FileLogger;
+use App\API\Services\ReadReplicaService;
 
 class SystemReportManager extends BaseAPI
 {
@@ -92,7 +93,7 @@ class SystemReportManager extends BaseAPI
                         u.username,
                         bd.created_at AS blocked_at,
                         bd.reason
-                    FROM blocked_devices bd
+                    FROM " . ReadReplicaService::qualifiedRef("blocked_devices") . "
                     LEFT JOIN users u ON u.id = bd.created_by
                     ORDER BY bd.created_at DESC
                     LIMIT 100";

@@ -92,7 +92,7 @@ class MessageService
 
         // Get headteacher from staff table
         try {
-            $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $hStmt = $this->db->query("SELECT CONCAT(s.first_name,' ',s.last_name) FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.position = 'Headteacher' AND s.person_id IS NOT NULL LIMIT 1");
             $defaultDetails['principal_name'] = $hStmt->fetchColumn() ?: '';
         } catch (\Exception $e) {
             $defaultDetails['principal_name'] = defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : '';

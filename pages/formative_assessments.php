@@ -190,6 +190,12 @@
             </select>
           </div>
           <div class="col-md-12">
+            <label class="form-label fw-semibold">Sub-strands <small class="text-muted">(select all that this assessment evidences)</small></label>
+            <div id="faSubStrandPicker" class="border rounded p-2" style="max-height:200px; overflow-y:auto; background:var(--bs-body-bg);">
+              <div class="text-muted small">Select a learning area to load its sub-strands.</div>
+            </div>
+          </div>
+          <div class="col-md-12">
             <label class="form-label fw-semibold">Learning Outcome <small class="text-muted">(optional)</small></label>
             <select id="faOutcome" class="form-select">
               <option value="">— Select learning outcome —</option>

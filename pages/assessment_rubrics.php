@@ -4,6 +4,17 @@
  * CRUD for CBC 4-level assessment rubrics (EE/ME/AE/BE descriptors)
  */
 ?>
+<style>
+@media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    #toolFilter, #searchFilter, #rubricPageSize, #rubricPagination,
+    #exportRubricsBtn, #printRubricsBtn, [data-curriculum-manage],
+    #rubricTableBody td:last-child, #rubricTable thead th:last-child { display: none !important; }
+    #rubricTable { font-size: 8pt; }
+    #rubricTable td { overflow-wrap: anywhere; }
+    .table-responsive { overflow: visible !important; }
+}
+</style>
 <div class="container-fluid px-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
@@ -11,6 +22,8 @@
             <small class="text-muted">Manage 4-level CBC rubric criteria for assessment tools</small>
         </div>
         <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary btn-sm" id="exportRubricsBtn"><i class="bi bi-download"></i> CSV</button>
+            <button class="btn btn-outline-secondary btn-sm" id="printRubricsBtn"><i class="bi bi-printer"></i> Print / PDF</button>
             <button class="btn btn-outline-primary btn-sm" data-curriculum-manage onclick="RubricsController.openToolModal()">
                 <i class="bi bi-wrench-adjustable"></i> New Assessment Tool
             </button>
@@ -32,8 +45,9 @@
                     <input type="text" class="form-control form-control-sm" id="searchFilter" placeholder="Search rubric criteria...">
                 </div>
             </div>
+            <div class="small text-muted mb-2" id="rubricFilterHelp">Each row is a criterion attached to a specific assessment tool. The same criterion wording can appear under different tools.</div>
             <div class="table-responsive">
-                <table class="table table-hover table-bordered table-sm">
+                <table class="table table-hover table-bordered table-sm" id="rubricTable">
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
@@ -52,6 +66,16 @@
                         <tr><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+                <div class="d-flex align-items-center gap-2">
+                    <small class="text-muted" id="rubricPageSummary">Showing 0 of 0</small>
+                    <label class="small text-muted" for="rubricPageSize">Rows</label>
+                    <select class="form-select form-select-sm" id="rubricPageSize" style="width:auto">
+                        <option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option>
+                    </select>
+                </div>
+                <nav aria-label="Assessment rubric pages"><ul class="pagination pagination-sm mb-0" id="rubricPagination"></ul></nav>
             </div>
         </div>
     </div>

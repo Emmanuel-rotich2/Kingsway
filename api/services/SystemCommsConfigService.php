@@ -47,6 +47,13 @@ class SystemCommsConfigService
         'comms_wa_api_url'  => ['SMS_WHATSAPP_API_URL', 'WhatsApp API URL', false],
     ];
 
+    private const EMAIL_ADVANCED_KEYS = [
+        'comms_pop3_host'       => ['POP3_HOST', 'POP3 Host', false],
+        'comms_pop3_port'       => ['POP3_PORT', 'POP3 Port', false],
+        'comms_imap_host'       => ['IMAP_HOST', 'IMAP Host', false],
+        'comms_imap_port'       => ['IMAP_PORT', 'IMAP Port', false],
+    ];
+
     /** Group name → const map */
     private const GROUPS = [
         'sms'      => self::SMS_KEYS,
@@ -209,6 +216,21 @@ class SystemCommsConfigService
     }
 
     /**
+     * Merged advanced email config (POP3/IMAP).
+     */
+    public function effectiveAdvancedEmail(): array
+    {
+        $rows = $this->loadDbValues();
+
+        return [
+            'pop3_host'       => $rows['comms_pop3_host']['setting_value']       ?? '',
+            'pop3_port'       => $rows['comms_pop3_port']['setting_value']       ?? 110,
+            'imap_host'       => $rows['comms_imap_host']['setting_value']       ?? '',
+            'imap_port'       => $rows['comms_imap_port']['setting_value']       ?? 143,
+        ];
+    }
+
+    /**
      * Attempt a balance check using the effective SMS config.
      * For africastalking, instantiate the SDK and call getBalance().
      * Does NOT actually send an SMS.
@@ -273,6 +295,32 @@ class SystemCommsConfigService
             Logger::legacyError('[SystemCommsConfig] testEmail failed: ' . $e->getMessage());
             return ['success' => false, 'message' => 'SMTP connection failed: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * Check Talksasa SMS balance.
+     */
+    public function getTalksasaBalance(): array
+    {
+        $url = rtrim((string) ($this->envValue('TALKSASA_API_URL') ?? 'https://bulksms.talksasa.com/api/v3/'), '/') . '/sms/balance';
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . ($this->envValue('SMS_API_KEY') ?? ''),
+            'Accept: application/json'
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $data = json_decode($response, true ?? false) ?? [];
+
+        return [
+            'success' => true,
+            'balance' => $data['balance'] ?? $data['data']['balance'] ?? 0,
+            'message' => 'Balance retrieved from Talksasa',
+        ];
     }
 
     /**

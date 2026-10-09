@@ -20,6 +20,7 @@
 namespace App\API\Includes;
 
 use App\Database\Database;
+use App\API\Services\ReadReplicaService;
 
 class DashboardManager
 {
@@ -114,8 +115,8 @@ class DashboardManager
     {
         $stmt = $this->db->query(
             "SELECT d.*, r.name as route_name, r.url as route_url
-             FROM dashboards d
-             LEFT JOIN routes_registry r ON r.id = d.route_id
+             FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = d.route_id
              WHERE d.is_active = 1
              ORDER BY d.id"
         );
@@ -140,12 +141,22 @@ class DashboardManager
 
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT d.*, r.name as route_name, r.url as route_url, rd.is_primary
-             FROM dashboards d
-             JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             LEFT JOIN routes_registry r ON r.id = d.route_id
-             WHERE rd.role_id IN ({$placeholders}) AND d.is_active = 1
-             ORDER BY rd.is_primary DESC, rd.display_order"
+            "SELECT DISTINCT
+                dc.dashboard_id AS id,
+                dc.dashboard_name AS name,
+                dc.dashboard_display_name AS display_name,
+                dc.dashboard_description AS description,
+                dc.dashboard_domain AS domain,
+                dc.dashboard_route_id AS route_id,
+                dc.dashboard_is_active AS is_active,
+                dc.dashboard_created_at AS created_at,
+                dc.dashboard_updated_at AS updated_at,
+                dc.route_name AS route_name,
+                dc.route_url AS route_url,
+                dc.role_dashboard_is_primary AS is_primary
+             FROM " . ReadReplicaService::qualifiedRef('dashboard_catalog') . " dc
+             WHERE dc.role_id IN ({$placeholders}) AND dc.dashboard_is_active = 1
+             ORDER BY dc.role_dashboard_is_primary DESC, dc.role_dashboard_display_order"
         );
         $stmt->execute($roleIds);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -164,12 +175,21 @@ class DashboardManager
         }
 
         $stmt = $this->db->prepare(
-            "SELECT d.*, r.name as route_name, r.url as route_url
-             FROM dashboards d
-             JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             LEFT JOIN routes_registry r ON r.id = d.route_id
-             WHERE rd.role_id = ? AND d.is_active = 1
-             ORDER BY rd.is_primary DESC, rd.display_order
+            "SELECT
+                dc.dashboard_id AS id,
+                dc.dashboard_name AS name,
+                dc.dashboard_display_name AS display_name,
+                dc.dashboard_description AS description,
+                dc.dashboard_domain AS domain,
+                dc.dashboard_route_id AS route_id,
+                dc.dashboard_is_active AS is_active,
+                dc.dashboard_created_at AS created_at,
+                dc.dashboard_updated_at AS updated_at,
+                dc.route_name AS route_name,
+                dc.route_url AS route_url
+             FROM " . ReadReplicaService::qualifiedRef('dashboard_catalog') . " dc
+             WHERE dc.role_id = ? AND dc.dashboard_is_active = 1
+             ORDER BY dc.role_dashboard_is_primary DESC, dc.role_dashboard_display_order
              LIMIT 1"
         );
         $stmt->execute([$roleId]);
@@ -188,15 +208,15 @@ class DashboardManager
         if (is_numeric($dashboardKey)) {
             $stmt = $this->db->prepare(
                 "SELECT d.*, r.name as route_name, r.url as route_url
-                 FROM dashboards d
-                 LEFT JOIN routes_registry r ON r.id = d.route_id
+                 FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = d.route_id
                  WHERE d.id = ? AND d.is_active = 1"
             );
         } else {
             $stmt = $this->db->prepare(
                 "SELECT d.*, r.name as route_name, r.url as route_url
-                 FROM dashboards d
-                 LEFT JOIN routes_registry r ON r.id = d.route_id
+                 FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = d.route_id
                  WHERE d.name = ? AND d.is_active = 1"
             );
         }
@@ -222,7 +242,7 @@ class DashboardManager
         // Get all menu items assigned to this role
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM sidebar_menu_items smi
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -320,9 +340,8 @@ class DashboardManager
 
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT COUNT(*) FROM role_routes rr
-             JOIN routes_registry r ON r.id = rr.route_id
-             WHERE rr.role_id IN ({$placeholders}) AND r.name = ? AND rr.is_allowed = 1"
+            "SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+             WHERE role_id IN ({$placeholders}) AND route_name = ? AND is_allowed = 1"
         );
         $params = array_merge($roleIds, [$route]);
         $stmt->execute($params);
@@ -339,8 +358,8 @@ class DashboardManager
     {
         $stmt = $this->db->prepare(
             "SELECT d.*, r.name as route_name, r.url as route_url
-             FROM dashboards d
-             JOIN routes_registry r ON r.id = d.route_id
+             FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
+             JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = d.route_id
              WHERE r.name = ? AND d.is_active = 1"
         );
         $stmt->execute([$routeName]);
@@ -408,7 +427,7 @@ class DashboardManager
     {
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM sidebar_menu_items smi
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -436,12 +455,10 @@ class DashboardManager
     public function getDashboardRouteForRole(int $roleId): ?string
     {
         $stmt = $this->db->prepare(
-            "SELECT r.name
-             FROM dashboards d
-             JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             JOIN routes_registry r ON r.id = d.route_id
-             WHERE rd.role_id = ? AND d.is_active = 1
-             ORDER BY rd.is_primary DESC
+            "SELECT route_name
+             FROM " . ReadReplicaService::qualifiedRef('dashboard_catalog') . "
+             WHERE role_id = ? AND dashboard_is_active = 1
+             ORDER BY role_dashboard_is_primary DESC
              LIMIT 1"
         );
         $stmt->execute([$roleId]);
@@ -475,7 +492,7 @@ class DashboardManager
     {
         $stmt = $this->db->prepare(
             "SELECT smi.url
-             FROM sidebar_menu_items smi
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1 AND smi.url IS NOT NULL"
         );

@@ -39,10 +39,33 @@ if ($appBase === '.')
     .stat-card {
         border: none;
         border-radius: 1rem;
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        background: #fff;
         box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.05);
         transition: transform 0.2s, box-shadow 0.2s;
     }
+
+    /* Distinct school palette makes each ID-card measure easy to scan. */
+    #summaryCards .stat-card--total { background: #e8eff9; border-left: 4px solid #315b87; }
+    #summaryCards .stat-card--with { background: #e8f3e9; border-left: 4px solid #39734b; }
+    #summaryCards .stat-card--without { background: #fff3d9; border-left: 4px solid #b47b17; }
+    #summaryCards .stat-card--printed { background: #e8f3f7; border-left: 4px solid #34788a; }
+    #summaryCards .stat-card--issued { background: #e8f2ed; border-left: 4px solid #3e7860; }
+    #summaryCards .stat-card--lost { background: #fae9e7; border-left: 4px solid #a84a42; }
+    #summaryCards .stat-card--expired { background: #f2ebf7; border-left: 4px solid #79538f; }
+    #summaryCards .stat-card--replaced { background: #edf0f2; border-left: 4px solid #64727d; }
+
+    #summaryCards .stat-card .stat-icon { background: rgba(255, 255, 255, 0.72); }
+    #summaryCards .stat-card--total .stat-icon { color: #315b87; }
+    #summaryCards .stat-card--with .stat-icon,
+    #summaryCards .stat-card--issued .stat-icon { color: #39734b; }
+    #summaryCards .stat-card--without .stat-icon { color: #94620d; }
+    #summaryCards .stat-card--printed .stat-icon { color: #34788a; }
+    #summaryCards .stat-card--lost .stat-icon { color: #a23d35; }
+    #summaryCards .stat-card--expired .stat-icon { color: #79538f; }
+    #summaryCards .stat-card--replaced .stat-icon { color: #596771; }
+    #summaryCards .stat-card .fs-4,
+    #summaryCards .stat-card .text-muted { color: #263746 !important; }
+    #summaryCards .stat-card .fs-4 { line-height: 1.15; }
 
     .stat-card:hover {
         transform: translateY(-2px);
@@ -317,15 +340,24 @@ if ($appBase === '.')
         body * {
             visibility: hidden;
         }
-        #printContainer, #printContainer * {
+        #idCardTablePrintArea, #idCardTablePrintArea * {
             visibility: visible;
         }
-        #printContainer {
+        #idCardTablePrintArea {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
         }
+        #idCardTablePrintArea .no-print,
+        #idCardTablePrintArea th:first-child,
+        #idCardTablePrintArea td:first-child,
+        #idCardTablePrintArea th:last-child,
+        #idCardTablePrintArea td:last-child {
+            display: none !important;
+        }
+        #idCardTablePrintArea table { font-size: 9pt; }
+        #idCardTablePrintArea img { max-width: 32px; max-height: 32px; }
     }
 </style>
 
@@ -342,15 +374,6 @@ if ($appBase === '.')
                 <button class="btn btn-light" id="refreshBtn">
                     <i class="bi bi-arrow-clockwise me-2"></i>Refresh
                 </button>
-                <button class="btn btn-light" id="generateSelectedBtn">
-                    <i class="bi bi-card-checklist me-2"></i>Generate Selected
-                </button>
-                <button class="btn btn-light" id="printSelectedBtn">
-                    <i class="bi bi-printer me-2"></i>Print Selected
-                </button>
-                <button class="btn btn-light" id="exportBtn">
-                    <i class="bi bi-download me-2"></i>Export
-                </button>
             </div>
         </div>
     </div>
@@ -358,7 +381,7 @@ if ($appBase === '.')
     <!-- Summary Cards -->
     <div class="row g-3 mb-4" id="summaryCards">
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--total p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-primary bg-opacity-10 text-primary">
                         <i class="bi bi-people"></i>
@@ -371,7 +394,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--with p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-success bg-opacity-10 text-success">
                         <i class="bi bi-credit-card"></i>
@@ -384,7 +407,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--without p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-warning bg-opacity-10 text-warning">
                         <i class="bi bi-credit-card-2-front"></i>
@@ -397,7 +420,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--printed p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-info bg-opacity-10 text-info">
                         <i class="bi bi-printer"></i>
@@ -410,7 +433,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--issued p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-secondary bg-opacity-10 text-secondary">
                         <i class="bi bi-check-circle"></i>
@@ -423,7 +446,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--lost p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-danger bg-opacity-10 text-danger">
                         <i class="bi bi-exclamation-triangle"></i>
@@ -436,7 +459,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--expired p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-orange bg-opacity-10 text-warning">
                         <i class="bi bi-hourglass"></i>
@@ -449,7 +472,7 @@ if ($appBase === '.')
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="stat-card p-3">
+            <div class="stat-card stat-card--replaced p-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="stat-icon bg-purple bg-opacity-10 text-primary">
                         <i class="bi bi-arrow-repeat"></i>
@@ -542,12 +565,28 @@ if ($appBase === '.')
         </div>
 
         <!-- Main Table -->
-        <div class="card">
-            <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Students</h6>
-                <div>
-                    <input type="checkbox" id="selectAll" class="form-check-input me-2">
-                    <small class="text-muted">Select All</small>
+        <div class="card" id="idCardTablePrintArea">
+            <div class="card-header bg-light d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 me-2">Students</h6>
+                    <label for="selectAll" class="small text-muted mb-0 text-nowrap">
+                        <input type="checkbox" id="selectAll" class="form-check-input me-1">
+                        Select page
+                    </label>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary btn-sm" id="generateSelectedBtn">
+                        <i class="bi bi-card-checklist me-1"></i>Generate selected
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" id="printSelectedBtn">
+                        <i class="bi bi-printer me-1"></i>Print selected
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="printListBtn">
+                        <i class="bi bi-printer-fill me-1"></i>Print list
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="exportBtn">
+                        <i class="bi bi-download me-1"></i>Export CSV
+                    </button>
                 </div>
             </div>
             <div class="card-body p-0">
@@ -563,23 +602,33 @@ if ($appBase === '.')
                                 <th scope="col">Stream</th>
                                 <th scope="col">Gender</th>
                                 <th scope="col">ID Card No</th>
-                                <th scope="col">QR Status</th>
-                                <th scope="col">ID Status</th>
                                 <th scope="col">Issue Date</th>
                                 <th scope="col">Expiry Year</th>
-                                <th scope="col">Last Action</th>
                                 <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
                             <tr>
-                                <td colspan="15" class="text-center py-4">
+                                <td colspan="11" class="text-center py-4">
                                     <div class="spinner-border text-info" role="status"></div>
                                     <div class="mt-2 text-muted">Loading...</div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <div class="id-card-pagination no-print d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 border-top px-3 py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <label for="idCardPageSize" class="small text-muted mb-0">Rows per page</label>
+                        <select id="idCardPageSize" class="form-select form-select-sm" style="width:auto" aria-label="Rows per page">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <span id="idCardPaginationSummary" class="small text-muted ms-2">Showing 0–0 of 0 students</span>
+                    </div>
+                    <nav id="idCardPaginationControls" class="d-flex align-items-center" aria-label="Student ID card pages"></nav>
                 </div>
             </div>
         </div>
@@ -870,8 +919,9 @@ if ($appBase === '.')
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
+<?php $studentIdCardsScript = __DIR__ . '/../js/pages/student_id_cards.js'; ?>
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/student_id_cards.js"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/student_id_cards.js?v=<?= (int) @filemtime($studentIdCardsScript) ?>"
     onload="console.log('student_id_cards.js script tag loaded successfully')"
     onerror="console.error('FAILED to load student_id_cards.js. Check path:', this.src)">
 </script>

@@ -166,6 +166,13 @@ class AiProviderClient implements AiCompletionProvider
         if (!is_array($json)) {
             throw new AiProviderException('AI provider returned non-JSON content.');
         }
+
+        // Response-side confidentiality choke point. A model can be induced to
+        // echo a database object name, a filesystem path, a registry report code
+        // or a credential even though its input was minimized, so scrub every
+        // workflow's output here rather than trusting each adapter to do it.
+        $json = AiOutputGuard::scrub($json);
+
         return $json;
     }
 

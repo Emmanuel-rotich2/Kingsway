@@ -62,6 +62,24 @@ class RealtimeMutationPublisher
                 ],
                 [EventBroadcaster::DEFAULT_SCOPE]
             );
+            // Node realtime gateway bridge (scaling masterplan): when the
+            // gateway address is configured, mirror the mutation to connected
+            // browsers over SSE. RealtimeGatewayPublisher is fire-and-forget,
+            // dormant until configured, and swallows failures — a realtime
+            // outage never turns a successful school operation into an HTTP
+            // failure. Payload keys are the gateway's allowlisted change
+            // descriptors; never record bodies. Scope 'all' reaches staff
+            // 'all'-channel holders; parents (family channels) never inherit it.
+            RealtimeGatewayPublisher::publish(
+                'DATA_CHANGED',
+                'all',
+                [
+                    'domain' => $domain,
+                    'action' => $eventName,
+                    'targets' => array_values(array_unique($targets)),
+                    'method' => $httpMethod,
+                ]
+            );
         } catch (\Throwable $e) {
             // Realtime is an acceleration layer. It must never roll back or
             // turn a successful school operation into an HTTP failure.

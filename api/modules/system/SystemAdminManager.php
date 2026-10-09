@@ -3,6 +3,7 @@ namespace App\API\Modules\system;
 
 use App\API\Includes\BaseAPI;
 use App\API\Includes\AuditLogger;
+use App\API\Services\ReadReplicaService;
 use App\API\Services\SidebarConfigReader;
 use Exception;
 
@@ -326,7 +327,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('promotion-', cpq.id) AS id,
                         'class_promotion' AS type,
-                        CONVERT(CONCAT('Class promotion batch #', cpq.batch_id, ': ', c.name, ' / ', COALESCE(s.name, 'N/A')) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
+                        CONCAT('Class promotion batch #', cpq.batch_id, ': ', c.name, ' / ', COALESCE(s.name, 'N/A')) AS description,
                         NULL AS amount,
                         cpq.approval_status AS status,
                         CASE cpq.approval_status
@@ -340,11 +341,11 @@ class SystemAdminManager extends BaseAPI
                         cpq.created_at AS submitted_at,
                         NULL AS due_by
                     FROM class_promotion_queue cpq
-                    INNER JOIN promotion_batches pb ON pb.id = cpq.batch_id
-                    INNER JOIN classes c ON c.id = cpq.class_id
-                    LEFT JOIN streams s ON s.id = cpq.stream_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("promotion_batches") . " pb ON pb.id = cpq.batch_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = cpq.class_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " s ON s.id = cpq.stream_id
                     LEFT JOIN users u ON u.id = pb.created_by
-                    LEFT JOIN persons p ON p.id = u.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                     WHERE cpq.approval_status IN ('pending', 'reviewing')
                       AND (cpq.assigned_to_user_id = ? OR cpq.assigned_to_user_id IS NULL)
                 ";
@@ -355,7 +356,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('purchase-order-', po.id) AS id,
                         'purchase_order' AS type,
-                        CONVERT(CONCAT('Purchase order ', po.order_number, ' awaiting approval') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
+                        CONCAT('Purchase order ', po.order_number, ' awaiting approval') AS description,
                         po.total_amount AS amount,
                         po.status AS status,
                         CASE WHEN po.total_amount >= 100000 THEN 'high' ELSE 'medium' END AS priority,
@@ -364,9 +365,9 @@ class SystemAdminManager extends BaseAPI
                         p.last_name,
                         po.created_at AS submitted_at,
                         po.expected_delivery_date AS due_by
-                    FROM purchase_orders po
-                    LEFT JOIN staff s ON s.id = po.created_by
-                    LEFT JOIN persons p ON p.id = s.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("purchase_orders") . " po
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = po.created_by
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     WHERE po.status = 'pending'
                 ";
             }
@@ -376,7 +377,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('expense-', e.id) AS id,
                         'expense' AS type,
-                        CONVERT(CONCAT('Expense: ', COALESCE(e.description, e.expense_number)) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
+                        CONCAT('Expense: ', COALESCE(e.description, e.expense_number)) AS description,
                         e.amount AS amount,
                         e.status AS status,
                         CASE WHEN e.amount >= 50000 THEN 'high' ELSE 'medium' END AS priority,
@@ -385,9 +386,9 @@ class SystemAdminManager extends BaseAPI
                         p.last_name,
                         e.created_at AS submitted_at,
                         NULL AS due_by
-                    FROM expenses e
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
                     LEFT JOIN users u ON u.id = e.created_by
-                    LEFT JOIN persons p ON p.id = u.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                     WHERE e.status IN ('pending', 'pending_approval')
                 ";
             }
@@ -488,7 +489,7 @@ class SystemAdminManager extends BaseAPI
                     u.created_at,
                     u.updated_at
                  FROM users u
-                 LEFT JOIN persons p ON p.id = u.person_id
+                 LEFT JOIN " . ReadReplicaService::masterRef("persons") . " p ON p.id = u.person_id
                  ORDER BY u.id DESC
                  LIMIT 500"
             );
@@ -1945,7 +1946,7 @@ class SystemAdminManager extends BaseAPI
             }
 
             $stmt = $this->db->prepare(
-                "SELECT p.* FROM permissions p
+                "SELECT p.* FROM " . ReadReplicaService::masterRef("permissions") . "
                  JOIN role_permissions rp ON p.id = rp.permission_id
                  WHERE rp.role_id = ?
                  ORDER BY p.entity, p.action, p.code"

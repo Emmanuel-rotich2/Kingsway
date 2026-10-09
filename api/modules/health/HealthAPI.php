@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * HealthAPI
@@ -55,9 +56,9 @@ class HealthAPI extends BaseAPI
                 "SELECT COUNT(DISTINCT student_id) FROM student_health_records"
             )->fetchColumn();
             $vaxDue = (int)$this->db->query(
-                "SELECT COUNT(*) FROM student_vaccinations
-                 WHERE next_due_date IS NOT NULL
-                   AND next_due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)"
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . " sv
+                  WHERE sv.next_due_date IS NOT NULL
+                    AND sv.next_due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)"
             )->fetchColumn();
 
             return formatResponse(true, [
@@ -82,8 +83,8 @@ class HealthAPI extends BaseAPI
         try {
             $base = "
                 SELECT hr.*, p.first_name, p.last_name, s.admission_no, c.name AS class_name
-                FROM student_health_records hr
-                JOIN students s ON s.id = hr.student_id
+                FROM " . ReadReplicaService::qualifiedRef("student_health_records") . " hr
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = hr.student_id
                 " . $this->studentJoin() . "
             ";
 
@@ -203,8 +204,8 @@ class HealthAPI extends BaseAPI
                     NULL AS temperature,
                     NULL AS weight_kg,
                     NULL AS parent_notified
-                 FROM student_health_visits hv
-                 JOIN students s ON s.id = hv.student_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_health_visits") . " hv
+                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = hv.student_id
                  " . $this->studentJoin() . "
                  WHERE " . implode(' AND ', $where) . "
                  ORDER BY hv.visit_date DESC
@@ -305,8 +306,8 @@ class HealthAPI extends BaseAPI
             if ($studentId) {
                 $stmt = $this->db->prepare(
                     "SELECT v.*, p.first_name, p.last_name, s.admission_no
-                     FROM student_vaccinations v
-                     JOIN students s ON s.id = v.student_id
+                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . "
+                     JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = v.student_id
                      " . $this->studentJoin() . "
                      WHERE v.student_id = ? ORDER BY v.date_given DESC"
                 );
@@ -317,8 +318,8 @@ class HealthAPI extends BaseAPI
                     : "WHERE 1=1";
                 $stmt = $this->db->query(
                     "SELECT v.*, p.first_name, p.last_name, s.admission_no, c.name AS class_name
-                     FROM student_vaccinations v
-                     JOIN students s ON s.id = v.student_id
+                     FROM " . ReadReplicaService::qualifiedRef("student_vaccinations") . "
+                     JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = v.student_id
                      " . $this->studentJoin() . "
                      $where ORDER BY v.next_due_date, v.date_given DESC LIMIT 500"
                 );

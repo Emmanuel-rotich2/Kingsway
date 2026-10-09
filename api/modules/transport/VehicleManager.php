@@ -2,6 +2,7 @@
 namespace App\API\Modules\transport;
 
 use PDO;
+use App\API\Services\ReadReplicaService;
 
 class VehicleManager
 {
@@ -66,8 +67,8 @@ class VehicleManager
     public function getAllVehicles()
     {
         $stmt = $this->db->prepare("SELECT v.*,
-                    (SELECT GROUP_CONCAT(DISTINCT tvr.route_id ORDER BY tvr.route_id) FROM transport_vehicle_routes tvr WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_ids,
-                    (SELECT GROUP_CONCAT(DISTINCT tr.name ORDER BY tr.name SEPARATOR ', ') FROM transport_vehicle_routes tvr JOIN transport_routes tr ON tr.id=tvr.route_id WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_names
+                    (SELECT GROUP_CONCAT(DISTINCT tvr.route_id ORDER BY tvr.route_id) FROM " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_ids,
+                    (SELECT GROUP_CONCAT(DISTINCT tr.name ORDER BY tr.name SEPARATOR ', ') FROM " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id=tvr.route_id WHERE tvr.vehicle_id=v.id AND tvr.status='active') AS route_names
                 FROM transport_vehicles v ORDER BY v.registration_number");
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

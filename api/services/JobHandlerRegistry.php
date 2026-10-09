@@ -85,6 +85,16 @@ class JobHandlerRegistry
                     throw new \RuntimeException('Read-replica parity mismatch on: ' . implode(', ', array_column($bad, 'projection')));
                 }
             },
+            // Safe fallback for Python-owned projections when the Flask worker
+            // is not configured. When Python is active, RealtimeController
+            // routes this family away from the serial PHP worker.
+            'reads.projection.refresh' => static function (array $payload, PDO $pdo): void {
+                $projection = (string) ($payload['projection'] ?? '');
+                if (!ReadProjectionSynchronizer::supports($projection)) {
+                    throw new RuntimeException('Unsupported read projection refresh job.');
+                }
+                ReadProjectionSynchronizer::synchronize($projection);
+            },
             // Async RPC execution (roadmap §4.2): a queued rpc.async.dispatch
             // job re-resolves the registered method and runs it in the worker.
             // Async methods declare a `worker` (a synchronously executable sync
@@ -173,6 +183,11 @@ class JobHandlerRegistry
                     return;
                 }
                 (new AiAgentService())->runBackground($pdo, $payload);
+            },
+            // Governed, non-AI automations computed by the Python engine
+            // (registry-authorised; payload already bounded at enqueue time).
+            'automation.run' => static function (array $payload, PDO $pdo): void {
+                (new \App\API\Services\automations\AutomationArtifacts())->execute($payload, $pdo);
             },
             // Extend here with 'generate_report_card' => ..., 'send_bulk_sms' => ...
             // only once the producing workflow pushes and consumes them.

@@ -33,9 +33,12 @@ final class GovernedReportResponseBuilder
                 'category' => (string) $definition['category'],
                 'grain' => (string) $definition['grain'],
                 'sensitivity' => (string) $definition['sensitivity'],
-                'source' => [
-                    'type' => (string) $definition['source_type'],
-                    'name' => (string) $definition['source_name'],
+                // Data-currency only. The source type and source name (a
+                // database view/service identifier) are internal schema detail
+                // and must not be sent to a browser: it discloses how the report
+                // is built. `as_of` at the top level already states when the
+                // figures were produced, which is what a reader needs.
+                'data_currency' => [
                     'freshness_minutes' => (int) $definition['freshness_minutes'],
                 ],
             ],

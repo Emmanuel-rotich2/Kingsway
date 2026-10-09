@@ -68,7 +68,10 @@
                 { label: 'KES 20,000+', min: 20000, max: Infinity }
             ];
 
-            const periodKey = period || 'month';
+            // The default scope is the CURRENT TERM (the school's operating
+            // period), not a rolling week/month — the term is what an
+            // accountant reconciles against.
+            const periodKey = period || 'term';
             const collectedByPeriod = {
                 today: Number(collections.today_total || 0),
                 week: Number(collections.week_total || 0),

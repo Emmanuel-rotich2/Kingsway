@@ -116,8 +116,8 @@ class DelegationService
              FROM permission_delegations pd
              LEFT JOIN users du ON du.id = pd.delegated_from_user_id
              LEFT JOIN users dv ON dv.id = pd.delegated_to_user_id
-             LEFT JOIN sidebar_menu_items mi ON mi.id = pd.form_permission_id
-             LEFT JOIN routes_registry r ON r.id = mi.route_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi ON mi.id = pd.form_permission_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
              WHERE pd.id = ? LIMIT 1",
             [$id]
         );
@@ -168,8 +168,8 @@ class DelegationService
                 FROM permission_delegations pd
                 LEFT JOIN users du ON du.id = pd.delegated_from_user_id
                 LEFT JOIN users dv ON dv.id = pd.delegated_to_user_id
-                LEFT JOIN sidebar_menu_items mi ON mi.id = pd.form_permission_id
-                LEFT JOIN routes_registry r ON r.id = mi.route_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " mi ON mi.id = pd.form_permission_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = mi.route_id
                 WHERE {$whereSql}
                 ORDER BY {$sort} {$order}
                 LIMIT ? OFFSET ?";
@@ -282,7 +282,7 @@ class DelegationService
         $delegateUserId = (int) $row['delegate_user_id'];
 
         $stmt2 = $this->db->query(
-            'SELECT rp.permission_id FROM sidebar_menu_items mi JOIN routes_registry r ON r.id = mi.route_id JOIN route_permissions rp ON rp.route_id = r.id AND rp.is_required = 1 WHERE mi.id = ?',
+            'SELECT rp.permission_id FROM ' . ReadReplicaService::qualifiedRef('sidebar_menu_items') . ' mi JOIN ' . ReadReplicaService::qualifiedRef('routes_registry') . ' r ON r.id = mi.route_id JOIN route_permissions rp ON rp.route_id = r.id AND rp.is_required = 1 WHERE mi.id = ?',
             [$row['menu_item_id']]
         );
         $permIds = array_map(function ($r) {
@@ -294,8 +294,8 @@ class DelegationService
         foreach ($permIds as $pid) {
             $checkStmt = $this->db->query(
                 'SELECT COUNT(*) FROM permission_delegations pd
-                 JOIN sidebar_menu_items mi ON mi.id = pd.form_permission_id
-                 JOIN routes_registry r ON r.id = mi.route_id
+                 JOIN ' . ReadReplicaService::qualifiedRef('sidebar_menu_items') . ' mi ON mi.id = pd.form_permission_id
+                 JOIN ' . ReadReplicaService::qualifiedRef('routes_registry') . ' r ON r.id = mi.route_id
                  JOIN route_permissions rp ON rp.route_id = r.id AND rp.is_required = 1
                  WHERE pd.delegated_to_user_id = ? AND rp.permission_id = ? AND pd.delegation_end_date >= CURDATE() AND pd.id != ?',
                 [$delegateUserId, $pid, $id]

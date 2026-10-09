@@ -30,6 +30,22 @@ class PublicController extends BaseAPI
         $this->manager = $this->contract('App\API\Modules\website\WebsiteManager');
     }
 
+    /**
+     * GET /api/public/setup-invitation?token=...
+     * Read-only onboarding flags (parent vs staff invitation, whether the
+     * password is already saved and the OTP step should resume) so the
+     * account-setup page can render without any server-side DB access.
+     */
+    public function getSetupInvitation($id = null, $data = [], $segments = [])
+    {
+        $token = trim((string)($data['token'] ?? $_GET['token'] ?? ''));
+        if ($token === '') {
+            return $this->errorResponse('Token is required.', 422);
+        }
+        $service = $this->contract(\App\API\Services\StaffMigrationService::class, Database::getInstance()->getConnection());
+        return $this->successResponse($service->setupInvitationFlags($token));
+    }
+
     public function postJobApplications($id = null, $data = [], $segments = [])
     {
         foreach (['apply_first_name', 'apply_last_name', 'apply_email', 'apply_phone'] as $field) {
@@ -241,22 +257,18 @@ public function postSubscribers($id = null, $data = [], $segments = [])
             if (empty($product) || ($product['status'] ?? '') !== 'active' || (int)($product['published'] ?? 0) !== 1) {
                 return $this->errorResponse('Product not found.', 404);
             }
-            // Fetch all images for this product
-            $imgSt = $pdo->prepare('SELECT id, variant_id, url, alt_text, view_type, is_primary, display_order FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, display_order, id');
-            $imgSt->execute([(int) $id]);
-            $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
+            // Images for this product from the catalogue service
+            $product['images'] = ($this->contract('App\API\Services\payments\UniformCatalogService', $pdo))->imagesForProduct((int) $id);
             $uploadService = $this->contract('App\API\Services\UploadService');
             foreach ($product['images'] as &$image) {
                 $image['url'] = $uploadService->publicUrl($image['url'] ?? null);
             }
             unset($image);
 
-            // Fetch all available sizes for this product
-            $variantSt=$pdo->prepare("SELECT id,item_id,code,name,color_name,swatch_hex,is_default,display_order FROM uniform_catalog_variants WHERE product_id=? AND status='active' ORDER BY display_order,id");
-            $variantSt->execute([(int)$id]);$product['variants']=$variantSt->fetchAll(\PDO::FETCH_ASSOC);
-            $szSt = $pdo->prepare('SELECT us.id AS size_id,NULL AS variant_id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved AS available FROM uniform_sizes us WHERE us.item_id=? AND us.quantity_available>us.quantity_reserved UNION ALL SELECT us.id,v.id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.product_id=? AND v.status=\'active\' AND us.quantity_available>us.quantity_reserved ORDER BY variant_id,unit_price,size');
-            $szSt->execute([$product['item_id'],(int)$id]);
-            $product['sizes'] = $szSt->fetchAll(\PDO::FETCH_ASSOC);
+            // Available sizes + variants via the catalogue service
+            $cat = $this->contract('App\API\Services\payments\UniformCatalogService', $pdo);
+            $product['variants'] = $cat->variantsForProduct((int) $id);
+            $product['sizes'] = $cat->sizesForProduct((int) $product['item_id'], (int) $id);
             $product['reviews'] = ($this->contract('App\API\Services\catalog\CatalogCommerceService', $pdo))->reviews((int)$id);
 
             return $this->successResponse(['product' => $product], 'Product details');
@@ -264,5 +276,44 @@ public function postSubscribers($id = null, $data = [], $segments = [])
 
         // Full catalogue listing
         return $this->successResponse(['products' => $svc->list($data)], 'Uniform catalogue');
+    }
+
+    /**
+     * GET /api/public/student-verification/{studentId}?scope=transport
+     *
+     * Data source for the QR ID-card verification page. Public callers get
+     * name+class only; signed-in staff get the sections their role allows
+     * (decided server-side by StudentCardVerificationService::viewPolicy).
+     * No SQL in the page, none here either — the service owns every query.
+     */
+    public function getStudentVerification($id = null, $data = [], $segments = [])
+    {
+        $studentId = (int) ($id ?? ($_GET['student_id'] ?? 0));
+        if ($studentId < 1) {
+            return $this->errorResponse('Learner identifier is required.', 422);
+        }
+
+        // Optional authentication: a verified staff session widens sections;
+        // anonymous scans (security desk, parents with a phone) stay public.
+        $user = $_SERVER['auth_user'] ?? null;
+        if (!$user && (session_status() === PHP_SESSION_ACTIVE || session_start()) && !empty($_SESSION['user'])) {
+            $user = $_SESSION['user'];
+        }
+
+        $service = \App\API\Services\StudentCardVerificationService::shared();
+        $student = $service->identity($studentId);
+        if (!$student) {
+            return $this->errorResponse('Learner not found.', 404);
+        }
+
+        $policy = $service->viewPolicy(is_array($user) ? $user : null, (string) ($_GET['scope'] ?? ''));
+        $sections = $service->sections($studentId, $policy['sections']);
+
+        return $this->successResponse([
+            'student' => $student,
+            'sections_allowed' => $policy['sections'],
+            'viewing_as' => $policy['viewing_as'],
+            'data' => $sections,
+        ], 'Learner verification');
     }
 }

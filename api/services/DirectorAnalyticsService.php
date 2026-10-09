@@ -14,12 +14,11 @@ class DirectorAnalyticsService
      */
     public function getEnrollmentStats()
     {
-        $query = "SELECT COUNT(*) as total, 
-                         SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
-                         SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female
-                  FROM students s
-                  LEFT JOIN persons p ON s.person_id = p.id
-                  WHERE s.status = 'active'";
+        $query = "SELECT COUNT(*) as total,
+                         SUM(CASE WHEN sd.gender = 'male' THEN 1 ELSE 0 END) as male,
+                         SUM(CASE WHEN sd.gender = 'female' THEN 1 ELSE 0 END) as female
+                  FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                  WHERE sd.student_status = 'active'";
         $stmt = $this->db->query($query);
         $row = $stmt->fetch();
         return [
@@ -35,11 +34,10 @@ class DirectorAnalyticsService
     public function getStaffStats()
     {
         $query = "SELECT COUNT(*) as total,
-                         SUM(CASE WHEN LOWER(st.name) LIKE '%teaching%' AND LOWER(st.name) NOT LIKE '%non%' THEN 1 ELSE 0 END) as teaching,
-                         SUM(CASE WHEN LOWER(st.name) LIKE '%non%teaching%' OR LOWER(st.name) LIKE '%support%' OR LOWER(st.name) = 'administration' THEN 1 ELSE 0 END) as non_teaching
-                  FROM staff s
-                  LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                  WHERE s.status = 'active'";
+                         SUM(CASE WHEN LOWER(s.staff_type_name) LIKE '%teaching%' AND LOWER(s.staff_type_name) NOT LIKE '%non%' THEN 1 ELSE 0 END) as teaching,
+                         SUM(CASE WHEN LOWER(s.staff_type_name) LIKE '%non%teaching%' OR LOWER(s.staff_type_name) LIKE '%support%' OR LOWER(s.staff_type_name) = 'administration' THEN 1 ELSE 0 END) as non_teaching
+                  FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                  WHERE s.staff_status = 'active'";
         $stmt = $this->db->query($query);
         $row = $stmt->fetch();
         return [
@@ -248,8 +246,8 @@ class DirectorAnalyticsService
         $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE status = 'active' OR is_current = 1 ORDER BY id DESC LIMIT 1");
         $result['academic_year'] = $yearStmt->fetch()['year_name'] ?? date('Y');
 
-        $termStmt = $this->db->query("SELECT t.name FROM academic_year_terms ayt JOIN terms t ON ayt.term_id = t.id WHERE ayt.academic_year_id = (SELECT id FROM academic_years WHERE status IN ('active', 'current') LIMIT 1) ORDER BY ayt.id DESC LIMIT 1");
-        $result['current_term'] = $termStmt->fetch()['name'] ?? 'Term 1';
+        $termStmt = $this->db->query("SELECT term_name FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 ORDER BY academic_year_term_id DESC LIMIT 1");
+        $result['current_term'] = $termStmt->fetch()['term_name'] ?? 'Term 1';
 
         // Total Students
         $query = "SELECT COUNT(*) as total FROM students WHERE status = 'active'";
@@ -268,12 +266,20 @@ class DirectorAnalyticsService
         $result['student_growth'] = $last_year > 0 ? round((($current_year - $last_year) / $last_year) * 100, 1) : 0;
 
         // Total Staff
-        $query = "SELECT COUNT(DISTINCT u.id) as total FROM users u JOIN user_roles ur ON ur.user_id=u.id WHERE ur.role_id IN (2,3,4,5,6,7,8,9,10,14,16,18,21,24,32,33,34,63)";
+        $query = "SELECT COUNT(DISTINCT u.id) as total
+                  FROM " . ReadReplicaService::masterRef("users") . " u
+                  JOIN " . ReadReplicaService::masterRef("user_roles") . " ur ON ur.user_id = u.id
+                  WHERE ur.role_id IN (2,3,4,5,6,7,8,9,10,14,16,18,21,24,32,33,34,63)";
         $stmt = $this->db->query($query);
         $result['total_staff'] = $stmt->fetch()['total'] ?? 0;
 
         // Teacher-Student Ratio
-        $teacher_stmt = $this->db->query("SELECT COUNT(DISTINCT u.id) as count FROM users u JOIN user_roles ur ON ur.user_id=u.id WHERE ur.role_id IN (7,8,9)");
+        $teacher_stmt = $this->db->query(
+            "SELECT COUNT(DISTINCT u.id) as count
+             FROM " . ReadReplicaService::masterRef("users") . " u
+             JOIN " . ReadReplicaService::masterRef("user_roles") . " ur ON ur.user_id = u.id
+             WHERE ur.role_id IN (7,8,9)"
+        );
         $teacher_count = $teacher_stmt->fetch()['count'] ?? 1;
         $result['teacher_student_ratio'] = $teacher_count > 0 ? round($result['total_students'] / $teacher_count, 1) : 0;
 
@@ -398,12 +404,12 @@ class DirectorAnalyticsService
 
         // Pending Approvals
         $query = "SELECT COUNT(DISTINCT wi.id) as total
-                  FROM workflow_instances wi
-                  JOIN workflow_definitions wd ON wd.id = wi.workflow_id
+                  FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
+                  JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wd.id = wi.workflow_id
                   LEFT JOIN workflow_stage_permissions wsp
                     ON wsp.workflow_stage_id = (
                         SELECT ws.id
-                        FROM workflow_stages ws
+                        FROM " . ReadReplicaService::qualifiedRef("workflow_stages") . " ws
                         WHERE ws.workflow_id = wi.workflow_id
                           AND ws.code = COALESCE(NULLIF(wi.stage_code, ''), NULLIF(wi.current_stage, ''))
                         LIMIT 1
@@ -436,7 +442,7 @@ class DirectorAnalyticsService
 
         // Students by gender (for pie chart)
         try {
-            $stmt = $this->db->query("SELECT p.gender, COUNT(*) as cnt FROM students s LEFT JOIN persons p ON s.person_id = p.id WHERE s.status = 'active' GROUP BY p.gender");
+            $stmt = $this->db->query("SELECT sd.gender, COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd WHERE sd.student_status = 'active' GROUP BY sd.gender");
             $genderRows = $stmt->fetchAll();
             $result['students_by_gender'] = array_map(function ($r) {
                 return ['source' => ucfirst($r['gender'] ?? 'Unknown'), 'amount' => (int) $r['cnt']];
@@ -447,7 +453,7 @@ class DirectorAnalyticsService
 
         // Staff by role
         try {
-            $stmt = $this->db->query("SELECT r.name as role, COUNT(DISTINCT u.id) as cnt FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id WHERE u.status = 'active' GROUP BY r.name ORDER BY cnt DESC LIMIT 10");
+            $stmt = $this->db->query("SELECT role_name as role, COUNT(DISTINCT user_id) as cnt FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "  WHERE user_status = 'active' GROUP BY role_name ORDER BY cnt DESC LIMIT 10");
             $rows = $stmt->fetchAll();
             $result['staff_by_role'] = array_map(function ($r) {
                 return ['source' => $r['role'] ?? 'Unknown', 'amount' => (int) $r['cnt']];
@@ -463,9 +469,9 @@ class DirectorAnalyticsService
                        COUNT(DISTINCT s.id) as cnt,
                        SUM(CASE WHEN s.staff_type_id = 1 THEN 1 ELSE 0 END) as teachers,
                        SUM(CASE WHEN s.staff_type_id <> 1 THEN 1 ELSE 0 END) as support_staff
-                FROM staff s
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
                 LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                LEFT JOIN departments d ON d.id = sep.department_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
                 WHERE s.status = 'active'
                 GROUP BY d.name
                 ORDER BY cnt DESC
@@ -490,15 +496,14 @@ class DirectorAnalyticsService
             // Student age distribution (school-age buckets)
             $studentAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) < 10 THEN '0-9'
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) < 10 THEN '0-9'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
                     ELSE '18+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM students s
-                JOIN persons p ON s.person_id = p.id
-                WHERE p.dob IS NOT NULL AND s.status = 'active'
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                WHERE sd.dob IS NOT NULL AND sd.student_status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '0-9', '10-13', '14-17', '18+')";
             $stmt = $this->db->query($studentAgeQuery);
@@ -507,16 +512,15 @@ class DirectorAnalyticsService
             // Staff age distribution (adult buckets)
             $staffAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) < 25 THEN '18-24'
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
-                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) < 25 THEN '18-24'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
+                    WHEN TIMESTAMPDIFF(YEAR, sd.dob, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
                     ELSE '55+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM staff s
-                JOIN persons p ON s.person_id = p.id
-                WHERE p.dob IS NOT NULL AND s.status = 'active'
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+                WHERE sd.dob IS NOT NULL AND sd.staff_status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '18-24', '25-34', '35-44', '45-54', '55+')";
             $stmt2 = $this->db->query($staffAgeQuery);
@@ -611,8 +615,8 @@ class DirectorAnalyticsService
             try {
                 $mig = $this->db->query(
                     "SELECT COALESCE(SUM(migration_paid_amount), 0) AS total
-                     FROM student_fee_obligations
-                     WHERE academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1)"
+                     FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                     WHERE academic_year_id = (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current = 1 ORDER BY id DESC LIMIT 1)"
                 );
                 $migrationPaid = (float) ($mig->fetch()['total'] ?? 0);
             } catch (\Exception $e) {
@@ -659,23 +663,22 @@ class DirectorAnalyticsService
         } catch (\Exception $e) {}
 
         try {
-            $row = $this->db->query("SELECT COUNT(*) as cnt FROM students WHERE status = 'active'")->fetch();
+            $row = $this->db->query("SELECT COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " status = 'active'")->fetch();
             $result['total_students'] = (int) ($row['cnt'] ?? 0);
         } catch (\Exception $e) {}
 
-        // Merge avg and pass-rate into one scan of assessment_results JOIN assessments
+        // Merge avg and pass-rate into one scan of assessment_results_detailed
         try {
             $row = $this->db->query("
                 SELECT
                     AVG(
-                        CASE WHEN a.max_marks > 0
-                             THEN (ar.marks_obtained / a.max_marks) * 100
-                             ELSE ar.marks_obtained END
+                        CASE WHEN max_marks > 0
+                             THEN (marks_obtained / max_marks) * 100
+                             ELSE marks_obtained END
                     ) as avg_pct,
-                    SUM(CASE WHEN a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 THEN 1 ELSE 0 END) as passed,
+                    SUM(CASE WHEN max_marks > 0 AND (marks_obtained / max_marks) * 100 >= 50 THEN 1 ELSE 0 END) as passed,
                     COUNT(*) as total
-                FROM assessment_results ar
-                JOIN assessments a ON ar.assessment_id = a.id
+                FROM " . ReadReplicaService::qualifiedRef("assessment_results_detailed") . "
             ")->fetch();
 
             $avg = round((float) ($row['avg_pct'] ?? 0), 1);
@@ -718,11 +721,11 @@ class DirectorAnalyticsService
                     SUM(CASE WHEN a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 THEN 1 ELSE 0 END)
                     / NULLIF(COUNT(*), 0) * 100
                 , 1) as pass_rate
-            FROM assessment_results ar
-            JOIN assessments a ON ar.assessment_id = a.id
-            JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
-            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            JOIN classes c ON ayc.class_id = c.id
+            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+            JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a.academic_year_class_stream_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
             WHERE ayc.status = 'active'
             GROUP BY c.id, c.name
             ORDER BY c.name
@@ -741,14 +744,12 @@ class DirectorAnalyticsService
         $fallbackQuery = "
             SELECT
                 c.name as class_name,
-                (SELECT COUNT(DISTINCT sae.student_id) FROM student_academic_enrollments sae
-                 JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                 JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                 WHERE ayc.class_id = c.id AND sae.enrollment_status = 'active') as student_count,
+                (SELECT COUNT(DISTINCT sae.student_id) FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 WHERE sae.class_id = c.id AND sae.enrollment_status = 'active') as student_count,
                 0.0 as avg_score,
                 0.0 as pass_rate
-            FROM classes c
-            JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
+            FROM " . ReadReplicaService::qualifiedRef("classes") . " c
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id AND ayc.status = 'active'
             ORDER BY c.name
         ";
         try {
@@ -770,12 +771,7 @@ class DirectorAnalyticsService
                 SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
                 SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female,
                 COUNT(*) as total
-            FROM students s
-            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id
-            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-            LEFT JOIN classes c ON ayc.class_id = c.id
-            LEFT JOIN persons p ON s.person_id = p.id
+            FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
             WHERE s.status = 'active' AND sae.enrollment_status = 'active'
             GROUP BY c.name
             ORDER BY c.name
@@ -794,9 +790,9 @@ class DirectorAnalyticsService
                    COUNT(DISTINCT s.id) as total,
                    SUM(CASE WHEN s.staff_type_id = 1 THEN 1 ELSE 0 END) as teachers,
                    SUM(CASE WHEN s.staff_type_id <> 1 THEN 1 ELSE 0 END) as support_staff
-            FROM staff s
+            FROM " . ReadReplicaService::qualifiedRef("staff") . " s
             LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-            LEFT JOIN departments d ON d.id = sep.department_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
             WHERE s.status = 'active'
             GROUP BY d.name
             ORDER BY total DESC
@@ -859,14 +855,14 @@ class DirectorAnalyticsService
                     ELSE CONCAT(c.name, ' - ', st.name)
                 END as class,
                 'Not provided' as reason
-            FROM student_attendance sa
-            JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
-            JOIN students s ON s.id = sae.student_id
-            JOIN persons p ON s.person_id = p.id
+            FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+            JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sa.student_academic_enrollment_id
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = s.person_id
             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-            LEFT JOIN classes c ON ayc.class_id = c.id
-            LEFT JOIN streams st ON aycs.stream_id = st.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
             WHERE sa.date = CURDATE()
               AND sa.status = 'absent'
             ORDER BY c.name, p.first_name
@@ -883,8 +879,8 @@ class DirectorAnalyticsService
                 d.name as department,
                 'Not provided' as reason
             FROM staff_attendance sta
-            JOIN staff st ON sta.staff_id = st.id
-            LEFT JOIN persons p ON p.id = st.person_id
+            JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON sta.staff_id = st.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = st.person_id
             LEFT JOIN staff_employment_profiles sep ON sep.staff_id = st.id
             LEFT JOIN departments d ON d.id = sep.department_id
             WHERE sta.date = CURDATE()
@@ -952,16 +948,16 @@ class DirectorAnalyticsService
                 SUM(p.amount) as collected,
                 (SELECT COALESCE(SUM(fb.balance), 0)
                  FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
-                 JOIN student_academic_enrollments sae2 ON sae2.id = fb.student_academic_enrollment_id
-                 JOIN academic_year_class_streams aycs2 ON sae2.academic_year_class_stream_id = aycs2.id
-                 JOIN academic_year_classes ayc2 ON aycs2.academic_year_class_id = ayc2.id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae2 ON sae2.id = fb.student_academic_enrollment_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs2 ON sae2.academic_year_class_stream_id = aycs2.id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc2 ON aycs2.academic_year_class_id = ayc2.id
                  WHERE ayc2.class_id = c.id) as outstanding
-            FROM payments p
+            FROM " . ReadReplicaService::qualifiedRef("payments") . " p
             LEFT JOIN students s ON p.student_id = s.id
             LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id
-            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-            LEFT JOIN classes c ON ayc.class_id = c.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
             WHERE p.status = 'confirmed'
             GROUP BY c.name, DATE_FORMAT(p.payment_date, '%Y-%m')
             ORDER BY c.name, term DESC
@@ -1068,8 +1064,8 @@ class DirectorAnalyticsService
                 SELECT
                     wd.name as workflow_type,
                     COUNT(*) as count
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
+                JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wi.workflow_id = wd.id
                 WHERE wi.status IN ('pending', 'in_progress')
                 GROUP BY wd.name
             ");

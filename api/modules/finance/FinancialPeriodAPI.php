@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\finance;
 
+use App\API\Services\ReadReplicaService;
+
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
@@ -106,7 +108,7 @@ class FinancialPeriodAPI extends BaseAPI {
                 SELECT COUNT(*) 
                 FROM school_transactions st
                 WHERE st.transaction_date BETWEEN ? AND ?
-                AND st.id NOT IN (SELECT transaction_id FROM payment_reconciliations)
+                AND st.id NOT IN (SELECT transaction_id FROM " . ReadReplicaService::qualifiedRef("payment_reconciliations") . ")
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$period['start_date'], $period['end_date']]);
@@ -176,9 +178,9 @@ class FinancialPeriodAPI extends BaseAPI {
                     COUNT(DISTINCT sae.student_id) as student_count,
                     SUM(sfo.amount_due - COALESCE(sfo.sponsored_waiver_amount, 0)
                         - COALESCE(fdw.total_discount, 0)) as total_balance
-                FROM student_fee_obligations sfo
-                JOIN academic_year_fee_schedules ays ON sfo.academic_year_fee_schedule_id = ays.id
-                JOIN student_academic_enrollments sae ON sfo.student_academic_enrollment_id = sae.id
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ays ON sfo.academic_year_fee_schedule_id = ays.id
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sfo.student_academic_enrollment_id = sae.id
                 LEFT JOIN (
                     SELECT student_fee_obligation_id, SUM(discount_value) AS total_discount
                     FROM fee_discounts_waivers

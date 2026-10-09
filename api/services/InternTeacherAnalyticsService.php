@@ -49,15 +49,14 @@ class InternTeacherAnalyticsService
             // Map: teacher_class_assignments → academic_year_class_learning_area_teachers
             // Map: class_streams + students with stream_id → academic_year_class_streams + student_academic_enrollments
             $query = "SELECT 
-                        COUNT(DISTINCT aycs.id) as total,
+                        COUNT(DISTINCT csd.id) as total,
                         COUNT(DISTINCT la.id) as subjects,
                         COUNT(DISTINCT sae.student_id) as total_students
-                      FROM academic_year_class_learning_area_teachers ayclat
-                      JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
-                      JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                      JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                      FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " ayclat
+                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                      JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.academic_year_class_id = aycla.academic_year_class_id
                       LEFT JOIN learning_areas la ON aycla.learning_area_id = la.id
-                      LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = csd.id 
                         AND sae.enrollment_status = 'active'
                       WHERE ayclat.staff_id = ?";
             $stmt = $this->db->query($query, [$this->userId]);
@@ -146,15 +145,14 @@ class InternTeacherAnalyticsService
                         AVG(ar.marks_obtained) as average_score,
                         SUM(CASE WHEN ar.marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
                         SUM(CASE WHEN ar.marks_obtained < 40 THEN 1 ELSE 0 END) as needs_support
-                      FROM student_academic_enrollments sae
-                      JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                      JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                      JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id = ayc.id
+                      FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                      JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
+                      JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id = csd.academic_year_class_id
                       JOIN academic_year_class_learning_area_teachers ayclat ON ayclat.academic_year_class_learning_area_id = aycla.id
                       LEFT JOIN assessment_results ar ON sae.id = ar.student_academic_enrollment_id
                       WHERE ayclat.staff_id = ?
                         AND EXISTS (
-                            SELECT 1 FROM assessments a
+                            SELECT 1 FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
                             WHERE a.id=ar.assessment_id AND a.assessment_date BETWEEN ? AND ?
                         )
                         AND sae.enrollment_status = 'active'";
@@ -183,8 +181,8 @@ class InternTeacherAnalyticsService
             $query = "SELECT 
                         COUNT(DISTINCT cc.id) as total_competencies,
                         COUNT(DISTINCT lc.competency_id) as completed
-                      FROM core_competencies cc
-                      LEFT JOIN learner_competencies lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
+                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . "
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
                       WHERE cc.status = 'active'";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -222,26 +220,22 @@ class InternTeacherAnalyticsService
             // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         CASE 
-                            WHEN c.name = s.name THEN c.name
-                            WHEN s.name IS NULL THEN c.name
-                            ELSE CONCAT(c.name, ' ', s.name)
+                            WHEN csd.stream_name IS NULL OR csd.stream_name = csd.class_name THEN csd.class_name
+                            ELSE CONCAT(csd.class_name, ' ', csd.stream_name)
                         END as class_name,
                         la.name as subject_name,
                         NULL as mentor_name,
                         NULL as schedule,
                         COUNT(DISTINCT sae.student_id) as students
-                      FROM academic_year_class_learning_area_teachers ayclat
-                      JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
-                      JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
-                      JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
-                      JOIN classes c ON aac.class_id = c.id
-                      LEFT JOIN streams s ON aycs.stream_id = s.id
+                      FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " ayclat
+                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                      JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.academic_year_class_id = aycla.academic_year_class_id
                       LEFT JOIN learning_areas la ON aycla.learning_area_id = la.id
-                      LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = csd.id 
                         AND sae.enrollment_status = 'active'
                       WHERE ayclat.staff_id = ?
-                      GROUP BY aac.id, aycs.id, c.name, s.name, la.name
-                      ORDER BY c.name";
+                      GROUP BY csd.academic_year_class_id, csd.id, csd.class_name, csd.stream_name, la.name
+                      ORDER BY csd.class_name";
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -264,16 +258,15 @@ class InternTeacherAnalyticsService
                             ELSE CONCAT(c.name, ' ', COALESCE(s.name, ''))
                         END as class_name,
                         la.name as focus_area,
-                        CONCAT(p.first_name, ' ', p.last_name) as observer_name,
+                        CONCAT(sctx.first_name, ' ', sctx.last_name) as observer_name,
                         lo.rating,
                         lo.feedback,
                         lo.status
                       FROM lesson_observations lo
-                      LEFT JOIN classes c ON lo.class_id = c.id
-                      LEFT JOIN streams s ON lo.stream_id = s.id
-                      LEFT JOIN learning_areas la ON lo.learning_area_id = la.id
-                      LEFT JOIN staff m ON lo.observer_id = m.id
-                      LEFT JOIN persons p ON m.person_id = p.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON lo.class_id = c.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " s ON lo.stream_id = s.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON lo.learning_area_id = la.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_context") . " sctx ON sctx.staff_id = lo.observer_id
                       WHERE lo.intern_id = ? AND lo.observation_date BETWEEN ? AND ?
                       ORDER BY lo.observation_date DESC
                       LIMIT 20";
@@ -298,8 +291,8 @@ class InternTeacherAnalyticsService
                         lc.assessed_date as achieved_date,
                         lc.teacher_notes as notes,
                         CASE WHEN lc.id IS NOT NULL THEN 100 ELSE 0 END as score
-                      FROM core_competencies cc
-                      LEFT JOIN learner_competencies lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
+                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . "
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
                       WHERE cc.status = 'active'
                       ORDER BY cc.sort_order, cc.name";
             $stmt = $this->db->query($query, [$this->userId]);

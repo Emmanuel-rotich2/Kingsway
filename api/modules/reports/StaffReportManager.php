@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\reports;
+use App\API\Services\ReadReplicaService;
 use App\API\Includes\BaseAPI;
 
 class StaffReportManager extends BaseAPI
@@ -12,10 +13,7 @@ class StaffReportManager extends BaseAPI
                         st.name AS staff_type,
                         d.name AS department,
                         COUNT(*) AS total
-                    FROM staff s
-                    LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                    LEFT JOIN departments d ON d.id = sda.department_id
+                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                     WHERE s.status = 'active'
                     GROUP BY st.name, d.id, d.name
                     ORDER BY st.name, d.name";
@@ -23,11 +21,10 @@ class StaffReportManager extends BaseAPI
         } catch (\Exception $e) {
             // Fallback without departments
             try {
-                $sql2 = "SELECT st.name AS staff_type, COUNT(*) as total
-                         FROM staff s
-                         LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                         WHERE s.status = 'active'
-                         GROUP BY st.name";
+                $sql2 = "SELECT s.staff_type_name AS staff_type, COUNT(*) as total
+                         FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                         WHERE s.staff_status = 'active'
+                         GROUP BY s.staff_type_name";
                 $stmt2 = $this->db->query($sql2);
                 return $stmt2->fetchAll(\PDO::FETCH_ASSOC);
             } catch (\Exception $e2) {
@@ -54,11 +51,11 @@ class StaffReportManager extends BaseAPI
                             2
                         ) AS attendance_rate
                     FROM staff_attendance sa
-                    JOIN staff s ON s.id = sa.staff_id
-                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
+                    JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sa.staff_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id
                       AND sda.effective_from <= sa.date
                       AND (sda.effective_to IS NULL OR sda.effective_to >= sa.date)
-                    LEFT JOIN departments d ON d.id = sda.department_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
                     WHERE " . implode(' AND ', $where) . "
                     GROUP BY d.id, d.name
                     ORDER BY department";

@@ -13,7 +13,12 @@ const ServiceWorkerManager = (() => {
     if (!('serviceWorker' in navigator)) return false;
     try {
       const base = (window.APP_BASE || '').replace(/\/+$/, '');
-      registration = await navigator.serviceWorker.register(base + '/service-worker.js', {
+      // Versioned registration URL: nginx proxy_cache (30-day TTL) would
+      // otherwise pin browsers to a stale service-worker.js. The version is
+      // the file mtime emitted by home.php as APP_SW_VERSION.
+      const swUrl = base + '/service-worker.js'
+        + (window.APP_SW_VERSION ? '?v=' + window.APP_SW_VERSION : '');
+      registration = await navigator.serviceWorker.register(swUrl, {
         scope: (base || '') + '/', updateViaCache: 'none'
       });
       registration.addEventListener('updatefound', onUpdateFound);

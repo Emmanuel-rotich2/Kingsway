@@ -39,12 +39,12 @@ final class CurriculumProposalService
                        CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) proposer_name,
                        CONCAT_WS(' ', rp.first_name, rp.middle_name, rp.last_name) reviewer_name
                   FROM curriculum_change_proposals p
-                  JOIN learning_areas la ON la.id=p.learning_area_id
-                  JOIN academic_years ay ON ay.id=p.academic_year_id
-             LEFT JOIN academic_year_terms ayt ON ayt.id=p.academic_year_term_id
+                  JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=p.learning_area_id
+                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=p.academic_year_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=p.academic_year_term_id
              LEFT JOIN terms t ON t.id=ayt.term_id
-             LEFT JOIN users pu ON pu.id=p.proposed_by LEFT JOIN persons pp ON pp.id=pu.person_id
-             LEFT JOIN users ru ON ru.id=p.reviewed_by LEFT JOIN persons rp ON rp.id=ru.person_id"
+             LEFT JOIN users pu ON pu.id=p.proposed_by LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pp ON pp.person_id = pu.person_id
+             LEFT JOIN users ru ON ru.id=p.reviewed_by LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " rp ON rp.person_id = ru.person_id"
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
             . " ORDER BY FIELD(p.status,'submitted','draft','rejected','approved','withdrawn'), p.updated_at DESC";
         $stmt = $this->db->prepare($sql);
@@ -186,16 +186,16 @@ final class CurriculumProposalService
         }
         if (!empty($filters['entity_type'])) { $where[]='v.entity_type=:entity'; $params[':entity']=$filters['entity_type']; }
         $sql = "SELECT v.*, 'curriculum_change' event_type, la.name learning_area_name,ay.year_name academic_year,
-                       ay.start_date academic_year_start,t.name term_name,
+                       ay.start_date academic_year_start,att.term_name,
                        CONCAT_WS(' ',cp.first_name,cp.middle_name,cp.last_name) changed_by_name,
                        CONCAT_WS(' ',ap.first_name,ap.middle_name,ap.last_name) approved_by_name
-                  FROM curriculum_entity_versions v JOIN learning_areas la ON la.id=v.learning_area_id
-             LEFT JOIN academic_years ay ON ay.id=v.academic_year_id
-             LEFT JOIN academic_year_terms ayt ON ayt.id=v.academic_year_term_id LEFT JOIN terms t ON t.id=ayt.term_id
-             LEFT JOIN users cu ON cu.id=v.changed_by LEFT JOIN persons cp ON cp.id=cu.person_id
-             LEFT JOIN users au ON au.id=v.approved_by LEFT JOIN persons ap ON ap.id=au.person_id"
+                  FROM curriculum_entity_versions v JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=v.learning_area_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=v.academic_year_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_term_terms") . " att ON att.academic_year_term_id = v.academic_year_term_id
+             LEFT JOIN users cu ON cu.id=v.changed_by LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " cp ON cp.person_id = cu.person_id
+             LEFT JOIN users au ON au.id=v.approved_by LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.person_id = au.person_id"
              . ($where ? ' WHERE '.implode(' AND ',$where) : '')
-             . ' ORDER BY COALESCE(ay.start_date,DATE(v.valid_from)) DESC, ayt.id DESC, v.created_at DESC';
+             . ' ORDER BY COALESCE(ay.start_date,DATE(v.valid_from)) DESC, COALESCE(v.academic_year_term_id,0) DESC, v.created_at DESC';
         $stmt=$this->db->prepare($sql); $stmt->execute($params);
         $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$row) $row['snapshot']=json_decode($row['snapshot'],true) ?: [];
@@ -244,7 +244,7 @@ final class CurriculumProposalService
                     v.staff_name changed_by_name,NULL approved_by_name,'school' change_source,NULL source_reference,
                     CONCAT('Taught by ',v.staff_name,' as ',REPLACE(v.role,'_',' '),' for ',v.class_name) rationale,
                     v.created_at,JSON_OBJECT('name',v.subject_name,'class_name',v.class_name,'teacher_name',v.staff_name,'assignment_role',v.role) snapshot
-               FROM vw_staff_assignments_detailed v JOIN academic_years ay ON ay.id=v.academic_year_id JOIN classes c ON c.id=v.class_id
+               FROM vw_staff_assignments_detailed v JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=v.academic_year_id JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id=v.class_id
               WHERE ".implode(' AND ',$where);
         $stmt=$this->db->prepare($sql);$stmt->execute($params);$events=$stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -269,12 +269,12 @@ final class CurriculumProposalService
                     CONCAT('Taught by ',CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name),' as class teacher for ',c.name) rationale,
                     ay.start_date created_at,
                     JSON_OBJECT('name',la.name,'class_name',c.name,'teacher_name',CONCAT_WS(' ',p.first_name,p.middle_name,p.last_name),'assignment_role','class teacher') snapshot
-               FROM academic_year_class_streams aycs
-               JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
-               JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id
-               JOIN academic_years ay ON ay.id=ayc.academic_year_id JOIN classes c ON c.id=ayc.class_id
-               JOIN learning_areas la ON la.id=aycla.learning_area_id JOIN staff s ON s.id=aycs.class_teacher_id
-               JOIN persons p ON p.id=s.person_id WHERE ".implode(' AND ',$classWhere);
+               FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+               JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id=aycs.academic_year_class_id
+               JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.academic_year_class_id=ayc.id
+               JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ayc.academic_year_id JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id=ayc.class_id
+               JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=aycla.learning_area_id JOIN staff s ON s.id=aycs.class_teacher_id
+               JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = s.person_id WHERE ".implode(' AND ',$classWhere);
         $classStmt=$this->db->prepare($classSql);$classStmt->execute($classParams);
         $events=array_merge($events,$classStmt->fetchAll(PDO::FETCH_ASSOC));
         $unique=[];
@@ -357,7 +357,7 @@ final class CurriculumProposalService
 
     private function snapshot(string $entity,int $id): ?array
     {
-        if ($entity==='sub_strand') $sql='SELECT ss.*,s.learning_area_id FROM sub_strands ss JOIN strands s ON s.id=ss.strand_id WHERE ss.id=?';
+        if ($entity==='sub_strand') $sql='SELECT * FROM ' . ReadReplicaService::qualifiedRef("strands_sub_strands") . ' WHERE id=?';
         else $sql='SELECT * FROM `'.$this->table($entity).'` WHERE id=?';
         $stmt=$this->db->prepare($sql);$stmt->execute([$id]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;

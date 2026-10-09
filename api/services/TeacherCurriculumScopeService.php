@@ -24,7 +24,7 @@ final class TeacherCurriculumScopeService
             "SELECT id FROM academic_years WHERE is_current=1 OR status='active' ORDER BY is_current DESC, id DESC LIMIT 1"
         )->fetchColumn();
         $staff = $this->db->prepare(
-            'SELECT s.id FROM staff s JOIN users u ON u.person_id=s.person_id WHERE u.id=? LIMIT 1'
+            'SELECT s.staff_id FROM ' . ReadReplicaService::masterSourceRef("staff_directory") . ' s WHERE s.user_id = ? LIMIT 1'
         );
         $staff->execute([$userId]);
         $staffId = (int) $staff->fetchColumn();
@@ -35,8 +35,8 @@ final class TeacherCurriculumScopeService
         $contexts = [];
         $stmt = $this->db->prepare(
             "SELECT DISTINCT v.subject_id AS learning_area_id, v.class_id, c.grade_level, v.class_name, v.subject_name
-               FROM vw_staff_assignments_detailed v
-               JOIN classes c ON c.id=v.class_id
+               FROM " . ReadReplicaService::masterRef("vw_staff_assignments_detailed") . "
+               JOIN " . ReadReplicaService::masterRef("classes") . " c ON c.id=v.class_id
               WHERE v.staff_id=? AND v.academic_year_id=?"
         );
         $stmt->execute([$staffId, $yearId]);
@@ -48,11 +48,11 @@ final class TeacherCurriculumScopeService
         $classStmt = $this->db->prepare(
             "SELECT DISTINCT aycla.learning_area_id, c.id AS class_id, c.grade_level,
                     c.name AS class_name, la.name AS subject_name
-               FROM academic_year_class_streams aycs
-               JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
-               JOIN classes c ON c.id=ayc.class_id
-               JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id
-               JOIN learning_areas la ON la.id=aycla.learning_area_id
+               FROM " . ReadReplicaService::masterRef("academic_year_class_streams") . " aycs
+               JOIN " . ReadReplicaService::masterRef("academic_year_classes") . " ayc ON ayc.id=aycs.academic_year_class_id
+               JOIN " . ReadReplicaService::masterRef("classes") . " c ON c.id=ayc.class_id
+               JOIN " . ReadReplicaService::masterRef("academic_year_class_learning_areas") . " aycla ON aycla.academic_year_class_id=ayc.id
+               JOIN " . ReadReplicaService::masterRef("learning_areas") . " la ON la.id=aycla.learning_area_id
               WHERE aycs.class_teacher_id=? AND ayc.academic_year_id=?"
         );
         $classStmt->execute([$staffId, $yearId]);

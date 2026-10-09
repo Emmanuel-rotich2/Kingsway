@@ -167,7 +167,7 @@ class SystemConfigService
     {
         $stmt = $this->db->query(
             "SELECT rp.*, p.code as permission_name, p.description as permission_description
-             FROM route_permissions rp
+             FROM " . ReadReplicaService::masterRef("route_permissions") . "
              JOIN permissions p ON p.id = rp.permission_id
              WHERE rp.route_id = ?",
             [$routeId]
@@ -184,7 +184,7 @@ class SystemConfigService
         // keep calling code compatible.
         $stmt = $this->db->query(
             "SELECT p.code as name, p.id, rp.access_type, rp.is_required
-             FROM routes_registry r
+             FROM " . ReadReplicaService::qualifiedRef("routes_registry") . " r
              JOIN route_permissions rp ON rp.route_id = r.id
              JOIN permissions p ON p.id = rp.permission_id
              WHERE r.name = ? AND r.is_active = 1",
@@ -229,10 +229,9 @@ class SystemConfigService
     public function getRoutesForRole(int $roleId): array
     {
         $stmt = $this->db->query(
-            "SELECT r.* FROM routes_registry r
-             JOIN role_routes rr ON rr.route_id = r.id
-             WHERE rr.role_id = ? AND rr.is_allowed = 1 AND r.is_active = 1
-             ORDER BY r.domain, r.name",
+            "SELECT * FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+             WHERE role_id = ? AND is_allowed = 1 AND is_active = 1
+             ORDER BY domain, name",
             [$roleId]
         );
         return $stmt->fetchAll();
@@ -244,9 +243,8 @@ class SystemConfigService
     public function isRoleAllowedRoute(int $roleId, string $routeName): bool
     {
         $stmt = $this->db->query(
-            "SELECT rr.is_allowed FROM role_routes rr
-             JOIN routes_registry r ON r.id = rr.route_id
-             WHERE rr.role_id = ? AND r.name = ? AND r.is_active = 1
+            "SELECT is_allowed FROM " . ReadReplicaService::masterRef("role_routes_detailed") . "
+             WHERE role_id = ? AND name = ? AND is_active = 1
              LIMIT 1",
             [$roleId, $routeName]
         );
@@ -317,11 +315,10 @@ class SystemConfigService
     public function getUserRouteOverrides(int $userId): array
     {
         $stmt = $this->db->query(
-            "SELECT ur.*, r.name as route_name, r.domain
-             FROM user_routes ur
-             JOIN routes_registry r ON r.id = ur.route_id
-             WHERE ur.user_id = ?
-             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())",
+            "SELECT *, route_name, domain
+             FROM " . ReadReplicaService::masterRef("user_routes_registry") . "
+             WHERE user_id = ?
+             AND (expires_at IS NULL OR expires_at > NOW())",
             [$userId]
         );
         return $stmt->fetchAll();
@@ -333,10 +330,9 @@ class SystemConfigService
     public function getUserRouteOverride(int $userId, string $routeName): ?array
     {
         $stmt = $this->db->query(
-            "SELECT ur.* FROM user_routes ur
-             JOIN routes_registry r ON r.id = ur.route_id
-             WHERE ur.user_id = ? AND r.name = ?
-             AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+            "SELECT * FROM " . ReadReplicaService::masterRef("user_routes_registry") . "
+             WHERE user_id = ? AND route_name = ?
+             AND (expires_at IS NULL OR expires_at > NOW())
              LIMIT 1",
             [$userId, $routeName]
         );
@@ -803,7 +799,7 @@ class SystemConfigService
 
         $deniedStmt = $this->db->query(
             "SELECT DISTINCT p.code
-             FROM user_permissions up
+             FROM " . ReadReplicaService::masterRef("user_permissions") . "
              JOIN permissions p ON p.id = up.permission_id
              WHERE up.user_id = ?
                AND up.permission_type = 'deny'
@@ -1223,7 +1219,7 @@ class SystemConfigService
     {
         $stmt = $this->db->query(
             "SELECT d.*, rd.is_primary, rd.display_order
-             FROM dashboards d
+             FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
              JOIN role_dashboards rd ON rd.dashboard_id = d.id
              WHERE rd.role_id = ? AND d.is_active = 1
              ORDER BY rd.display_order, d.name",
@@ -1290,7 +1286,7 @@ class SystemConfigService
     public function getPrimaryDashboardForRole(int $roleId): ?array
     {
         $stmt = $this->db->query(
-            "SELECT d.* FROM dashboards d
+            "SELECT d.* FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
              JOIN role_dashboards rd ON rd.dashboard_id = d.id
              WHERE rd.role_id = ? AND rd.is_primary = 1 AND d.is_active = 1
              LIMIT 1",

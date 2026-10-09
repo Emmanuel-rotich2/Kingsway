@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\students;
+use App\API\Services\ReadReplicaService;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -42,6 +43,7 @@ class DocumentGenerator extends BaseAPI
     {
         try {
             // Get transfer and student details
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
             $stmt = $this->db->prepare("
                 SELECT
                     tr.id,
@@ -51,26 +53,21 @@ class DocumentGenerator extends BaseAPI
                     tr.decided_at AS effective_date,
                     p.first_name, p.last_name, p.dob AS date_of_birth,
                     s.admission_no, s.assessment_number, s.nemis_number, s.admission_date,
-                    cc.name as current_class_name,
-                    sm.name as current_stream_name,
+                    lp.class_name AS current_class_name,
+                    lp.stream_name AS current_stream_name,
                     par.first_name as parent_first_name,
                     par.last_name as parent_last_name,
                     par.phone as parent_phone,
                     ap.first_name as approved_by_name,
                     ap.last_name as approved_by_lastname
-                FROM student_transitions tr
-                JOIN students s ON tr.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN student_academic_enrollments sae
-                    ON sae.student_id = s.id AND sae.academic_year_id = tr.academic_year_id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes cc ON cc.id = ayc.class_id
-                LEFT JOIN streams sm ON sm.id = aycs.stream_id
-                LEFT JOIN student_parents sp ON sp.student_id = s.id AND sp.is_primary_contact = 1
-                LEFT JOIN persons par ON par.id = sp.parent_id
+                FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " tr
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON tr.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                LEFT JOIN {$lp} lp ON lp.student_id = s.id AND lp.academic_year_id = tr.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON sp.student_id = s.id AND sp.is_primary_contact = 1
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " par ON par.id = sp.parent_id
                 LEFT JOIN users au ON au.id = tr.decided_by
-                LEFT JOIN persons ap ON ap.id = au.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = au.person_id
                 WHERE tr.id = ?
             ");
             $stmt->execute([$transferId]);
@@ -124,15 +121,15 @@ return formatResponse(false, null, 'An internal error occurred.');
                        tr.decided_at AS effective_date,
                        p.first_name, p.last_name, s.admission_no,
                        cc.name as current_class_name, sm.name as current_stream_name
-                FROM student_transitions tr
-                JOIN students s ON tr.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN student_academic_enrollments sae
+                FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " tr
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON tr.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.student_id = s.id AND sae.academic_year_id = tr.academic_year_id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes cc ON cc.id = ayc.class_id
-                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cc ON cc.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
                 WHERE tr.id = ?
             ");
             $stmt->execute([$transferId]);
@@ -150,9 +147,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                        sc.notes AS issue_description,
                        sc.checked_at AS cleared_at,
                        p.first_name as cleared_by_name
-                FROM student_clearances sc
+                FROM " . ReadReplicaService::qualifiedRef("student_clearances") . " sc
                 LEFT JOIN users u ON sc.checked_by = u.id
-                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                 WHERE sc.transfer_request_id = ?
                 ORDER BY sc.id
             ");
@@ -506,7 +503,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get headteacher from staff table (single source of truth)
             $headteacher = '';
             try {
-                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $hStmt = $this->db->query("SELECT CONCAT(first_name,' ',last_name) FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_directory') . " WHERE position = 'Headteacher' LIMIT 1");
                 $headteacher = $hStmt->fetchColumn() ?: '';
             } catch (\Exception $e) { /* fallback below */ }
 

@@ -5,9 +5,11 @@ namespace App\API\Modules\finance;
 use App\Database\Database;
 
 use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\payments\FeeLedgerFilter;
 use App\API\Services\payments\FinancialAccountService;
 use App\API\Services\payments\ReferenceNormalizer;
 use App\API\Services\ReadReplicaService;
+use App\API\Includes\FileLogger;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -42,9 +44,19 @@ class PaymentManager
     /** Whether listStudentPaymentStatus is reading the materialized summary. */
     private bool $feeStatusUsingSummary = false;
 
+    /**
+     * Per-request schema/column metadata cache for the fee-status source.
+     * Keyed by qualified name so the information_schema lookups happen once.
+     */
+    private static array $feeSourceMeta = [];
+
+    /** Shared, unit-tested filter rules for the fee ledger. */
+    private FeeLedgerFilter $feeFilter;
+
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
+        $this->feeFilter = new FeeLedgerFilter();
     }
 
     /**
@@ -374,9 +386,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                        s.admission_no,
                        CONCAT(ps.first_name, ' ', ps.last_name) as student_name,
                        u.username as received_by_name
-                FROM payments p
-                INNER JOIN students s ON p.student_id = s.id
-                LEFT JOIN persons ps ON ps.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON p.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
                 LEFT JOIN users u ON p.received_by = u.id
                 WHERE p.id = ?
             ");
@@ -668,7 +680,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     SELECT st.id, ?, ?, ?
                     FROM school_transactions st
                     WHERE st.reference = (
-                        SELECT reference COLLATE utf8mb4_general_ci FROM payments WHERE id = ? LIMIT 1
+                        SELECT reference FROM payments WHERE id = ? LIMIT 1
                     )
                     LIMIT 1
                 ");
@@ -847,11 +859,11 @@ return formatResponse(false, null, 'An internal error occurred.');
                         ay.id AS academic_year,
                         ayt.term_id AS term_id,
                         t.name AS term_name
-                    FROM payments p
-                    INNER JOIN students s ON p.student_id = s.id
-                    LEFT JOIN persons ps ON ps.id = s.person_id
-                    LEFT JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
-                    LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id
+                    FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON p.student_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id
                         AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
                     LEFT JOIN terms t ON t.id = ayt.term_id
                     WHERE p.parent_id = ?";
@@ -891,45 +903,256 @@ return formatResponse(false, null, 'An internal error occurred.');
     }
 
     /**
+     * Split "schema.table" into its two parts. A bare name keeps the current
+     * schema, which is what unqualified view references rely on.
+     */
+    private static function splitQualified(string $qualified): array
+    {
+        $parts = explode('.', $qualified, 2);
+        if (count($parts) === 2) {
+            return [$parts[0], $parts[1]];
+        }
+        return ['', $parts[0]];
+    }
+
+    /**
+     * Real column list for a table/view, cached per qualified name.
+     */
+    private function sourceColumns(string $qualified): array
+    {
+        if (isset(self::$feeSourceMeta[$qualified]['columns'])) {
+            return self::$feeSourceMeta[$qualified]['columns'];
+        }
+        [$schema, $table] = self::splitQualified($qualified);
+        $sql = "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_NAME = ?";
+        $args = [$table];
+        if ($schema !== '') {
+            $sql .= " AND TABLE_SCHEMA = ?";
+            $args[] = $schema;
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($args);
+        $columns = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'COLUMN_NAME');
+        self::$feeSourceMeta[$qualified]['columns'] = $columns;
+        return $columns;
+    }
+
+    /**
+     * The collation a column actually uses, resolved from the catalog.
+     *
+     * The enhanced view inherits utf8mb4_general_ci from its base tables while
+     * the connection speaks utf8mb4_unicode_ci, so a plain `column = ?`
+     * comparison dies with SQLSTATE 1267 "Illegal mix of collations". Every
+     * string predicate in this class therefore pins BOTH sides to the column's
+     * own collation instead of guessing one.
+     */
+    private function columnCollation(string $qualified, string $column): ?string
+    {
+        $key = $qualified . '.' . $column . '.coll';
+        if (array_key_exists($key, self::$feeSourceMeta)) {
+            return self::$feeSourceMeta[$key];
+        }
+        [$schema, $table] = self::splitQualified($qualified);
+        $sql = "SELECT COLLATION_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_NAME = ? AND COLUMN_NAME = ?";
+        $args = [$table, $column];
+        if ($schema !== '') {
+            $sql .= " AND TABLE_SCHEMA = ?";
+            $args[] = $schema;
+        }
+        $collation = null;
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($args);
+            $found = $stmt->fetchColumn();
+            // Only report a pin-worthy collation when the column has drifted
+            // away from the schema standard. Pinning a conforming column with
+            // an explicit COLLATE has coercibility 0 and disables index use —
+            // the exact full-table-scan trap the 2026-10-04 collation
+            // standardization migration removed.
+            if (is_string($found)
+                && preg_match('/^[A-Za-z0-9_]+$/', $found)
+                && $found !== 'utf8mb4_unicode_ci') {
+                $collation = $found;
+            }
+        } catch (\Throwable $e) {
+            $collation = null;
+        }
+        self::$feeSourceMeta[$key] = $collation;
+        return $collation;
+    }
+
+    /**
+     * Build a placeholder-pinned equality/prefix match for a text column.
+     *
+     * COLLATE is applied to the COLUMN ONLY and never to a placeholder: MySQL
+     * cannot resolve a parameter's character set before bind time, so `?
+     * COLLATE x` fails at prepare with error 1253. A column carrying an
+     * explicit COLLATE has coercibility 0 and therefore dominates the
+     * comparison, which is exactly what removes the 1267 "illegal mix".
+     */
+    private function textMatch(
+        string $qualified,
+        string $column,
+        string $placeholder,
+        string $value
+    ): array {
+        $collation = $this->columnCollation($qualified, $column);
+        $left = $column;
+        if ($collation !== null) {
+            $left .= " COLLATE " . $collation;
+        }
+        return [$left . " = " . $placeholder, [$value]];
+    }
+
+    /**
+     * Same as textMatch but for case-insensitive equality: pins the column's
+     * collation and lowercases both sides.
+     */
+    private function ciMatch(string $qualified, string $column, string $value): string
+    {
+        $collation = $this->columnCollation($qualified, $column);
+        $col = $column . ($collation !== null ? " COLLATE " . $collation : '');
+        return "LOWER({$col}) = LOWER(?)";
+    }
+
+    /**
+     * A text column pinned to its own collation, for use inside LIKE.
+     */
+    private function pinned(string $qualified, string $column): string
+    {
+        $collation = $this->columnCollation($qualified, $column);
+        return $column . ($collation !== null ? " COLLATE " . $collation : '');
+    }
+
+    /**
+     * Resolve the fee-status source and normalise the difference between the
+     * two shapes the workspace can read.
+     *
+     * vw_student_payment_status_enhanced  -> key column `id`
+     * mmv_fee_status_summary (projection) -> key column `student_id`, plus
+     *                                       class_id / level_id / stream_id
+     *
+     * The projection is preferred because it is millisecond-fast, but the two
+     * do NOT expose identical columns, so every filter below is written
+     * against the resolved source instead of assuming one of them.
+     */
+    private function feeStatusSource(): array
+    {
+        $candidates = [];
+
+        // The materialized target lives in the reads namespace — an
+        // unqualified reference resolves against the master schema, which has
+        // no such table, and silently degraded every read to the slow view.
+        if (ReadReplicaService::isOffloaded('fee_status_summary')) {
+            $candidates[] = \App\Database\ConnectionManager::schemaFor(\App\Database\ConnectionManager::NS_READS)
+                . '.' . ReadReplicaService::table('fee_status_summary');
+        }
+        $candidates[] = 'vw_student_payment_status_enhanced';
+
+        foreach ($candidates as $qualified) {
+            try {
+                $columns = $this->sourceColumns($qualified);
+                if ($columns === []) {
+                    continue;
+                }
+                $idColumn = in_array('student_id', $columns, true) ? 'student_id' : 'id';
+                if (!in_array($idColumn, $columns, true)) {
+                    continue;
+                }
+                if ($qualified !== 'vw_student_payment_status_enhanced') {
+                    // Only trust a fresh, published projection. An empty table
+                    // degrades to the live view without a full COUNT(*) scan.
+                    // A COUNT(*) probe scanned the entire read model for every
+                    // fee-page request. Only emptiness is needed here.
+                    $probe = $this->db->query("SELECT 1 FROM " . $qualified . " LIMIT 1");
+                    if ($probe->fetchColumn() === false) {
+                        continue;
+                    }
+                }
+                $this->feeStatusUsingSummary = $qualified !== 'vw_student_payment_status_enhanced';
+                return [
+                    'qualified' => $qualified,
+                    'columns' => $columns,
+                    'id_column' => $idColumn,
+                    'class_id_column' => in_array('class_id', $columns, true) ? 'class_id' : null,
+                    'is_projection' => $qualified !== 'vw_student_payment_status_enhanced',
+                ];
+            } catch (\Throwable $e) {
+                continue;
+            }
+        }
+
+        throw new Exception('No readable fee-status source is available.');
+    }
+
+    /**
+     * The select list that gives both sources one stable response contract:
+     * `id` is ALWAYS the learner id, whatever the underlying key is called.
+     */
+    private function feeStatusSelectList(array $source): string
+    {
+        $parts = [$source['id_column'] . ' AS id'];
+        if ($source['id_column'] !== 'student_id') {
+            $parts[] = $source['id_column'] . ' AS student_id';
+        }
+        foreach ($source['columns'] as $column) {
+            if ($column === $source['id_column']) {
+                continue;
+            }
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $column)) {
+                continue;
+            }
+            $parts[] = $column;
+        }
+        return implode(', ', array_unique($parts));
+    }
+
+    /**
+     * Resolve the caller's academic-year filter (id, "2026/2027" or "2026")
+     * to a stored year code. Returns null when no year filter was requested.
+     */
+    private function resolveAcademicYearFilter($input): ?string
+    {
+        $year = $this->feeFilter->academicYear($input);
+        return $year === '' ? null : $year;
+    }
+
+    /**
+     * Term numbers are stored as the numeric part of terms.code ('T3' -> 3).
+     * Returns null for an absent scope and throws for an unparseable value so
+     * a broken filter is reported instead of quietly returning everything.
+     */
+    private function resolveTermFilter($input): ?int
+    {
+        return $this->feeFilter->term($input);
+    }
+
+    /**
      * Get student payment status using enhanced view
      * @param int $studentId Student ID
      * @return array Response
      */
     public function listStudentPaymentStatus($filters = [])
     {
+        $startedAt = microtime(true);
         try {
             // The fee-workspace scalability fix: the materialized summary
             // (synced by the 5-minute projection worker) reads in ~2ms where
             // the enhanced view measured ~515ms at 454 learners and would
             // reach ~1.5s at 1000+. The view stays as the fallback so a
             // not-yet-synced projection degrades to correct live data.
-            $baseSql = null;
-            try {
-                // The materialized target lives in the reads namespace — an
-                // unqualified reference resolves against the master schema,
-                // which has no such table, and silently degraded every read
-                // to the slow enhanced view.
-                $summaryTable = \App\Database\ConnectionManager::schemaFor(\App\Database\ConnectionManager::NS_READS)
-                    . '.' . ReadReplicaService::table('fee_status_summary');
-                $countStmt = $this->db->prepare("SELECT COUNT(*) FROM " . $summaryTable);
-                $countStmt->execute();
-                if ((int) $countStmt->fetchColumn() > 0) {
-                    $baseSql = "FROM " . $summaryTable . " WHERE 1=1";
-                    $this->feeStatusUsingSummary = true;
-                }
-            } catch (\Throwable $e) {
-                $baseSql = null;
-            }
-            if ($baseSql === null) {
-                $baseSql = "FROM vw_student_payment_status_enhanced WHERE 1=1";
-                $this->feeStatusUsingSummary = false;
-            }
+            $source = $this->feeStatusSource();
+            $qualified = $source['qualified'];
+            $baseSql = "FROM " . $qualified . " WHERE 1=1";
             $params = [];
             $termParamIndex = null;
+            $yearPrefixMode = false;
 
             if (!empty($filters['student_id'])) {
-                $baseSql .= " AND id = ?";
-                $params[] = $filters['student_id'];
+                $baseSql .= " AND " . $source['id_column'] . " = ?";
+                $params[] = (int) $filters['student_id'];
             }
 
             if (!empty($filters['academic_year'])) {
@@ -941,55 +1164,73 @@ return formatResponse(false, null, 'An internal error occurred.');
                      WHERE id = ? OR year_code = ? OR year_name = ?
                      ORDER BY id DESC LIMIT 1"
                 );
-                $yearStmt->execute([$yearInput, $yearInput, $yearInput]);
+                $yearStmt->execute([ctype_digit($yearInput) ? (int) $yearInput : 0, $yearInput, $yearInput]);
                 $resolvedYear = $yearStmt->fetchColumn();
                 if ($resolvedYear === false && preg_match('/^\\d{4}$/', $yearInput)) {
-                    $baseSql .= " AND (academic_year = ? OR academic_year LIKE ?)";
+                    // "2026" means the academic year that starts in 2026.
+                    $yearCol = $this->pinned($qualified, 'academic_year');
+                    $baseSql .= " AND (" . $yearCol . " = ? OR " . $yearCol . " LIKE ?)";
                     $params[] = $yearInput;
                     $params[] = $yearInput . '/%';
+                    $yearPrefixMode = true;
                 } else {
-                    $baseSql .= " AND academic_year = ?";
-                    $params[] = $resolvedYear !== false ? $resolvedYear : $yearInput;
+                    $baseSql .= " AND " . $this->textMatch(
+                        $qualified,
+                        'academic_year',
+                        '?',
+                        $resolvedYear !== false ? (string) $resolvedYear : $yearInput
+                    )[0];
+                    $params[] = $resolvedYear !== false ? (string) $resolvedYear : $yearInput;
                 }
             }
 
             if (!empty($filters['term_number'])) {
-                $termInput = strtoupper(trim((string) $filters['term_number']));
-                if (preg_match('/^T([1-3])$/', $termInput, $termMatch)) {
-                    $termInput = $termMatch[1];
-                }
-                $baseSql .= " AND term_number = ?";
                 // Track the index so the annual query can drop exactly this
                 // placeholder's value — dropping only the SQL fragment left a
                 // dangling param and PDO raised HY093.
                 $termParamIndex = count($params);
-                $params[] = $termInput;
+                $params[] = (string) $this->resolveTermFilter($filters['term_number']);
+                $baseSql .= " AND term_number = ?";
             }
 
             if (!empty($filters['status'])) {
-                $baseSql .= " AND LOWER(payment_status) = LOWER(?)";
-                $params[] = $filters['status'];
-            }
-
-            if (!empty($filters['class_name'])) {
-                $baseSql .= " AND (class_name = ? OR level_name = ?)";
-                $params[] = $filters['class_name'];
-                $params[] = $filters['class_name'];
-            }
-
-            if (!empty($filters['search'])) {
-                $baseSql .= " AND (admission_no LIKE ? OR student_name LIKE ?)";
-                $search = '%' . $filters['search'] . '%';
-                $params[] = $search;
-                $params[] = $search;
+                $status = $this->feeFilter->status($filters['status']);
+                // Case-insensitive on BOTH sides, pinned to the column's own
+                // collation, so this cannot die on 1267 the way a bare
+                // `payment_status = ?` did.
+                $baseSql .= " AND " . $this->ciMatch($qualified, 'payment_status', $status);
+                $params[] = $status;
             }
 
             if (!empty($filters['class_id'])) {
-                $baseSql .= " AND id IN (SELECT sae.student_id FROM student_academic_enrollments sae "
-                    . "JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id "
-                    . "JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id "
-                    . "WHERE ayc.class_id = ?)";
-                $params[] = (int) $filters['class_id'];
+                $classId = (int) $filters['class_id'];
+                if ($source['class_id_column'] !== null) {
+                    $baseSql .= " AND " . $source['class_id_column'] . " = ?";
+                    $params[] = $classId;
+                } else {
+                    // The view has no class_id; resolve the name and match the
+                    // stored "Class - Stream" label instead.
+                    [$nameSql, $nameParams] = $this->classNamePredicate($qualified, $classId);
+                    if ($nameSql === null) {
+                        throw new Exception('Unknown class filter: ' . $classId);
+                    }
+                    $baseSql .= " AND " . $nameSql;
+                    $params = array_merge($params, $nameParams);
+                }
+            } elseif (!empty($filters['class_name'])) {
+                $className = trim((string) $filters['class_name']);
+                [$nameSql, $nameParams] = $this->classLabelPredicate($qualified, $className);
+                $baseSql .= " AND " . $nameSql;
+                $params = array_merge($params, $nameParams);
+            }
+
+            if (!empty($filters['search'])) {
+                $search = '%' . $filters['search'] . '%';
+                $admCol = $this->pinned($qualified, 'admission_no');
+                $nameCol = $this->pinned($qualified, 'student_name');
+                $baseSql .= " AND (" . $admCol . " LIKE ? OR " . $nameCol . " LIKE ?)";
+                $params[] = $search;
+                $params[] = $search;
             }
 
             if (!empty($filters['balance_only'])) {
@@ -1012,40 +1253,60 @@ return formatResponse(false, null, 'An internal error occurred.');
             if ($limit < 1) {
                 $limit = 25;
             }
-            if ($limit > 100) {
-                $limit = 100;
+            if ($limit > 500) {
+                $limit = 500;
             }
             $offset = ($page - 1) * $limit;
 
-            $countSql = "SELECT COUNT(*) " . $baseSql;
-            $countStmt = $this->db->prepare($countSql);
-            $countStmt->execute($params);
-            $total = (int) $countStmt->fetchColumn();
-
-            $summarySql = "SELECT COALESCE(SUM(total_due), 0) AS total_due, "
+            // Count and totals shared the same filtered view scan. Combine
+            // them so the source is evaluated once for pagination and summary.
+            $summarySql = "SELECT COUNT(*) AS total, COALESCE(SUM(total_due), 0) AS total_due, "
                 . "COALESCE(SUM(total_paid), 0) AS total_paid, "
                 . "COALESCE(SUM(current_balance), 0) AS total_balance "
                 . $baseSql;
             $summaryStmt = $this->db->prepare($summarySql);
             $summaryStmt->execute($params);
             $summaryRow = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $total = (int) ($summaryRow['total'] ?? 0);
 
-            $listSql = "SELECT * " . $baseSql . " ORDER BY admission_no ASC, academic_year DESC, term_number DESC LIMIT ? OFFSET ?";
+            $listSql = "SELECT " . $this->feeStatusSelectList($source) . " " . $baseSql
+                . " ORDER BY admission_no ASC, academic_year DESC, term_number DESC LIMIT ? OFFSET ?";
             $listParams = array_merge($params, [$limit, $offset]);
             $stmt = $this->db->prepare($listSql);
             $stmt->execute($listParams);
             $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Per-term and per-period breakdowns — the workspace must say
-            // WHICH period every figure belongs to. term_scope: 'all' shows
-            // the whole year; '1'/'2'/'3' show that term only.
+            // The annual view of the SAME filter set with the term scope
+            // removed. The whole-year position and the per-term breakdown must
+            // stay available even when the user has drilled into one term —
+            // that is the annual balance and the term-on-term comparison the
+            // workspace is for.
+            $annualParams = $params;
+            $annualBaseSql = preg_replace("/ AND term_number = \?/", '', $baseSql);
+            if (isset($termParamIndex)) {
+                unset($annualParams[$termParamIndex]);
+                $annualParams = array_values($annualParams);
+            }
+
+            $annualStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(total_due), 0) AS total_due,"
+                . " COALESCE(SUM(total_paid), 0) AS total_paid,"
+                . " COALESCE(SUM(current_balance), 0) AS total_balance"
+                . " " . $annualBaseSql
+            );
+            $annualStmt->execute($annualParams);
+            $annualRow = $annualStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            // Per-term breakdown of the whole filtered year (term scope
+            // removed) so the progress strip and the "Term N" lines always
+            // describe the year, not just the selected term.
             $periodSql = "SELECT term_number,"
                 . " COALESCE(SUM(total_due), 0) AS total_due,"
                 . " COALESCE(SUM(total_paid), 0) AS total_paid,"
                 . " COALESCE(SUM(current_balance), 0) AS total_balance"
-                . " " . $baseSql . " GROUP BY term_number ORDER BY term_number";
+                . " " . $annualBaseSql . " GROUP BY term_number ORDER BY term_number";
             $periodStmt = $this->db->prepare($periodSql);
-            $periodStmt->execute($params);
+            $periodStmt->execute($annualParams);
             $termRows = $periodStmt->fetchAll(PDO::FETCH_ASSOC);
 
             $terms = [];
@@ -1061,27 +1322,6 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'collection_rate' => $tDue > 0 ? round(($tPaid / $tDue) * 100, 2) : 0,
                 ];
             }
-            // The scope filter may limit the summary to one term; the annual
-            // figures always show the whole filtered year regardless.
-            $annualParams = $params;
-            $annualBaseSql = preg_replace(
-                "/ AND term_number = \?/",
-                '',
-                $baseSql
-            );
-            if (isset($termParamIndex)) {
-                unset($annualParams[$termParamIndex]);
-                $annualParams = array_values($annualParams);
-            }
-            $annualStmt = $this->db->prepare(
-                "SELECT COALESCE(SUM(total_due), 0) AS total_due,"
-                . " COALESCE(SUM(total_paid), 0) AS total_paid,"
-                . " COALESCE(SUM(current_balance), 0) AS total_balance"
-                . " " . $annualBaseSql
-            );
-
-            $annualStmt->execute($annualParams);
-            $annualRow = $annualStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
             $totalDue = (float) ($summaryRow['total_due'] ?? 0);
             $totalPaid = (float) ($summaryRow['total_paid'] ?? 0);
@@ -1092,7 +1332,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // truth. Every year has its own term rows, amounts and settings, so
             // many years with different calendars coexist on the same system
             // without overwriting or duplicating. Nothing is hardcoded.
-            $contextYear = (isset($resolvedYear) && $resolvedYear !== false && $resolvedYear !== null)
+            $contextYear = (isset($resolvedYear) && $resolvedYear !== false && $resolvedYear !== null && $resolvedYear !== '')
                 ? (string) $resolvedYear
                 : (string) ($this->db->query(
                     "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
@@ -1100,12 +1340,11 @@ return formatResponse(false, null, 'An internal error occurred.');
             $currentTermNumber = 0;
             $hasCurrentTerm = false;
             if ($contextYear !== '') {
+                $academicTerms = ReadReplicaService::qualifiedRef('academic_term');
                 $ctxStmt = $this->db->prepare(
-                    "SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-                     FROM academic_year_terms ayt
-                     JOIN terms t ON t.id = ayt.term_id
-                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                     WHERE ay.year_code = ? AND ayt.status = 'current'
+                    "SELECT CAST(SUBSTRING(term_code, 2) AS UNSIGNED)
+                     FROM {$academicTerms}
+                     WHERE year_code = ? AND term_period_status = 'current'
                      LIMIT 1"
                 );
                 $ctxStmt->execute([$contextYear]);
@@ -1116,11 +1355,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                     // not-yet-opened year) — fall back to the latest term that
                     // actually has fee rows, from the data, never assumed.
                     $latestStmt = $this->db->prepare(
-                        "SELECT MAX(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
-                         FROM academic_year_terms ayt
-                         JOIN terms t ON t.id = ayt.term_id
-                         JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                         WHERE ay.year_code = ?"
+                        "SELECT MAX(CAST(SUBSTRING(term_code, 2) AS UNSIGNED))
+                         FROM {$academicTerms}
+                         WHERE year_code = ?"
                     );
                     $latestStmt->execute([$contextYear]);
                     $currentTermNumber = (int) ($latestStmt->fetchColumn() ?: 0);
@@ -1129,8 +1366,9 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $annualDue = (float) ($annualRow['total_due'] ?? 0);
             $annualPaid = (float) ($annualRow['total_paid'] ?? 0);
+            $termScope = $this->resolveTermFilter($filters['term_number'] ?? '');
 
-            return formatResponse(true, [
+            $response = formatResponse(true, [
                 'items' => $items,
                 'pagination' => [
                     'page' => $page,
@@ -1151,9 +1389,10 @@ return formatResponse(false, null, 'An internal error occurred.');
                         'collection_rate' => $annualDue > 0 ? round(($annualPaid / $annualDue) * 100, 2) : 0,
                     ],
                     'terms' => $terms,
-                    'period_label' => empty($filters['term_number']) || strtolower((string) $filters['term_number']) === 'all'
+                    'term_scope' => $termScope,
+                    'period_label' => $termScope === null
                         ? 'Whole Year'
-                        : 'Term ' . preg_replace('/^T/', '', strtoupper(trim((string) $filters['term_number']))),
+                        : 'Term ' . $termScope,
                     // Everything from the academic-year context tables — the
                     // source of truth. Every year has its own term rows,
                     // amounts and settings, so many years with different
@@ -1162,12 +1401,94 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'academic_year' => $contextYear,
                     'current_term_number' => $currentTermNumber,
                     'has_current_term' => $hasCurrentTerm,
+                ],
+                // Which source answered, and how each filter was actually applied. The page
+                // shows this instead of guessing, so an empty result is always
+                // explainable ("you asked for Term 9" or "no rows matched
+                // Grade 8") instead of silently looking like an empty ledger.
+                'meta' => [
+                    'source' => $this->feeStatusUsingSummary ? 'fee_status_summary_projection' : 'vw_student_payment_status_enhanced',
+                    'filters_applied' => [
+                        'student_id' => isset($filters['student_id']) ? (int) $filters['student_id'] : null,
+                        'academic_year' => $yearPrefixMode
+                            ? trim((string) ($filters['academic_year'] ?? '')) . '*'
+                            : ($resolvedYear ?? null),
+                        'term_number' => $termScope,
+                        'status' => !empty($filters['status']) ? $this->feeFilter->status($filters['status']) : null,
+                        'class_id' => isset($filters['class_id']) ? (int) $filters['class_id'] : null,
+                        'class_name' => !empty($filters['class_name']) ? trim((string) $filters['class_name']) : null,
+                        'search' => !empty($filters['search']) ? $filters['search'] : null,
+                    ],
                 ]
             ]);
+            $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+            if ($durationMs >= max(50, (int) (getenv('DB_SLOW_QUERY_MS') ?: 250))) {
+                FileLogger::write('database_performance', [
+                    'event' => 'slow_read_workflow',
+                    'module' => 'finance',
+                    'workflow' => 'list_student_payment_status',
+                    'source' => $this->feeStatusUsingSummary ? 'fee_status_summary_projection' : 'vw_student_payment_status_enhanced',
+                    'duration_ms' => $durationMs,
+                    'filter_names' => array_values(array_intersect(
+                        ['student_id', 'academic_year', 'term_number', 'status', 'class_id', 'class_name', 'search', 'balance_only', 'amount_range'],
+                        array_keys((array) $filters)
+                    )),
+                ], 'warning');
+            }
+            return $response;
         } catch (Exception $e) {
+            FileLogger::write('database_performance', [
+                'event' => 'read_workflow_failed',
+                'module' => 'finance',
+                'workflow' => 'list_student_payment_status',
+                'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'error_class' => get_class($e),
+            ], 'error');
             \App\API\Services\Logger::legacyError('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return formatResponse(false, null, 'An internal error occurred.');
+            // Never let a bad filter or a broken source masquerade as an empty
+            // ledger: mapMessageToCode() would turn this generic message into
+            // 400, which reads as "you asked wrongly" and hides a real fault.
+            return [
+                'status' => 'error',
+                'message' => 'The fee ledger could not be read: ' . $e->getMessage(),
+                'type' => 'error',
+                'code' => 500,
+                'data' => null,
+            ];
         }
+    }
+
+    /**
+     * Match the stored "Class - Stream" label for a bare class name.
+     * "Grade 8" must find "Grade 8 - A"; an exact label must still work.
+     */
+    private function classLabelPredicate(string $qualified, string $className): array
+    {
+        $col = $this->pinned($qualified, 'class_name');
+        $sql = "({$col} = ? OR {$col} LIKE ?)";
+        $params = [$className, $className . ' - %'];
+        if (in_array('level_name', $this->sourceColumns($qualified), true)) {
+            $lcol = $this->pinned($qualified, 'level_name');
+            $sql = '(' . $lcol . ' = ? OR ' . $sql . ')';
+            // The level_name placeholder is bound FIRST by the SQL above.
+            array_unshift($params, $className);
+        }
+        return [$sql, $params];
+    }
+
+    /**
+     * Same as classLabelPredicate but starting from a class id, for sources
+     * that do not carry class_id themselves.
+     */
+    private function classNamePredicate(string $qualified, int $classId): array
+    {
+        $stmt = $this->db->prepare("SELECT name FROM classes WHERE id = ? LIMIT 1");
+        $stmt->execute([$classId]);
+        $name = $stmt->fetchColumn();
+        if (!is_string($name) || $name === '') {
+            return [null, []];
+        }
+        return $this->classLabelPredicate($qualified, $name);
     }
 
     public function getStudentPaymentStatus($studentId)

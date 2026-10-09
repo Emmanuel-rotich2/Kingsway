@@ -184,7 +184,7 @@ final class SystemAdministrationService
                      JOIN roles r ON r.id=ur.role_id
                      WHERE ur.user_id=u.id
                      ORDER BY ur.role_id LIMIT 1) AS main_role
-             FROM users u LEFT JOIN persons p ON p.id=u.person_id
+             FROM users u LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id
              ORDER BY u.id DESC LIMIT 1000"
         );
     }
@@ -205,7 +205,7 @@ final class SystemAdministrationService
             "SELECT rsm.id,rsm.role_id,r.name role_name,rsm.menu_item_id,sm.name menu_name,
                     sm.label,sm.url,sm.domain,rsm.is_default,rsm.custom_order
              FROM role_sidebar_menus rsm JOIN roles r ON r.id=rsm.role_id
-             JOIN sidebar_menu_items sm ON sm.id=rsm.menu_item_id
+             JOIN " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " sm ON sm.id=rsm.menu_item_id
              ORDER BY r.name,COALESCE(rsm.custom_order,sm.display_order),sm.label"
         );
     }
@@ -242,7 +242,7 @@ final class SystemAdministrationService
             "SELECT s.id,s.user_id,u.username,p.email,s.ip_address,s.user_agent,s.login_time,
                     s.last_activity,s.logout_time,s.session_status,s.created_at
              FROM user_sessions s LEFT JOIN users u ON u.id=s.user_id
-             LEFT JOIN persons p ON p.id=u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=u.person_id
              ORDER BY s.last_activity DESC LIMIT 1000"
         );
     }

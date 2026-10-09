@@ -5,6 +5,7 @@ namespace App\API\Services;
 use PDO;
 use PDOException;
 use App\API\Services\SharedCache;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Academic Context Service
@@ -165,15 +166,14 @@ class AcademicContextService
             return null;
         }
 
-        $sql = "SELECT ayt.id, t.name, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status, t.code as term_number
-                FROM academic_year_terms ayt
-                JOIN terms t ON ayt.term_id = t.id
-                WHERE ayt.academic_year_id = :year_id
-                AND ayt.status IN ('current')
-                ORDER BY
-                    CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END,
-                    CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN 0 ELSE 1 END,
-                    t.code ASC
+        $academicTerm = ReadReplicaService::qualifiedRef('academic_term');
+        $sql = "SELECT academic_year_term_id AS id, term_name AS name, academic_year_id,
+                       opening_date AS start_date, closing_date AS end_date,
+                       term_period_status AS status, term_code AS term_number
+                FROM {$academicTerm}
+                WHERE academic_year_id = :year_id AND term_period_status = 'current'
+                ORDER BY CASE WHEN CURDATE() BETWEEN opening_date AND closing_date THEN 0 ELSE 1 END,
+                         term_code ASC
                 LIMIT 1";
 
         try {
@@ -182,17 +182,14 @@ class AcademicContextService
             $result = $stmt->fetch();
 
             if (!$result && !empty($currentYear['year_code'])) {
-                $fallbackSql = "SELECT ayt.id, t.name, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status, t.code as term_number
-                        FROM academic_year_terms ayt
-                        JOIN terms t ON ayt.term_id = t.id
-                        JOIN academic_years ay ON ayt.academic_year_id = ay.id
-                        WHERE ay.year_code = :year_code
-                        AND ayt.status IN ('current')
-                        ORDER BY
-                            CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END,
-                            CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN 0 ELSE 1 END,
-                            t.code ASC
-                        LIMIT 1";
+                $fallbackSql = "SELECT academic_year_term_id AS id, term_name AS name, academic_year_id,
+                                       opening_date AS start_date, closing_date AS end_date,
+                                       term_period_status AS status, term_code AS term_number
+                                FROM {$academicTerm}
+                                WHERE year_code = :year_code AND term_period_status = 'current'
+                                ORDER BY CASE WHEN CURDATE() BETWEEN opening_date AND closing_date THEN 0 ELSE 1 END,
+                                         term_code ASC
+                                LIMIT 1";
                 $fallbackStmt = $this->db->prepare($fallbackSql);
                 $fallbackStmt->execute(['year_code' => $currentYear['year_code']]);
                 $result = $fallbackStmt->fetch();
@@ -357,20 +354,19 @@ class AcademicContextService
             return [];
         }
     }
-
+    
     /**
-     * Get terms for a specific academic year
+     * Get academic terms for a given academic year
      * 
      * @param int $academicYearId Academic year ID
      * @return array Terms for the academic year
      */
     public function getTerms($academicYearId)
     {
-        $sql = "SELECT ayt.id, t.name, t.code as term_number, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status
-                FROM academic_year_terms ayt
-                JOIN terms t ON ayt.term_id = t.id
-                WHERE ayt.academic_year_id = :year_id 
-                ORDER BY t.code ASC";
+        $sql = "SELECT academic_year_term_id AS id, term_name AS name, term_code AS term_number, academic_year_id, opening_date AS start_date, closing_date AS end_date, term_period_status AS status
+                FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+                WHERE academic_year_id = :year_id 
+                ORDER BY term_code ASC";
         
         try {
             $stmt = $this->db->prepare($sql);
@@ -381,7 +377,7 @@ class AcademicContextService
             return [];
         }
     }
-
+    
     /**
      * Set current academic year
      * 
@@ -465,12 +461,126 @@ class AcademicContextService
     }
 
     /**
+     * Year label for document filenames (e.g. the public calendar PDF download).
+     */
+    public function yearCode(int $yearId): ?string
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT year_code FROM academic_years WHERE id = ?');
+            $stmt->execute([$yearId]);
+            $code = $stmt->fetchColumn();
+            return $code !== false ? (string) $code : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Active streams for a class (legacy class_streams table) — used by the
+     * public enrolment-form cascade endpoint (streams.php).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function activeStreamsForClass(int $classId): array
+    {
+        // A class in year Y exposes the streams allocated to it through
+        // academic_year_classes -> academic_year_class_streams -> streams.
+        // That three-table walk is pre-composed into mmv_academic_calendar (one
+        // row per class stream, carrying class_id/stream_name/class_stream_status),
+        // so this is a single indexed table read with a live WHERE filter.
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT stream_id AS id, stream_name
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE class_id = :cid AND class_stream_status = 'active'
+             ORDER BY stream_name ASC"
+        );
+        $stmt->execute([':cid' => $classId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Distinct class names in the classes master (staff admission picker). */
+    public function gradeNames(): array
+    {
+        return $this->db->query(
+            "SELECT DISTINCT name FROM classes WHERE name IS NOT NULL AND name <> '' ORDER BY name"
+        )->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+
+    /** All academic years for the picker, newest first. */
+    public function yearsForPicker(): array
+    {
+        return $this->db->query(
+            'SELECT id,year_code,year_name,status,is_current,start_date,end_date FROM academic_years ORDER BY start_date DESC'
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Learning areas scoped to the given ids (proposal builder). */
+    public function learningAreasIn(array $areaIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $areaIds))));
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT id,name,code,level_band,description,status,levels,is_optional FROM learning_areas WHERE id IN ($in) ORDER BY name"
+        );
+        $stmt->execute($ids);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** All learning areas (proposal builder unrestricted scope). */
+    public function learningAreasAll(): array
+    {
+        return $this->db->query('SELECT id,name,code,level_band,description,status,levels,is_optional FROM learning_areas ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Instance rows for one academic year. */
+    public function termsForYear(int $yearId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT academic_year_term_id AS id, academic_year_id, term_period_status AS status, term_name, term_id AS term_number
+             FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE academic_year_id = ? ORDER BY term_id"
+        );
+        $stmt->execute([$yearId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * All academic years, newest first (public printable-download pickers).
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function yearsNewestFirst(): array
+    {
+        return $this->db->query(
+            "SELECT id, year_code, year_name, status FROM academic_years ORDER BY id DESC"
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Distinct classes configured for an academic year.
+     *
+     * @return list<array{id:int, name:string}>
+     */
+    public function classesForYear(int $yearId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT class_id AS id, class_name AS name
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?
+             ORDER BY class_id"
+        );
+        $stmt->execute([$yearId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
      * Set cache TTL
      * 
      * @param int $ttl Cache time in seconds
      */
-    public function setCacheTTL($ttl)
-    {
-        $this->cacheTTL = $ttl;
-    }
+public function setCacheTTL($ttl)
+        {
+            $this->cacheTTL = $ttl;
+        }
 }

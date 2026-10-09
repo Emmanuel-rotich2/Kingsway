@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\system;
 
+use App\API\Services\ReadReplicaService;
+
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
@@ -55,8 +57,8 @@ class DashboardRegistryManager extends BaseAPI
                        rr.url AS component,
                        d.is_active,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_name
-                FROM dashboards d
-                LEFT JOIN routes_registry rr ON rr.id = d.route_id
+                FROM " . ReadReplicaService::qualifiedRef("dashboards") . " d
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " rr ON rr.id = d.route_id
                 LEFT JOIN role_dashboards rd ON rd.dashboard_id = d.id
                 LEFT JOIN roles r ON r.id = rd.role_id
                 WHERE $whereClause

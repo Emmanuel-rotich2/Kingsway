@@ -72,17 +72,13 @@ final class TestAccountAccessService
                     g.expires_at AS test_access_expires_at,
                     g.status AS test_access_status
              FROM users u
-             LEFT JOIN test_account_access_grants g ON g.id = (
-                 SELECT tg.id
-                 FROM test_account_access_grants tg
-                 WHERE tg.user_id = u.id
-                   AND tg.environment = ?
-                   AND tg.status IN ('scheduled','active')
-                   AND tg.revoked_at IS NULL
-                 ORDER BY tg.expires_at DESC, tg.id DESC
-                 LIMIT 1
-             )
+             LEFT JOIN test_account_access_grants g
+               ON g.user_id = u.id
+              AND g.environment = ?
+              AND g.status IN ('scheduled','active')
+              AND g.revoked_at IS NULL
              WHERE u.id = ?
+             ORDER BY g.expires_at DESC, g.id DESC
              LIMIT 1"
         );
         $stmt->execute([self::environment(), $userId]);
@@ -225,8 +221,11 @@ final class TestAccountAccessService
         $target = $this->db->prepare(
             "SELECT u.id, COUNT(g.id) AS has_live_grant
              FROM users u
-             LEFT JOIN test_account_access_grants g ON g.user_id = u.id AND g.environment = ?
-                 AND g.status IN ('scheduled','active') AND g.revoked_at IS NULL
+             LEFT JOIN test_account_access_grants g
+               ON g.user_id = u.id
+              AND g.environment = ?
+              AND g.status IN ('scheduled','active')
+              AND g.revoked_at IS NULL
              WHERE u.id IN ($placeholders)
                AND (u.is_test_user=1 OR u.account_type='test')
              GROUP BY u.id"

@@ -5,6 +5,7 @@ namespace App\API\Services\payments;
 
 use PDO;
 use RuntimeException;
+use App\API\Services\ReadReplicaService;
 
 /** Posts controlled internal movements between fee and transport credits. */
 class StudentFundTransferService
@@ -71,15 +72,15 @@ class StudentFundTransferService
 
     public function list(array $filters=[]): array
     {
-        $sql='SELECT t.*, CONCAT(ps.first_name," ",ps.last_name) source_student_name, CONCAT(pd.first_name," ",pd.last_name) destination_student_name FROM student_fund_transfers t JOIN students ss ON ss.id=t.source_student_id JOIN persons ps ON ps.id=ss.person_id JOIN students sd ON sd.id=t.destination_student_id JOIN persons pd ON pd.id=sd.person_id';
+        $sql='SELECT t.*, CONCAT(ps.first_name," ",ps.last_name) source_student_name, CONCAT(pd.first_name," ",pd.last_name) destination_student_name FROM student_fund_transfers t JOIN ' . ReadReplicaService::qualifiedRef('students') . ' ss ON ss.id=t.source_student_id JOIN ' . ReadReplicaService::qualifiedRef('persons') . ' ps ON ps.id=ss.person_id JOIN ' . ReadReplicaService::qualifiedRef('students') . ' sd ON sd.id=t.destination_student_id JOIN ' . ReadReplicaService::qualifiedRef('persons') . ' pd ON pd.id=sd.person_id';
         $params=[]; if (!empty($filters['status'])) { $sql.=' WHERE t.status=?'; $params[]=$filters['status']; } $sql.=' ORDER BY t.created_at DESC';
         $s=$this->db->prepare($sql); $s->execute($params); return $s->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function sources(): array
     {
-        $fees=$this->db->query("SELECT c.id AS source_id,c.student_id,(SELECT sp.parent_id FROM student_parents sp WHERE sp.student_id=c.student_id ORDER BY sp.is_primary_contact DESC,sp.parent_id LIMIT 1) AS parent_id,'fees' AS account_type,c.credit_number AS reference,c.remaining_amount AS available_amount,CONCAT(p.first_name,' ',p.last_name) AS student_name FROM fee_credit_notes c JOIN students s ON s.id=c.student_id JOIN persons p ON p.id=s.person_id WHERE c.status IN ('available','partially_applied') AND c.remaining_amount>0 ORDER BY student_name")->fetchAll(PDO::FETCH_ASSOC);
-        $transport=$this->db->query("SELECT e.id AS source_id,e.student_id,(SELECT sp.parent_id FROM student_parents sp WHERE sp.student_id=e.student_id ORDER BY sp.is_primary_contact DESC,sp.parent_id LIMIT 1) AS parent_id,'transport' AS account_type,CONCAT(COALESCE(ep.label,ep.period_type),' · ',ep.period_start,' to ',ep.period_end) AS reference, GREATEST(0,COALESCE((SELECT SUM(a.amount) FROM transport_entitlement_payment_allocations a JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=e.id AND p.payment_status='confirmed'),0)-COALESCE((SELECT SUM(amount) FROM student_fund_transfer_postings WHERE posting_type='transport_debit' AND source_record_id=e.id),0)) AS available_amount,CONCAT(per.first_name,' ',per.last_name) AS student_name FROM student_transport_entitlements e JOIN students s ON s.id=e.student_id JOIN persons per ON per.id=s.person_id JOIN transport_entitlement_periods ep ON ep.id=e.period_id WHERE e.entitlement_status='active' HAVING available_amount>0 ORDER BY student_name")->fetchAll(PDO::FETCH_ASSOC);
+        $fees=$this->db->query("SELECT c.id AS source_id,c.student_id,(SELECT sp.parent_id FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp WHERE sp.student_id=c.student_id ORDER BY sp.is_primary_contact DESC,sp.parent_id LIMIT 1) AS parent_id,'fees' AS account_type,c.credit_number AS reference,c.remaining_amount AS available_amount,CONCAT(p.first_name,' ',p.last_name) AS student_name FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " c JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id=c.student_id JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=s.person_id WHERE c.status IN ('available','partially_applied') AND c.remaining_amount>0 ORDER BY student_name")->fetchAll(PDO::FETCH_ASSOC);
+        $transport=$this->db->query("SELECT e.id AS source_id,e.student_id,(SELECT sp.parent_id FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp WHERE sp.student_id=e.student_id ORDER BY sp.is_primary_contact DESC,sp.parent_id LIMIT 1) AS parent_id,'transport' AS account_type,CONCAT(COALESCE(ep.label,ep.period_type),' · ',ep.period_start,' to ',ep.period_end) AS reference, GREATEST(0,COALESCE((SELECT SUM(a.amount) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " a JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=e.id AND p.payment_status='confirmed'),0)-COALESCE((SELECT SUM(amount) FROM student_fund_transfer_postings WHERE posting_type='transport_debit' AND source_record_id=e.id),0)) AS available_amount,CONCAT(per.first_name,' ',per.last_name) AS student_name FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id=e.student_id JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id=s.person_id JOIN transport_entitlement_periods ep ON ep.id=e.period_id WHERE e.entitlement_status='active' HAVING available_amount>0 ORDER BY student_name")->fetchAll(PDO::FETCH_ASSOC);
         return ['sources'=>array_merge($fees,$transport)];
     }
 
@@ -99,7 +100,7 @@ class StudentFundTransferService
     {
         $s=$this->db->prepare('SELECT id FROM student_transport_entitlements WHERE id=? AND student_id=? AND entitlement_status="active" FOR UPDATE'); $s->execute([$entitlementId,$studentId]);
         if (!$s->fetchColumn()) throw new RuntimeException('Source transport entitlement is invalid');
-        $s=$this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM transport_entitlement_payment_allocations a JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=? AND p.payment_status='confirmed'"); $s->execute([$entitlementId]); $credited=(float)$s->fetchColumn();
+        $s=$this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " JOIN transport_entitlement_payments p ON p.id=a.payment_id WHERE a.entitlement_id=? AND p.payment_status='confirmed'"); $s->execute([$entitlementId]); $credited=(float)$s->fetchColumn();
         $s=$this->db->prepare("SELECT COALESCE(SUM(amount),0) FROM student_fund_transfer_postings WHERE posting_type='transport_debit' AND source_record_id=?"); $s->execute([$entitlementId]); $debited=(float)$s->fetchColumn();
         if (($credited-$debited) < $amount) throw new RuntimeException('Insufficient available transport credit');
         $this->db->prepare("INSERT INTO student_fund_transfer_postings (transfer_id,posting_type,source_record_id,amount) VALUES (?,?,?,?)")->execute([$this->currentTransferId,'transport_debit',$entitlementId,$amount]);

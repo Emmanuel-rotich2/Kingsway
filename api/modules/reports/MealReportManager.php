@@ -4,6 +4,7 @@ namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Canonical catering reporting manager.
@@ -82,7 +83,7 @@ class MealReportManager extends BaseAPI
                     mi.name AS menu_item, mi.description,
                     mp.planned_servings, mp.prepared_quantity,
                     mp.actual_servings, mp.status, mp.prepared_at, mp.notes
-             FROM meal_plans mp
+             FROM " . ReadReplicaService::qualifiedRef("meal_plans") . "
              LEFT JOIN menu_items mi ON mi.id = mp.menu_item_id
              WHERE mp.plan_date BETWEEN ? AND ?
              ORDER BY FIELD(mp.meal_type, 'breakfast', 'snack', 'lunch', 'dinner'),
@@ -153,8 +154,8 @@ class MealReportManager extends BaseAPI
                     COALESCE(SUM(fcr.quantity_used), 0) AS quantity_consumed,
                     COALESCE(SUM(fcr.waste_quantity), 0) AS total_waste,
                     COALESCE(SUM(fcr.quantity_used * fcr.cost_per_unit), 0) AS cost
-             FROM food_consumption_records fcr
-             INNER JOIN inventory_items i ON i.id = fcr.inventory_item_id
+             FROM " . ReadReplicaService::qualifiedRef("food_consumption_records") . "
+             INNER JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON i.id = fcr.inventory_item_id
              WHERE fcr.consumption_date BETWEEN ? AND ?" . (!empty($filters['item_id']) ? " AND fcr.inventory_item_id = ?" : "") . "
              GROUP BY fcr.consumption_date, fcr.inventory_item_id,
                       i.name, fcr.unit

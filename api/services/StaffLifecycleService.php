@@ -31,24 +31,25 @@ final class StaffLifecycleService
         // staff↔user link is the shared persons row; onboarding status is the
         // workflow status surfaced by vw_staff_onboarding_progress.
         $where = ['1=1']; $params = [];
-        if (!empty($filters['status'])) { $where[] = 's.status = :status'; $params[':status'] = $filters['status']; }
+        if (!empty($filters['status'])) { $where[] = 'sd.staff_status = :status'; $params[':status'] = $filters['status']; }
         if (!empty($filters['department_id'])) {
-            $where[] = 'sda.department_id = :department_id AND sda.effective_to IS NULL';
+            $where[] = 'sd.department_id = :department_id';
             $params[':department_id'] = (int)$filters['department_id'];
         }
         $clause = implode(' AND ', $where);
+        // The staff_directory projection already flattens person, user and
+        // current-department facts; onboarding progress is a small master
+        // view keyed by staff_id.
         $staff = $this->db->query(
-            "SELECT s.id,s.staff_no,p.first_name,p.last_name,s.position,s.status,s.employment_date,s.contract_type,
-                    sda.department_id,d.name AS department_name,p.email,u.status AS user_status,
-                    COALESCE(op.status,'completed') AS onboarding_status
-             FROM staff s
-             JOIN persons p ON p.id=s.person_id
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id=s.id AND sda.effective_to IS NULL
-             LEFT JOIN departments d ON d.id=sda.department_id
-             LEFT JOIN users u ON u.person_id=s.person_id
-             LEFT JOIN vw_staff_onboarding_progress op ON op.staff_id=s.id
+            "SELECT sd.staff_id AS id, sd.staff_no, sd.first_name, sd.last_name, sd.position,
+                    sd.staff_status AS status, sd.employment_date, sd.contract_type,
+                    sd.department_id, sd.department_name, sd.email,
+                    sd.user_status AS user_status,
+                    COALESCE(op.status, 'completed') AS onboarding_status
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+             LEFT JOIN vw_staff_onboarding_progress op ON op.staff_id = sd.staff_id
              WHERE {$clause}
-             ORDER BY p.last_name,p.first_name LIMIT 500", $params
+             ORDER BY sd.last_name, sd.first_name LIMIT 500", $params
         )->fetchAll(PDO::FETCH_ASSOC);
 
         $summary = $this->db->query(
@@ -67,13 +68,9 @@ final class StaffLifecycleService
     public function timeline(int $staffId): array
     {
         $staff = $this->db->query(
-            "SELECT s.*,p.first_name,p.last_name,p.email,d.name department_name,u.status user_status
-             FROM staff s
-             LEFT JOIN persons p ON p.id=s.person_id
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id=s.id AND sda.effective_to IS NULL
-             LEFT JOIN departments d ON d.id=sda.department_id
-             LEFT JOIN users u ON u.person_id=s.person_id
-             WHERE s.id=?", [$staffId]
+            "SELECT sd.*
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+             WHERE sd.staff_id=?", [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$staff) throw new RuntimeException('Staff member not found');
 
@@ -107,12 +104,10 @@ final class StaffLifecycleService
                     fd.name from_department_name,
                     td.name to_department_name
              FROM staff_lifecycle_actions la
-             LEFT JOIN users cu ON cu.id = la.user_id
-             LEFT JOIN persons cp ON cp.id = cu.person_id
-             LEFT JOIN users apu ON apu.id = la.approved_by
-             LEFT JOIN persons ap ON ap.id = apu.person_id
-             LEFT JOIN departments fd ON fd.id = la.from_department_id
-             LEFT JOIN departments td ON td.id = la.to_department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " cp ON cp.user_id = la.user_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.user_id = la.approved_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " fd ON fd.id = la.from_department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " td ON td.id = la.to_department_id
              WHERE la.staff_id = ?
              ORDER BY la.effective_date DESC, la.created_at DESC",
             [$staffId]
@@ -126,9 +121,9 @@ final class StaffLifecycleService
             'departments'=>$this->db->query("SELECT id,name,code FROM departments WHERE status='active' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
             'roles'=>$this->db->query("SELECT id,name,description FROM roles WHERE is_active=1 AND scope='school' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
             'staff'=>$this->db->query(
-                "SELECT s.id,s.staff_no,CONCAT(p.first_name,' ',p.last_name) name
-                 FROM staff s JOIN persons p ON p.id=s.person_id
-                 WHERE s.status='active' ORDER BY p.first_name,p.last_name"
+                "SELECT s.staff_id AS id,s.staff_no,CONCAT(s.first_name,' ',s.last_name) name
+                 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                 WHERE s.staff_status='active' AND s.person_id IS NOT NULL ORDER BY s.first_name,s.last_name"
             )->fetchAll(PDO::FETCH_ASSOC),
             'action_types'=>['promotion','demotion','transfer','acting_appointment','confirmation','contract_renewal','salary_change','suspension','reinstatement','resignation','retirement','termination'],
         ];
@@ -143,8 +138,7 @@ final class StaffLifecycleService
         if (!in_array($data['action_type'], $allowed, true)) throw new RuntimeException('Unsupported lifecycle action');
         $staff = $this->db->query(
             "SELECT s.*, sda.department_id
-             FROM staff s
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
              WHERE s.id = ?",
             [(int)$data['staff_id']]
         )->fetch(PDO::FETCH_ASSOC);

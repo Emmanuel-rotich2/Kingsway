@@ -15,6 +15,143 @@ final class StaffRecordsService
         $this->db = $db ?: Database::getInstance();
     }
 
+    /** Position/type snapshot used to gate edits before any write. */
+    public function positionSnapshot(int $staffId): ?array
+    {
+        // Resolve the staff snapshot and primary role from separately published
+        // read projections. Keeping these lookups separate avoids a request-path
+        // join while preserving NULL when no primary role is assigned.
+        $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
+        $stmt = $this->db->getConnection()->prepare(
+            "SELECT staff_id, position, staff_type_id, staff_category_id, user_id
+             FROM {$staffRef} WHERE staff_id = ? LIMIT 1"
+        );
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $roleId = null;
+        if (!empty($row['user_id'])) {
+            $roleRef = ReadReplicaService::masterRef('user_role_grant');
+            $role = $this->db->getConnection()->prepare(
+                "SELECT role_id FROM {$roleRef}
+                 WHERE user_id = ? AND user_role_is_primary = 1 LIMIT 1"
+            );
+            $role->execute([(int) $row['user_id']]);
+            $roleId = $role->fetchColumn();
+        }
+        return [
+            'position' => $row['position'],
+            'staff_type_id' => $row['staff_type_id'],
+            'staff_category_id' => $row['staff_category_id'],
+            'role_id' => $roleId === false ? null : $roleId,
+        ];
+    }
+
+    /** Identity row (person fields) of an active staff member. */
+    public static function personForStaffId(PDO $pdo, int $staffId): ?array
+    {
+        $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
+        $stmt = $pdo->prepare(
+            "SELECT person_id, first_name, middle_name, last_name, phone, email, national_id_no
+             FROM {$staffRef}
+             WHERE staff_id = ? AND staff_status = 'active' LIMIT 1"
+        );
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    /**
+     * Resolve a school staff row from the authenticated account.
+     *
+     * This is intentionally authoritative: SYSTEM-domain accounts and
+     * parent-only accounts are not staff unless the master staff table links
+     * the account's person record.
+     */
+    public static function staffIdForUserId(PDO $pdo, int $userId, bool $requireActive = false): int
+    {
+        if ($userId <= 0) {
+            return 0;
+        }
+        $sql = "SELECT s.id
+                  FROM users u
+                  JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = u.person_id
+                 WHERE u.id = ?";
+        if ($requireActive) {
+            $sql .= " AND s.status = 'active'";
+        }
+        $sql .= ' LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$userId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Classify the school-staff relationship without collapsing onboarding and
+     * administrative deactivation into the same state.
+     */
+    public static function staffContextForUserId(PDO $pdo, int $userId): array
+    {
+        if ($userId <= 0) {
+            return ['state' => 'unlinked', 'staff_id' => null];
+        }
+
+        $stmt = $pdo->prepare(
+            "SELECT u.id AS user_id, u.status AS user_status,
+                    u.profile_completed_at, u.password_changed_at,
+                    s.id AS staff_id, s.status AS staff_status,
+                    s.position, s.staff_no,
+                    inv.status AS invitation_status,
+                    inv.accepted_at AS invitation_accepted_at,
+                    inv.expires_at AS invitation_expires_at
+               FROM users u
+               LEFT JOIN " . ReadReplicaService::masterRef("staff") . " s ON s.person_id = u.person_id
+               LEFT JOIN user_invitations inv ON inv.id = (
+                   SELECT latest.id
+                     FROM user_invitations latest
+                    WHERE latest.user_id = u.id
+                    ORDER BY latest.id DESC
+                    LIMIT 1
+               )
+              WHERE u.id = ?
+              LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || empty($row['staff_id'])) {
+            return [
+                'state' => 'unlinked',
+                'staff_id' => null,
+                'user_status' => $row['user_status'] ?? null,
+            ];
+        }
+
+        $invitationOpen = in_array(
+            (string) ($row['invitation_status'] ?? ''),
+            ['pending', 'accepted'],
+            true
+        );
+        $profileIncomplete = empty($row['profile_completed_at']);
+        if ($profileIncomplete && $invitationOpen) {
+            $state = 'invited';
+        } elseif (
+            (string) $row['staff_status'] === 'inactive'
+            && !$profileIncomplete
+        ) {
+            $state = 'deactivated';
+        } elseif ((string) $row['staff_status'] === 'on_leave') {
+            $state = 'on_leave';
+        } else {
+            $state = 'active';
+        }
+
+        $row['state'] = $state;
+        $row['staff_id'] = (int) $row['staff_id'];
+        return $row;
+    }
+
     public function assignRole(int $staffId, int $roleId): array
     {
         $staff = $this->staffUser($staffId);
@@ -37,10 +174,7 @@ final class StaffRecordsService
         $this->staffUser($staffId);
         return $this->db->query(
             "SELECT r.id role_id, r.name, r.description, ur.created_at, (ur.is_primary = 1) AS is_primary
-             FROM staff s
-             JOIN users u ON u.person_id = s.person_id
-             JOIN user_roles ur ON ur.user_id = u.id
-             JOIN roles r ON r.id = ur.role_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
              WHERE s.id = ?
              ORDER BY ur.is_primary DESC, ur.id",
             [$staffId]
@@ -72,10 +206,10 @@ final class StaffRecordsService
 
     public function idCards(array $filters = []): array
     {
-        $where = ["COALESCE(s.status, 'active') IN ('active', 'on_leave')"];
+        $where = ["COALESCE(sd.staff_status, 'active') IN ('active', 'on_leave')"];
         $params = [];
         if (!empty($filters['staff_id'])) {
-            $where[] = 's.id = ?';
+            $where[] = 'sd.staff_id = ?';
             $params[] = (int)$filters['staff_id'];
         }
 
@@ -93,7 +227,7 @@ final class StaffRecordsService
                 return [];
             }
 
-            $where[] = 's.id IN ('
+            $where[] = 'sd.staff_id IN ('
                 . implode(',', array_fill(0, count($staffIds), '?'))
                 . ')';
             array_push($params, ...$staffIds);
@@ -111,7 +245,7 @@ final class StaffRecordsService
         return $this->db->query(
             "SELECT
                     c.id,
-                    s.id AS staff_id,
+                    sd.staff_id,
                     c.card_number,
                     c.generated_by,
                     c.generated_at,
@@ -122,33 +256,30 @@ final class StaffRecordsService
                     c.metadata,
                     c.created_at,
                     c.updated_at,
-                    s.staff_no,
-                    p.first_name,
-                    p.last_name,
-                    s.position,
-                    p.email,
-                    p.phone,
-                    p.photo_url AS profile_pic_url,
-                    d.name AS department_name
-             FROM staff s
-             JOIN persons p ON p.id = s.person_id
+                    sd.staff_no,
+                    sd.first_name,
+                    sd.last_name,
+                    sd.position,
+                    sd.email,
+                    sd.phone,
+                    sd.photo_url AS profile_pic_url,
+                    sd.department_name
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
              LEFT JOIN (
-                SELECT c1.*
-                FROM staff_id_cards c1
-                INNER JOIN (
-                    SELECT staff_id, MAX(id) AS id
-                    FROM staff_id_cards
-                    GROUP BY staff_id
-                ) latest ON latest.id = c1.id
-             ) c ON c.staff_id = s.id
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-             LEFT JOIN departments d ON d.id = sda.department_id
+                    SELECT sic.*
+                    FROM staff_id_cards sic
+                    JOIN (
+                        SELECT staff_id, MAX(id) AS latest_id
+                        FROM staff_id_cards
+                        GROUP BY staff_id
+                    ) latest ON latest.latest_id = sic.id
+             ) c ON c.staff_id = sd.staff_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY
                 CASE WHEN c.id IS NULL THEN 0 ELSE 1 END,
-                p.last_name,
-                p.first_name,
-                s.staff_no",
+                sd.last_name,
+                sd.first_name,
+                sd.staff_no",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -333,24 +464,24 @@ final class StaffRecordsService
                     NULL AS review_type,
                     NULL AS term_id,
                     (SELECT COALESCE(ROUND(AVG(prk.score), 1), 0)
-                       FROM performance_review_kpis prk WHERE prk.review_id = pr.id) AS overall_score,
+                       FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk WHERE prk.review_id = pr.id) AS overall_score,
                     CASE
-                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 80 THEN 'Excellent'
-                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 70 THEN 'Good'
-                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 60 THEN 'Satisfactory'
-                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 50 THEN 'Below Expectation'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk WHERE prk.review_id = pr.id) >= 80 THEN 'Excellent'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk WHERE prk.review_id = pr.id) >= 70 THEN 'Good'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk WHERE prk.review_id = pr.id) >= 60 THEN 'Satisfactory'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk WHERE prk.review_id = pr.id) >= 50 THEN 'Below Expectation'
                         ELSE 'Needs Improvement'
                     END AS performance_grade,
                     CONCAT(sp.first_name, ' ', sp.last_name) AS staff_name,
                     d.name AS department,
                     CONCAT(rp.first_name, ' ', rp.last_name) AS reviewer_name
              FROM performance_reviews pr
-             JOIN staff s ON s.id = pr.staff_id
-             JOIN persons sp ON sp.id = s.person_id
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
-             LEFT JOIN departments d ON d.id = sda.department_id
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = pr.staff_id
+             JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
              LEFT JOIN staff r ON r.id = pr.reviewed_by
-             LEFT JOIN persons rp ON rp.id = r.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " rp ON rp.person_id = r.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY pr.review_date DESC, pr.id DESC",
             $params
@@ -494,13 +625,13 @@ final class StaffRecordsService
                     s.staff_no,
                     CONCAT(pp.first_name, ' ', pp.last_name) AS processed_by_name,
                     CONCAT(cp.first_name, ' ', cp.last_name) AS created_by_name
-             FROM staff_offboarding so
-             JOIN staff s ON s.id = so.staff_id
-             JOIN persons sp ON sp.id = s.person_id
-             LEFT JOIN staff p ON p.id = so.processed_by
-             LEFT JOIN persons pp ON pp.id = p.person_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_offboarding") . "
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = so.staff_id
+             JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " p ON p.id = so.processed_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pp ON pp.person_id = p.person_id
              LEFT JOIN staff c ON c.id = so.created_by
-             LEFT JOIN persons cp ON cp.id = c.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " cp ON cp.person_id = c.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY so.created_at DESC
              LIMIT 200",
@@ -636,10 +767,7 @@ final class StaffRecordsService
                     DATE_ADD(p.dob, INTERVAL 60 YEAR) AS retirement_date,
                     DATEDIFF(DATE_ADD(p.dob, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
                     s.status
-             FROM staff s
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-             LEFT JOIN departments d ON d.id = sda.department_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
              WHERE s.status = 'active'
                AND p.dob IS NOT NULL
                AND TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) >= 55
@@ -702,11 +830,11 @@ final class StaffRecordsService
         }
         // staff.user_id is dropped; the staff↔user link is via the shared person
         // (staff.person_id = users.person_id). Resolve the user id through persons.
+        $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
         $staff = $this->db->query(
-            'SELECT s.id, u.id AS user_id
-             FROM staff s
-             LEFT JOIN users u ON u.person_id = s.person_id
-             WHERE s.id = ? LIMIT 1',
+            "SELECT staff_id AS id, user_id
+             FROM {$staffRef}
+             WHERE staff_id = ? LIMIT 1",
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$staff) {
@@ -721,14 +849,157 @@ final class StaffRecordsService
     private function staffIdForUser(int $userId): ?int
     {
         // Bridge user→staff through the shared person (staff.user_id dropped).
+        $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
         $id = $this->db->query(
-            'SELECT s.id
-             FROM staff s
-             JOIN users u ON u.person_id = s.person_id
-             WHERE u.id = ? LIMIT 1',
+            "SELECT staff_id
+             FROM {$staffRef}
+             WHERE user_id = ? LIMIT 1",
             [$userId]
         )->fetchColumn();
 
         return $id ? (int)$id : null;
     }
+    /* -------------------- governed catalog admin (extracted) -------------------- */
+
+    /** Active departments for pickers. */
+    public function departments(): array
+    {
+        return Database::getInstance()->getConnection()
+            ->query("SELECT id,name,code,description,status FROM departments WHERE status='active' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Full department catalog including inactive. */
+    public function departmentCatalog(): array
+    {
+        return Database::getInstance()->getConnection()
+            ->query('SELECT id,name,code,description,status FROM departments ORDER BY name')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function createDepartment(string $name, string $code): int
+    {
+        $pdo = Database::getInstance()->getConnection();
+        $stmt = $pdo->prepare("INSERT INTO departments(name,code,status) VALUES(?,?,'active')");
+        $stmt->execute([$name, $code]);
+        return (int) $pdo->lastInsertId();
+    }
+
+    public function updateDepartment(int $id, string $name, string $code, string $status): bool
+    {
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare('UPDATE departments SET name=?,code=?,status=? WHERE id=?');
+        $stmt->execute([$name, $code, $status, $id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /** Active staff types list (catalog picker). */
+    public function staffTypes(): array
+    {
+        return Database::getInstance()->getConnection()
+            ->query("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Active staff categories list (catalog picker). */
+    public function staffCategories(): array
+    {
+        return Database::getInstance()->getConnection()
+            ->query("SELECT id,staff_type_id,category_name AS name FROM staff_categories WHERE is_active=1 ORDER BY category_name")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+
+    /** Whether a staff category belongs to the given staff type (active). */
+    public function staffCategoryInType(int $typeId, int $categoryId): bool
+    {
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare('SELECT 1 FROM staff_categories WHERE id=? AND staff_type_id=? AND is_active=1 LIMIT 1');
+        $stmt->execute([$categoryId, $typeId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    /** Count of ACTIVE roles matching the given IDs (validation only). */
+    public function countActiveRoles(array $roleIds): int
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $roleIds), static fn(int $v): bool => $v > 0)));
+        if (!$ids) return 0;
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare("SELECT COUNT(*) FROM roles WHERE is_active=1 AND id IN ($in)");
+        $stmt->execute($ids);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /** Replace the assigned role set on a staff position (preserves history rule). */
+    public function syncPositionRoles(PDO $pdo, int $positionId, array $roleIds): void
+    {
+        $pdo->prepare('DELETE FROM staff_position_roles WHERE position_id=?')->execute([$positionId]);
+        if (!$roleIds) return;
+        $stmt = $pdo->prepare('INSERT INTO staff_position_roles(position_id,role_id) VALUES(?,?)');
+        foreach ($roleIds as $roleId) $stmt->execute([$positionId, $roleId]);
+    }
+
+    /** Replace the DEFAULT-role bindings on a position. */
+    public function syncDefaultPositionRoles(PDO $pdo, int $positionId, array $roleIds, int $actorId): void
+    {
+        $pdo->prepare('DELETE FROM staff_role_default_positions WHERE position_id=?')->execute([$positionId]);
+        $stmt = $pdo->prepare('INSERT INTO staff_role_default_positions(role_id,position_id,updated_by) VALUES(?,?,?) ON DUPLICATE KEY UPDATE position_id=VALUES(position_id),updated_by=VALUES(updated_by)');
+        foreach ($roleIds as $roleId) $stmt->execute([$roleId, $positionId, $actorId]);
+    }
+
+    public function insertPosition(string $name, ?int $staffTypeId, ?int $staffCategoryId, int $actorId): int
+    {
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare('INSERT INTO staff_positions(name,staff_type_id,staff_category_id,created_by) VALUES(?,?,?,?)');
+        $stmt->execute([$name, $staffTypeId, $staffCategoryId, $actorId]);
+        return (int) Database::getInstance()->getConnection()->lastInsertId();
+    }
+
+    public function updatePosition(int $positionId, string $name, ?int $staffTypeId, ?int $staffCategoryId, int $isActive, int $actorId): bool
+    {
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare('UPDATE staff_positions SET name=?,staff_type_id=?,staff_category_id=?,is_active=?,updated_by=? WHERE id=?');
+        $stmt->execute([$name, $staffTypeId, $staffCategoryId, $isActive, $actorId, $positionId]);
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Lock + load bulk-selected staff targets inside a transaction, scoping to the
+     * caller's data scope. Returns matched rows; throws when the scope narrows.
+     */
+    public function lockedBulkTargets(PDO $pdo, array $staffIds): array
+    {
+        $placeholders = implode(',', array_fill(0, count($staffIds), '?'));
+        [$scopePredicate, $scopeBindings] = DataScopeService::predicateFor('staff', 's');
+        $stmt = $pdo->prepare("SELECT s.id, u.id AS user_id, u.status AS user_status, u.force_password_change
+            FROM staff s LEFT JOIN users u ON u.person_id=s.person_id
+            WHERE s.id IN ($placeholders) AND $scopePredicate FOR UPDATE");
+        $stmt->execute(array_merge($staffIds, $scopeBindings));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Set account status for bulk-selected staff (guards live in controller+scope). */
+    public function bulkSetUserStatus(PDO $pdo, array $userIds, string $status): void
+    {
+        $stmt = $pdo->prepare('UPDATE users SET status=? WHERE id=?');
+        foreach ($userIds as $id) $stmt->execute([$status, (int) $id]);
+    }
+
+    /** Active school-scope roles matching the given ids (validation). */
+    public function activeSchoolRolesIn(PDO $pdo, array $roleIds): array
+    {
+        if (!$roleIds) return [];
+        $in = implode(',', array_fill(0, count($roleIds), '?'));
+        $stmt = $pdo->prepare("SELECT id FROM roles WHERE id IN ($in) AND is_active=1 AND scope='school'");
+        $stmt->execute($roleIds);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    }
+
+    /** Account email of a staff member's user record. */
+    public function emailForStaff(int $staffId): string
+    {
+        $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
+        $stmt = Database::getInstance()->getConnection()
+            ->prepare("SELECT email FROM {$staffRef} WHERE staff_id=? AND user_id IS NOT NULL LIMIT 1");
+        $stmt->execute([$staffId]);
+        return (string) ($stmt->fetchColumn() ?: '');
+    }
+
 }

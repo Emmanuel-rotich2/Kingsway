@@ -8,6 +8,7 @@ Config::init();
 use App\API\Includes\WorkflowHandler;
 use App\API\Services\ExtraChargeService;
 use App\API\Services\payments\ReferenceNormalizer;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use InvalidArgumentException;
@@ -365,9 +366,9 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $params[] = $email;
             }
             $stmt = $this->db->prepare(
-                "SELECT pr.id AS parent_id, pe.id AS person_id
-                 FROM parents pr JOIN persons pe ON pe.id = pr.person_id
-                 WHERE " . implode(' OR ', $criteria) . " LIMIT 1"
+                "SELECT pe.parent_id AS parent_id, pe.person_id AS person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " pe
+                 WHERE pe.parent_id IS NOT NULL AND " . implode(' OR ', $criteria) . " LIMIT 1"
             );
             $stmt->execute($params);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -569,13 +570,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $token = trim((string) ($data['target_term_token'] ?? $data['preferred_start'] ?? ''));
         if ($token !== '') {
             $resolved = $this->scalar(
-                "SELECT ayt.id
-                 FROM academic_year_terms ayt
-                 JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 WHERE CONCAT(t.name, ' ', ay.year_code) = ?
-                    OR CONCAT(t.name, ' ', ay.year_name) = ?
-                    OR CONCAT(t.name, ' ', t.code) = ?
+                "SELECT academic_year_term_id
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+                 WHERE CONCAT(term_name, ' ', year_code) = ?
+                    OR CONCAT(term_name, ' ', year_name) = ?
+                    OR CONCAT(term_name, ' ', term_code) = ?
                  LIMIT 1",
                 [$token, $token, $token]
             );
@@ -589,9 +588,9 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         if ($academicYear !== '') {
             $resolved = $this->scalar(
                 "SELECT ayt.id
-                 FROM academic_year_terms ayt
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 JOIN admission_windows aw ON aw.academic_year_term_id = ayt.id
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
+                 JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.academic_year_term_id = ayt.id
                     AND aw.status = 'open' AND aw.accepts_new_applications = 1
                     AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
                     AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
@@ -608,8 +607,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         // 4. Last-resort current/upcoming open term.
         $resolved = $this->scalar(
             "SELECT ayt.id
-             FROM academic_year_terms ayt
-             JOIN admission_windows aw ON aw.academic_year_term_id = ayt.id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+             JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.academic_year_term_id = ayt.id
                 AND aw.status = 'open' AND aw.accepts_new_applications = 1
                 AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
                 AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
@@ -632,9 +631,9 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $stmt = $this->db->prepare(
             "SELECT aw.id, aw.academic_year_term_id, aw.eligible_grades,
                     aw.default_admission_category, ay.year_code
-             FROM admission_windows aw
-             JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
-             JOIN academic_years ay ON ay.id = aw.academic_year_id
+             FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = aw.academic_year_id
              WHERE aw.academic_year_term_id = ?
                AND (? = 0 OR aw.id = ?)
                AND ayt.academic_year_id = aw.academic_year_id
@@ -1184,7 +1183,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Verify this grade requires interview
             $sql = "SELECT aa.grade_applying_for, aa.applicant_name, aa.application_no,
                            aw.interview_results_deadline_at
-                      FROM admission_applications aa
+                      FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
                       LEFT JOIN admission_windows aw
                         ON aw.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_id')) AS UNSIGNED)
                      WHERE aa.id = :id";
@@ -1559,7 +1558,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $appStmt = $this->db->prepare(
                 "SELECT aa.id, aa.application_no, aa.enrolled_student_id, aa.parent_id,
                         s.admission_no
-                 FROM admission_applications aa
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
                  LEFT JOIN students s ON s.id = aa.enrolled_student_id
                  WHERE aa.id = :id LIMIT 1"
             );
@@ -1682,7 +1681,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($source === 'mpesa_reconciliation') {
             $stmt = $this->db->prepare(
                 "SELECT mt.*, a.status AS account_status, a.currency AS account_currency
-                 FROM mpesa_transactions mt
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . "
                  LEFT JOIN school_financial_accounts a ON a.id = mt.financial_account_id
                  WHERE (mt.mpesa_code = :raw_reference OR mt.normalized_reference = :normalized_reference)
                  ORDER BY mt.id DESC LIMIT 10"
@@ -1706,8 +1705,8 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $stmt = $this->db->prepare(
             "SELECT bt.*, a.status AS account_status, a.currency AS account_currency
-             FROM bank_transactions bt
-             LEFT JOIN school_financial_accounts a ON a.id = bt.financial_account_id
+             FROM " . ReadReplicaService::qualifiedRef("bank_transactions") . "
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id = bt.financial_account_id
              WHERE (bt.transaction_ref = :raw_reference_one OR bt.normalized_reference = :normalized_reference
                     OR bt.bank_reference = :raw_reference_two)
              ORDER BY bt.id DESC LIMIT 10"
@@ -1726,9 +1725,9 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $stmt = $this->db->prepare(
             "SELECT l.*, i.provider_code, i.financial_account_id, a.status AS account_status, a.currency AS account_currency
-             FROM financial_statement_lines l
+             FROM " . ReadReplicaService::qualifiedRef("financial_statement_lines") . " l
              JOIN financial_statement_imports i ON i.id = l.import_id
-             LEFT JOIN school_financial_accounts a ON a.id = i.financial_account_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id = i.financial_account_id
              WHERE LOWER(i.provider_code) IN ('kcb', 'kcb_bank')
                AND (l.raw_reference = :raw_reference OR l.normalized_reference = :normalized_reference)
              ORDER BY l.id DESC LIMIT 10"
@@ -2209,9 +2208,8 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $aycsId = $selectedAycsId ?: null;
             $aycsStmt = $this->db->prepare("
-                SELECT aycs.id FROM academic_year_class_streams aycs
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id AND aycs.stream_id = :stream_id
+                SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                WHERE academic_year_id = :year_id AND class_id = :class_id AND stream_id = :stream_id
                 LIMIT 1
             ");
             if (!$aycsId) {
@@ -2520,8 +2518,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         $sql = "SELECT document_type, verification_status
-                FROM admission_documents
-                WHERE application_id = :id";
+                FROM " . ReadReplicaService::qualifiedRef("classes") . " application_id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => $application_id]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -2566,8 +2563,8 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         $stmt = $this->db->prepare("
             SELECT c.level_id, aa.academic_year
-            FROM classes c
-            JOIN admission_applications aa ON aa.id = :application_id
+            FROM " . ReadReplicaService::qualifiedRef("classes") . "
+            JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = :application_id
             WHERE c.id = :class_id
             LIMIT 1
         ");
@@ -2594,9 +2591,9 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $sumStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM academic_year_fee_schedules ayfs
-            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-            WHERE ayc.class_id IN (SELECT c2.id FROM classes c2 WHERE c2.level_id = :level_id)
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+            WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
               AND ayfs.academic_year_term_id = :term_id
               AND ayfs.student_type_id = :student_type_id
@@ -2619,9 +2616,9 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $fallbackStmt = $this->db->prepare("
             SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
-            FROM academic_year_fee_schedules ayfs
-            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-            WHERE ayc.class_id IN (SELECT c2.id FROM classes c2 WHERE c2.level_id = :level_id)
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . "
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+            WHERE ayc.class_id IN (SELECT c2.id FROM " . ReadReplicaService::qualifiedRef("classes") . " c2 WHERE c2.level_id = :level_id)
               AND ayc.academic_year_id = :academic_year_id
               AND ayfs.academic_year_term_id = :term_id
               AND ayfs.status = 'active'
@@ -2638,13 +2635,11 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function resolveAcademicTermId(int $academicYear): ?int
     {
         $stmt = $this->db->prepare("
-            SELECT ayt.id
-            FROM academic_year_terms ayt
-            JOIN academic_years ay ON ay.id = ayt.academic_year_id
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ay.year_code = :year_code
-              AND ayt.status = 'current'
-            ORDER BY t.id ASC
+            SELECT academic_year_term_id
+            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+            WHERE year_code = :year_code
+              AND term_period_status = 'current'
+            ORDER BY term_id ASC
             LIMIT 1
         ");
         $stmt->execute(['year_code' => (string) $academicYear]);
@@ -2654,12 +2649,10 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         $fallbackStmt = $this->db->prepare("
-            SELECT ayt.id
-            FROM academic_year_terms ayt
-            JOIN academic_years ay ON ay.id = ayt.academic_year_id
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ay.year_code = ?
-            ORDER BY t.id ASC
+            SELECT academic_year_term_id
+            FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+            WHERE year_code = ?
+            ORDER BY term_id ASC
             LIMIT 1
         ");
         $fallbackStmt->execute([(string) $academicYear]);
@@ -2817,8 +2810,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt = $this->db->prepare("SELECT ai.id,ai.interviewer_id,aa.applicant_name,aa.application_no,
                     CONCAT_WS(' ', pp.first_name, pp.last_name) AS parent_name,
                     pp.phone AS parent_phone,pp.email AS parent_email
-                FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
-                JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id WHERE ai.id=? LIMIT 1");
+                FROM admission_interviews ai JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id=ai.application_id
+                JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.id=aa.parent_id LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id=p.person_id WHERE ai.id=? LIMIT 1");
             $stmt->execute([$interviewId]);
             $assignment = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         }
@@ -2886,7 +2879,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($teacherId > 0) {
             $title = 'Admission interview assignment';
             $message = 'You are assigned to interview ' . ($assignment['applicant_name'] ?? 'an applicant') . ' (' . ($assignment['application_no'] ?? '') . ') on ' . $session['session_date'] . ' at ' . substr((string) $session['start_time'], 0, 5) . ' at ' . ($session['venue'] ?? 'Main Office') . '. Follow-up calls may be made to your registered phone.';
-            $check = $this->db->prepare("SELECT n.id FROM notifications n JOIN users u ON u.id=n.user_id JOIN staff s ON s.id=? WHERE s.id=? AND n.type='admission_interview' AND n.reference_id=? AND n.title=? LIMIT 1");
+            $check = $this->db->prepare("SELECT n.id FROM notifications n JOIN users u ON u.id=n.user_id JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=? WHERE s.id=? AND n.type='admission_interview' AND n.reference_id=? AND n.title=? LIMIT 1");
             $check->execute([$teacherId, $teacherId, $interviewId, $title]);
             if (!$check->fetchColumn()) {
                 (new \App\API\Services\NotificationService($this->db))->push(
@@ -2927,10 +2920,10 @@ return formatResponse(false, null, 'An internal error occurred.');
                 aa.admission_appointment_date,
                 aa.admission_appointment_start_time,
                 aa.admission_appointment_end_time
-            FROM admission_applications aa JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id=aa.target_term_id
-            LEFT JOIN academic_years ay ON ay.id=ayt.academic_year_id
-            LEFT JOIN admission_windows aw ON aw.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_id')) AS UNSIGNED)
+            FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.id=aa.parent_id LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id=p.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=aa.target_term_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ayt.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.id = CAST(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_id')) AS UNSIGNED)
             WHERE aa.id=? LIMIT 1");
         $stmt->execute([$applicationId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -3113,7 +3106,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
         $yearId = $yearId ?: (int) ($this->getCurrentAcademicYearId() ?: 0);
         if (!$yearId) return [];
-        $stmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM academic_year_classes ayc JOIN classes c ON c.id=ayc.class_id JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN learning_areas la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
+        $stmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id=ayc.class_id JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
         $stmt->execute([$yearId]);
         $wanted = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $currentGrade));
         $rows = [];
@@ -3202,7 +3195,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function sendPlacementOfferNotification($application_id, $fees) {
         $stmt = $this->db->prepare("
             SELECT parent_id, applicant_name
-            FROM admission_applications
+            FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
             WHERE id = :application_id
             LIMIT 1
         ");
@@ -3242,8 +3235,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone,
                    p.national_id_no, p.gender, p.dob,
                    par.id AS parent_id, par.occupation, par.address
-            FROM persons p
-            JOIN parents par ON par.person_id = p.id
+            FROM " . ReadReplicaService::qualifiedRef("persons") . "
+            JOIN " . ReadReplicaService::qualifiedRef("parents") . " par ON par.person_id = p.id
             WHERE p.national_id_no = :id_no
             LIMIT 1
         ");
@@ -3260,14 +3253,14 @@ return formatResponse(false, null, 'An internal error occurred.');
             SELECT s.id AS student_id, s.admission_no,
                    CONCAT(ps.first_name, ' ', COALESCE(ps.middle_name,''), ' ', ps.last_name) AS child_name,
                    s.status, c.name AS class_name, ay.year_code
-            FROM student_parents sp
-            JOIN students s ON s.id = sp.student_id
-            JOIN persons ps ON ps.id = s.person_id
-            LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN classes c ON c.id = ayc.class_id
-            LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
+            FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sp.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
             WHERE sp.parent_id = ?
             ORDER BY s.admission_date DESC
         ");

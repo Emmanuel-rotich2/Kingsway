@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\activities\workflows;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -63,10 +64,9 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Check student exists
             $stmt = $this->db->prepare("
-                SELECT s.id, s.admission_no, p.first_name, p.last_name
-                FROM students s
-                LEFT JOIN persons p ON p.id = s.person_id
-                WHERE s.id = ?
+                SELECT s.student_id AS id, s.admission_no, s.first_name, s.last_name
+                FROM " . ReadReplicaService::qualifiedRef("person_directory") . " s
+                WHERE s.student_id = ?
             ");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -84,7 +84,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Check if student already has an active/pending registration
             $stmt = $this->db->prepare("
                 SELECT ap.id, ap.status
-                FROM activity_participants ap
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . "
                 JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
                 WHERE ap.activity_id = ? AND sae.student_id = ?
                 AND ap.status IN ('active', 'pending')

@@ -367,6 +367,27 @@ class CommunicationsController extends BaseController
         return $this->success($result, 'Communication outbox processed');
     }
 
+    /** POST /api/communications/sync-talksasa-contacts
+     *  Synchronize contacts from our database to Talksasa contact groups.
+     *  Requires X-Kingsway-Worker-Secret authentication.
+     *  Triggers an immediate sync of all configured Talksasa groups.
+     */
+    public function postSyncTalksasaContacts($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+
+        $result = $this->contract(
+            'App\API\Services\sms\TalksasaContactSyncService',
+            $this->getDb()->getConnection()
+        )->sync();
+
+        return $this->success($result, 'Talksasa contacts synced successfully');
+    }
+
     // --- SMS Callback Endpoints ---
     /**
      * Endpoint for SMS Delivery Reports Callback
@@ -481,20 +502,12 @@ class CommunicationsController extends BaseController
     public function getPta($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requirePtaAccess()) return $guard;
-        $pdo = $this->getDb()->getConnection();
+        $service = new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection());
         if ($id !== null) {
-            $stmt = $pdo->prepare("SELECT m.id,m.parent_id,m.role,m.membership_status AS status,m.appointed_at,m.ended_at,m.notes,
-                    CONCAT_WS(' ',pp.first_name,pp.middle_name,pp.last_name) AS name,pp.phone,pp.email
-                FROM parent_pta_memberships m JOIN parents p ON p.id=m.parent_id JOIN persons pp ON pp.id=p.person_id WHERE m.id=?");
-            $stmt->execute([(int)$id]);
-            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $row = $service->find((int) $id);
             return $row ? $this->success($row) : $this->notFound('PTA membership not found');
         }
-        $rows = $pdo->query("SELECT m.id,m.parent_id,m.role,m.membership_status AS status,m.appointed_at,m.ended_at,m.notes,
-                CONCAT_WS(' ',pp.first_name,pp.middle_name,pp.last_name) AS name,pp.phone,pp.email
-            FROM parent_pta_memberships m JOIN parents p ON p.id=m.parent_id JOIN persons pp ON pp.id=p.person_id
-            ORDER BY m.membership_status='active' DESC, pp.first_name,pp.last_name,m.id")->fetchAll(\PDO::FETCH_ASSOC);
-        return $this->success($rows);
+        return $this->success($service->listAll());
     }
 
     public function postPta($id = null, $data = [], $segments = [])
@@ -502,21 +515,21 @@ class CommunicationsController extends BaseController
         if ($guard = $this->requirePtaAccess()) return $guard;
         $parentId=(int)($data['parent_id']??0); $role=trim((string)($data['role']??'Member'));
         if (!$parentId) return $this->badRequest('parent_id is required');
-        $pdo=$this->getDb()->getConnection(); $check=$pdo->prepare('SELECT id FROM parents WHERE id=?'); $check->execute([$parentId]);
-        if (!$check->fetchColumn()) return $this->badRequest('Parent record not found');
-        $stmt=$pdo->prepare("INSERT INTO parent_pta_memberships (parent_id,role,membership_status,appointed_at,notes,created_by) VALUES (?,?,?,?,?,?)");
-        $stmt->execute([$parentId,$role,$data['status']??'active',$data['appointed_at']??null,$data['notes']??null,$this->getUserId()]);
-        return $this->success(['id'=>(int)$pdo->lastInsertId()],'PTA member added');
+        $service = new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection());
+        if (!$service->parentExists($parentId)) return $this->badRequest('Parent record not found');
+        $data['parent_id'] = $parentId; $data['role'] = $role;
+        return $this->success(['id'=>$service->create($data, (int)$this->getUserId())],'PTA member added');
     }
 
     public function putPta($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requirePtaAccess()) return $guard;
         if ($id===null) return $this->badRequest('PTA membership ID is required');
-        $fields=[]; $values=[];
-        foreach(['role','status','appointed_at','ended_at','notes'] as $field) if(array_key_exists($field,$data)) { $fields[]=$field==='status'?'membership_status=?':$field.'=?'; $values[]=$data[$field]; }
-        if (!$fields) return $this->badRequest('No PTA membership changes supplied');
-        $values[]=(int)$id; $stmt=$this->getDb()->getConnection()->prepare('UPDATE parent_pta_memberships SET '.implode(',', $fields).' WHERE id=?'); $stmt->execute($values);
+        try {
+            (new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection()))->update((int)$id, $data);
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        }
         return $this->success(['id'=>(int)$id],'PTA member updated');
     }
 
@@ -524,7 +537,7 @@ class CommunicationsController extends BaseController
     {
         if ($guard = $this->requirePtaAccess()) return $guard;
         if ($id===null) return $this->badRequest('PTA membership ID is required');
-        $stmt=$this->getDb()->getConnection()->prepare('DELETE FROM parent_pta_memberships WHERE id=?'); $stmt->execute([(int)$id]);
+        (new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection()))->delete((int)$id);
         return $this->success(['id'=>(int)$id],'PTA member removed');
     }
 

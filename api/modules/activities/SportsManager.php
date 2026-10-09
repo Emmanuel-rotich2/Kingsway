@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\activities;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -62,8 +63,8 @@ class SportsManager extends BaseAPI
                        CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) AS coach,
                        COUNT(DISTINCT m.id) AS member_count
                 FROM sports_teams t
-                LEFT JOIN staff st ON st.id = t.coach_id
-                LEFT JOIN persons p ON p.id = st.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = t.coach_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
                 LEFT JOIN sports_team_members m ON m.team_id = t.id AND m.status = 'active'
                 WHERE $whereClause
                 GROUP BY t.id
@@ -99,8 +100,8 @@ class SportsManager extends BaseAPI
                        CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) AS coach,
                        COUNT(DISTINCT m.id) AS member_count
                 FROM sports_teams t
-                LEFT JOIN staff st ON st.id = t.coach_id
-                LEFT JOIN persons p ON p.id = st.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = t.coach_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
                 LEFT JOIN sports_team_members m ON m.team_id = t.id AND m.status = 'active'
                 WHERE t.id = ?
                 GROUP BY t.id
@@ -187,8 +188,8 @@ class SportsManager extends BaseAPI
                        CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) AS player_name,
                        COALESCE(e.class_stream, '') AS class_name
                 FROM sports_team_members m
-                JOIN students s ON s.id = m.student_id
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = m.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN vw_current_enrollments e ON e.student_id = m.student_id
                 WHERE m.team_id = ?
                 ORDER BY m.jersey_number IS NULL, m.jersey_number, player_name
@@ -240,7 +241,7 @@ class SportsManager extends BaseAPI
                        DATE_FORMAT(f.fixture_date, '%H:%i') AS time,
                        f.venue, f.fixture_type, f.home_away, f.status,
                        f.our_score, f.opponent_score, f.result, f.season
-                FROM sports_fixtures f
+                FROM " . ReadReplicaService::qualifiedRef("sports_fixtures") . "
                 JOIN sports_teams t ON t.id = f.team_id
                 WHERE $whereClause
                 ORDER BY f.fixture_date DESC, f.id DESC
@@ -270,7 +271,7 @@ class SportsManager extends BaseAPI
                        f.venue, f.fixture_type, f.home_away, f.status,
                        f.our_score, f.opponent_score, f.result, f.season,
                        f.match_report, f.referee
-                FROM sports_fixtures f
+                FROM " . ReadReplicaService::qualifiedRef("sports_fixtures") . "
                 JOIN sports_teams t ON t.id = f.team_id
                 WHERE f.id = ?
             ";
@@ -349,7 +350,7 @@ class SportsManager extends BaseAPI
                 return ['success' => false, 'message' => 'Fixture ID is required', 'data' => null];
             }
 
-            $stmt = $this->db->prepare('SELECT id, team_id, status FROM sports_fixtures WHERE id = ?');
+            $stmt = $this->db->prepare('SELECT id, team_id, status FROM ' . ReadReplicaService::qualifiedRef('sports_fixtures') . ' WHERE id = ?');
             $stmt->execute([$fixtureId]);
             $fixture = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$fixture) {
@@ -466,12 +467,11 @@ class SportsManager extends BaseAPI
     private function resolveStaffIdByName($name)
     {
         $stmt = $this->db->prepare(
-            "SELECT st.id
-             FROM staff st
-             JOIN persons p ON p.id = st.person_id
-             WHERE CONCAT(p.first_name, ' ', p.last_name) = ?
-                OR CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) = ?
-             ORDER BY st.id LIMIT 1"
+            "SELECT st.staff_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " st
+             WHERE CONCAT(st.first_name, ' ', st.last_name) = ?
+                OR CONCAT(st.first_name, ' ', COALESCE(st.middle_name, ''), ' ', st.last_name) = ?
+             ORDER BY st.staff_id LIMIT 1"
         );
         $stmt->execute([$name, $name]);
         $id = $stmt->fetchColumn();

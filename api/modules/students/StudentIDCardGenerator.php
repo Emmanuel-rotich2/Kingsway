@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\students;
 
+use App\API\Services\ReadReplicaService;
+
 use App\Config;
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -102,7 +104,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get student details first to get admission number
             $stmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, sic.qr_token
-                 FROM students s
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                  LEFT JOIN student_id_cards sic ON sic.student_id = s.id
                     AND sic.status NOT IN ('lost', 'replaced')
                  WHERE s.id = ?
@@ -245,6 +247,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 array_fill(0, count($studentIds), '?')
             );
 
+            $queryStarted = microtime(true);
             $statement = $this->db->prepare(
                 "SELECT
                     s.id,
@@ -270,14 +273,25 @@ return formatResponse(false, null, 'An internal error occurred.');
                     aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
                     sm.name AS stream_name,
-                    ay.year_name AS academic_year
-                 FROM students s
-                 JOIN persons per ON per.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae
+                    ay.year_name AS academic_year,
+                    sic.card_number,
+                    sic.qr_token,
+                    sic.qr_code_path,
+                    sic.issue_date AS card_issue_date,
+                    sic.expiry_year AS card_expiry_year
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                 LEFT JOIN student_id_cards sic ON sic.student_id = s.id
+                    AND sic.id = (
+                        SELECT MAX(sic_latest.id)
+                        FROM student_id_cards sic_latest
+                        WHERE sic_latest.student_id = s.id
+                    )
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.id = (
                         SELECT sae_current.id
-                        FROM student_academic_enrollments sae_current
-                        INNER JOIN academic_years ay_current
+                        FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_current
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay_current
                             ON ay_current.id = sae_current.academic_year_id
                         WHERE sae_current.student_id = s.id
                           AND sae_current.enrollment_status = 'active'
@@ -286,14 +300,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                                  sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN academic_year_class_streams aycs
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
-                 LEFT JOIN academic_year_classes ayc
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                     ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c
                     ON c.id = ayc.class_id
-                 LEFT JOIN academic_years ay
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay
                     ON ay.id = sae.academic_year_id
                  WHERE s.id IN ({$placeholders})
                    AND s.status = 'active'
@@ -322,7 +336,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                     ?? date('Y-m-d')
                 );
                 $student['expiry_date'] = (string) (
-                    $student['card_expiry_date']
+                    $student['card_expiry_year']
+                    ?? $student['card_expiry_date']
                     ?? (date('Y') + 1) . '-12-31'
                 );
                 $student['qr_code_url'] = (string) (
@@ -332,31 +347,21 @@ return formatResponse(false, null, 'An internal error occurred.');
                 );
 
                 if (trim($student['qr_code_url']) === '') {
-                    $qrResponse = $this->generateEnhancedQRCode(
-                        (int) $student['id']
+                    $student['qr_code_url'] = $this->qrDataUri(
+                        (string) ($student['qr_token'] ?? '')
                     );
-
-                    if (($qrResponse['status'] ?? '') === 'success') {
-                        $generatedQrPath = (string) (
-                            $qrResponse['data']['qr_code_path']
-                            ?? ''
-                        );
-
-                        if ($generatedQrPath !== '') {
-                            $student['qr_code_path'] = $generatedQrPath;
-                            $student['qr_code_url'] = $generatedQrPath;
-                        }
-                    }
                 }
             }
             unset($student);
+            $queryDurationMs = (int) round((microtime(true) - $queryStarted) * 1000);
 
-            $result = $this->prints()->printStudentIdCards(
+            $result = $this->renderStudentIdCardPdfs(
                 $students,
                 [
                     'printerMode' => $printerMode,
                     'side' => $side,
-                    'chunkSize' => 100,
+                    'chunkSize' => 20,
+                    'queryDurationMs' => $queryDurationMs,
                     'filename' => 'student_id_cards_'
                         . date('Y-m-d_His'),
                 ]
@@ -459,14 +464,25 @@ return formatResponse(false, null, 'An internal error occurred.');
                     aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
                     sm.name AS stream_name,
-                    ay.year_name AS academic_year
-                 FROM students s
-                 JOIN persons per ON per.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae
+                    ay.year_name AS academic_year,
+                    sic.card_number,
+                    sic.qr_token,
+                    sic.qr_code_path,
+                    sic.issue_date AS card_issue_date,
+                    sic.expiry_year AS card_expiry_year
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                 LEFT JOIN student_id_cards sic ON sic.student_id = s.id
+                    AND sic.id = (
+                        SELECT MAX(sic_latest.id)
+                        FROM student_id_cards sic_latest
+                        WHERE sic_latest.student_id = s.id
+                    )
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                     ON sae.id = (
                         SELECT sae_current.id
-                        FROM student_academic_enrollments sae_current
-                        INNER JOIN academic_years ay_current
+                        FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_current
+                        INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay_current
                             ON ay_current.id = sae_current.academic_year_id
                         WHERE sae_current.student_id = s.id
                           AND sae_current.enrollment_status = 'active'
@@ -475,14 +491,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                                  sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN academic_year_class_streams aycs
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
-                 LEFT JOIN academic_year_classes ayc
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                     ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c
                     ON c.id = ayc.class_id
-                 LEFT JOIN academic_years ay
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay
                     ON ay.id = sae.academic_year_id
                  WHERE s.id = ?
                  LIMIT 1"
@@ -508,7 +524,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ?? date('Y-m-d')
             );
             $student['expiry_date'] = (string) (
-                $student['card_expiry_date']
+                $student['card_expiry_year']
+                ?? $student['card_expiry_date']
                 ?? (date('Y') + 1) . '-12-31'
             );
             $student['qr_code_url'] = (string) (
@@ -518,21 +535,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             );
 
             if (trim($student['qr_code_url']) === '') {
-                $qrResponse = $this->generateEnhancedQRCode(
-                    (int) $student['id']
+                $student['qr_code_url'] = $this->qrDataUri(
+                    (string) ($student['qr_token'] ?? '')
                 );
-
-                if (($qrResponse['status'] ?? '') === 'success') {
-                    $generatedQrPath = (string) (
-                        $qrResponse['data']['qr_code_path']
-                        ?? ''
-                    );
-
-                    if ($generatedQrPath !== '') {
-                        $student['qr_code_path'] = $generatedQrPath;
-                        $student['qr_code_url'] = $generatedQrPath;
-                    }
-                }
             }
 
             $printerMode = in_array(
@@ -543,11 +548,12 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ? 'a4_pdf'
                 : 'direct_card';
 
-            $result = $this->prints()->printSingleStudentIdCard(
-                $student,
+            $result = $this->renderStudentIdCardPdfs(
+                [$student],
                 [
                     'printerMode' => $printerMode,
                     'side' => (string) $side,
+                    'chunkSize' => 1,
                     'filename' => 'student_id_'
                         . preg_replace(
                             '/[^A-Za-z0-9_-]+/',
@@ -617,13 +623,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     ) {
         try {
             $sql = "SELECT s.id
-                    FROM students s
-                    JOIN persons per ON per.id = s.person_id
-                    INNER JOIN student_academic_enrollments sae
+                    FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                         ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                    INNER JOIN academic_year_class_streams aycs
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                         ON aycs.id = sae.academic_year_class_stream_id
-                    INNER JOIN academic_year_classes ayc
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                         ON ayc.id = aycs.academic_year_class_id
                     WHERE ayc.class_id = ?
                       AND s.status = 'active'";
@@ -664,6 +670,97 @@ return formatResponse(false, null, 'An internal error occurred.');
     // ========================================================================
     // HELPER METHODS
     // ========================================================================
+
+    /** Render existing PHP card templates as HTML, then create PDFs in Python. */
+    private function renderStudentIdCardPdfs(array $students, array $options): array
+    {
+        $generationStarted = microtime(true);
+        $templateStarted = microtime(true);
+        $printService = $this->prints();
+        $chunks = $printService->renderStudentIdCardHtmlChunks($students, $options);
+        $templateDurationMs = (int) round((microtime(true) - $templateStarted) * 1000);
+        $renderer = new \App\API\Services\PythonDocumentBridge();
+        if (!$renderer->available()) {
+            throw new Exception('The Python document renderer is not configured.');
+        }
+
+        $renderStarted = microtime(true);
+        $batch = $renderer->renderDocuments(
+            array_map(
+                static fn (array $chunk, int $index): array => [
+                    'document_id' => 'id-cards-' . ($index + 1),
+                    'html' => (string) ($chunk['html'] ?? ''),
+                ],
+                $chunks,
+                array_keys($chunks)
+            ),
+            'combined',
+            'none'
+        );
+        $pythonRoundTripMs = (int) round((microtime(true) - $renderStarted) * 1000);
+        $encodedPdf = $batch['pdf_base64'] ?? null;
+        $pdf = is_string($encodedPdf) ? base64_decode($encodedPdf, true) : false;
+        if (!is_string($pdf) || !str_starts_with($pdf, '%PDF-')) {
+            throw new Exception('The Python renderer returned an invalid combined ID-card PDF.');
+        }
+        $saveStarted = microtime(true);
+        $files = [$printService->writeGeneratedFile(
+            (string) ($chunks[0]['filename'] ?? ('student_id_cards_' . date('Ymd_His') . '.pdf')),
+            $pdf
+        )];
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'student_id_card_pipeline_timing',
+            'student_count' => count($students),
+            'html_chunk_count' => count($chunks),
+            'html_bytes' => array_sum(array_map(
+                static fn (array $chunk): int => strlen((string) ($chunk['html'] ?? '')),
+                $chunks
+            )),
+            'template_duration_ms' => $templateDurationMs,
+            'database_and_qr_preparation_ms' => (int) ($options['queryDurationMs'] ?? 0),
+            'python_round_trip_ms' => $pythonRoundTripMs,
+            'file_save_duration_ms' => (int) round((microtime(true) - $saveStarted) * 1000),
+            'total_duration_ms' => (int) ($options['queryDurationMs'] ?? 0)
+                + (int) round((microtime(true) - $generationStarted) * 1000),
+        ]);
+
+        $total = count($students);
+        $side = strtolower((string) ($options['side'] ?? 'both'));
+        $printerMode = strtolower((string) ($options['printerMode'] ?? 'a4_pdf'));
+        $cardsPerPage = $printerMode === 'direct_card'
+            ? 1
+            : ($side === 'both' ? 4 : 8);
+
+        return [
+            'printer_mode' => $printerMode,
+            'batch_mode' => $total > 1 ? 'bulk' : 'single',
+            'side' => $side,
+            'cards_per_a4_page' => $printerMode === 'a4_pdf' ? $cardsPerPage : 1,
+            'total_cards' => $total,
+            'total_chunks' => count($chunks),
+            'combined_pdf' => true,
+            'page_count' => (int) ($batch['page_count'] ?? 0),
+            'chunk_size' => min(20, max(1, (int) ($options['chunkSize'] ?? 20))),
+            'estimated_pages' => $printerMode === 'direct_card'
+                ? $total * ($side === 'both' ? 2 : 1)
+                : (int) ceil($total / $cardsPerPage),
+            'files' => $files,
+        ];
+    }
+
+    /** Create a vector QR image without PHP GD; QR contents remain opaque tokens. */
+    private function qrDataUri(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '' || !class_exists('\Endroid\QrCode\QrCode')) {
+            return '';
+        }
+        $code = new \Endroid\QrCode\QrCode($token);
+        $code->setSize(300);
+        $code->setMargin(10);
+        $svg = (new \Endroid\QrCode\Writer\SvgWriter())->write($code)->getString();
+        return 'data:image/svg+xml;base64,' . base64_encode($svg);
+    }
 
     /**
      * Convert a generated private filesystem path into the canonical
@@ -741,8 +838,8 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->prepare("
                 SELECT ay.year_code AS academic_year
-                FROM student_academic_enrollments sae
-                LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON sae.academic_year_id = ay.id
                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                 ORDER BY ay.year_code DESC
                 LIMIT 1
@@ -764,7 +861,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get headteacher from staff table
             $headteacher = '';
             try {
-                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM " . ReadReplicaService::qualifiedRef("staff") . " s JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
                 $headteacher = $hStmt->fetchColumn() ?: '';
             } catch (\Exception $e) { /* fallback below */ }
 

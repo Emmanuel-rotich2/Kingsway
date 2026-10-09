@@ -66,16 +66,14 @@ class DataTable {
                     </table>
                 </div>
                 
-                <!-- Pagination -->
-                <div class="d-flex justify-content-between align-items-center mt-3">
+                <!-- Pagination — table footer, staff-table style -->
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-3 border-top" id="${this.containerId}-pagination-footer">
                     <div>
                         <small class="text-muted" id="${this.containerId}-info">
-                            Showing ${this.pageSize} of ${this.filteredData.length} records
+                            Showing 0–0 of 0 records
                         </small>
                     </div>
-                    <nav>
-                        <ul class="pagination pagination-sm mb-0" id="${this.containerId}-pagination"></ul>
-                    </nav>
+                    <div id="${this.containerId}-pagination" class="d-flex align-items-center gap-2"></div>
                 </div>
             </div>
         `;
@@ -308,53 +306,37 @@ class DataTable {
         const pagination = document.getElementById(`${this.containerId}-pagination`);
         if (!pagination) return;
 
-        let html = '';
+        // Staff-table style, at the table footer: the rows-per-page selector
+        // and page N of totalPages. The "Showing from–to" line is kept in sync
+        // by renderTableBody (the -info element) so it is never duplicated.
+        pagination.innerHTML = `
+            <label class="small text-muted" for="${this.containerId}-page-size">Rows</label>
+            <select id="${this.containerId}-page-size" class="form-select form-select-sm" style="width:auto" aria-label="Rows per page">
+                ${pageSizeOptions.map(n => `<option value="${n}" ${this.pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
+            </select>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Table pages">
+                <button class="btn btn-outline-secondary" type="button" data-page="${Math.max(1, this.currentPage - 1)}" ${this.currentPage <= 1 ? 'disabled' : ''}>Previous</button>
+                <span class="btn btn-outline-secondary disabled">${this.currentPage} / ${Math.max(1, this.totalPages)}</span>
+                <button class="btn btn-outline-secondary" type="button" data-page="${Math.min(Math.max(1, this.totalPages), this.currentPage + 1)}" ${this.currentPage >= this.totalPages ? 'disabled' : ''}>Next</button>
+            </div>`;
 
-        // Previous button
-        html += `
-            <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
-                <button class="page-link pagination-btn" data-page="${Math.max(1, this.currentPage - 1)}">
-                    Previous
-                </button>
-            </li>
-        `;
-
-        // Page numbers
-        const startPage = Math.max(1, this.currentPage - 2);
-        const endPage = Math.min(this.totalPages, this.currentPage + 2);
-
-        if (startPage > 1) {
-            html += `<li class="page-item"><button class="page-link pagination-btn" data-page="1">1</button></li>`;
-            if (startPage > 2) {
-                html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-            }
+        pagination.querySelectorAll('[data-page]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.currentPage = Number(btn.dataset.page);
+                this.renderTableBody();
+                this.renderPagination();
+            });
+        });
+        const sizeSelect = pagination.querySelector(`#${this.containerId}-page-size`);
+        if (sizeSelect) {
+            sizeSelect.addEventListener('change', () => {
+                this.pageSize = Number(sizeSelect.value);
+                this.currentPage = 1;
+                this.renderTableBody();
+                this.renderPagination();
+            });
         }
-
-        for (let i = startPage; i <= endPage; i++) {
-            html += `
-                <li class="page-item ${i === this.currentPage ? 'active' : ''}">
-                    <button class="page-link pagination-btn" data-page="${i}">${i}</button>
-                </li>
-            `;
-        }
-
-        if (endPage < this.totalPages) {
-            if (endPage < this.totalPages - 1) {
-                html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-            }
-            html += `<li class="page-item"><button class="page-link pagination-btn" data-page="${this.totalPages}">${this.totalPages}</button></li>`;
-        }
-
-        // Next button
-        html += `
-            <li class="page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}">
-                <button class="page-link pagination-btn" data-page="${Math.min(this.totalPages, this.currentPage + 1)}">
-                    Next
-                </button>
-            </li>
-        `;
-
-        pagination.innerHTML = html;
     }
 
     attachEventListeners() {

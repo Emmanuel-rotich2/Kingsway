@@ -39,9 +39,10 @@ class NotificationsController extends BaseController
 
         try {
             $pdo = $this->db->getConnection();
-            $this->ensureEventReminder($pdo, (int) $userId);
+            $service = $this->contract('App\API\Services\NotificationService', $pdo);
+            $service->ensureEventReminders($pdo, (int) $userId);
             return $this->success(
-                $this->buildFeed($pdo, (int)$userId),
+                $service->feedForUser($pdo, (int)$userId),
                 'Notifications retrieved'
             );
         } catch (\Exception $e) {
@@ -59,11 +60,9 @@ class NotificationsController extends BaseController
         $read = filter_var($data['read'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
         if ($read === null) return $this->badRequest('read must be boolean');
         try {
-            $stmt = $this->db->getConnection()->prepare(
-                "UPDATE notifications SET read_status = :status WHERE id = :id AND user_id = :uid"
-            );
-            $stmt->execute([':status' => $read ? 'read' : 'unread', ':id' => $notificationId, ':uid' => (int) $userId]);
-            return $this->success(['updated' => $stmt->rowCount() > 0], $read ? 'Notification marked as read' : 'Notification marked as unread');
+            $service = $this->contract('App\API\Services\NotificationService', $this->db->getConnection());
+            $updated = $service->setReadForUser($this->db->getConnection(), (int) $userId, $notificationId, $read);
+            return $this->success(['updated' => $updated], $read ? 'Notification marked as read' : 'Notification marked as unread');
         } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError('[NotificationsController::putNotification] ' . $e->getMessage());
             return $this->serverError('Failed to update notification');
@@ -87,36 +86,11 @@ class NotificationsController extends BaseController
         try {
             $pdo = $this->db->getConnection();
 
-            // 1. notifications table
-            $pdo->prepare(
-                "UPDATE notifications
-                    SET read_status = 'read'
-                  WHERE user_id = :uid AND read_status = 'unread'"
-            )->execute([':uid' => (int)$userId]);
-
-            // 2. unread conversations (counters + message status), consistent
-            //    with InternalMessagingManager::markConversationRead().
-            // NOTE: distinct placeholders (:uid1/:uid2) — with native prepared
-            // statements (EMULATE_PREPARES=false) a named placeholder cannot
-            // be bound to two positions in the same statement.
-            $pdo->prepare(
-                "UPDATE internal_messages im
-                   JOIN conversation_participants cp
-                     ON cp.conversation_id = im.conversation_id
-                    SET im.status = 'read'
-                  WHERE cp.participant_id = :uid1
-                    AND cp.left_at IS NULL
-                    AND im.sender_id <> :uid2"
-            )->execute([':uid1' => (int)$userId, ':uid2' => (int)$userId]);
-
-            $pdo->prepare(
-                "UPDATE conversation_participants
-                    SET unread_count = 0, last_read_at = NOW()
-                  WHERE participant_id = :uid AND left_at IS NULL"
-            )->execute([':uid' => (int)$userId]);
+            $service = $this->contract('App\API\Services\NotificationService', $pdo);
+            $service->markAllReadForUser($pdo, (int) $userId);
 
             return $this->success(
-                ['unread_count' => $this->countUnread($pdo, (int)$userId)],
+                ['unread_count' => $service->unreadTotal($pdo, (int)$userId)],
                 'Notifications marked as read'
             );
         } catch (\Exception $e) {
@@ -202,178 +176,7 @@ class NotificationsController extends BaseController
     /**
      * Build the unified, newest-first notification feed.
      */
-    private function buildFeed(\PDO $pdo, int $userId): array
-    {
-        $items = [];
-        $messagesUnread = 0;
-        $notificationsUnread = 0;
-        $eventsCount = 0;
 
-        // 1. Unread internal messages (one item per conversation with unread count).
-        $sql = "SELECT c.id, c.title, c.conversation_type, cp.unread_count,
-                       (SELECT im.message_body
-                          FROM internal_messages im
-                         WHERE im.conversation_id = c.id
-                         ORDER BY im.created_at DESC, im.id DESC
-                         LIMIT 1) AS snippet,
-                       (SELECT im.created_at
-                          FROM internal_messages im
-                         WHERE im.conversation_id = c.id
-                         ORDER BY im.created_at DESC, im.id DESC
-                         LIMIT 1) AS last_at,
-                       (SELECT CONCAT_WS(' ', p.first_name, p.last_name)
-                          FROM internal_messages im
-                          JOIN users u ON u.id = im.sender_id
-                          JOIN persons p ON p.id = u.person_id
-                         WHERE im.conversation_id = c.id
-                         ORDER BY im.created_at DESC, im.id DESC
-                         LIMIT 1) AS sender_name
-                  FROM conversation_participants cp
-                  JOIN internal_conversations c ON c.id = cp.conversation_id
-                 WHERE cp.participant_id = :uid
-                   AND cp.left_at IS NULL
-                   AND cp.unread_count > 0
-                 ORDER BY last_at DESC";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([':uid' => $userId]);
-
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $unread = (int) $row['unread_count'];
-            $messagesUnread += $unread;
-            $sender = $row['sender_name'] !== null ? $row['sender_name'] : 'a colleague';
-
-            $items[] = [
-                'id' => 'message-' . (int) $row['id'],
-                'type' => 'message',
-                'category' => 'message',
-                'title' => 'Message from ' . $sender,
-                'message' => $row['snippet'] !== null ? $row['snippet'] : '',
-                'priority' => 'medium',
-                'created_at' => $row['last_at'],
-                'unread' => true,
-                'read' => false,
-                'badge' => $unread,
-                'route' => 'messages',
-                'context' => $row['title'] !== null && $row['title'] !== '' ? $row['title'] : '',
-                'action_url' => 'home.php?route=communications/messages_inbox&conversation_id=' . (int) $row['id'],
-            ];
-        }
-
-        // 2. Notifications: unread first, then a handful of recent read items
-        //    for context (faded in the UI, never counted as unread).
-        $stmt = $pdo->prepare(
-            "SELECT id, type, title, message, priority, read_status, created_at,
-                    action_url, reference_type, reference_id, reminder_window
-               FROM notifications
-              WHERE user_id = :uid
-              ORDER BY (read_status = 'unread') DESC, created_at DESC
-              LIMIT 25"
-        );
-        $stmt->execute([':uid' => $userId]);
-
-        $readShown = 0;
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $isUnread = $row['read_status'] === 'unread';
-            if ($isUnread) {
-                $notificationsUnread++;
-            } else {
-                if ($readShown >= 6) {
-                    continue;
-                }
-                $readShown++;
-            }
-
-            $items[] = [
-                'id' => 'notification-' . (int) $row['id'],
-                'type' => 'notification',
-                'category' => $row['type'] !== null && $row['type'] !== ''
-                    ? $row['type']
-                    : 'notification',
-                'title' => $row['title'],
-                'message' => $row['message'],
-                'priority' => $row['priority'],
-                'created_at' => $row['created_at'],
-                'unread' => $isUnread,
-                'read' => !$isUnread,
-                'badge' => $isUnread ? 1 : 0,
-                'route' => 'announcements',
-                'context' => '',
-                'action_url' => $row['action_url'] ?? null,
-                'reference_type' => $row['reference_type'] ?? null,
-                'reference_id' => isset($row['reference_id']) ? (int) $row['reference_id'] : null,
-                'reminder_window' => $row['reminder_window'] ?? null,
-            ];
-        }
-
-        // Events enter this feed only through scheduled reminder notifications.
-
-        // Newest-first, capped so the dropdown stays readable.
-        usort($items, function (array $a, array $b): int {
-            return strcmp((string) $b['created_at'], (string) $a['created_at']);
-        });
-        $items = array_slice($items, 0, 30);
-
-        return [
-            'unread_count' => $messagesUnread + $notificationsUnread,
-            'counts' => [
-                'messages' => $messagesUnread,
-                'notifications' => $notificationsUnread,
-                'events' => $eventsCount,
-            ],
-            'items' => $items,
-        ];
-    }
-
-    private function ensureEventReminder(\PDO $pdo, int $userId): void
-    {
-        $service = $this->contract('App\API\Services\NotificationService', $pdo);
-        foreach ([['7_days', 3, 7], ['3_days', 1, 3], ['24_hours', 0, 1]] as [$window, $lower, $upper]) {
-            $stmt = $pdo->prepare(
-                "SELECT id, title, start_at, location FROM school_events
-                  WHERE status IN ('upcoming','ongoing')
-                    AND start_at > DATE_ADD(NOW(), INTERVAL {$lower} DAY)
-                    AND start_at <= DATE_ADD(NOW(), INTERVAL {$upper} DAY)"
-            );
-            $stmt->execute();
-            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $event) {
-                $when = date('D, d M Y \\a\\t H:i', strtotime($event['start_at']));
-                $title = $window === '24_hours' ? 'Tomorrow: ' . $event['title'] : 'Upcoming: ' . $event['title'];
-                $message = "Reminder: {$event['title']} is scheduled for {$when}.";
-                if (!empty($event['location'])) $message .= ' Venue: ' . $event['location'] . '.';
-                $service->push($userId, 'reminder', $title, $message, 'medium', [
-                    'action_url' => 'home.php?route=school_events&event_id=' . (int) $event['id'],
-                    'reference_type' => 'school_event',
-                    'reference_id' => (int) $event['id'],
-                    'reminder_window' => $window,
-                ]);
-            }
-        }
-    }
-
-    /**
-     * Total actionable unread count (messages + notifications), matching the
-     * badge semantics in buildFeed().
-     */
-    private function countUnread(\PDO $pdo, int $userId): int
-    {
-        $stmt = $pdo->prepare(
-            "SELECT COALESCE(SUM(unread_count), 0)
-               FROM conversation_participants
-              WHERE participant_id = :uid AND left_at IS NULL"
-        );
-        $stmt->execute([':uid' => $userId]);
-        $messagesUnread = (int) $stmt->fetchColumn();
-
-        $stmt = $pdo->prepare(
-            "SELECT COUNT(*)
-               FROM notifications
-              WHERE user_id = :uid AND read_status = 'unread'"
-        );
-        $stmt->execute([':uid' => $userId]);
-        $notificationsUnread = (int) $stmt->fetchColumn();
-
-        return $messagesUnread + $notificationsUnread;
-    }
 
     /**
      * Who may broadcast: System Admin, Director, or anyone holding a

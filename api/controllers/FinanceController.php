@@ -129,13 +129,13 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Insufficient permissions');
         try {
-            $stmt = $this->db->query('SELECT * FROM vw_accounting_trial_balance ORDER BY account_code');
-            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+            return $this->success(['accounts' => $this->financeCrud()->trialBalance()]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[FinanceController] trial balance: ' . $e->getMessage());
             return $this->badRequest('Accounting trial balance is not available.');
         }
     }
+
 
     /** GET /api/finance/accounting/source-trace */
     public function getAccountingSourceTrace($id = null, $data = [], $segments = [])
@@ -143,38 +143,44 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try {
             $limit = min(500, max(1, (int)($data['limit'] ?? 100)));
-            $stmt = $this->db->query('SELECT * FROM vw_financial_source_trace ORDER BY created_at DESC LIMIT ' . $limit);
-            return $this->success(['transactions' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+            // source trace is a view-backed report; the report manager owns it
+            $rows = \App\API\Modules\finance\ReportingManager::sourceTrace($this->db, min(500, max(1, (int)($data['limit'] ?? 100))));
+            return $this->success(['transactions' => $rows]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[FinanceController] source trace: ' . $e->getMessage());
             return $this->badRequest('Accounting source trace is not available.');
         }
     }
 
+
     /** GET /api/finance/financial-accounts */
     public function getFinancialAccounts($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try {
-            $stmt = $this->db->query("SELECT a.*,k.code account_kind,p.code provider_code,c.account_code ledger_code,
-                sa.account_name settlement_account_name, sa.account_identifier settlement_account_identifier,
-                GROUP_CONCAT(DISTINCT r.collection_product ORDER BY r.collection_product SEPARATOR ',') collection_products,
-                GROUP_CONCAT(DISTINCT r.reference_policy ORDER BY r.reference_policy SEPARATOR ',') reference_policies,
-                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes
-                FROM school_financial_accounts a
-                JOIN financial_account_kinds k ON k.id=a.account_kind_id
-                LEFT JOIN payment_providers p ON p.id=a.provider_id
-                LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
-                LEFT JOIN school_financial_accounts sa ON sa.id=a.settlement_financial_account_id
-                LEFT JOIN payment_collection_routes r ON r.financial_account_id=a.id AND r.active=1
-                LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
-                LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
-                GROUP BY a.id ORDER BY a.account_name");
-            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+            return $this->success(['accounts' => $this->financeCrud()->financialAccountsDetail()]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[FinanceController] financial accounts: ' . $e->getMessage());
             return $this->badRequest('Financial accounts are not available.');
         }
+    }
+
+
+    private function financeCrud(): \App\API\Services\FinanceCrudService
+    {
+        // FinanceCrudService takes the PDO connection, not the Database wrapper.
+        return $this->contract('App\API\Services\FinanceCrudService', $this->db->getConnection());
+    }
+
+    private function supplierManager(): \App\API\Modules\inventory\SuppliersManager
+    {
+        return $this->contract('App\API\Modules\inventory\SuppliersManager');
+    }
+
+    private function parentRefundService(): \App\API\Services\payments\ParentRefundService
+    {
+        // ParentRefundService takes the PDO connection, not the Database wrapper.
+        return $this->contract('App\API\Services\payments\ParentRefundService', $this->db->getConnection());
     }
 
     private function canConfigurePaymentIntegrations(): bool
@@ -395,18 +401,13 @@ class FinanceController extends BaseController
     /** GET /api/finance/accounting/report?type=income|balance|cashflow */
     public function getAccountingReport($id = null, $data = [], $segments = [])
     {
-        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        $type = strtolower((string)($data['type'] ?? 'income'));
-        $where = $type === 'balance' ? "t.code IN ('asset','liability','equity')" : ($type === 'cashflow' ? "t.code='asset' AND c.account_code LIKE '110%'" : "t.code IN ('revenue','expense')");
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Insufficient permissions');
+        $type = (string) ($data['type'] ?? 'balance');
         try {
-            $sql = "SELECT c.account_code,c.account_name,t.code AS account_type,
-                ROUND(COALESCE(SUM(CASE WHEN j.status='posted' THEN l.debit_amount-l.credit_amount ELSE 0 END),0),2) AS balance
-                FROM chart_of_accounts c JOIN accounting_account_types t ON t.id=c.account_type_id
-                LEFT JOIN accounting_journal_lines l ON l.chart_account_id=c.id LEFT JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
-                WHERE {$where} GROUP BY c.id,c.account_code,c.account_name,t.code ORDER BY c.account_code";
-            return $this->success(['type' => $type, 'rows' => $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC)]);
+            return $this->success(['type' => $type, 'rows' => $this->financeCrud()->accountingReport($type)]);
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] accounting report: '.$e->getMessage()); return $this->badRequest('Ledger report is not available.'); }
     }
+
 
     /** POST /api/finance/financial-accounts */
     public function postFinancialAccount($id = null, $data = [], $segments = [])
@@ -452,45 +453,15 @@ class FinanceController extends BaseController
     public function getSupplierPayables($id = null, $data = [], $segments = [])
     {
         if (!$this->user) return $this->unauthorized('Authentication required');
-        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) {
-            return $this->forbidden('Insufficient permissions');
-        }
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try {
-            $pdo = Database::getInstance()->getConnection();
-            $stmt = $pdo->query(
-                "SELECT e.id AS expense_id, e.vendor_id AS supplier_id,
-                        s.name AS supplier_name, e.description, e.reference_number,
-                        e.amount AS expense_amount, e.status, e.created_at,
-                        COALESCE(SUM(CASE WHEN spr.status IN ('payment_pending','paid') THEN spr.amount ELSE 0 END), 0) AS paid_or_pending,
-                        e.amount - COALESCE(SUM(CASE WHEN spr.status IN ('payment_pending','paid') THEN spr.amount ELSE 0 END), 0) AS outstanding_amount
-                 FROM expenses e
-                 JOIN suppliers s ON s.id = e.vendor_id
-                 LEFT JOIN supplier_payment_requests spr ON spr.expense_id = e.id
-                 WHERE e.vendor_id IS NOT NULL AND e.status IN ('approved','payment_pending')
-                 GROUP BY e.id, e.vendor_id, s.name, e.description, e.reference_number, e.amount, e.status, e.created_at
-                 HAVING outstanding_amount > 0.009
-                 ORDER BY e.created_at ASC, e.id ASC"
-            );
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            $bank = $pdo->query("SELECT id, supplier_id, bank_name, bank_code, account_name, account_number, currency, is_primary FROM supplier_bank_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
-            $mobile = $pdo->query("SELECT id, supplier_id, provider, phone_number, account_name, is_primary FROM supplier_mobile_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
-            $banks = $mobiles = [];
-            foreach ($bank as $account) $banks[(int) $account['supplier_id']][] = $account;
-            foreach ($mobile as $account) $mobiles[(int) $account['supplier_id']][] = $account;
-            foreach ($rows as &$row) {
-                $supplierId = (int) $row['supplier_id'];
-                $row['expense_id'] = (int) $row['expense_id'];
-                $row['outstanding_amount'] = (float) $row['outstanding_amount'];
-                $row['bank_accounts'] = $banks[$supplierId] ?? [];
-                $row['mobile_accounts'] = $mobiles[$supplierId] ?? [];
-            }
-            unset($row);
-            return $this->success(['payables' => $rows]);
+            return $this->success(['payables' => $this->supplierManager()->supplierPayables()]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[FinanceController] supplier payables: ' . $e->getMessage());
             return $this->badRequest('Failed to load supplier payables.');
         }
     }
+
 
     /** POST /api/finance/supplier-payments — submit one or many supplier payouts. */
     public function postSupplierPayments($id = null, $data = [], $segments = [])
@@ -524,23 +495,17 @@ class FinanceController extends BaseController
     public function getParentRefundRequests($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        $pdo = Database::getInstance()->getConnection();
-        $stmt = $pdo->query("SELECT r.*, c.credit_number, c.student_id, a.provider, a.phone_number, a.bank_name, a.account_number, a.account_name FROM parent_refund_requests r JOIN fee_credit_notes c ON c.id = r.fee_credit_note_id JOIN parent_payment_accounts a ON a.id = r.parent_payment_account_id ORDER BY r.created_at DESC");
-        return $this->success(['refunds' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        return $this->success(['refunds' => $this->parentRefundService()->refundRequests()]);
     }
+
 
     /** GET /api/finance/refundable-credits */
     public function getRefundableCredits($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        $pdo = Database::getInstance()->getConnection();
-        $stmt = $pdo->query("SELECT c.id AS fee_credit_note_id, c.credit_number, c.student_id, c.remaining_amount, CONCAT(ps.first_name, ' ', ps.last_name) AS student_name, sp.parent_id, CONCAT(pp.first_name, ' ', pp.last_name) AS parent_name FROM fee_credit_notes c JOIN students s ON s.id = c.student_id JOIN persons ps ON ps.id = s.person_id JOIN student_parents sp ON sp.student_id = c.student_id LEFT JOIN parents pr ON pr.id = sp.parent_id LEFT JOIN persons pp ON pp.id = pr.person_id WHERE c.status IN ('available','partially_applied') AND c.remaining_amount > 0 AND sp.is_primary_contact = 1 ORDER BY c.created_at ASC");
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        $accounts = $pdo->query("SELECT id, parent_id, provider, phone_number, bank_name, account_name, account_number, is_primary FROM parent_payment_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
-        $byParent = []; foreach ($accounts as $account) $byParent[(int) $account['parent_id']][] = $account;
-        foreach ($rows as &$row) { $row['remaining_amount'] = (float) $row['remaining_amount']; $row['accounts'] = $byParent[(int) $row['parent_id']] ?? []; } unset($row);
-        return $this->success(['credits' => $rows]);
+        return $this->success(['credits' => $this->parentRefundService()->refundableCredits()]);
     }
+
 
     /** POST /api/finance/parent-refund-requests */
     public function postParentRefundRequests($id = null, $data = [], $segments = [])
@@ -760,10 +725,12 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3])) return $this->forbidden('Only an authorized approver may approve refunds');
         $status = ($data['status'] ?? $data['action'] ?? '') === 'approve' ? 'approved' : (($data['status'] ?? '') === 'rejected' ? 'rejected' : null);
         if (!$id || !$status) return $this->badRequest('Refund ID and approve/reject action are required');
-        $stmt = Database::getInstance()->getConnection()->prepare("UPDATE parent_refund_requests SET status = ?, approved_by = ? WHERE id = ? AND status = 'pending_approval'");
-        $stmt->execute([$status, $this->getUserId(), (int) $id]);
-        return $stmt->rowCount() ? $this->success(['id' => (int) $id, 'status' => $status]) : $this->badRequest('Refund is not awaiting approval.');
+        return $this->parentRefundService()->setRefundStatus((int) $id, $status, (int) $this->getUserId())
+            ? $this->success(['id' => (int) $id, 'status' => $status])
+            : $this->badRequest('Refund is not awaiting approval.');
     }
+
+
 
     /** POST /api/finance/parent-refund-requests/{id}/submit */
     public function postParentRefundRequestsSubmit($id = null, $data = [], $segments = [])
@@ -779,10 +746,9 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         $parentId = (int) ($_GET['parent_id'] ?? $data['parent_id'] ?? 0);
         if (!$parentId) return $this->badRequest('parent_id is required');
-        $stmt = Database::getInstance()->getConnection()->prepare("SELECT id, provider, phone_number, bank_name, bank_code, account_name, account_number, verification_status, is_primary, active FROM parent_payment_accounts WHERE parent_id = ? ORDER BY is_primary DESC, id DESC");
-        $stmt->execute([$parentId]);
-        return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        return $this->success(['accounts' => $this->parentRefundService()->accountsForParent($parentId)]);
     }
+
 
     /** POST /api/finance/parent-payment-accounts */
     public function postParentPaymentAccounts($id = null, $data = [], $segments = [])
@@ -792,9 +758,10 @@ class FinanceController extends BaseController
         if (!$parentId || empty($data['account_name'])) return $this->badRequest('parent_id and account_name are required');
         if ($provider === 'mpesa' && empty($data['phone_number'])) return $this->badRequest('phone_number is required for M-Pesa');
         if ($provider === 'bank' && (empty($data['account_number']) || empty($data['bank_name']))) return $this->badRequest('bank_name and account_number are required for bank refunds');
-        try { $pdo = Database::getInstance()->getConnection(); $stmt = $pdo->prepare("INSERT INTO parent_payment_accounts (parent_id, provider, phone_number, bank_name, bank_code, account_name, account_number, is_primary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"); $stmt->execute([$parentId, $provider, $data['phone_number'] ?? null, $data['bank_name'] ?? null, $data['bank_code'] ?? null, $data['account_name'], $data['account_number'] ?? null, !empty($data['is_primary']) ? 1 : 0]); return $this->created(['id' => (int) $pdo->lastInsertId()], 'Parent payment account saved for verification.'); }
+        try { return $this->created(['id' => $this->parentRefundService()->createPayoutAccount($parentId, $provider, $data)], 'Parent payment account saved for verification.'); }
         catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent payment account: ' . $e->getMessage()); return $this->badRequest('Unable to save parent payment account.'); }
     }
+
 
     private function requirePayrollPermission(string $permission, array $roles = []): ?array
     {
