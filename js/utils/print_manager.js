@@ -1875,6 +1875,42 @@ const PrintManager = (() => {
     return "";
   }
 
+  /**
+   * Print the current page's main content segment through the shared server
+   * print pipeline (same branded document every other printable produces).
+   * Every page print button routes here instead of window.print(); the
+   * browser print dialog remains only as a fallback when PrintManager has
+   * not loaded yet.
+   */
+  async function printPage(options = {}) {
+    const candidates = [
+      String(options.elementId || "main-content-segment"),
+      "main-content-segment",
+      "pp-main",
+      "main-content-area",
+    ];
+    let element = null;
+    for (const selector of candidates) {
+      element = document.getElementById(selector) || document.querySelector(selector === "main-content-area" ? "main" : `#${selector}`);
+      if (element) break;
+    }
+
+    if (!element) {
+      notify("error", "The printable page area could not be found.");
+      return null;
+    }
+
+    const elementId = element.id || "print-page-target";
+    if (!element.id) element.id = elementId;
+
+    return printElement(elementId, {
+      ...options,
+      title: options.title || document.title || "School Report",
+      orientation: options.orientation || "portrait",
+      paperSize: options.paperSize || "A4",
+    });
+  }
+
   /* ==========================================================================
      Public API
      ========================================================================== */
@@ -1887,6 +1923,7 @@ const PrintManager = (() => {
     printReportCard,
     printModal,
     printElement,
+    printPage,
     printReportHtml,
 
     printCertificate,

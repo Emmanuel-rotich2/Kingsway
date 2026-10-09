@@ -51,7 +51,7 @@ const RubricsController = {
         document.getElementById('exportRubricsBtn')?.addEventListener('click', () => this.exportRubrics());
         document.getElementById('printRubricsBtn')?.addEventListener('click', () => {
             if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('assessments')) return showNotification('You do not have permission to print assessment data.', 'error');
-            window.print();
+            window.PrintManager?.printPage({ title: 'Assessment Rubrics', orientation: 'landscape' }) ?? window.print();
         });
     },
 

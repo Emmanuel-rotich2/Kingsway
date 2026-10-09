@@ -14,20 +14,10 @@ if ($appBase === '.') {
 }
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
-$nodeRealtimeUrl = trim((string) \App\Config\Config::get(
-    'NODE_REALTIME_URL',
-    \App\Config\Config::get('NODE_REALTIME_PUBLIC_URL', '')
-));
-$nodeRealtimeParts = $nodeRealtimeUrl === '' ? false : parse_url($nodeRealtimeUrl);
-$nodeRealtimeOrigin = '';
-if (is_array($nodeRealtimeParts)
-    && in_array(strtolower((string) ($nodeRealtimeParts['scheme'] ?? '')), ['http', 'https'], true)
-    && !empty($nodeRealtimeParts['host'])
-    && !isset($nodeRealtimeParts['user'], $nodeRealtimeParts['pass'])) {
-    $nodeRealtimeOrigin = strtolower((string) $nodeRealtimeParts['scheme']) . '://'
-        . $nodeRealtimeParts['host']
-        . (isset($nodeRealtimeParts['port']) ? ':' . (int) $nodeRealtimeParts['port'] : '');
-}
+// Browser-facing realtime origin: environment-agnostic resolver — public URL
+// first; the internal address is only usable when the client shares the host
+// with PHP (loopback development). Never handed to a remote browser.
+$nodeRealtimeOrigin = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
 
 // Define the filesystem root so page files under pages/ can resolve
 // Absolute paths used by page asset helpers for cache-busting version parameters.

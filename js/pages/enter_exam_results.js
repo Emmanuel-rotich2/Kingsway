@@ -71,7 +71,7 @@ const ExamResultsController = {
     document.getElementById("saveDraftBtn")?.addEventListener("click", () => this.save(false));
     document.getElementById("submitResultsBtn")?.addEventListener("click", () => this.save(true));
     document.getElementById("examRegisterCsv")?.addEventListener("click", () => this.exportRegister());
-    document.getElementById("examRegisterPrint")?.addEventListener("click", () => window.print());
+    document.getElementById("examRegisterPrint")?.addEventListener("click", () => window.PrintManager?.printPage({ title: "Exam Results Register", orientation: "landscape" }) ?? window.print());
     document.getElementById("resultsTableBody")?.addEventListener("input", (event) => {
       if (event.target.matches(".score-input")) this.renderGrade(event.target.closest("tr"));
       this.updateProgress();

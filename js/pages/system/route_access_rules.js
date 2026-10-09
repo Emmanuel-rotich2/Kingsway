@@ -338,7 +338,7 @@ const RouteAccessRulesController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Route Access Rules", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

@@ -66,12 +66,16 @@ def create_app(config: Config | None = None) -> Flask:
     # One bounded background consumer per WSGI process. Jobs remain durable in
     # PHP's queue; lease fencing prevents duplicate acknowledgements and a
     # cross-process MySQL lock caps expensive projection refreshes.
-    queue_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kingsway-python-queue")
+    queue_executor = ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="kingsway-python-queue"
+    )
     # PDF rendering has its own small, bounded pool. The queue executor above
     # is intentionally reserved for PHP-owned background jobs; it must not
     # serialize unrelated documents behind projection refresh work.
     try:
-        render_workers = max(1, min(4, int(os.environ.get("DOCUMENT_RENDER_WORKERS", "2"))))
+        render_workers = max(
+            1, min(4, int(os.environ.get("DOCUMENT_RENDER_WORKERS", "2")))
+        )
     except (TypeError, ValueError):
         render_workers = 2
     render_executor = ThreadPoolExecutor(
@@ -84,17 +88,23 @@ def create_app(config: Config | None = None) -> Flask:
     def run_python_queue_batch() -> None:
         try:
             outcome = PythonQueueWorker(cfg).run_batch(50)
-            journal.write("reads", {
-                "type": "python_queue_batch_finished",
-                "processed": int(outcome.get("processed", 0)),
-                "succeeded": int(outcome.get("succeeded", 0)),
-                "failed": int(outcome.get("failed", 0)),
-            })
+            journal.write(
+                "reads",
+                {
+                    "type": "python_queue_batch_finished",
+                    "processed": int(outcome.get("processed", 0)),
+                    "succeeded": int(outcome.get("succeeded", 0)),
+                    "failed": int(outcome.get("failed", 0)),
+                },
+            )
         except Exception as error:  # noqa: BLE001 - queue rows retain failure state
-            journal.write("reads", {
-                "type": "python_queue_batch_failed",
-                "error_class": type(error).__name__,
-            })
+            journal.write(
+                "reads",
+                {
+                    "type": "python_queue_batch_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
         finally:
             with queue_state_lock:
                 queue_state["active"] = False
@@ -118,9 +128,16 @@ def create_app(config: Config | None = None) -> Flask:
         payload = request.get_json(force=True, silent=True) or {}
         html = payload.get("html")
         if not isinstance(html, str) or not html.strip():
-            return jsonify({"success": False, "message": "rendered document is required"}), 422
+            return jsonify(
+                {"success": False, "message": "rendered document is required"}
+            ), 422
         if len(html.encode("utf-8")) > 8 * 1024 * 1024:
-            return jsonify({"success": False, "message": "rendered document exceeds the size limit"}), 413
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "rendered document exceeds the size limit",
+                }
+            ), 413
 
         try:
             from weasyprint import HTML, default_url_fetcher
@@ -134,23 +151,33 @@ def create_app(config: Config | None = None) -> Flask:
             pdf = HTML(string=html, url_fetcher=safe_url_fetcher).write_pdf()
             if not pdf.startswith(b"%PDF-") or len(pdf) > 9 * 1024 * 1024:
                 raise ValueError("rendered PDF is invalid or exceeds the size limit")
-            journal.write("document_generation", {
-                "type": "student_id_card_pdf_rendered",
-                "html_sha256": hashlib.sha256(html.encode("utf-8")).hexdigest(),
-                "input_bytes": len(html.encode("utf-8")),
-                "output_bytes": len(pdf),
-                "duration_ms": int((time.monotonic() - started) * 1000),
-            })
-            return jsonify({
-                "success": True,
-                "data": {"pdf_base64": base64.b64encode(pdf).decode("ascii")},
-            })
+            journal.write(
+                "document_generation",
+                {
+                    "type": "student_id_card_pdf_rendered",
+                    "html_sha256": hashlib.sha256(html.encode("utf-8")).hexdigest(),
+                    "input_bytes": len(html.encode("utf-8")),
+                    "output_bytes": len(pdf),
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "data": {"pdf_base64": base64.b64encode(pdf).decode("ascii")},
+                }
+            )
         except Exception as error:  # noqa: BLE001 - never expose renderer internals
-            journal.write("document_generation", {
-                "type": "student_id_card_pdf_render_failed",
-                "error_class": type(error).__name__,
-            })
-            return jsonify({"success": False, "message": "ID-card PDF rendering failed"}), 503
+            journal.write(
+                "document_generation",
+                {
+                    "type": "student_id_card_pdf_render_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "ID-card PDF rendering failed"}
+            ), 503
 
     @app.post("/api/documents/render-batch")
     def render_document_batch():
@@ -168,25 +195,52 @@ def create_app(config: Config | None = None) -> Flask:
         documents = payload.get("documents")
         mode = payload.get("output_mode", "combined")
         numbering = payload.get("page_numbering", "local")
-        if (not isinstance(mode, str) or mode not in {"combined", "individual"}
-                or not isinstance(numbering, str) or numbering not in {"local", "none"}):
-            return jsonify({"success": False, "message": "invalid document output options"}), 422
+        if (
+            not isinstance(mode, str)
+            or mode not in {"combined", "individual"}
+            or not isinstance(numbering, str)
+            or numbering not in {"local", "none", "auto"}
+        ):
+            return jsonify(
+                {"success": False, "message": "invalid document output options"}
+            ), 422
         if not isinstance(documents, list) or not 1 <= len(documents) <= 100:
-            return jsonify({"success": False, "message": "batch must contain between 1 and 100 documents"}), 422
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "batch must contain between 1 and 100 documents",
+                }
+            ), 422
 
         html_docs: list[tuple[str, str]] = []
         total_input = 0
         for index, item in enumerate(documents):
             if not isinstance(item, dict):
-                return jsonify({"success": False, "message": "invalid document entry"}), 422
+                return jsonify(
+                    {"success": False, "message": "invalid document entry"}
+                ), 422
             html = item.get("html")
             document_id = item.get("document_id", str(index + 1))
-            if not isinstance(html, str) or not html.strip() or not isinstance(document_id, str):
-                return jsonify({"success": False, "message": "document HTML and identifier are required"}), 422
+            if (
+                not isinstance(html, str)
+                or not html.strip()
+                or not isinstance(document_id, str)
+            ):
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "document HTML and identifier are required",
+                    }
+                ), 422
             encoded_size = len(html.encode("utf-8"))
             total_input += encoded_size
             if encoded_size > 8 * 1024 * 1024 or total_input > 18 * 1024 * 1024:
-                return jsonify({"success": False, "message": "batch document payload exceeds the size limit"}), 413
+                return jsonify(
+                    {
+                        "success": False,
+                        "message": "batch document payload exceeds the size limit",
+                    }
+                ), 413
             html_docs.append((document_id[:80], html))
 
         started = time.monotonic()
@@ -194,6 +248,7 @@ def create_app(config: Config | None = None) -> Flask:
             from io import BytesIO
             from pypdf import PdfReader, PdfWriter
             from reportlab.pdfgen import canvas
+
             rendered: list[tuple[str, bytes, int]] = []
             # map() keeps source order while independent chunks render
             # concurrently; final merge order therefore remains deterministic.
@@ -203,22 +258,35 @@ def create_app(config: Config | None = None) -> Flask:
             )
             for (document_id, _html), pdf in zip(html_docs, rendered_pdfs):
                 if not pdf.startswith(b"%PDF-") or len(pdf) > 9 * 1024 * 1024:
-                    raise ValueError("rendered PDF is invalid or exceeds the per-document size limit")
+                    raise ValueError(
+                        "rendered PDF is invalid or exceeds the per-document size limit"
+                    )
                 reader = PdfReader(BytesIO(pdf), strict=True)
                 if len(reader.pages) < 1 or len(reader.pages) > 500:
                     raise ValueError("document page count is outside allowed limits")
                 rendered.append((document_id, pdf, len(reader.pages)))
 
-            if numbering == "local":
-                for document_index, (document_id, pdf, page_count) in enumerate(rendered):
+            if numbering in ("local", "auto"):
+                for document_index, (document_id, pdf, page_count) in enumerate(
+                    rendered
+                ):
+                    # "auto" numbers only multi-page documents, matching the
+                    # Dompdf behaviour where single-page certificates and
+                    # receipts never carried a page number.
+                    if numbering == "auto" and page_count < 2:
+                        continue
                     reader = PdfReader(BytesIO(pdf), strict=True)
                     for page_number, page in enumerate(reader.pages, start=1):
                         overlay_buffer = BytesIO()
                         page_width = float(page.mediabox.width)
                         page_height = float(page.mediabox.height)
-                        layer = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+                        layer = canvas.Canvas(
+                            overlay_buffer, pagesize=(page_width, page_height)
+                        )
                         layer.setFont("Helvetica", 8)
-                        layer.drawCentredString(page_width / 2, 12, f"{page_number} / {page_count}")
+                        layer.drawCentredString(
+                            page_width / 2, 12, f"{page_number} / {page_count}"
+                        )
                         layer.save()
                         overlay_buffer.seek(0)
                         page.merge_page(PdfReader(overlay_buffer).pages[0])
@@ -227,20 +295,31 @@ def create_app(config: Config | None = None) -> Flask:
                     for page in reader.pages:
                         writer.add_page(page)
                     writer.write(output)
-                    rendered[document_index] = (document_id, output.getvalue(), page_count)
+                    rendered[document_index] = (
+                        document_id,
+                        output.getvalue(),
+                        page_count,
+                    )
 
             output_documents = []
             if mode == "individual":
                 for document_id, pdf, page_count in rendered:
-                    output_documents.append({
-                        "document_id": document_id,
-                        "page_count": page_count,
-                        "pdf_base64": base64.b64encode(pdf).decode("ascii"),
-                    })
+                    output_documents.append(
+                        {
+                            "document_id": document_id,
+                            "page_count": page_count,
+                            "pdf_base64": base64.b64encode(pdf).decode("ascii"),
+                        }
+                    )
                 response_data = {"output_mode": mode, "documents": output_documents}
                 output_bytes = sum(len(item["pdf_base64"]) for item in output_documents)
                 if output_bytes > 42 * 1024 * 1024:
-                    return jsonify({"success": False, "message": "individual PDFs exceed the response size limit"}), 413
+                    return jsonify(
+                        {
+                            "success": False,
+                            "message": "individual PDFs exceed the response size limit",
+                        }
+                    ), 413
             else:
                 writer = PdfWriter()
                 for _document_id, pdf, _page_count in rendered:
@@ -250,7 +329,12 @@ def create_app(config: Config | None = None) -> Flask:
                 writer.write(output)
                 combined_pdf = output.getvalue()
                 if len(combined_pdf) > 30 * 1024 * 1024:
-                    return jsonify({"success": False, "message": "assembled PDF exceeds the size limit"}), 413
+                    return jsonify(
+                        {
+                            "success": False,
+                            "message": "assembled PDF exceeds the size limit",
+                        }
+                    ), 413
                 response_data = {
                     "output_mode": mode,
                     "document_count": len(rendered),
@@ -259,31 +343,41 @@ def create_app(config: Config | None = None) -> Flask:
                 }
                 output_bytes = len(combined_pdf)
 
-            journal.write("document_generation", {
-                "type": "document_batch_rendered",
-                "document_count": len(rendered),
-                "output_mode": mode,
-                "page_numbering": numbering,
-                "input_bytes": total_input,
-                "output_bytes": output_bytes,
-                "page_count": sum(item[2] for item in rendered),
-                "render_workers": render_workers,
-                "duration_ms": int((time.monotonic() - started) * 1000),
-            })
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_batch_rendered",
+                    "document_count": len(rendered),
+                    "output_mode": mode,
+                    "page_numbering": numbering,
+                    "input_bytes": total_input,
+                    "output_bytes": output_bytes,
+                    "page_count": sum(item[2] for item in rendered),
+                    "render_workers": render_workers,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                },
+            )
             return jsonify({"success": True, "data": response_data})
         except Exception as error:  # noqa: BLE001 - do not expose template/data internals
-            journal.write("document_generation", {
-                "type": "document_batch_render_failed",
-                "document_count": len(html_docs),
-                "output_mode": mode,
-                "duration_ms": int((time.monotonic() - started) * 1000),
-                "error_class": type(error).__name__,
-            })
-            return jsonify({"success": False, "message": "document batch rendering failed"}), 503
+            journal.write(
+                "document_generation",
+                {
+                    "type": "document_batch_render_failed",
+                    "document_count": len(html_docs),
+                    "output_mode": mode,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "document batch rendering failed"}
+            ), 503
 
     @app.errorhandler(413)
     def payload_too_large(_error):
-        return jsonify({"success": False, "message": "request body exceeds the service limit"}), 413
+        return jsonify(
+            {"success": False, "message": "request body exceeds the service limit"}
+        ), 413
 
     @app.get("/healthz")
     def healthz():
@@ -458,7 +552,11 @@ def create_app(config: Config | None = None) -> Flask:
         payload = request.get_json(force=True, silent=True) or {}
         projection = str(payload.get("projection") or "")
         try:
-            if projection in {"student_term_placement", "fee_status_summary", "person_directory"}:
+            if projection in {
+                "student_term_placement",
+                "fee_status_summary",
+                "person_directory",
+            }:
                 result = PolarsReadModelRefresher(cfg).refresh(projection)
             else:
                 result = ReadModelRefresher(cfg).refresh(projection)
@@ -483,9 +581,13 @@ def create_app(config: Config | None = None) -> Flask:
                     "error_class": type(error).__name__,
                 },
             )
-            return jsonify({"success": False, "message": "read projection refresh failed"}), 503
+            return jsonify(
+                {"success": False, "message": "read projection refresh failed"}
+            ), 503
         journal.write("reads", {"type": "read_projection_refreshed", **result})
-        return jsonify({"success": True, "data": result, "message": "Read projection refreshed"})
+        return jsonify(
+            {"success": True, "data": result, "message": "Read projection refreshed"}
+        )
 
     @app.post("/api/agents/digest")
     def agent_digest():
@@ -625,16 +727,36 @@ def create_app(config: Config | None = None) -> Flask:
         if payload.get("mode") == "queue":
             with queue_state_lock:
                 if queue_state["active"]:
-                    return jsonify({"success": True, "data": {"status": "busy"}, "message": "Python worker is processing a bounded batch"}), 202
+                    return jsonify(
+                        {
+                            "success": True,
+                            "data": {"status": "busy"},
+                            "message": "Python worker is processing a bounded batch",
+                        }
+                    ), 202
                 queue_state["active"] = True
             try:
                 queue_executor.submit(run_python_queue_batch)
             except Exception as error:  # noqa: BLE001
                 with queue_state_lock:
                     queue_state["active"] = False
-                journal.write("reads", {"type": "python_queue_dispatch_failed", "error_class": type(error).__name__})
-                return jsonify({"success": False, "message": "Python worker could not start"}), 503
-            return jsonify({"success": True, "data": {"status": "accepted"}, "message": "Python queue batch accepted"}), 202
+                journal.write(
+                    "reads",
+                    {
+                        "type": "python_queue_dispatch_failed",
+                        "error_class": type(error).__name__,
+                    },
+                )
+                return jsonify(
+                    {"success": False, "message": "Python worker could not start"}
+                ), 503
+            return jsonify(
+                {
+                    "success": True,
+                    "data": {"status": "accepted"},
+                    "message": "Python queue batch accepted",
+                }
+            ), 202
         runs = payload.get("runs")
         if not isinstance(runs, list) or not runs:
             return jsonify({"success": False, "message": "runs[] is required"}), 422

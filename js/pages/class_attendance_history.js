@@ -46,7 +46,7 @@ const ClassAttendanceHistoryController = {
         window.showNotification?.('You do not have permission to print this register', 'error');
         return;
       }
-      window.print();
+      window.PrintManager?.printPage({ title: 'Class Attendance History', orientation: 'landscape' }) ?? window.print();
     });
 
     this.toggleFilters();

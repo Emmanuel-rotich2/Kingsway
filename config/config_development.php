@@ -63,17 +63,17 @@ require_once __DIR__ . '/upload_paths.php';
 */
 
 define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');
-define('DB_USER', $_ENV['DB_USER'] ?? 'root');
-define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
-define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
+define('DB_USER', $_ENV['DB_USER'] ?? '');
+define('DB_NAME', $_ENV['DB_NAME'] ?? '');
+define('DB_PORT', (int) ($_ENV['DB_PORT'] ));
 // WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? 'CHANGE_ME_IN_ENV_FILE');
 
 // Auxiliary namespace schemas (roadmap §4.1). Optional overrides for local
 // environments that use renamed/prefixed schemas; defaults match ConnectionManager.
-define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: 'KingsWayBuffers');
-define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: 'KingsWayReads');
-define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: 'KingsWayLogs');
+define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: '');
+define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: '');
+define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: '');
 
 /*
 |--------------------------------------------------------------------------
@@ -120,7 +120,7 @@ try {
 
 $jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
 if (strlen($jwtSecret) < 64) {
-    throw new \RuntimeException('JWT_SECRET must be configured with at least 64 characters in every environment.');
+    throw new \RuntimeException('JWT_SECRET.');
 }
 define('JWT_SECRET', $jwtSecret);
 
@@ -131,12 +131,12 @@ define(
 
 define(
     'JWT_ISSUER',
-    $_ENV['JWT_ISSUER'] ?? 'kingsway-prep-school'
+    $_ENV['JWT_ISSUER'] ?? ''
 );
 
 define(
     'JWT_AUDIENCE',
-    $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
+    $_ENV['JWT_AUDIENCE'] ?? ''
 );
 $tfaEncryptionKey = trim((string) ($_ENV['TFA_ENCRYPTION_KEY'] ?? ''));
 if (strlen($tfaEncryptionKey) < 64 || !ctype_xdigit($tfaEncryptionKey)) {
@@ -195,7 +195,7 @@ define(
 
 define(
     'SMTP_HOST',
-    $_ENV['SMTP_HOST'] ?? 'mail.kingswaypreparatoryschool.sc.ke'
+    $_ENV['SMTP_HOST'] ?? ''
 );
 
 define(
@@ -206,13 +206,13 @@ define(
 define(
     'SMTP_USERNAME',
     $_ENV['SMTP_USERNAME']
-        ?? 'info@kingswaypreparatoryschool.sc.ke'
+        ?? ''
 );
 
 define(
     'SMTP_FROM_EMAIL',
     $_ENV['SMTP_FROM_EMAIL']
-        ?? 'info@kingswaypreparatoryschool.sc.ke'
+        ?? ''
 );
 
 define(
@@ -253,7 +253,7 @@ define(
 
 define(
     'SMS_WHATSAPP_NUMBER',
-    $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690'
+    $_ENV['SMS_WHATSAPP_NUMBER'] ?? ''
 );
 
 define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? 'https://chat.africastalking.com');

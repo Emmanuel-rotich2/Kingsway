@@ -314,7 +314,7 @@ const ErrorLogsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Error Logs", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

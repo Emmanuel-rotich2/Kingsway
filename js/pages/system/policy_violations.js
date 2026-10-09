@@ -233,7 +233,7 @@ const PolicyViolationsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Policy Violations", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

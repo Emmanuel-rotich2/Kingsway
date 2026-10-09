@@ -149,4 +149,98 @@ final class RealtimeGatewayPublisher
         }
         return $secret;
     }
+
+    /**
+     * The browser-facing gateway origin that PHP pages may hand to EventSource.
+     *
+     * Environment-agnostic: no hostname lives in code. Candidates are read
+     * from deployment config in this order:
+     *   1. NODE_REALTIME_PUBLIC_URL — the browser-facing gateway origin;
+     *   2. NODE_REALTIME_URL — the internal publish address. It may only be
+     *      handed to a browser when the requesting client shares the host
+     *      with PHP (loopback development), because a remote browser pointed
+     *      at a loopback address would connect to its OWN machine (and be
+     *      blocked by mixed-content / Local Network Access policy).
+     *
+     * Plain-HTTP candidates are refused for remote clients on an HTTPS page
+     * (mixed content). A loopback client keeps plain HTTP because the packet
+     * never leaves the machine.
+     *
+     * @return string Origin (`scheme://host[:port]`), or '' when no safe
+     *                browser-facing address exists for this request.
+     */
+    public static function browserStreamBase(?string $clientIp = null, ?bool $pageIsHttps = null): string
+    {
+        $ip = $clientIp ?? (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $clientIsLocal = self::isPrivateNetworkAddress($ip);
+        $https = $pageIsHttps ?? self::pageIsHttps();
+        $read = self::reader();
+
+        foreach (['NODE_REALTIME_PUBLIC_URL', 'NODE_REALTIME_URL'] as $key) {
+            $candidate = trim((string) $read($key, ''));
+            if ($candidate === '') {
+                continue;
+            }
+            $origin = self::originOfUrl($candidate);
+            if ($origin === '') {
+                continue;
+            }
+            $scheme = strtolower((string) (parse_url($origin, PHP_URL_SCHEME) ?? ''));
+            $candidateIsLocal = self::isPrivateNetworkAddress((string) (parse_url($origin, PHP_URL_HOST) ?? ''));
+            if ($candidateIsLocal && !$clientIsLocal) {
+                continue;
+            }
+            if ($https && $scheme !== 'https' && !$clientIsLocal) {
+                continue;
+            }
+            return $origin;
+        }
+
+        return '';
+    }
+
+    /** Loopback / RFC1918 / link-local / localhost-style host detection. */
+    private static function isPrivateNetworkAddress(string $value): bool
+    {
+        $value = trim($value, '[]');
+        if ($value === '') {
+            return false;
+        }
+        if (filter_var($value, FILTER_VALIDATE_IP) !== false) {
+            return (bool) filter_var(
+                $value,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+            ) === false;
+        }
+        $host = strtolower($value);
+        return $host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local');
+    }
+
+    private static function pageIsHttps(): bool
+    {
+        if (($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off') {
+            return true;
+        }
+        return strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https'
+            || strtolower((string) ($_SERVER['REQUEST_SCHEME'] ?? '')) === 'https';
+    }
+
+    /** Normalize a URL to its origin; rejects userinfo, paths-only, non-http(s). */
+    private static function originOfUrl(string $url): string
+    {
+        $parts = parse_url(trim($url));
+        if (!is_array($parts)) {
+            return '';
+        }
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = (string) ($parts['host'] ?? '');
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+            return '';
+        }
+        if (isset($parts['user'], $parts['pass'])) {
+            return '';
+        }
+        return $scheme . '://' . $host . (isset($parts['port']) ? ':' . (int) $parts['port'] : '');
+    }
 }

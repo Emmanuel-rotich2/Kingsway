@@ -12,13 +12,13 @@
   const canPublishResults = () => ['System Administrator','School Administrator'].some((r) => window.AuthContext?.hasRole?.(r));
   const canImportExamDocuments = () => ['System Administrator','School Administrator'].some((r) => window.AuthContext?.hasRole?.(r));
   const termLabel = (term) => `${term.academic_year_name || `Academic year ${term.academic_year_id}`} · Term ${term.term_id}`;
+  const printScopeTitles = {
+    'exam-workspace': 'Examination Workspace',
+    'exam-preview': 'Exam Document Preview',
+    'exam-periods': 'Exam Periods',
+  };
   function printScope(scope) {
-    const className = `print-${scope}`;
-    document.body.classList.add(className);
-    const cleanup = () => document.body.classList.remove(className);
-    window.addEventListener('afterprint', cleanup, { once: true });
-    window.print();
-    setTimeout(cleanup, 1500);
+    window.PrintManager?.printPage({ title: printScopeTitles[scope] || 'Examination Workspace', orientation: 'landscape' }) ?? window.print();
   }
 
   async function call(path, method = 'GET', body = null, query = null) {

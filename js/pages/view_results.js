@@ -507,7 +507,7 @@
       </tr>`;
     }).join('');
 
-    const table = `<div class="vr-scroll"><table class="vr-matrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    const table = `<div class="vr-scroll"><table class="vr-matrix" id="vrFormativeAreaMatrix"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
     $('vrView').innerHTML = panel('Formative mastery',
       `${learners.length} learners · ${columns.length} areas`, '', table);
 
@@ -657,11 +657,11 @@
       'Sub-strand & assessment detail',
       `${assessments.length} assessments · ${learners.length} learners · ${editable ? 'editable' : 'read-only'}`,
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="detail"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
-      `<div class="vr-scroll"><table class="vr-matrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`
+      `<div class="vr-scroll"><table class="vr-matrix" id="vrFormativeDetailMatrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`
     );
     bindDetailEditing(mount);
     mount.querySelector('[data-export="detail"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    mount.querySelector('[data-print="1"]').onclick = () => window.print();
+    mount.querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrFormativeDetailMatrix', { title: 'Sub-strand & assessment detail', orientation: 'landscape' }) ?? window.print();
   }
 
   function bindDetailEditing(scope) {
@@ -799,7 +799,7 @@
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="summative"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
       `<div class="vr-scroll"><table class="vr-matrix" id="vrSummativeMatrix"><thead>${headerTop}${headerSub}</thead><tbody>${body}</tbody></table></div>`);
     $('vrView').querySelector('[data-export="summative"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    $('vrView').querySelector('[data-print="1"]').onclick = () => window.print();
+    $('vrView').querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrSummativeMatrix', { title: 'Summative matrix', orientation: 'landscape' }) ?? window.print();
     bindSummativeEditing(pivot.students, columns);
   }
 
@@ -1094,9 +1094,9 @@
     $('vrView').innerHTML = panel('Learner portfolios',
       `${learners.length} learners · ${withArtifacts} with evidence`,
       toolBtn('CSV', 'filetype-csv', 'vr-no-print', 'data-export="portfolio"') + toolBtn('Print', 'printer', 'vr-no-print', 'data-print="1"'),
-      `<div class="vr-cards" style="padding:14px">${cards}</div>`);
+      `<div class="vr-cards" id="vrPortfolioCards" style="padding:14px">${cards}</div>`);
     $('vrView').querySelector('[data-export="portfolio"]').onclick = () => state.exportSpec && downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
-    $('vrView').querySelector('[data-print="1"]').onclick = () => window.print();
+    $('vrView').querySelector('[data-print="1"]').onclick = () => window.PrintManager?.printElement('vrPortfolioCards', { title: 'Learner portfolios', orientation: 'portrait' }) ?? window.print();
     $('vrView').querySelectorAll('[data-profile]').forEach((b) => {
       b.onclick = () => openDrawer(b.dataset.profile, b.dataset.name, b.dataset.adm);
     });
@@ -1172,7 +1172,7 @@
       if (state.exportSpec) downloadCsv(state.exportSpec.filename, state.exportSpec.headers, state.exportSpec.rows());
       else notify('Nothing to export in this view.', 'info');
     });
-    $('vrPrintBtn')?.addEventListener('click', () => window.print());
+    $('vrPrintBtn')?.addEventListener('click', () => window.PrintManager?.printPage({ orientation: 'landscape' }) ?? window.print());
     $('vrDrawerClose')?.addEventListener('click', closeDrawer);
     $('vrDrawerBackdrop')?.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });

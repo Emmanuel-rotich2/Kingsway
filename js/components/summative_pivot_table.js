@@ -184,7 +184,7 @@
       const csv = mount.querySelector('#vrpCsv');
       if (csv) csv.addEventListener('click', exportCsv);
       const print = mount.querySelector('#vrpPrint');
-      if (print) print.addEventListener('click', () => window.print());
+      if (print) print.addEventListener('click', () => window.PrintManager?.printElement('vrpTable', { title: 'Summative pivot table', orientation: 'landscape' }) ?? window.print());
       mount.querySelectorAll('[data-page]').forEach((b) => b.addEventListener('click', () => { state.page = Number(b.dataset.page); render(); }));
 
       mount.querySelectorAll('[data-kebab]').forEach(bindMenu);

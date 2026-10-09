@@ -262,7 +262,7 @@ const SecurityIncidentsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Security Incidents", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {
