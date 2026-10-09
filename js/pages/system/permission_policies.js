@@ -338,7 +338,7 @@ const PermissionPoliciesController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Permission Policies", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

@@ -819,9 +819,14 @@ class SystemController extends BaseController
                     $rows .= '<tr><td>' . $escape($row['timestamp'] ?? '') . '</td><td>' . $escape($row['level'] ?? '') . '</td><td>' . $escape($row['_category'] ?? '') . '</td><td>' . $escape($row['user_id'] ?? '') . '</td><td>' . $escape($row['route'] ?? '') . '</td><td>' . $escape($label) . '</td></tr>';
                 }
                 $html = '<style>body{font-family:DejaVu Sans;color:#173528;font-size:9px}h1{color:#075f35}table{width:100%;border-collapse:collapse}th{background:#075f35;color:#fff}th,td{padding:5px;border:1px solid #ddd;text-align:left}small{color:#666}</style><h1>Kingsway System Audit Report</h1><small>Generated ' . $escape(date('c')) . ' · Environment: ' . $escape(\App\API\Includes\FileLogger::environment()) . ' · Filtered records: ' . count($entries) . '</small><table><thead><tr><th>Time</th><th>Level</th><th>Category</th><th>User</th><th>Route</th><th>Activity</th></tr></thead><tbody>' . $rows . '</tbody></table>';
-                $pdf = new \Dompdf\Dompdf(['isRemoteEnabled' => false]);
-                $pdf->loadHtml($html); $pdf->setPaper('A4', 'landscape'); $pdf->render();
-                $content = $pdf->output(); $mime = 'application/pdf';
+                // One shared render pipeline for every printable: Python
+                // document renderer primary, Dompdf fallback.
+                $rendered = $this->prints()->renderPdfBytes($html, [
+                    'orientation' => 'landscape',
+                    'paperSize' => 'A4',
+                    'showPageNumbers' => false,
+                ]);
+                $content = $rendered['pdf']; $mime = 'application/pdf';
             }
             Logger::audit('system_log_exported', 'system_logs', null, 'System audit report exported', ['format' => $format, 'records' => count($entries), 'filters' => $filters]);
             return $this->success([

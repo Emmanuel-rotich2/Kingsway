@@ -755,6 +755,13 @@ final class PrintService
     }
 
     /**
+     * Render trusted template HTML into a PDF file.
+     *
+     * The primary engine is the private Python document renderer — the same
+     * PHP-templated pipeline student ID cards use. Local Dompdf remains the
+     * guaranteed fallback so printing never depends on the Python runtime
+     * being reachable (shared-hosting deploys included).
+     *
      * @param array<string, mixed> $options
      */
     private function generatePDF(
@@ -777,6 +784,158 @@ final class PrintService
             $options
         );
 
+        $rendered = $this->renderPdfBytes($html, $options);
+
+        $safeFilename = $this->safeFilename(
+            (string) $options['filename']
+        );
+
+        $filepath = $this->outputPath . $safeFilename . '.pdf';
+
+        $written = file_put_contents(
+            $filepath,
+            $rendered['pdf'],
+            LOCK_EX
+        );
+
+        if ($written === false) {
+            throw new RuntimeException(
+                "Unable to save generated PDF: {$filepath}"
+            );
+        }
+
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'pdf_render_completed',
+            'engine' => $rendered['engine'],
+            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+            'output_bytes' => (int) $written,
+            'page_count' => $rendered['page_count'],
+            'paper_size' => (string) $options['paperSize'],
+            'orientation' => (string) $options['orientation'],
+        ]);
+
+        return $filepath;
+        } catch (\Throwable $exception) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'pdf_render_failed',
+                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+                'error_class' => get_class($exception),
+            ], 'error');
+            throw $exception;
+        }
+    }
+
+    /**
+     * Render HTML to PDF bytes through ONE shared pipeline.
+     *
+     * Primary: the private Python document renderer (WeasyPrint), reached the
+     * same way student ID cards are — PHP builds trusted template HTML with
+     * inline CSS and data-URI images, Python receives no database
+     * credentials. Fallback: local Dompdf, so printing keeps working when
+     * the Python runtime is not configured (dormant config), unreachable,
+     * or cannot render a document (size limits, missing system libraries
+     * on shared hosting). Both engines are journaled.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    public function renderPdfBytes(string $html, array $options = []): array
+    {
+        $options = array_merge(
+            [
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+                'custom_width' => null,
+                'custom_height' => null,
+                'cr80' => false,
+                'showPageNumbers' => true,
+            ],
+            $options
+        );
+
+        $renderStartedAt = hrtime(true);
+        try {
+            return $this->renderPdfBytesViaPython($html, $options, $renderStartedAt);
+        } catch (\Throwable $pythonFailure) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'python_pdf_render_fallback',
+                'error_class' => get_class($pythonFailure),
+                'reason' => $pythonFailure->getMessage(),
+                'paper_size' => (string) $options['paperSize'],
+                'orientation' => (string) $options['orientation'],
+            ], 'warning');
+        }
+
+        return $this->renderDompdfBytes($html, $options, $renderStartedAt);
+    }
+
+    /**
+     * Python render leg. Throws whenever the renderer cannot produce a valid
+     * PDF so the caller falls back to Dompdf.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    private function renderPdfBytesViaPython(
+        string $html,
+        array $options,
+        int $startedAtNanos
+    ): array {
+        $renderer = new PythonDocumentBridge();
+        if (!$renderer->available()) {
+            throw new RuntimeException('The Python document renderer is not configured.');
+        }
+
+        // WeasyPrint takes paper geometry from a @page CSS rule rather than a
+        // renderer argument. Report shells and certificate templates declare
+        // their own @page; anything without one gets the requested paper
+        // size injected so a landscape table can never render portrait.
+        $preparedHtml = $this->ensureDocumentPageCss($html, $options);
+
+        // Report-style page numbers stay renderer-applied. 'auto' numbers only
+        // multi-page documents, matching the previous Dompdf behaviour where a
+        // single-page certificate or receipt never carried a page number.
+        $numbering = ((bool) $options['showPageNumbers'] && !(bool) $options['cr80'])
+            ? 'auto'
+            : 'none';
+
+        $batch = $renderer->renderDocuments(
+            [['document_id' => 'document', 'html' => $preparedHtml]],
+            'combined',
+            $numbering
+        );
+        $encodedPdf = $batch['pdf_base64'] ?? null;
+        $pdf = is_string($encodedPdf) ? base64_decode($encodedPdf, true) : false;
+        if (!is_string($pdf) || !str_starts_with($pdf, '%PDF-')) {
+            throw new RuntimeException('The Python renderer returned an invalid PDF document.');
+        }
+
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'python_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $startedAtNanos) / 1_000_000),
+            'output_bytes' => strlen($pdf),
+            'page_count' => (int) ($batch['page_count'] ?? 0),
+        ]);
+
+        return [
+            'pdf' => $pdf,
+            'engine' => 'python',
+            'page_count' => (int) ($batch['page_count'] ?? 0),
+        ];
+    }
+
+    /**
+     * Dompdf render leg (fallback engine). Same paper geometry and page-number
+     * behaviour the service has always applied.
+     *
+     * @param array<string, mixed> $options
+     * @return array{pdf:string, engine:string, page_count:int}
+     */
+    private function renderDompdfBytes(
+        string $html,
+        array $options,
+        int $startedAtNanos
+    ): array {
         $dompdfOptions = new Options();
         $dompdfOptions->set('isHtml5ParserEnabled', true);
         $dompdfOptions->set('isPhpEnabled', false);
@@ -852,46 +1011,57 @@ final class PrintService
             $this->addDompdfPageNumbers(
                 $dompdf,
                 (string) $options['orientation'],
-                (string) $options['reportCode']
-            );
-        }
-
-        $safeFilename = $this->safeFilename(
-            (string) $options['filename']
-        );
-
-        $filepath = $this->outputPath . $safeFilename . '.pdf';
-
-        $written = file_put_contents(
-            $filepath,
-            $dompdf->output(),
-            LOCK_EX
-        );
-
-        if ($written === false) {
-            throw new RuntimeException(
-                "Unable to save generated PDF: {$filepath}"
+                (string) ($options['reportCode'] ?? '')
             );
         }
 
         \App\API\Includes\FileLogger::write('document_generation', [
-            'type' => 'php_pdf_render_completed',
-            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
-            'output_bytes' => (int) $written,
+            'type' => 'dompdf_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $startedAtNanos) / 1_000_000),
+            'output_bytes' => strlen((string) $dompdf->output()),
             'page_count' => $pageCount,
-            'paper_size' => (string) $options['paperSize'],
-            'orientation' => (string) $options['orientation'],
         ]);
 
-        return $filepath;
-        } catch (\Throwable $exception) {
-            \App\API\Includes\FileLogger::write('document_generation', [
-                'type' => 'php_pdf_render_failed',
-                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
-                'error_class' => get_class($exception),
-            ], 'error');
-            throw $exception;
+        return [
+            'pdf' => (string) $dompdf->output(),
+            'engine' => 'dompdf',
+            'page_count' => $pageCount,
+        ];
+    }
+
+    /**
+     * Inject the requested paper geometry as a @page rule for the Python
+     * renderer when the document does not declare one of its own.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function ensureDocumentPageCss(string $html, array $options): string
+    {
+        if (stripos($html, '@page') !== false) {
+            return $html;
         }
+
+        if ((bool) $options['cr80']) {
+            $size = '85.6mm 53.98mm';
+        } elseif (
+            is_numeric($options['custom_width'] ?? null)
+            && is_numeric($options['custom_height'] ?? null)
+        ) {
+            $size = ((float) $options['custom_width']) . 'pt '
+                . ((float) $options['custom_height']) . 'pt';
+        } else {
+            $size = $this->safeCssToken((string) ($options['paperSize'] ?? 'A4'), 'A4')
+                . ' '
+                . $this->safeCssToken((string) ($options['orientation'] ?? 'portrait'), 'portrait');
+        }
+        $pageCss = '@page { size: ' . $size . '; margin: 12mm; }';
+
+        if (stripos($html, '</head>') !== false) {
+            return str_ireplace('</head>', '<style>' . $pageCss . '</style></head>', $html);
+        }
+
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+            . '<style>' . $pageCss . '</style></head><body>' . $html . '</body></html>';
     }
 
 

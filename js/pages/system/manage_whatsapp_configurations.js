@@ -23,7 +23,7 @@
       this.on("whatsappSaveBtn", "click", () => this.save());
       this.on("whatsappTestBtn", "click", () => this.test());
       this.on("whatsappExportCsv", "click", () => this.exportCsv());
-      this.on("whatsappPrint", "click", () => window.print());
+      this.on("whatsappPrint", "click", () => window.PrintManager?.printPage({ title: "WhatsApp Configurations", orientation: "landscape" }) ?? window.print());
     },
 
     on(id, evt, fn) { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); },

@@ -101,8 +101,14 @@ class RealtimeController extends BaseAPI
     {
         $user = $this->getCurrentUser() ?: [];
         $userId = (int) ($user['user_id'] ?? $user['id'] ?? $this->user_id ?? 0);
-        $url = trim((string) Config::get('NODE_REALTIME_URL', Config::get('NODE_REALTIME_PUBLIC_URL', '')));
-        $url = rtrim($url, '/');
+        // Browser-facing base: environment-agnostic resolver that never hands
+        // a loopback/private address to a remote browser (a loopback URL is
+        // only usable when the client shares the host with PHP, i.e. local
+        // development). NODE_REALTIME_PUBLIC_URL wins when configured.
+        $url = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+        if ($url !== '') {
+            $url = rtrim($url, '/');
+        }
         if ($userId < 1) {
             return $this->errorResponse('Authentication required.', 401);
         }

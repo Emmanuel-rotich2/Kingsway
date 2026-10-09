@@ -1628,6 +1628,10 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   printStudentDetails: function () {
+    if (window.PrintManager?.printModal) {
+      window.PrintManager.printModal("viewStudentModal", { title: "Student profile" });
+      return;
+    }
     const modal = document.getElementById("viewStudentModal");
     if (!modal) return;
     const previousTitle = document.title;

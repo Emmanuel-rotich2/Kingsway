@@ -221,7 +221,7 @@ const RateLimitingStatusController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Rate Limiting Status", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

@@ -633,6 +633,10 @@
       }
     },
     printSection: function () {
+      if (window.PrintManager?.printPage) {
+        window.PrintManager.printPage({ title: document.title || 'School Report', orientation: 'portrait' });
+        return;
+      }
       document.body.classList.add('pp-printing');
       window.print();
       setTimeout(function () {

@@ -268,7 +268,7 @@ const DomainIsolationController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Domain Isolation Rules", orientation: "portrait" }) ?? window.print();
   },
 
   renderForbidden() {

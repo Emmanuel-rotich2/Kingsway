@@ -236,7 +236,7 @@ const DataRetentionController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Data Retention", orientation: "portrait" }) ?? window.print();
   },
 
   renderForbidden() {

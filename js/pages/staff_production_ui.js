@@ -486,9 +486,7 @@ const StaffProductionUI = {
         });
         document.getElementById('printStaffSetupBtn')?.addEventListener('click', () => {
             if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('staff')) return this.showToast('You do not have permission to print staff setup data.', 'error');
-            document.body.classList.add('staff-setup-printing');
-            window.print();
-            window.setTimeout(() => document.body.classList.remove('staff-setup-printing'), 1000);
+            window.PrintManager?.printPage({ title: 'Staff Setup', orientation: 'portrait' }) ?? window.print();
         });
         document.getElementById('staffDepartmentForm')?.addEventListener('submit', async event => {
             event.preventDefault();
@@ -706,9 +704,7 @@ const StaffProductionUI = {
                 this.showToast('You do not have permission to print staff records.', 'error');
                 return;
             }
-            document.body.classList.add('staff-directory-printing');
-            window.addEventListener('afterprint', () => document.body.classList.remove('staff-directory-printing'), { once: true });
-            window.print();
+            window.PrintManager?.printPage({ title: 'Staff Directory', orientation: 'landscape' }) ?? window.print();
         });
 
         document.getElementById('staffTableBody')?.addEventListener('click', async (event) => {

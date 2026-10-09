@@ -23,7 +23,7 @@
       this.on("smsSaveBtn", "click", () => this.save());
       this.on("smsTestBtn", "click", () => this.test());
       this.on("smsExportCsv", "click", () => this.exportCsv());
-      this.on("smsPrint", "click", () => window.print());
+      this.on("smsPrint", "click", () => window.PrintManager?.printPage({ title: "SMS Configurations", orientation: "landscape" }) ?? window.print());
     },
 
     on(id, evt, fn) { const el = document.getElementById(id); if (el) el.addEventListener(evt, fn); },

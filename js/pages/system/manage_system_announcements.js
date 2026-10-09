@@ -30,7 +30,7 @@
       this.on("annForm", "submit", (e) => { e.preventDefault(); this.save(); });
       this.on("annClearFilters", "click", () => this.clearFilters());
       this.on("annExportCsv", "click", () => this.exportCsv());
-      this.on("annPrint", "click", () => window.print());
+      this.on("annPrint", "click", () => window.PrintManager?.printPage({ title: "System Announcements", orientation: "landscape" }) ?? window.print());
       ["annSearch", "annStatusFilter", "annTypeFilter", "annPriorityFilter"].forEach(id => {
         this.on(id, "input", () => { this.currentPage = 1; this.applyFilters(); });
         this.on(id, "change", () => { this.currentPage = 1; this.applyFilters(); });

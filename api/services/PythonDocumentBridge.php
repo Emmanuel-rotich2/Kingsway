@@ -59,7 +59,7 @@ final class PythonDocumentBridge
             throw new RuntimeException('The document batch must contain between 1 and 100 documents.');
         }
         if (!in_array($outputMode, ['combined', 'individual'], true)
-            || !in_array($pageNumbering, ['local', 'none'], true)) {
+            || !in_array($pageNumbering, ['local', 'none', 'auto'], true)) {
             throw new RuntimeException('The document batch output options are invalid.');
         }
 

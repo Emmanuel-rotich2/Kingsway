@@ -300,7 +300,7 @@ const BackupsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Backups", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

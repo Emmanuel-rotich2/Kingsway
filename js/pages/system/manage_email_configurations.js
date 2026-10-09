@@ -29,7 +29,7 @@
             this.on("emailRefresh", "click", () => this.load());
             this.on("emailNewProfile", "click", () => this.openModal());
             this.on("emailExportCsv", "click", () => this.exportCsv());
-            this.on("emailPrint", "click", () => window.print());
+            this.on("emailPrint", "click", () => window.PrintManager?.printPage({ title: "Email Configurations", orientation: "landscape" }) ?? window.print());
             this.on("emailTestBtn", "click", () => this.testGlobalSmtp());
             this.on("auditBccSaveBtn", "click", () => this.saveAuditBcc());
             this.on("emailProfileTestSmtpBtn", "click", () => this.testProfileSmtp(this.editingId));

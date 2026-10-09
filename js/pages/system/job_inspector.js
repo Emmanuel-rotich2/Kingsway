@@ -319,7 +319,7 @@ const JobInspectorController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Job Inspector", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {

@@ -273,7 +273,7 @@ const ActivityAuditLogsController = {
   },
 
   printView() {
-    window.print();
+    window.PrintManager?.printPage({ title: "Activity Audit Logs", orientation: "landscape" }) ?? window.print();
   },
 
   renderForbidden() {
