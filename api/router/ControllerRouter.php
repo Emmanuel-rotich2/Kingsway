@@ -137,17 +137,11 @@ class ControllerRouter
             // Call controller method with id and data
             $result = $controller->$methodName($id, $data, $segments);
 
-            // Keep subsequent browser reads on the master briefly after a
-            // successful mutation. The service carries this across requests
-            // with a signed, short-lived cookie; internal workers do not need
-            // browser stickiness.
-            if (in_array(strtoupper($method), ['POST', 'PUT', 'PATCH', 'DELETE'], true)
-                && is_array($result)
-                && ($result['success'] ?? false) === true
-                && !str_contains(strtolower((string) ($resource ?? '')), 'worker')
-                && !str_contains(strtolower((string) ($resource ?? '')), 'cleanup')) {
-                \App\API\Services\StickyMasterService::pin();
-            }
+            // Read consistency is selected at the query boundary: authorization
+            // and immediate write checks use masterRef()/masterSourceRef(),
+            // while explicitly qualified materialized reads use KingsWayReads.
+            // A blanket cookie pin here made every projection-backed GET fail
+            // for 60 seconds after unrelated POSTs (including login telemetry).
 
             $this->trace($method, $controllerName, $resource, $id, $result);
 

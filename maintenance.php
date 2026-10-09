@@ -1,30 +1,10 @@
 <?php
-require_once __DIR__ . '/vendor/autoload.php';
-use App\Config\Config;
-use App\Database\Database;
-Config::init();
-
-$db = Database::getInstance()->getConnection();
-
-try {
-    // Run maintenance procedures
-    $stmt = $db->prepare("CALL sp_run_maintenance()");
-    $stmt->execute();
-    
-    // Log successful execution
-    $logFile = __DIR__ . '/logs/maintenance.log';
-    $message = date('Y-m-d H:i:s') . " - Maintenance tasks completed successfully\n";
-    (new \App\API\Services\UploadService())->writeFile($logFile, $message, FILE_APPEND);
-    
-    echo "Maintenance tasks completed successfully\n";
-    exit(0);
-    
-} catch (Exception $e) {
-    // Log error
-    $logFile = __DIR__ . '/logs/maintenance.log';
-    $message = date('Y-m-d H:i:s') . " - Error: " . $e->getMessage() . "\n";
-    (new \App\API\Services\UploadService())->writeFile($logFile, $message, FILE_APPEND);
-    
-    echo "Error: " . $e->getMessage() . "\n";
-    exit(1);
-} 
+// Deprecated webroot entry point. Data/state flows through the API surface
+// (login.php architecture): frontend JS calls the route below, pages never
+// hold SQL. This stub only redirects callers to the API route.
+//
+//   → GET /api/realtime/maintenance (POST, X-Kingsway-Worker-Secret)
+$base = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($base === '.') $base = '';
+header('Location: ' . $base . '/api/realtime/maintenance (POST, X-Kingsway-Worker-Secret)', true, 308);
+exit;

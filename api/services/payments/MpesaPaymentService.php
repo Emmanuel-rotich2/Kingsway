@@ -151,9 +151,9 @@ class MpesaPaymentService
                 $routeStmt = $this->getDb()->prepare(
                     "SELECT r.account_identifier, r.settlement_financial_account_id,
                             r.financial_account_id, p.code AS provider_code
-                     FROM payment_collection_routes r
+                     FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
                      JOIN payment_providers p ON p.id = r.provider_id
-                     JOIN payment_collection_route_channels rc ON rc.route_id = r.id
+                     JOIN " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rc ON rc.route_id = r.id
                      JOIN financial_channels ch ON ch.id = rc.channel_id
                      WHERE r.id = :route_id AND r.purpose = :purpose
                        AND r.active = 1 AND p.code = 'mpesa_daraja'
@@ -355,13 +355,12 @@ class MpesaPaymentService
                 $applicationStmt = $this->getDb()->prepare(
                     "SELECT aa.id, aa.parent_id,
                             CASE WHEN EXISTS (
-                                SELECT 1 FROM student_academic_enrollments sae
+                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                                 WHERE sae.student_id = aa.enrolled_student_id
                                   AND sae.enrollment_status = 'active'
                             ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
-                     FROM admission_applications aa
-                     LEFT JOIN students sx ON sx.id = aa.enrolled_student_id
-                     WHERE aa.application_no = :application_reference OR sx.admission_no = :admission_reference
+                     FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                     WHERE aa.application_no = :application_reference OR (SELECT sx.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " sx WHERE sx.student_id = aa.enrolled_student_id LIMIT 1) = :admission_reference
                      LIMIT 1"
                 );
                 $applicationStmt->execute([
@@ -469,9 +468,9 @@ class MpesaPaymentService
             $stmt = $this->getDb()->prepare(
                 "SELECT mt.id, mt.phone_number, mt.amount, mt.bill_ref_number, mt.student_id,
                         CONCAT(p.first_name, ' ', COALESCE(NULLIF(p.middle_name, ''), ''), ' ', p.last_name) AS student_name
-                 FROM mpesa_transactions mt
-                 LEFT JOIN students s ON s.id = mt.student_id
-                 LEFT JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " mt
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = mt.student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  WHERE mt.id = :id LIMIT 1"
             );
             $stmt->execute(['id' => $transactionId]);
@@ -557,11 +556,10 @@ class MpesaPaymentService
         try {
             $db = $this->getDb();
             $current = $db->query(
-                "SELECT ayt.id AS ayt_id, ayt.academic_year_id AS ay_id,
-                        ay.year_code AS ay_code
-                 FROM academic_year_terms ayt
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 WHERE ay.is_current = 1 AND ayt.status = 'current'
+                "SELECT academic_year_term_id AS ayt_id, academic_year_id AS ay_id,
+                        year_code AS ay_code
+                 FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+                 WHERE is_current_year = 1 AND term_period_status = 'current'
                  LIMIT 1"
             )->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
@@ -679,8 +677,7 @@ class MpesaPaymentService
         $db = $this->getDb();
         $student = $db->prepare(
             "SELECT s.id AS student_id, sp.parent_id, s.admission_no
-             FROM students s
-             LEFT JOIN student_parents sp ON sp.student_id = s.id
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
             WHERE s.admission_no IN (:raw_reference, :reference)
              LIMIT 1"
         );
@@ -1088,10 +1085,9 @@ class MpesaPaymentService
     {
         try {
             $stmt = $this->getDb()->prepare(
-                "SELECT s.id, s.admission_no, s.status,
-                        CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) AS full_name
-                 FROM students s
-                 LEFT JOIN persons p ON p.id = s.person_id
+                "SELECT s.student_id AS id, s.admission_no, s.student_status AS status,
+                        CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS full_name
+                 FROM " . ReadReplicaService::qualifiedRef('person_directory') . " s
                  WHERE s.admission_no = :adm LIMIT 1"
             );
             $stmt->execute(['adm' => $admissionNumber]);
@@ -1115,9 +1111,9 @@ class MpesaPaymentService
             $stmt = $this->getDb()->prepare(
                 "SELECT mpesa_code, amount, transaction_date, phone_number,
                         bill_ref_number, status, transaction_type, checkout_request_id
-                 FROM mpesa_transactions
+                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . "
                  WHERE bill_ref_number = :bill_ref OR student_id IN (
-                     SELECT id FROM students WHERE admission_no = :adm
+                     SELECT id FROM " . ReadReplicaService::qualifiedRef("students") . " WHERE admission_no = :adm
                  )
                  ORDER BY transaction_date DESC
                  LIMIT " . (int) $limit

@@ -2,6 +2,7 @@
 namespace App\API\Modules\transport;
 
 use PDO;
+use App\API\Services\ReadReplicaService;
 
 class DriverManager
 {
@@ -89,16 +90,16 @@ class DriverManager
         $stmt = $this->db->prepare(
             "SELECT s.id, s.staff_no, s.position, s.status,
                     p.first_name, p.last_name, p.phone,
-                    (SELECT q.description FROM staff_qualifications q
+                    (SELECT q.description FROM " . ReadReplicaService::qualifiedRef("staff_qualifications") . " q
                       WHERE q.staff_id = s.id AND q.title = 'Driving License'
                       ORDER BY q.id DESC LIMIT 1) AS license_number,
                     (SELECT GROUP_CONCAT(DISTINCT sch.route_id ORDER BY sch.route_id)
                        FROM transport_schedules sch WHERE sch.driver_id=s.id AND sch.date IS NULL AND sch.status='active') AS route_ids,
                     (SELECT GROUP_CONCAT(DISTINCT tr.name ORDER BY tr.name SEPARATOR ', ')
-                       FROM transport_schedules sch JOIN transport_routes tr ON tr.id=sch.route_id
+                       FROM transport_schedules sch JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id=sch.route_id
                       WHERE sch.driver_id=s.id AND sch.date IS NULL AND sch.status='active') AS route_names
-             FROM staff s
-             JOIN persons p ON p.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
              WHERE s.id = ? AND s.position = 'Driver'"
         );
         $stmt->execute([$id]);
@@ -109,11 +110,11 @@ class DriverManager
         $stmt = $this->db->prepare(
             "SELECT s.id, s.staff_no, s.position, s.status,
                     p.first_name, p.last_name, p.phone,
-                    (SELECT q.description FROM staff_qualifications q
+                    (SELECT q.description FROM " . ReadReplicaService::qualifiedRef("staff_qualifications") . "
                       WHERE q.staff_id = s.id AND q.title = 'Driving License'
                       ORDER BY q.id DESC LIMIT 1) AS license_number
-             FROM staff s
-             JOIN persons p ON p.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
              WHERE s.position = 'Driver'
              ORDER BY p.last_name, p.first_name"
         );
@@ -191,16 +192,16 @@ class DriverManager
                     v.registration_number, v.capacity AS vehicle_capacity,
                     v.status AS vehicle_status,
                     (SELECT COUNT(*)
-                       FROM student_transport_assignments sta
+                       FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta
                       WHERE sta.route_id = r.id
                         AND sta.status = 'active'
                         AND sta.month = MONTH(CURDATE())
                         AND sta.year = YEAR(CURDATE())) AS passenger_count
-             FROM staff s
+             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
              INNER JOIN transport_vehicles v ON v.driver_id = s.id
-             INNER JOIN transport_vehicle_routes tvr
+             INNER JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr
                      ON tvr.vehicle_id = v.id AND tvr.status = 'active'
-             INNER JOIN transport_routes r
+             INNER JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " r
                      ON r.id = tvr.route_id AND r.status = 'active'
              INNER JOIN users u ON u.person_id = s.person_id
              WHERE u.id = ?
@@ -257,10 +258,7 @@ class DriverManager
         $stmt = $this->db->prepare(
             "SELECT v.*, CONCAT(p.first_name, ' ', p.last_name) AS driver_name,
                     s.staff_no, p.phone AS driver_phone
-             FROM staff s
-             INNER JOIN transport_vehicles v ON v.driver_id = s.id
-             INNER JOIN persons p ON p.id = s.person_id
-             INNER JOIN users u ON u.person_id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
              WHERE u.id = ?
                AND s.status IN ('active', 'on_leave')
              ORDER BY v.id DESC

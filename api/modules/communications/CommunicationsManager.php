@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\communications;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Core\FileLifecycleBase;
 use PDO;
@@ -105,7 +106,7 @@ class CommunicationsManager extends FileLifecycleBase
 
         $parentId = null;
         $userId = null;
-        $contactStmt = $this->db->query("SELECT pr.id AS parent_id, u.id AS user_id, p.phone FROM parents pr JOIN persons p ON p.id = pr.person_id LEFT JOIN users u ON u.person_id = p.id AND u.status = 'active' WHERE pr.status = 'active'");
+        $contactStmt = $this->db->query("SELECT pr.id AS parent_id, u.id AS user_id, p.phone FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active'");
         foreach ($contactStmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
             $candidate = preg_replace('/[^0-9]/', '', (string) ($contact['phone'] ?? ''));
             if (substr($candidate, 0, 1) === '0') $candidate = '254' . substr($candidate, 1);
@@ -116,7 +117,7 @@ class CommunicationsManager extends FileLifecycleBase
             }
         }
 
-        $thread = $this->db->prepare("SELECT ct.id FROM communication_threads ct JOIN communication_thread_messages tm ON tm.thread_id = ct.id WHERE ct.thread_type = 'parent_portal' AND tm.sender_address = ? AND ct.status IN ('open','pending') ORDER BY ct.id DESC LIMIT 1");
+        $thread = $this->db->prepare("SELECT ct.id FROM " . ReadReplicaService::qualifiedRef("communication_threads") . " JOIN communication_thread_messages tm ON tm.thread_id = ct.id WHERE ct.thread_type = 'parent_portal' AND tm.sender_address = ? AND ct.status IN ('open','pending') ORDER BY ct.id DESC LIMIT 1");
         $thread->execute([$sender]);
         $threadId = (int) ($thread->fetchColumn() ?: 0);
         if (!$threadId) {
@@ -385,7 +386,7 @@ class CommunicationsManager extends FileLifecycleBase
             $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
             if (!$ids) throw new \InvalidArgumentException('At least one parent is required');
             $marks = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM parents pr JOIN persons p ON p.id = pr.person_id LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active' WHERE pr.status = 'active' AND pr.id IN ($marks)");
+            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active' AND pr.id IN ($marks)");
             $stmt->execute($ids);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address]; }
         } elseif (in_array($recipientType, ['selected_students','selected_class','student_type','school_level'], true)) {
@@ -393,13 +394,13 @@ class CommunicationsManager extends FileLifecycleBase
             if (!$ids) throw new \InvalidArgumentException('At least one audience item is required');
             $marks = implode(',', array_fill(0, count($ids), '?'));
             $where = $recipientType === 'selected_students' ? "s.id IN ($marks)" : ($recipientType === 'selected_class' ? "c.id IN ($marks)" : ($recipientType === 'student_type' ? "s.student_type_id IN ($marks)" : "c.level_id IN ($marks)"));
-            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM students s JOIN persons sperson ON sperson.id = s.person_id JOIN student_parents sx ON sx.student_id = s.id JOIN parents pr ON pr.id = sx.parent_id AND pr.status = 'active' JOIN users u ON u.person_id = pr.person_id AND u.status = 'active' JOIN persons p ON p.id = u.person_id JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active' JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id AND aycs.status = 'active' JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id AND ayc.status = 'active' JOIN classes c ON c.id = ayc.class_id WHERE s.status = 'active' AND {$where}");
+            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE s.status = 'active' AND {$where}");
             $stmt->execute($ids);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [(int) $contact['user_id'], $address]; }
         } elseif ($recipientType === 'selected_staff') {
             $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
             if (!$ids) throw new \InvalidArgumentException('At least one staff member is required');
-            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.email, p.phone FROM staff s JOIN users u ON u.person_id = s.person_id AND u.status = 'active' JOIN persons p ON p.id = u.person_id WHERE s.status = 'active' AND s.id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
+            $stmt = $this->db->prepare("SELECT DISTINCT s.user_id AS user_id, s.email, s.phone FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.user_status = 'active' AND s.staff_status = 'active' AND s.staff_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
             $stmt->execute($ids);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [(int) $contact['user_id'], $address]; }
         } elseif (in_array($recipientType, ['selected_vendors','all_vendors'], true)) {
@@ -416,8 +417,7 @@ class CommunicationsManager extends FileLifecycleBase
         } elseif ($recipientType === 'all_parents') {
             $stmt = $this->db->query(
                 "SELECT DISTINCT u.id AS user_id, p.email, p.phone
-                   FROM parents pr JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
-                   JOIN persons p ON p.id = u.person_id WHERE pr.status = 'active'"
+                   FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active'"
             );
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
                 $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
@@ -425,9 +425,9 @@ class CommunicationsManager extends FileLifecycleBase
             }
         } elseif ($recipientType === 'all_staff') {
             $stmt = $this->db->query(
-                "SELECT DISTINCT u.id AS user_id, p.email, p.phone
-                   FROM staff s JOIN users u ON u.person_id = s.person_id AND u.status = 'active'
-                   JOIN persons p ON p.id = u.person_id WHERE s.status = 'active'"
+                "SELECT DISTINCT s.user_id AS user_id, s.email, s.phone
+                   FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                   WHERE s.user_status = 'active' AND s.staff_status = 'active'"
             );
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
                 $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
@@ -440,7 +440,7 @@ class CommunicationsManager extends FileLifecycleBase
                 $sql = "SELECT DISTINCT gm.user_id, p.email, p.phone
                           FROM group_members gm
                           JOIN users u ON u.id = gm.user_id
-                          JOIN persons p ON p.id = u.person_id
+                          JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                          WHERE gm.group_id IN ($marks)";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute($groupIds);
@@ -515,7 +515,7 @@ class CommunicationsManager extends FileLifecycleBase
             $signature = strtolower((string) ($row['sender_signature'] ?? ''));
             if (!(bool) $stmt->fetchColumn()) return false;
             if (strpos($signature, 'parent') !== false || strpos($signature, 'selected_students') !== false || strpos($signature, 'selected_class') !== false) return true;
-            $recipientStmt = $this->db->prepare('SELECT 1 FROM communication_recipients cr JOIN users parent_user ON parent_user.id = cr.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr.communication_id = ? LIMIT 1');
+            $recipientStmt = $this->db->prepare('SELECT 1 FROM communication_recipients cr JOIN users parent_user ON parent_user.id = cr.recipient_id JOIN ' . ReadReplicaService::qualifiedRef('parents') . ' parent_record ON parent_record.person_id = parent_user.person_id WHERE cr.communication_id = ? LIMIT 1');
             $recipientStmt->execute([(int) $row['id']]);
             return (bool) $recipientStmt->fetchColumn();
         }

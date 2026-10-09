@@ -75,7 +75,7 @@ const fAssCtrl = {
     // Wire learning area change in create modal to load outcomes
     const faSubject = document.getElementById('faSubject');
     if (faSubject) {
-      faSubject.addEventListener('change', () => this._loadOutcomesForSubject(faSubject.value));
+      faSubject.addEventListener('change', () => { this._loadOutcomesForSubject(faSubject.value); this._loadSubStrandsForSubject(faSubject.value); });
     }
   },
 
@@ -161,6 +161,61 @@ const fAssCtrl = {
         sel.insertAdjacentHTML('beforeend', `<option value="${o.id}">${this._esc((o.outcome || '').substring(0, 80))}</option>`);
       });
     } catch (e) { console.warn('Outcomes load failed:', e); }
+  },
+
+  // Moodle-style multi-sub-strand picker: loads all strands + sub-strands
+  // for the selected learning area, grouped by strand, as checkboxes.
+  _loadSubStrandsForSubject: async function (learningAreaId) {
+    const mount = document.getElementById('faSubStrandPicker');
+    if (!mount) return;
+    this._selectedSubStrandIds = new Set();
+    if (!learningAreaId) {
+      mount.innerHTML = '<div class="text-muted small">Select a learning area to load its sub-strands.</div>';
+      return;
+    }
+    mount.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Loading sub-strands…</div>';
+    try {
+      const classId = document.getElementById('faClass')?.value;
+      let gradeFilter = '';
+      if (classId) {
+        const cls = (this._classes || []).find(c => String(c.id) === String(classId));
+        if (cls && cls.name) {
+          const match = cls.name.match(/Grade (\d+)/);
+          if (match) gradeFilter = '&grade_level=' + encodeURIComponent(match[1]);
+        }
+      }
+      const r = await callAPI('/academic/curriculum-taxonomy?learning_area_id=' + learningAreaId + gradeFilter, 'GET');
+      const rows = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      if (!rows.length) {
+        mount.innerHTML = '<div class="text-muted small">No sub-strands found for this learning area.</div>';
+        return;
+      }
+      const byStrand = {};
+      rows.forEach(row => {
+        const sid = row.strand_id || 0;
+        if (!byStrand[sid]) byStrand[sid] = { name: row.strand_name || 'Strand', subs: [] };
+        if (row.sub_strand_id && !byStrand[sid].subs.some(s => s.id === row.sub_strand_id)) {
+          byStrand[sid].subs.push({ id: row.sub_strand_id, name: row.sub_strand_name || '' });
+        }
+      });
+      mount.innerHTML = Object.entries(byStrand).map(([sid, strand]) => `
+        <div class="mb-2">
+          <div class="fw-semibold small text-muted text-uppercase">${this._esc(strand.name)}</div>
+          ${strand.subs.map(ss => `
+            <label class="d-block form-check small ps-3 mb-0">
+              <input type="checkbox" class="form-check-input fa-sub-strand" value="${ss.id}" data-strand="${sid}">
+              <span class="form-check-label">${this._esc(ss.name)}</span>
+            </label>`).join('')}
+        </div>`).join('');
+      mount.querySelectorAll('.fa-sub-strand').forEach(cb => {
+        cb.addEventListener('change', () => {
+          if (cb.checked) this._selectedSubStrandIds.add(Number(cb.value));
+          else this._selectedSubStrandIds.delete(Number(cb.value));
+        });
+      });
+    } catch (e) {
+      mount.innerHTML = '<div class="text-muted small">Unable to load sub-strands.</div>';
+    }
   },
 
   _onSubjectFilterChange: async function () {
@@ -298,6 +353,7 @@ const fAssCtrl = {
       max_marks:          parseFloat(maxMarks),
       assessment_date:    date,
       learning_outcome_id: outcomeId ? parseInt(outcomeId) : null,
+      sub_strand_ids:     [...(this._selectedSubStrandIds || [])],
     };
 
     try {

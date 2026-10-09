@@ -6,6 +6,7 @@ use App\Database\Database;
 use PDO;
 use RuntimeException;
 use App\API\Services\payments\MpesaB2CService;
+use App\API\Services\ReadReplicaService;
 
 /** Coordinates approved supplier/expense payouts through Buni Funds Transfer. */
 class SupplierDisbursementService
@@ -27,7 +28,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM expenses e JOIN suppliers s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);
@@ -147,7 +148,7 @@ class SupplierDisbursementService
     {
         $stmt = $this->db->prepare(
             "SELECT e.*, s.name AS supplier_name
-             FROM expenses e JOIN suppliers s ON s.id = e.vendor_id
+             FROM " . ReadReplicaService::qualifiedRef("expenses") . " JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = e.vendor_id
              WHERE e.id = ? AND e.status IN ('approved','payment_pending') LIMIT 1"
         );
         $stmt->execute([$expenseId]);

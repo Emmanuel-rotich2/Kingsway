@@ -147,7 +147,7 @@ const analyticsCatalogueController = {
     purpose.textContent = report.decision_purpose;
     const meta = document.createElement("div");
     meta.className = "analytics-meta mb-3";
-    meta.textContent = `${report.code} v${report.version} · ${report.grain} · ${report.freshness_minutes} min freshness`;
+    meta.textContent = this.publicReportMeta(report);
     const actions = document.createElement("div");
     actions.className = "mt-auto d-flex justify-content-between align-items-center";
     const sensitivity = document.createElement("span");
@@ -187,7 +187,7 @@ const analyticsCatalogueController = {
     document.getElementById("analyticsReportModalTitle").textContent = definition.title;
     document.getElementById("analyticsDecisionPurpose").textContent = definition.decision_purpose;
     document.getElementById("analyticsDefinitionMeta").textContent =
-      `${definition.code} v${definition.version} · ${definition.grain} · Source: ${definition.source_name} · Freshness: ${definition.freshness_minutes} minutes · ${this.label(definition.sensitivity)}`;
+      this.publicReportMeta(definition);
     this.renderMetrics(definition.metrics || []);
     this.renderFilters(definition.allowed_filters || []);
     document.getElementById("analyticsResultRegion").hidden = true;
@@ -203,7 +203,7 @@ const analyticsCatalogueController = {
       card.className = "analytics-metric h-100";
       const name = document.createElement("div");
       name.className = "fw-semibold";
-      name.textContent = `${metric.name} · v${metric.version}`;
+      name.textContent = metric.name;
       const formula = document.createElement("div");
       formula.className = "small text-muted mt-1";
       formula.textContent = metric.formula_text;
@@ -331,7 +331,7 @@ const analyticsCatalogueController = {
       const response = await window.API.reports.execute(definition.code, filters);
       this.state.currentResult = response?.data ?? response;
       this.renderResult();
-      this.setStatus(`${definition.title} refreshed automatically.`);
+      this.setStatus(`Updated ${this.formatDate(new Date())}.`);
     } catch (error) {
       this.notify("error", error?.message || "The report could not be generated.");
     } finally {}
@@ -481,10 +481,14 @@ const analyticsCatalogueController = {
       const key = typeof column === "string" ? column : column.key;
       return { key, label: typeof column === "string" ? this.label(key) : (column.label || this.label(key)) };
     });
+    const sensitivity = String(result.report?.sensitivity || "").trim();
     const options = {
       title: result.report.title,
       subtitle: `${result.report.code} v${result.report.version} · As of ${this.formatDate(result.as_of)}`,
       description: result.report.decision_purpose,
+      confidentialityNote: sensitivity
+        ? `${this.label(sensitivity)} — ${result.report.title} (${result.report.code} v${result.report.version}). Issued by Kingsway Preparatory School for authorized use only.`
+        : undefined,
       rows: result.rows,
       columns,
       summary: result.summary || {},
@@ -545,6 +549,28 @@ const analyticsCatalogueController = {
     if (value === null || value === undefined || value === "") return "—";
     if (typeof value === "object") return JSON.stringify(value);
     return String(value);
+  },
+
+  /**
+   * Whitelist of report metadata that may be rendered interactively.
+   *
+   * Internal governance fields (report code, metric version, source view,
+   * freshness TTL and sensitivity classification) are confidential
+   * implementation detail: the source view name discloses schema, and the code
+   * plus version discloses the internal registry structure. They are excluded
+   * here by ALLOWLIST rather than by deleting fields one at a time, so a new
+   * backend field cannot silently leak onto the screen.
+   *
+   * Official PDF/CSV output still carries report code, version, as-of date and
+   * the confidentiality classification via exportReport(), which is where the
+   * reporting standard requires them.
+   */
+  publicReportMeta(definition) {
+    if (!definition || typeof definition !== "object") return "";
+    const parts = [];
+    const grain = String(definition.grain || "").trim();
+    if (grain) parts.push(`Grouped by ${grain}`);
+    return parts.join(" · ");
   },
 
   formatDate(value) {

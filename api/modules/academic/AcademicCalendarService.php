@@ -2,6 +2,7 @@
 namespace App\API\Modules\academic;
 
 use App\API\Services\NotificationService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -160,9 +161,9 @@ class AcademicCalendarService
     {
         $stmt = $this->db->prepare(
             "SELECT d.id, d.date, d.calendar_day_type_id, d.title, d.description
-             FROM academic_year_calendar_days d
-             JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
-             JOIN academic_year_terms ayt ON ayt.id = c.academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " c ON c.id = d.academic_year_calendar_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = c.academic_year_term_id
              WHERE ayt.academic_year_id = ? AND d.is_manual = 1"
         );
         $stmt->execute([$academicYearId]);
@@ -181,9 +182,9 @@ class AcademicCalendarService
 
         $find = $this->db->prepare(
             "SELECT d.id
-             FROM academic_year_calendar_days d
-             JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
-             JOIN academic_year_terms ayt ON ayt.id = c.academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " c ON c.id = d.academic_year_calendar_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = c.academic_year_term_id
              WHERE ayt.academic_year_id = ? AND d.date = ?
              LIMIT 1"
         );
@@ -224,9 +225,9 @@ class AcademicCalendarService
                 ayt.status,
                 COUNT(c.id)                    AS weeks,
                 COALESCE(SUM(DATEDIFF(c.week_end, c.week_start) + 1), 0) AS days
-            FROM academic_year_terms ayt
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
             JOIN terms t ON t.id = ayt.term_id
-            LEFT JOIN academic_year_calendar c ON c.academic_year_term_id = ayt.id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " c ON c.academic_year_term_id = ayt.id
             WHERE ayt.academic_year_id = ?
             GROUP BY ayt.id, ayt.term_id, t.name, ayt.opening_date,
                      ayt.half_term_start, ayt.half_term_end, ayt.closing_date, ayt.status
@@ -321,13 +322,12 @@ class AcademicCalendarService
     private function getYearTerms(int $academicYearId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT ayt.id, ayt.term_id, t.name, t.code,
-                    ayt.opening_date, ayt.half_term_start, ayt.half_term_end,
-                    ayt.closing_date, ayt.status
-             FROM academic_year_terms ayt
-             JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = ?
-             ORDER BY ayt.term_id"
+            "SELECT academic_year_term_id AS id, term_id, term_name AS name, term_code AS code,
+                    opening_date, half_term_start, half_term_end,
+                    closing_date, term_period_status AS status
+             FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE academic_year_id = ?
+             ORDER BY term_id"
         );
         $stmt->execute([$academicYearId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

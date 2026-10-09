@@ -84,6 +84,22 @@ if ($appBase === '.') $appBase = '';
           </div>
         </div>
       </div>
+      <div class="lead-card mb-3 lead-manage-only" id="positionManagementPanel">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+          <span><i class="fas fa-list-check me-2"></i>Student Leadership Positions</span>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.exportPositionsCsv()"><i class="fas fa-file-csv me-1"></i>CSV</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.printPositions()"><i class="fas fa-print me-1"></i>Print</button>
+            <button class="btn btn-outline-primary btn-sm" onclick="StudentLeadershipController.openPosition()"><i class="fas fa-plus me-1"></i>Add Position</button>
+          </div>
+        </div>
+        <div class="table-responsive p-3">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>Position</th><th>Description</th><th>Maximum holders</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+            <tbody id="leadPositionsTable"><tr><td colspan="5" class="text-muted text-center py-3">Loading positions…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ================= HOUSES ================= -->
@@ -126,6 +142,31 @@ if ($appBase === '.') $appBase = '';
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ POSITION MODAL ============ -->
+<div class="modal fade" id="leadPositionModal" tabindex="-1" aria-labelledby="leadPositionModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="leadPositionModalTitle">Add student leadership position</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="form-label" for="leadPositionName">Position name</label><input id="leadPositionName" class="form-control" maxlength="150" required></div>
+        <div class="mb-3"><label class="form-label" for="leadPositionDescription">Description</label><textarea id="leadPositionDescription" class="form-control" rows="3"></textarea></div>
+        <div class="row g-3">
+          <div class="col-6"><label class="form-label" for="leadPositionMaxHolders">Maximum holders</label><input id="leadPositionMaxHolders" type="number" min="1" step="1" class="form-control" placeholder="No limit"></div>
+          <div class="col-6"><label class="form-label" for="leadPositionOrder">Display order</label><input id="leadPositionOrder" type="number" step="1" class="form-control" value="0"></div>
+          <div class="col-12"><div class="form-check"><input id="leadPositionActive" type="checkbox" class="form-check-input" checked><label class="form-check-label" for="leadPositionActive">Available for new assignments</label></div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="StudentLeadershipController.savePosition()"><i class="fas fa-save me-1"></i>Save Position</button>
       </div>
     </div>
   </div>

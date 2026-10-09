@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\API\Modules\students;
 
 use App\API\Services\TeacherScopeService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 
 /**
@@ -73,10 +74,9 @@ class StudentScopeService
     }
 
     /**
-     * Visibility WHERE-clause fragments built against the normalized projection
-     * (students s, persons p, academic_year_class_streams aycs, academic_year_classes
-     * ayc, student_types st, student_transport_assignments sta). Caller owns the
-     * FROM/JOINs and must alias them consistently with StudentRepository::joins().
+     * Visibility WHERE-clause fragments built against StudentRepository's
+     * normalized aliases (students s, persons p, student_types st, learner
+     * placement lp, and transport_scope). Caller owns the FROM/JOINs.
      */
     public function whereClause(array $scope): array
     {
@@ -94,21 +94,21 @@ class StudentScopeService
                 $bindings = array_merge($bindings, $scope['student_ids']);
             }
             if (!empty($scope['stream_ids']) && empty($scope['class_stream_pairs'])) {
-                $clauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
+                $clauses[] = 'lp.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['stream_ids']);
             }
             if (!empty($scope['class_ids'])) {
-                $clauses[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
+                $clauses[] = 'lp.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['class_ids']);
             }
             if (!empty($scope['transport_route_ids'])) {
-                $clauses[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+                $clauses[] = 'transport_scope.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['transport_route_ids']);
             }
             if (!empty($scope['class_stream_pairs'])) {
                 $pairClauses = [];
                 foreach ($scope['class_stream_pairs'] as $pair) {
-                    $pairClauses[] = '(ayc.class_id = ? AND aycs.stream_id = ?)';
+                    $pairClauses[] = '(lp.class_id = ? AND lp.stream_id = ?)';
                     $bindings[] = (int) $pair['class_id'];
                     $bindings[] = (int) $pair['stream_id'];
                 }
@@ -116,7 +116,7 @@ class StudentScopeService
             }
             $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
         } elseif (!empty($scope['transport_route_ids'])) {
-            $conditions[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+            $conditions[] = 'transport_scope.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
             $bindings = array_merge($bindings, $scope['transport_route_ids']);
         }
 
@@ -177,14 +177,14 @@ class StudentScopeService
         // resolve through academic_year_class_streams/academic_year_classes.
         $sql = "
             SELECT s.id
-            FROM students s
+            FROM " . ReadReplicaService::masterSourceRef("students") . " s
             LEFT JOIN student_types st ON st.id = s.student_type_id
-            LEFT JOIN academic_years ay ON ay.is_current = 1
-            LEFT JOIN student_academic_enrollments sae
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_years") . " ay ON ay.is_current = 1
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
                 ON sae.student_id = s.id AND sae.academic_year_id = ay.id AND sae.enrollment_status = 'active'
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("student_transport_assignments") . " sta ON sta.student_id = s.id AND sta.status = 'active'
             WHERE " . implode(' AND ', $where) . "
             LIMIT 1
         ";
@@ -219,12 +219,12 @@ class StudentScopeService
         if (!in_array('class_teacher', $roles, true)) {
         $stmt = $this->db->prepare("
             SELECT DISTINCT ayc.class_id, aycs.stream_id, aycs.id AS academic_year_class_stream_id
-            FROM academic_year_class_learning_area_teachers la_teachers
-            JOIN academic_year_class_learning_areas la
+            FROM " . ReadReplicaService::masterSourceRef("academic_year_class_learning_area_teachers") . " la_teachers
+            JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_learning_areas") . " la
                 ON la.id = la_teachers.academic_year_class_learning_area_id
-            JOIN academic_year_classes ayc
+            JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc
                 ON ayc.id = la.academic_year_class_id
-            LEFT JOIN academic_year_class_streams aycs
+            LEFT JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs
                 ON aycs.academic_year_class_id = ayc.id
             WHERE " . implode(' AND ', $where)
         );
@@ -247,9 +247,8 @@ class StudentScopeService
                 $classWhere[] = 'ayc.academic_year_id = ?';
                 $classBindings[] = $yearId;
             }
-            $classStmt = $this->db->prepare("SELECT DISTINCT ayc.class_id, aycs.stream_id
-                FROM academic_year_class_streams aycs
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            $classStmt = $this->db->prepare("SELECT DISTINCT class_id, stream_id
+                FROM " . ReadReplicaService::masterSourceRef('academic_calendar') . "
                 WHERE " . implode(' AND ', $classWhere));
             $classStmt->execute($classBindings);
             $rows = array_merge($rows, $classStmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
@@ -285,17 +284,18 @@ class StudentScopeService
             $conditions = [];
             $bindings = [];
             if ($email !== '') {
-                $conditions[] = 'LOWER(pp.email) = ?';
+                $conditions[] = 'LOWER(p.email) = ?';
                 $bindings[] = $email;
             }
             if ($phone !== '') {
-                $conditions[] = 'pp.phone = ?';
+                $conditions[] = 'p.phone = ?';
                 $bindings[] = $phone;
             }
             if (!empty($conditions)) {
                 $stmt = $this->db->prepare(
-                    'SELECT par.id FROM parents par JOIN persons pp ON pp.id = par.person_id WHERE '
-                    . implode(' OR ', $conditions)
+                    'SELECT par.id FROM parents par
+                     JOIN ' . ReadReplicaService::masterRef('persons') . ' p ON p.id = par.person_id
+                     WHERE par.status = \'active\' AND (' . implode(' OR ', $conditions) . ')'
                 );
                 $stmt->execute($bindings);
                 $parentIds = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
@@ -336,7 +336,7 @@ class StudentScopeService
 
         $stmt = $this->db->prepare(
             "SELECT DISTINCT tvr.route_id
-             FROM transport_vehicle_routes tvr
+             FROM " . ReadReplicaService::masterSourceRef("transport_vehicle_routes") . "
              JOIN transport_vehicles v ON v.id = tvr.vehicle_id
              WHERE v.driver_id = ? AND tvr.status = 'active'"
         );
@@ -354,8 +354,9 @@ class StudentScopeService
         if (!$userId) {
             return null;
         }
+        $staffDirectory = ReadReplicaService::masterSourceRef('staff_directory');
         $stmt = $this->db->prepare(
-            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? AND s.status = 'active' LIMIT 1"
+            "SELECT staff_id FROM {$staffDirectory} WHERE user_id = ? AND staff_status = 'active' LIMIT 1"
         );
         $stmt->execute([(int) $userId]);
         $staffId = $stmt->fetchColumn();
@@ -380,5 +381,60 @@ class StudentScopeService
         ");
         $stmt->execute([$table, $column]);
         return (int) $stmt->fetchColumn() > 0;
+    }
+    /** Class teacher + subject teachers for a student's current class (contact cards). */
+    public function teacherContactsForStudent(int $studentId, bool $classTeacherOnly = false): array
+    {
+        $enroll = $this->db->query(
+            "SELECT aycs.id AS class_stream_id, aycs.class_teacher_id,
+                    ayc.academic_year_id, c.name AS class_name, st.name AS stream_name,
+                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS student_name
+               FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
+               JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+               JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+               JOIN " . ReadReplicaService::masterSourceRef("classes") . " c ON c.id = ayc.class_id
+               LEFT JOIN " . ReadReplicaService::masterSourceRef("streams") . " st ON st.id = aycs.stream_id
+              WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+              ORDER BY ayc.academic_year_id DESC LIMIT 1",
+            [$studentId]
+        )?->fetch(\PDO::FETCH_ASSOC);
+        if (!$enroll || empty($enroll['class_teacher_id'])) return [];
+        $context = trim((string) ($enroll['student_name'] ?? '') . ' - ' . trim((string) $enroll['class_name'] . ' ' . (string) ($enroll['stream_name'] ?? '')));
+        $contacts = [];
+        $teacher = $this->db->query(
+            "SELECT CONCAT_WS(' ', s.first_name, s.last_name) AS name, s.phone, s.email
+               FROM " . ReadReplicaService::masterSourceRef('staff_directory') . " s WHERE s.staff_id = ?",
+            [(int) $enroll['class_teacher_id']]
+        )?->fetch(\PDO::FETCH_ASSOC);
+        if ($teacher) {
+            $contacts[] = ['name' => $teacher['name'], 'role' => 'Class Teacher', 'phone' => $teacher['phone'] ?? null, 'email' => $teacher['email'] ?? null, 'icon' => 'teacher', 'context' => $context];
+        }
+        if ($classTeacherOnly) return $contacts;
+        $subs = $this->db->query(
+            "SELECT v.staff_name AS name, v.subject_name AS subject, sp.phone, sp.email
+               FROM vw_staff_assignments_detailed v JOIN " . ReadReplicaService::masterSourceRef("staff") . " s ON s.id = v.staff_id
+               JOIN " . ReadReplicaService::masterSourceRef("persons") . " sp ON sp.id = s.person_id
+              WHERE v.class_stream_id = ? AND v.academic_year_id = ? AND v.role = 'subject_teacher'
+              GROUP BY v.staff_id, v.subject_name, sp.phone, sp.email ORDER BY v.subject_name",
+            [(int) $enroll['class_stream_id'], (int) $enroll['academic_year_id']]
+        )?->fetchAll(\PDO::FETCH_ASSOC);
+        foreach (($subs ?: []) as $row) {
+            $contacts[] = ['name' => $row['name'], 'role' => $row['subject'] . ' Teacher', 'phone' => $row['phone'] ?? null, 'email' => $row['email'] ?? null, 'icon' => 'subject', 'context' => $context];
+        }
+        return $contacts;
+    }
+
+    /** Whether this class-teacher's user may view this student's portfolio. */
+    public function teacherCanViewStudent(int $studentId, int $userId): bool
+    {
+        $stmt = $this->db->prepare("SELECT 1
+            FROM " . ReadReplicaService::masterSourceRef("student_academic_enrollments") . " sae
+            JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            JOIN " . ReadReplicaService::masterSourceRef("staff") . " st ON st.id = aycs.class_teacher_id
+            JOIN users u ON u.person_id = st.person_id
+            WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+              AND aycs.status = 'active' AND u.id = ? LIMIT 1");
+        $stmt->execute([$studentId, $userId]);
+        return (bool) $stmt->fetchColumn();
     }
 }

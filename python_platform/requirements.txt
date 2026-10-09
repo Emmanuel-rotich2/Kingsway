@@ -1,0 +1,19 @@
+flask>=3.0,<4
+PyMySQL>=1.1,<2
+polars[rtcompat]==1.44.2
+python-calamine==0.8.2
+openpyxl==3.1.5
+odfpy==1.4.1
+pypdfium2==5.13.0
+pytesseract==0.3.13
+Pillow==12.3.0
+defusedxml==0.7.1
+# Batch document/packaging/graphics layer (scaling masterplan 2026-10-04)
+reportlab==4.4.4
+weasyprint==66.0
+pypdf==5.9.0
+xlsxwriter==3.2.9
+zipstream-ng==1.8.0
+segno==1.6.6
+qrcode==8.2
+pyarrow==21.0.0

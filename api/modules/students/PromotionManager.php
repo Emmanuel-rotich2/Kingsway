@@ -4,6 +4,7 @@ namespace App\API\Modules\students;
 use PDO;
 use Exception;
 use App\API\Modules\academic\AcademicYearManager;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Promotion Manager
@@ -19,6 +20,22 @@ class PromotionManager
 {
     private PDO $db;
     private AcademicYearManager $yearManager;
+
+    /** Distinct student ids enrolled in a class for a term (promotion portfolio). */
+    public static function studentIdsForTermClass(\PDO $pdo, int $termId, int $classId): array
+    {
+        $stmt = $pdo->prepare(
+            "SELECT DISTINCT sae.student_id
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id=sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id=aycs.academic_year_class_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id=ayc.academic_year_id
+             WHERE ayt.id=? AND (ayc.class_id=? OR aycs.id=?)
+               AND sae.enrollment_status IN ('pending','active')"
+        );
+        $stmt->execute([$termId, $classId, $classId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+    }
 
     public function __construct(PDO $db, AcademicYearManager $yearManager)
     {
@@ -477,20 +494,17 @@ class PromotionManager
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $streams = $this->db->query("
-            SELECT aycs.id, ayc.class_id, sm.name AS stream_name
-            FROM academic_year_class_streams aycs
-            JOIN streams sm ON sm.id = aycs.stream_id
-            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            WHERE aycs.status = 'active'
-            ORDER BY sm.name ASC
+            SELECT class_stream_id AS id, class_id, stream_name
+            FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+            WHERE class_stream_status = 'active'
+            ORDER BY stream_name ASC
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        $terms = $this->db->query("
-            SELECT ayt.id, t.name
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            ORDER BY ayt.opening_date ASC
-        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $terms = $this->db->query(
+            "SELECT academic_year_term_id AS id, term_name AS name
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+             ORDER BY opening_date ASC"
+        )->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         return [
             'academic_years' => $years,
@@ -519,15 +533,15 @@ class PromotionManager
                 sae.academic_year_class_stream_id AS stream_id,
                 ay.year_code AS current_year,
                 s.status AS student_status
-            FROM students s
-            JOIN persons per ON per.id = s.person_id
-            LEFT JOIN student_academic_enrollments sae 
+            FROM " . ReadReplicaService::qualifiedRef("students") . " s
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae 
                 ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN streams sm ON sm.id = aycs.stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            LEFT JOIN classes c ON c.id = ayc.class_id
-            LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
             WHERE s.status = 'active'
         ";
         $bindings = [];
@@ -696,7 +710,7 @@ class PromotionManager
 
     private function getStudentStatus(int $studentId): ?array
     {
-        $stmt = $this->db->prepare("SELECT id, status FROM students WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT id, status FROM " . ReadReplicaService::qualifiedRef("student_directory") . "   WHERE id = ?");
         $stmt->execute([$studentId]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result ?: null;
@@ -706,9 +720,9 @@ class PromotionManager
     {
         $stmt = $this->db->prepare("
             SELECT sae.*, ayc.class_id, aycs.stream_id
-            FROM student_academic_enrollments sae
-            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
             WHERE sae.student_id = ? AND sae.academic_year_id = ?
             AND sae.enrollment_status IN ('active')
             LIMIT 1
@@ -721,9 +735,8 @@ class PromotionManager
     private function verifyClassStream(int $classId, int $streamId): bool
     {
         $stmt = $this->db->prepare("
-            SELECT aycs.id FROM academic_year_class_streams aycs
-            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-            WHERE ayc.class_id = ? AND aycs.id = ?
+            SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+            WHERE class_id = ? AND class_stream_id = ?
         ");
         $stmt->execute([$classId, $streamId]);
 
@@ -812,10 +825,10 @@ class PromotionManager
     {
         $stmt = $this->db->prepare("
             SELECT sae.*, s.status as student_status, ayc.class_id, aycs.stream_id
-            FROM student_academic_enrollments sae
-            JOIN students s ON sae.student_id = s.id
-            JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sae.student_id = s.id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
             WHERE ayc.class_id = ?
             AND aycs.stream_id = ?
             AND sae.academic_year_id = ?
@@ -830,10 +843,10 @@ class PromotionManager
     {
         $stmt = $this->db->prepare("
             SELECT CONCAT(c.name, ' ', sm.name) as full_name
-            FROM classes c
-            JOIN academic_year_classes ayc ON ayc.class_id = c.id
-            JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-            JOIN streams sm ON sm.id = aycs.stream_id
+            FROM " . ReadReplicaService::qualifiedRef("classes") . " c
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
+            JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
             WHERE c.id = ? AND aycs.id = ?
             LIMIT 1
         ");
@@ -983,16 +996,15 @@ class PromotionManager
     private function getCurrentTermId(int $calYear): int
     {
         $stmt = $this->db->prepare(
-            "SELECT ayt.id FROM academic_year_terms ayt
-             JOIN academic_years ay ON ay.id = ayt.academic_year_id
-             WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
-             ORDER BY FIELD(ayt.status,'current','completed','upcoming'),
-                       (SELECT code FROM terms WHERE id = ayt.term_id) DESC
+            "SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE CAST(SUBSTRING(year_code, 1, 4) AS UNSIGNED) = ?
+             ORDER BY FIELD(term_period_status,'current','completed','upcoming'),
+                       term_code DESC
              LIMIT 1"
         );
         $stmt->execute([$calYear]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (int)$row['id'] : 1; // fallback to 1 if none found
+        return $row ? (int)$row['academic_year_term_id'] : 1; // fallback to 1 if none found
     }
 
     private function updatePromotionBatch(int $batchId, array $data): bool

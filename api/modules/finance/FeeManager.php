@@ -65,8 +65,8 @@ class FeeManager
         $rows = $this->db->prepare(
             "SELECT sfo.id, sfo.amount_due, sfo.academic_year_id, sfo.academic_year_term_id,
                     sae.student_id, COALESCE(vfb.amount_paid, 0) AS amount_paid
-             FROM student_fee_obligations sfo
-             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
              LEFT JOIN $feeBalView vfb
                ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
               AND vfb.academic_year_term_id = sfo.academic_year_term_id
@@ -139,11 +139,10 @@ class FeeManager
     private function getYearTermMap($academicYearId)
     {
         $stmt = $this->db->prepare(
-            "SELECT ayt.id, ayt.term_id, t.code AS term_code, t.name AS term_name
-             FROM academic_year_terms ayt
-             JOIN terms t ON ayt.term_id = t.id
-             WHERE ayt.academic_year_id = ?
-             ORDER BY t.code"
+            "SELECT academic_year_term_id AS id, term_id, term_code, term_name
+             FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE academic_year_id = ?
+             ORDER BY term_code"
         );
         $stmt->execute([$academicYearId]);
         $map = [];
@@ -403,14 +402,13 @@ class FeeManager
             $sql = "SELECT ayfs.*, fc.name as name, fc.description,
                            ay.year_code as academic_year,
                            sl.name as level_name, sl.code as level_code,
-                           t.name as term_name, t.code as term_code,
+                           aterm.term_name as term_name, aterm.term_code as term_code,
                            st.name as student_type_name, st.code as student_type_code,
                            'SCHOOL_FEES' as fee_type_code, 'School Fees' as fee_name, 'school_fees' as fee_category,
                            COUNT(DISTINCT sae.id) as student_count
-                    FROM academic_year_fee_schedules ayfs
-                    LEFT JOIN academic_years ay ON ayfs.academic_year_id = ay.id
-                    LEFT JOIN academic_year_terms ayt ON ayfs.academic_year_term_id = ayt.id
-                    LEFT JOIN terms t ON ayt.term_id = t.id
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ayfs.academic_year_id = ay.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON ayfs.academic_year_term_id = aterm.academic_year_term_id
                     LEFT JOIN academic_year_classes ayc ON ayfs.academic_year_class_id = ayc.id
                     LEFT JOIN classes c ON ayc.class_id = c.id
                     LEFT JOIN school_levels sl ON c.level_id = sl.id
@@ -428,7 +426,7 @@ class FeeManager
             }
 
             if (!empty($filters['level_id'])) {
-                $sql .= " AND ayfs.academic_year_class_id IN (SELECT ayc.id FROM academic_year_classes ayc JOIN classes c ON ayc.class_id = c.id WHERE c.level_id = ?)";
+                $sql .= " AND ayfs.academic_year_class_id IN (SELECT DISTINCT academic_year_class_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE level_id = ?)";
                 $params[] = $filters['level_id'];
             }
 
@@ -475,8 +473,8 @@ class FeeManager
             $feeStructures = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Get total count
-            $countSql = "SELECT COUNT(DISTINCT ayfs.id) as total FROM academic_year_fee_schedules ayfs
-                         LEFT JOIN academic_years ay ON ayfs.academic_year_id = ay.id
+            $countSql = "SELECT COUNT(DISTINCT ayfs.id) as total FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+                         LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ayfs.academic_year_id = ay.id
                          LEFT JOIN fee_catalog fc ON ayfs.fee_catalog_id = fc.id
                          WHERE 1=1";
             $countParams = array_slice($params, 0, -2); // Remove limit and offset
@@ -485,7 +483,7 @@ class FeeManager
                 $countSql .= " AND (ay.year_code = ? OR YEAR(ay.start_date) = ?)";
             }
             if (!empty($filters['level_id'])) {
-                $countSql .= " AND ayfs.academic_year_class_id IN (SELECT ayc.id FROM academic_year_classes ayc JOIN classes c ON ayc.class_id = c.id WHERE c.level_id = ?)";
+                $countSql .= " AND ayfs.academic_year_class_id IN (SELECT DISTINCT academic_year_class_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " WHERE level_id = ?)";
             }
             if (!empty($filters['student_type_id'])) {
                 $countSql .= " AND ayfs.student_type_id = ?";
@@ -518,12 +516,12 @@ class FeeManager
             $billingSql = "
                 SELECT COUNT(DISTINCT sfo.student_academic_enrollment_id) AS billed_students,
                        COALESCE(SUM(sfo.amount_due), 0) AS billed_amount
-                FROM student_fee_obligations sfo
-                JOIN academic_year_fee_schedules ayfs
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
                   ON ayfs.id = sfo.academic_year_fee_schedule_id
-                JOIN academic_years ay ON ay.id = ayfs.academic_year_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayfs.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                 WHERE sfo.status NOT IN ('cancelled', 'void')";
             $billingParams = [];
 
@@ -597,7 +595,7 @@ class FeeManager
         }
 
         if (empty($termId)) {
-            $stmt = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ayt.academic_year_id = ay.id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1");
+            $stmt = $this->db->query("SELECT academic_year_term_id FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE is_current_year = 1 AND term_period_status = 'current' LIMIT 1");
             $termId = $stmt->fetchColumn();
         }
 
@@ -659,10 +657,10 @@ class FeeManager
                         $stmt = $this->db->prepare("
                 SELECT DISTINCT v.student_id AS student_id
                 FROM $feeBalView v
-                JOIN students s ON v.student_id = s.id
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id = v.student_id AND sae.academic_year_id = v.academic_year_id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON v.student_id = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = v.student_id AND sae.academic_year_id = v.academic_year_id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
                 $where
             ");
             $stmt->execute($bindings);
@@ -911,7 +909,7 @@ class FeeManager
 
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $checkStmt = $this->db->prepare(
-                "SELECT COUNT(*) as count FROM student_fee_obligations WHERE academic_year_fee_schedule_id IN ($placeholders)"
+                "SELECT COUNT(*) as count FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE academic_year_fee_schedule_id IN ($placeholders)"
             );
             $checkStmt->execute($ids);
             $inUse = (int) $checkStmt->fetch(PDO::FETCH_ASSOC)['count'];
@@ -993,15 +991,15 @@ class FeeManager
                     COALESCE(SUM(v.amount_waived), 0) AS total_waived,
                     COALESCE(SUM(v.balance), 0) AS total_balance,
                     MAX(ay.updated_at) AS last_updated
-                FROM students s
-                LEFT JOIN persons p ON s.person_id = p.id
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN classes c ON ayc.class_id = c.id
-                LEFT JOIN streams st ON aycs.stream_id = st.id
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
                 LEFT JOIN $feeBalView v ON v.student_id = s.id
-                LEFT JOIN academic_years ay ON v.academic_year_id = ay.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON v.academic_year_id = ay.id
                 WHERE " . implode(' AND ', $summaryWhere) . "
                 GROUP BY s.id, s.admission_no, p.first_name, p.last_name, c.name, st.name
             ";
@@ -1032,7 +1030,7 @@ class FeeManager
                     v.amount_waived,
                     v.balance
                 FROM $feeBalView v
-                JOIN academic_year_terms ayt ON v.academic_year_term_id = ayt.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON v.academic_year_term_id = ayt.id
                 JOIN terms t ON ayt.term_id = t.id
                 WHERE " . implode(' AND ', $termsWhere) . "
                 ORDER BY v.academic_year DESC, t.code DESC, v.academic_year_term_id DESC
@@ -1122,14 +1120,14 @@ class FeeManager
         try {
                         $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
                         $stmt = $this->db->prepare(
-                "SELECT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
+                "SELECT s.student_id AS id, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
                         COALESCE(SUM(v.balance), 0) AS amount_due,
                         MAX(v.latest_due_date) AS due_date,
                         MAX(v.academic_year) AS academic_year,
                         MAX(v.term_id) AS term_id
-                   FROM students s JOIN persons p ON p.id = s.person_id
-                   LEFT JOIN $feeBalView v ON v.student_id = s.id
-                  WHERE s.id = ? GROUP BY s.id, p.first_name, p.middle_name, p.last_name"
+                   FROM " . ReadReplicaService::qualifiedRef('person_directory') . " s
+                   LEFT JOIN $feeBalView v ON v.student_id = s.student_id
+                  WHERE s.student_id = ? GROUP BY s.student_id, s.first_name, s.middle_name, s.last_name"
             );
             $stmt->execute([(int) $studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1209,18 +1207,18 @@ class FeeManager
                            v.balance AS outstanding_balance,
                            v.days_overdue
                     FROM $feeBalView v
-                    JOIN students s ON v.student_id = s.id
-                    LEFT JOIN persons p ON s.person_id = p.id
-                    LEFT JOIN student_academic_enrollments sae ON sae.student_id = v.student_id
+                    JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON v.student_id = s.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = v.student_id
                         AND sae.academic_year_id = (
-                            SELECT ay2.id FROM academic_years ay2
+                            SELECT ay2.id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " ay2
                             WHERE ay2.year_code = v.academic_year
                             LIMIT 1
                         )
                         AND sae.enrollment_status = 'active'
-                    LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                    LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                    LEFT JOIN classes c ON ayc.class_id = c.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                     LEFT JOIN school_levels sl ON c.level_id = sl.id
                     WHERE v.balance > 0";
             $params = [];
@@ -1286,7 +1284,7 @@ class FeeManager
     {
         try {
             if (empty($academicYear)) {
-                $yearStmt = $this->db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
+                $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE is_current = 1 LIMIT 1");
                 $yearStmt->execute();
                 $currentYear = $yearStmt->fetchColumn();
                 $academicYear = $currentYear ?: date('Y');
@@ -1301,14 +1299,14 @@ class FeeManager
                     c.name as class_name,
                     st.name as stream_name,
                     sl.name as level_name
-                FROM students s
-                LEFT JOIN persons p ON s.person_id = p.id
-                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN classes c ON ayc.class_id = c.id
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
-                LEFT JOIN streams st ON aycs.stream_id = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
                 WHERE s.id = ?
             ");
             $stmt->execute([$studentId]);
@@ -1343,12 +1341,12 @@ class FeeManager
                     CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number,
                     'School Fees' AS fee_type_name,
                     ayfs.amount AS configured_amount
-                FROM student_fee_obligations sfo
-                JOIN student_academic_enrollments sae ON sfo.student_academic_enrollment_id = sae.id
-                JOIN academic_years ay ON sfo.academic_year_id = ay.id
-                JOIN academic_year_terms ayt ON sfo.academic_year_term_id = ayt.id
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sfo.student_academic_enrollment_id = sae.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON sfo.academic_year_id = ay.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON sfo.academic_year_term_id = ayt.id
                 JOIN terms t ON ayt.term_id = t.id
-                LEFT JOIN academic_year_fee_schedules ayfs ON sfo.academic_year_fee_schedule_id = ayfs.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs ON sfo.academic_year_fee_schedule_id = ayfs.id
                 LEFT JOIN $feeBalView v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
                 WHERE sae.student_id = ? AND sfo.academic_year_id = ?
                 ORDER BY term_number ASC, sfo.id ASC
@@ -1373,9 +1371,9 @@ class FeeManager
                     t.name AS term_name,
                     CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number,
                     ay.year_code AS academic_year
-                FROM payments p
-                LEFT JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
-                LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
                 LEFT JOIN terms t ON ayt.term_id = t.id
                 WHERE p.student_id = ? AND ay.id = ?
                 ORDER BY p.payment_date DESC
@@ -1464,14 +1462,14 @@ class FeeManager
                            'School Fees' AS fee_name, 'school_fees' AS fee_category,
                            ayfs.amount AS amount_due, ayfs.amount AS amount, ayfs.due_date,
                            ay.year_code AS academic_year
-                    FROM academic_year_fee_schedules ayfs
-                    JOIN academic_year_classes ayc ON ayfs.academic_year_class_id = ayc.id
-                    JOIN classes c ON ayc.class_id = c.id
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayfs.academic_year_class_id = ayc.id
+                    JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                     JOIN school_levels sl ON c.level_id = sl.id
-                    LEFT JOIN academic_year_terms ayt ON ayfs.academic_year_term_id = ayt.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayfs.academic_year_term_id = ayt.id
                     LEFT JOIN terms t ON ayt.term_id = t.id
                     LEFT JOIN student_types st ON ayfs.student_type_id = st.id
-                    LEFT JOIN academic_years ay ON ayfs.academic_year_id = ay.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ayfs.academic_year_id = ay.id
                     WHERE ayc.class_id = ?";
             $params = [$classId];
 
@@ -1512,7 +1510,7 @@ class FeeManager
             }
 
             if (!empty($filters['class_id'])) {
-                $sql .= " AND student_id IN (SELECT sae.student_id FROM student_academic_enrollments sae JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id WHERE ayc.class_id = ?)";
+                $sql .= " AND student_id IN (SELECT student_id FROM " . ReadReplicaService::qualifiedRef('student_directory') . " WHERE class_id = ?)";
                 $params[] = $filters['class_id'];
             }
 
@@ -1705,10 +1703,9 @@ class FeeManager
             $fyClassAfIds = $data["class_ids"] ?? null;
             if (empty($fyClassAfIds)) {
                 $stmt = $this->db->prepare("
-                    SELECT ayc.id, c.id AS class_id
-                    FROM academic_year_classes ayc
-                    JOIN classes c ON c.id = ayc.class_id
-                    WHERE c.level_id = ? AND ayc.academic_year_id = ?
+                    SELECT DISTINCT academic_year_class_id AS id, class_id
+                    FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                    WHERE level_id = ? AND academic_year_id = ?
                 ");
                 $stmt->execute([$data['level_id'], $academicYearId]);
                 $aycIdMap = [];
@@ -1719,10 +1716,9 @@ class FeeManager
                 $phs = implode(',', array_fill(0, count($fyClassAfIds), '?'));
                 $params = array_merge($fyClassAfIds, [$academicYearId]);
                 $stmt = $this->db->prepare("
-                    SELECT ayc.id, c.id AS class_id
-                    FROM academic_year_classes ayc
-                    JOIN classes c ON c.id = ayc.class_id
-                    WHERE ayc.class_id IN ($phs) AND ayc.academic_year_id = ?
+                    SELECT DISTINCT academic_year_class_id AS id, class_id
+                    FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                    WHERE class_id IN ($phs) AND academic_year_id = ?
                 ");
                 $stmt->execute($params);
                 $aycIdMap = [];
@@ -1874,11 +1870,10 @@ class FeeManager
             }
 
             $stmt = $this->db->prepare("
-                SELECT ayc.id, c.id AS class_id
-                FROM academic_year_classes ayc
-                JOIN classes c ON c.id = ayc.class_id
-                WHERE ayc.academic_year_id = ? AND c.id BETWEEN ? AND ?
-                ORDER BY c.id
+                SELECT DISTINCT academic_year_class_id AS id, class_id
+                FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                WHERE academic_year_id = ? AND class_id BETWEEN ? AND ?
+                ORDER BY class_id
             ");
             $stmt->execute([$academicYearId, $fromId, $toId]);
             $classRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -2108,10 +2103,10 @@ class FeeManager
                 SELECT ayfs.id AS schedule_id, c.id AS class_id, c.name AS class_name,
                        'SCHOOL_FEES' AS fee_code, 'School Fees' AS fee_name,
                        ayfs.student_type_id, ayfs.amount, t.code AS term_code
-                FROM academic_year_fee_schedules ayfs
-                JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
-                JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ayfs.academic_year_term_id
                 JOIN terms t ON t.id = ayt.term_id
                 WHERE ayfs.academic_year_id = ? AND ayfs.status = 'active'
                   AND c.id BETWEEN ? AND ?
@@ -3284,7 +3279,7 @@ class FeeManager
         try {
             // 2. Resolve academic_year_id from the 4-digit year
             $stmt = $this->db->prepare("
-                SELECT id FROM academic_years
+                SELECT id FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                 WHERE YEAR(start_date) = ? OR year_code = ?
                 LIMIT 1
             ");
@@ -3307,11 +3302,11 @@ class FeeManager
             $levelFilter = $levelId ? " AND c.level_id = ?" : "";
             $stmt = $this->db->prepare("
                 SELECT DISTINCT s.id AS student_id
-                FROM students s
-                JOIN student_academic_enrollments sae ON sae.student_id = s.id
-                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                JOIN classes c ON ayc.class_id = c.id
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                 WHERE 1=1
                   AND s.student_type_id = ?
                   AND s.status = 'active'
@@ -3405,10 +3400,10 @@ class FeeManager
                    ayfs.student_type_id,
                    ay.year_code AS academic_year,
                    c.level_id
-            FROM academic_year_fee_schedules ayfs
-            JOIN academic_years ay ON ay.id = ayfs.academic_year_id
-            LEFT JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-            LEFT JOIN classes c ON c.id = ayc.class_id
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+            JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayfs.academic_year_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
             WHERE ayfs.id = ?
             LIMIT 1
         ");
@@ -3487,13 +3482,13 @@ class FeeManager
                            WHEN MAX(ayfs.approved_by) IS NOT NULL THEN 'submitted'
                            ELSE 'draft'
                        END AS status
-                FROM academic_year_fee_schedules ayfs
-                JOIN academic_years ay ON ay.id = ayfs.academic_year_id
-                LEFT JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayfs.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ayfs.academic_year_term_id
                 LEFT JOIN terms t ON t.id = ayt.term_id
                 JOIN student_types st ON st.id = ayfs.student_type_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                 LEFT JOIN school_levels sl ON sl.id = c.level_id
                 LEFT JOIN users u_sub ON u_sub.id = ayfs.approved_by
                 $where
@@ -3581,22 +3576,19 @@ class FeeManager
                        COALESCE(v.amount_waived, 0) AS amount_waived,
                        COALESCE(v.balance, sfo.amount_due) AS balance,
                        COALESCE(v.payment_status, 'pending') AS payment_status,
-                       t.name        AS term_name,
-                       CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number,
+                       aterm.term_name AS term_name,
+                       CAST(SUBSTRING(aterm.term_code, 2) AS UNSIGNED) AS term_number,
                        'School Fees' AS fee_type_name,
                        'SCHOOL_FEES' AS fee_type_code,
                        sl.name        AS level_name,
-                       c.name         AS class_name
-                FROM student_fee_obligations sfo
-                JOIN student_academic_enrollments sae ON sfo.student_academic_enrollment_id = sae.id
-                JOIN academic_years ay ON sfo.academic_year_id = ay.id
-                JOIN academic_year_terms ayt ON sfo.academic_year_term_id = ayt.id
-                JOIN terms t ON ayt.term_id = t.id
+                       sd.class_name  AS class_name
+                FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sfo.student_academic_enrollment_id = sae.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON sfo.academic_year_id = ay.id
+                JOIN " . ReadReplicaService::qualifiedRef('academic_term') . " aterm ON sfo.academic_year_term_id = aterm.academic_year_term_id
                 LEFT JOIN academic_year_fee_schedules ayfs ON sfo.academic_year_fee_schedule_id = ayfs.id
-                LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN classes c ON ayc.class_id = c.id
-                LEFT JOIN school_levels sl ON c.level_id = sl.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef('student_directory') . " sd ON sd.enrollment_id = sfo.student_academic_enrollment_id
+                LEFT JOIN school_levels sl ON sl.id = sd.level_id
                 LEFT JOIN $feeBalView v ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id AND v.academic_year_term_id = sfo.academic_year_term_id
                 WHERE sae.student_id = ?
                 ORDER BY ay.year_code DESC, t.code ASC
@@ -3619,9 +3611,9 @@ class FeeManager
                        ayt.id AS term_id,
                        t.name AS term_name,
                        CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number
-                FROM payments p
-                LEFT JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
-                LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
                 LEFT JOIN terms t ON ayt.term_id = t.id
                 WHERE p.student_id = ? AND p.status IN ('confirmed', 'completed', 'success')
                 ORDER BY p.payment_date DESC
@@ -3721,17 +3713,17 @@ class FeeManager
                        MAX(v.payment_status)             AS payment_status,
                        MAX(p.payment_date)                AS last_payment_date,
                        COUNT(DISTINCT p.id)               AS payment_count
-                FROM student_academic_enrollments sae
-                JOIN students s       ON s.id = sae.student_id
-                JOIN persons prs      ON s.person_id = prs.id
+                FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s       ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " prs      ON s.person_id = prs.id
                 JOIN student_types st ON s.student_type_id = st.id
-                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
                 LEFT JOIN $feeBalView v
                        ON v.student_academic_enrollment_id = sae.id
                       AND v.academic_year_id = sae.academic_year_id
                       $termFilter
-                LEFT JOIN payments p
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payments") . " p
                        ON p.student_id = s.id
                       AND p.status IN ('confirmed', 'completed', 'success')
                       $pmtTermFilter
@@ -3831,7 +3823,7 @@ class FeeManager
         }
 
         $db->prepare('UPDATE extra_charge_schedules SET status=\'inactive\' WHERE extra_charge_id=?')->execute([$chargeId]);
-        $yearStmt = $db->prepare('SELECT start_date FROM academic_years WHERE id=(SELECT academic_year_id FROM extra_charges WHERE id=?)');
+        $yearStmt = $db->prepare('SELECT start_date FROM ' . ReadReplicaService::qualifiedRef("academic_years") . ' WHERE id=(SELECT academic_year_id FROM ' . ReadReplicaService::qualifiedRef("extra_charges") . ' WHERE id=?)');
         $yearStmt->execute([$chargeId]);
         $startsOn = $data['starts_on'] ?? ($yearStmt->fetchColumn() ?: date('Y-m-d'));
         $frequency = (string) ($data['billing_frequency'] ?? 'one_time');
@@ -3885,13 +3877,13 @@ class FeeManager
                            coa.account_code AS gl_account_code,
                            CONCAT(p1.first_name, ' ', p1.last_name) AS created_by_name,
                            CONCAT(p2.first_name, ' ', p2.last_name) AS approved_by_name
-                    FROM extra_charges ec
-                    LEFT JOIN classes cl ON cl.id = ec.class_id
-                    LEFT JOIN chart_of_accounts coa ON coa.id = ec.gl_account_id
+                    FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cl ON cl.id = ec.class_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                     LEFT JOIN users u ON u.id = ec.created_by
-                    LEFT JOIN persons p1 ON p1.id = u.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p1 ON p1.id = u.person_id
                     LEFT JOIN users u2 ON u2.id = ec.approved_by
-                    LEFT JOIN persons p2 ON p2.id = u2.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p2 ON p2.id = u2.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY ec.display_order, ec.name";
 
@@ -3923,9 +3915,9 @@ class FeeManager
             $stmt = $db->prepare(
                 "SELECT ec.*, cl.name AS class_name,
                         coa.account_name AS gl_account_name, coa.account_code AS gl_account_code
-                 FROM extra_charges ec
-                 LEFT JOIN classes cl ON cl.id = ec.class_id
-                 LEFT JOIN chart_of_accounts coa ON coa.id = ec.gl_account_id
+                 FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cl ON cl.id = ec.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                  WHERE ec.id = ?"
             );
             $stmt->execute([$id]);
@@ -3938,7 +3930,7 @@ class FeeManager
                 "SELECT r.*, CONCAT(p.first_name, ' ', p.last_name) AS reviewer_name
                  FROM extra_charge_review_log r
                  JOIN users u ON u.id = r.reviewer_id
-                 JOIN persons p ON p.id = u.person_id
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                  WHERE r.extra_charge_id = ? ORDER BY r.created_at DESC"
             );
             $logStmt->execute([$id]);
@@ -4220,8 +4212,8 @@ class FeeManager
                 "SELECT ec.id, ec.name, ec.amount, ec.calculation_mode, ec.unit_label, ec.unit_price,
                         ec.billing_model, ec.billing_frequency, ec.target_scope,
                         ec.class_id, coa.account_name AS gl_account_name
-                 FROM extra_charges ec
-                 LEFT JOIN chart_of_accounts coa ON coa.id = ec.gl_account_id
+                 FROM " . ReadReplicaService::qualifiedRef("extra_charges") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id = ec.gl_account_id
                  WHERE ec.academic_year_id = ? AND ec.status = 'active' AND ec.visible_on_fee_structure = 1
                  ORDER BY ec.display_order, ec.name"
             );
@@ -4251,7 +4243,7 @@ class FeeManager
         try {
             $db = Database::getInstance()->getConnection();
             $sql = "SELECT ec.*
-                    FROM extra_charges ec
+                    FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec
                     JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='enrollment'
                     LEFT JOIN student_types st ON st.id=?
                     WHERE ec.academic_year_id = ?
@@ -4262,7 +4254,7 @@ class FeeManager
                           OR (ec.target_scope = 'existing_students' AND ? = 0)
                           OR (ec.target_scope = 'boarders' AND st.code = 'BOARD')
                           OR (ec.target_scope = 'day_students' AND st.code = 'DAY')
-                          OR (ec.target_scope = 'specific_class' AND EXISTS (SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id=ec.id AND xcc.class_id=? ) )
+                          OR (ec.target_scope = 'specific_class' AND EXISTS (SELECT 1 FROM " . ReadReplicaService::qualifiedRef("extra_charge_classes") . " xcc WHERE xcc.extra_charge_id=ec.id AND xcc.class_id=? ) )
                           OR EXISTS (SELECT 1 FROM extra_charge_student_types xst WHERE xst.extra_charge_id=ec.id AND xst.student_type_id=? )
                       )
                     ORDER BY ec.display_order, ec.name";
@@ -4312,7 +4304,7 @@ class FeeManager
             $db = Database::getInstance()->getConnection();
             $stmt = $db->query(
                 "SELECT coa.id, coa.account_code, coa.account_name, cat.code AS account_type
-                 FROM chart_of_accounts coa
+                 FROM " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa
                  JOIN accounting_account_types cat ON cat.id = coa.account_type_id
                  WHERE coa.is_postable = 1 AND coa.status = 'active'
                  ORDER BY coa.account_code"

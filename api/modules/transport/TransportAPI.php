@@ -6,6 +6,7 @@ use App\API\Modules\transport\StudentTransportPaymentManager;
 use App\API\Modules\transport\StudentTransportStatusManager;
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 
 class TransportAPI extends BaseAPI
@@ -46,11 +47,7 @@ class TransportAPI extends BaseAPI
             if ($routeId <= 0) {
                 $routeStmt = $this->db->prepare(
                     "SELECT tvr.route_id
-                     FROM users u
-                     INNER JOIN staff s ON s.person_id = u.person_id
-                     INNER JOIN transport_vehicles v ON v.driver_id = s.id
-                     INNER JOIN transport_vehicle_routes tvr
-                             ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+                     FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                      WHERE u.id = ? AND s.status IN ('active', 'on_leave')
                      LIMIT 1"
                 );
@@ -108,7 +105,7 @@ class TransportAPI extends BaseAPI
 
     public function userHasAssignedRoute(int $userId, int $routeId): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM users u JOIN staff s ON s.person_id=u.person_id JOIN transport_vehicles v ON v.driver_id=s.id JOIN transport_vehicle_routes tvr ON tvr.vehicle_id=v.id AND tvr.status='active' WHERE u.id=? AND tvr.route_id=? AND s.status IN ('active','on_leave') LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE u.id=? AND tvr.route_id=? AND s.status IN ('active','on_leave') LIMIT 1");
         $stmt->execute([$userId, $routeId]);
         return (bool)$stmt->fetchColumn();
     }

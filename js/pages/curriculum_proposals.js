@@ -22,7 +22,7 @@
     el('newProposalBtn')?.addEventListener('click', openProposal);
     el('yearFilter')?.addEventListener('change', async () => { await loadContext(Number(el('yearFilter').value)); await Promise.all([loadProposals(),loadHistory()]); });
     ['statusFilter','entityFilter'].forEach(id => el(id)?.addEventListener('change',loadProposals));
-    ['historyYear','historyArea','historyEntity'].forEach(id => el(id)?.addEventListener('change',loadHistory));
+    ['historyArea','historyEntity'].forEach(id => el(id)?.addEventListener('change',loadHistory));
     ['proposalEntity','proposalAction','proposalArea','proposalGrade'].forEach(id => el(id)?.addEventListener('change', refreshFormChoices));
     el('proposalTarget')?.addEventListener('change', prefillTarget);
     el('saveDraftBtn')?.addEventListener('click',()=>save(false));
@@ -37,7 +37,6 @@
     const c=state.context?.data||state.context;
     const scope=c.scope||{};
     el('yearFilter').innerHTML=(c.years||[]).map(y=>`<option value="${y.id}" ${Number(y.id)===Number(scope.academic_year_id)?'selected':''}>${esc(y.year_name)}${y.is_current?' (Current)':''}</option>`).join('');
-    el('historyYear').innerHTML='<option value="">All academic years</option>'+(c.years||[]).map(y=>`<option value="${y.id}">${esc(y.year_name)}${y.is_current?' (Current)':''}</option>`).join('');
     el('proposalTerm').innerHTML='<option value="">Whole academic year</option>'+(c.terms||[]).map(t=>`<option value="${t.id}">${esc(t.term_name)}</option>`).join('');
     fillAreaSelects(c.learning_areas||[]);
     if (scope.restricted) {
@@ -79,7 +78,7 @@
 
   async function loadHistory() {
     const params=new URLSearchParams();
-    if(el('historyYear')?.value)params.set('academic_year_id',el('historyYear').value);
+    if(el('yearFilter')?.value)params.set('academic_year_id',el('yearFilter').value);
     if(el('historyArea')?.value)params.set('learning_area_id',el('historyArea').value);
     if(el('historyEntity')?.value)params.set('entity_type',el('historyEntity').value);
     state.history=rows(await api(`curriculum-history?${params}`)); renderHistory();

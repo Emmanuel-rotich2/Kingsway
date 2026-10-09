@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Staff Performance Manager
@@ -244,15 +245,15 @@ class StaffPerformanceManager extends BaseAPI
                        s.staff_no, p.first_name, p.last_name, s.position,
                        st.name as staff_type, sc.category_name, d.name as department_name,
                        CONCAT(rp.first_name, ' ', rp.last_name) as reviewer_name
-                FROM performance_reviews pr
-                JOIN staff s ON pr.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                LEFT JOIN departments d ON d.id = sda.department_id
+                FROM " . ReadReplicaService::masterRef("performance_reviews") . " pr
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON pr.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON s.staff_type_id = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_categories") . " sc ON s.staff_category_id = sc.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
                 LEFT JOIN users reviewer ON pr.reviewed_by = reviewer.id
-                LEFT JOIN persons rp ON rp.id = reviewer.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rp ON rp.id = reviewer.person_id
                 WHERE pr.id = ?
             ");
             $stmt->execute([$reviewId]);
@@ -263,7 +264,7 @@ class StaffPerformanceManager extends BaseAPI
             }
 
             // Get all KPIs. kpi_name/kpi_category no longer live on
-            // performance_review_kpis — they come from the linked template. There is
+            // performance_review_kpis — they come FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " template. There is
             // no category column anywhere, so KPIs are grouped under 'general'.
             $stmt = $this->db->prepare("
                 SELECT prk.*,
@@ -271,7 +272,7 @@ class StaffPerformanceManager extends BaseAPI
                        'general' AS kpi_category,
                        skt.description as kpi_description,
                        skt.measurement_criteria
-                FROM performance_review_kpis prk
+                FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk
                 LEFT JOIN staff_kpi_templates skt ON prk.kpi_template_id = skt.id
                 WHERE prk.review_id = ?
                 ORDER BY skt.kpi_name, prk.id

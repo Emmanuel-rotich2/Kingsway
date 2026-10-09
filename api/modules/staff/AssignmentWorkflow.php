@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\staff;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -41,11 +42,11 @@ class AssignmentWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 SELECT s.id AS staff_id, s.staff_no, p.first_name, p.last_name, s.position,
                        c.name AS class_name, la.name AS subject_name, ay.year_name AS academic_year
-                FROM staff s
-                JOIN persons p ON p.id = s.person_id
-                JOIN classes c ON c.id = ?
-                LEFT JOIN learning_areas la ON la.id = ?
-                LEFT JOIN academic_years ay ON ay.id = ?
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ?
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = ?
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ?
                 WHERE s.id = ?
             ");
             $stmt->execute([$classId, (int)($proposal['subject_id'] ?? 0), (int)($proposal['academic_year_id'] ?? 0), $staffId]);
@@ -225,7 +226,7 @@ class AssignmentWorkflow extends WorkflowHandler
         if (!$aycId) return [false, 'This class is not set up for the selected academic year'];
 
         if (($d['role'] ?? '') !== 'class_teacher') {
-            $area = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_learning_areas WHERE academic_year_class_id = ? AND learning_area_id = ?");
+            $area = $this->db->prepare("SELECT COUNT(*) FROM " . ReadReplicaService::masterRef("user_role_grant") . "  WHERE academic_year_class_id = ? AND learning_area_id = ?");
             $area->execute([$aycId, (int)($d['subject_id'] ?? 0)]);
             if (!$area->fetchColumn()) return [false, 'This learning area is not set up for the class in the selected academic year'];
         }

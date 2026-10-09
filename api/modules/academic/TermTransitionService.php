@@ -2,6 +2,7 @@
 
 namespace App\API\Modules\academic;
 
+use App\API\Services\ReadReplicaService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
@@ -27,16 +28,16 @@ class TermTransitionService
     {
         try {
             $academicYearId = (int) ($params['academic_year_id'] ?? 0);
-            $where = $academicYearId > 0 ? 'WHERE ayt.academic_year_id = ?' : '';
+            $where = $academicYearId > 0 ? 'WHERE academic_year_id = ?' : '';
             $args = $academicYearId > 0 ? [$academicYearId] : [];
 
             $stmt = $this->db->prepare(
-                "SELECT ayt.id, ayt.academic_year_id, ayt.term_id, ayt.opening_date AS start_date,
-                        ayt.closing_date AS end_date, ayt.status, t.name, t.code
-                 FROM academic_year_terms ayt
-                 JOIN terms t ON t.id = ayt.term_id
+                "SELECT academic_year_term_id AS id, academic_year_id, term_id,
+                        opening_date AS start_date, closing_date AS end_date,
+                        term_period_status AS status, term_name AS name, term_code AS code
+                 FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
                  {$where}
-                 ORDER BY ayt.id"
+                 ORDER BY academic_year_term_id"
             );
             $stmt->execute($args);
             $terms = $stmt->fetchAll(PDO::FETCH_ASSOC);

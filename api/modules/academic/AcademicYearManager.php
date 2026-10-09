@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\academic;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 
@@ -395,18 +396,17 @@ class AcademicYearManager
 
         $stmt = $this->db->prepare("
             SELECT
-                ayt.id,
-                ayt.academic_year_id,
-                ayt.term_id,
-                t.name,
-                t.code,
-                ayt.opening_date,
-                ayt.closing_date,
-                ayt.status,
-                SUBSTRING(t.code, 2) AS term_number
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ayt.academic_year_id = ?
+                academic_year_term_id AS id,
+                academic_year_id,
+                term_id,
+                term_name AS name,
+                term_code AS code,
+                opening_date,
+                closing_date,
+                term_period_status AS status,
+                SUBSTRING(term_code, 2) AS term_number
+            FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+            WHERE academic_year_id = ?
             ORDER BY term_number ASC
         ");
         $stmt->execute([$yearId]);
@@ -420,18 +420,17 @@ class AcademicYearManager
     {
         $stmt = $this->db->query("
             SELECT
-                ayt.id,
-                ayt.academic_year_id,
-                ayt.term_id,
-                t.name,
-                t.code,
-                ayt.opening_date,
-                ayt.closing_date,
-                ayt.status,
-                SUBSTRING(t.code, 2) AS term_number
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ayt.status = 'current'
+                academic_year_term_id AS id,
+                academic_year_id,
+                term_id,
+                term_name AS name,
+                term_code AS code,
+                opening_date,
+                closing_date,
+                term_period_status AS status,
+                SUBSTRING(term_code, 2) AS term_number
+            FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+            WHERE term_period_status = 'current'
             LIMIT 1
         ");
         $term = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -54,7 +54,7 @@ class CommunicationOutboxService
 
         $endpointStmt = $this->db->prepare(
             "SELECT e.*, r.id AS recipient_row_id
-               FROM communication_recipient_endpoints e
+               FROM " . ReadReplicaService::qualifiedRef("communication_recipient_endpoints") . "
                JOIN communication_recipients r ON r.id = e.communication_recipient_id
               WHERE r.communication_id = ? AND e.status IN ('pending','retry')
                 AND (e.next_attempt_at IS NULL OR e.next_attempt_at <= NOW())
@@ -145,7 +145,7 @@ class CommunicationOutboxService
         if ($type === 'whatsapp') {
             $mediaStmt = $this->db->prepare(
                 "SELECT a.public_url, a.file_path, a.mime_type
-                   FROM communication_attachments a
+                   FROM " . ReadReplicaService::qualifiedRef("communication_attachments") . "
                    JOIN communication_attachment_channels ac ON ac.attachment_id = a.id
                   WHERE a.communication_id = ? AND ac.channel = 'whatsapp' AND ac.status IN ('ready','pending')
                   ORDER BY a.id"

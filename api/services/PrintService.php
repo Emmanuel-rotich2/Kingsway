@@ -163,6 +163,80 @@ final class PrintService
     }
 
     /**
+     * Render the existing trusted PHP ID-card templates into bounded HTML
+     * chunks for the authenticated Python PDF renderer.
+     *
+     * @param array<int, array<string, mixed>> $cards
+     * @return array<int, array{filename:string,html:string}>
+     */
+    public function renderStudentIdCardHtmlChunks(array $cards, array $options = []): array
+    {
+        if ($cards === []) {
+            throw new InvalidArgumentException('No student ID cards were supplied.');
+        }
+
+        $options = array_merge([
+            'printerMode' => 'a4_pdf',
+            'side' => 'both',
+            'chunkSize' => 20,
+            'filename' => 'student_id_cards_' . date('Ymd_His'),
+        ], $options);
+        $printerMode = strtolower(trim((string) $options['printerMode']));
+        $side = strtolower(trim((string) $options['side']));
+        if (!in_array($printerMode, ['direct_card', 'a4_pdf'], true)) {
+            throw new InvalidArgumentException('Invalid printer mode.');
+        }
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            throw new InvalidArgumentException('Invalid ID-card side.');
+        }
+
+        $chunkSize = max(1, min(20, (int) $options['chunkSize']));
+        $normalizedCards = array_map(
+            fn (array $card): array => $this->normalizeStudentIdCard($card),
+            $cards
+        );
+        $chunks = array_chunk($normalizedCards, $chunkSize);
+        $rendered = [];
+        foreach ($chunks as $index => $chunk) {
+            $chunkNumber = $index + 1;
+            $suffix = count($chunks) > 1
+                ? '_' . str_pad((string) $chunkNumber, 3, '0', STR_PAD_LEFT)
+                : '';
+            $filename = $this->safeFilename((string) $options['filename'] . $suffix);
+            $frontTemplatePath = $this->idCardTemplatesPath . 'student_id_front.php';
+            $backTemplatePath = $this->idCardTemplatesPath . 'student_id_back.php';
+            $layoutTemplatePath = $this->idCardTemplatesPath . (
+                $printerMode === 'direct_card'
+                    ? 'student_id_both_two_pages.php'
+                    : 'student_id_both_single_row.php'
+            );
+            foreach ([$frontTemplatePath, $backTemplatePath, $layoutTemplatePath] as $templatePath) {
+                if (!is_file($templatePath)) {
+                    throw new RuntimeException('A required student ID-card template is unavailable.');
+                }
+            }
+
+            $body = $this->renderPhpTemplate($layoutTemplatePath, [
+                'cards' => $chunk,
+                'side' => $side,
+                'frontTemplatePath' => $frontTemplatePath,
+                'backTemplatePath' => $backTemplatePath,
+                'chunkNumber' => $chunkNumber,
+                'totalChunks' => count($chunks),
+            ]);
+            $css = $this->loadStudentIdCardStyles($printerMode);
+            $rendered[] = [
+                'filename' => $filename . '.pdf',
+                'html' => '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Student ID Cards</title><style>'
+                    . $css . '</style></head><body class="id-print-body id-print-'
+                    . $this->escape($printerMode) . '">' . $body . '</body></html>',
+            ];
+        }
+
+        return $rendered;
+    }
+
+    /**
      * Generate a table-based report.
      *
      * @param array<int, array<string, mixed>> $data
@@ -687,6 +761,8 @@ final class PrintService
         string $html,
         array $options = []
     ): string {
+        $renderStartedAt = hrtime(true);
+        try {
         $options = array_merge(
             [
                 'orientation' => 'portrait',
@@ -798,7 +874,24 @@ final class PrintService
             );
         }
 
+        \App\API\Includes\FileLogger::write('document_generation', [
+            'type' => 'php_pdf_render_completed',
+            'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+            'output_bytes' => (int) $written,
+            'page_count' => $pageCount,
+            'paper_size' => (string) $options['paperSize'],
+            'orientation' => (string) $options['orientation'],
+        ]);
+
         return $filepath;
+        } catch (\Throwable $exception) {
+            \App\API\Includes\FileLogger::write('document_generation', [
+                'type' => 'php_pdf_render_failed',
+                'duration_ms' => (int) round((hrtime(true) - $renderStartedAt) / 1_000_000),
+                'error_class' => get_class($exception),
+            ], 'error');
+            throw $exception;
+        }
     }
 
 
@@ -2669,13 +2762,12 @@ final class PrintService
 
         /* ── Fetch terms ───────────────────────────────────────────── */
         $termStmt = $db->prepare(
-            "SELECT ayt.id, t.code AS term_code, t.name AS term_name,
-                    ayt.opening_date, ayt.half_term_start, ayt.half_term_end,
-                    ayt.closing_date, ayt.status
-             FROM academic_year_terms ayt
-             JOIN terms t ON t.id = ayt.term_id
-             WHERE ayt.academic_year_id = ?
-             ORDER BY ayt.opening_date"
+            "SELECT academic_year_term_id AS id, term_code, term_name,
+                    opening_date, half_term_start, half_term_end,
+                    closing_date, term_period_status AS status
+             FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE academic_year_id = ?
+             ORDER BY opening_date"
         );
         $termStmt->execute([$yearId]);
         $termRows = $termStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3160,18 +3252,17 @@ final class PrintService
         $sql = "
             SELECT c.id AS class_id, c.name AS class_name, c.id AS sort_order, c.level_id,
                    sl.name AS level_name,
-                   t.code AS term_code,
+                   aterm.term_code AS term_code,
                    st.code AS st_code, st.name AS st_name,
                    ayfs.amount
-            FROM academic_year_fee_schedules ayfs
-            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-            JOIN classes c ON c.id = ayc.class_id
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = ayfs.academic_year_class_id
+            JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
             LEFT JOIN school_levels sl ON sl.id = c.level_id
-            JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
-            JOIN terms t ON t.id = ayt.term_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_term") . " aterm ON aterm.academic_year_term_id = ayfs.academic_year_term_id
             JOIN student_types st ON st.id = ayfs.student_type_id
             WHERE ayfs.academic_year_id = ? AND ayfs.status = 'active' AND st.status = 'active'
-            ORDER BY c.id, t.code, st.id
+            ORDER BY c.id, aterm.term_code, st.id
         ";
         $stmt = $db->prepare($sql);
         $stmt->execute([$yearId]);
@@ -3391,7 +3482,7 @@ final class PrintService
             $scopeSql = " AND (
                 ec.target_scope IN ('all_students', 'new_admissions', 'existing_students')
                 OR (ec.target_scope = 'specific_class' AND ? > 0 AND EXISTS (
-                    SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
+                    SELECT 1 FROM " . ReadReplicaService::qualifiedRef("extra_charge_classes") . " WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
                 ))
                 OR (ec.target_scope = 'boarders' AND EXISTS (
                     SELECT 1 FROM student_types stx WHERE stx.code = 'BOARD' AND stx.code IN ($typePlaceholders)
@@ -3487,7 +3578,7 @@ final class PrintService
             }
             // Get headteacher from staff table
             try {
-                $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $hStmt = $db->query("SELECT CONCAT(s.first_name,' ',s.last_name) FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s WHERE s.position = 'Headteacher' AND s.person_id IS NOT NULL LIMIT 1");
                 $cfg['principal_name'] = $hStmt->fetchColumn() ?: '';
             } catch (\Exception $e) {
                 $cfg['principal_name'] = '';
@@ -3511,9 +3602,9 @@ final class PrintService
                             END AS kind_code,
                             r.display_title, r.display_reference_label AS reference_label,
                             r.display_reference_value AS reference_value, r.display_instructions AS instructions
-                     FROM payment_collection_routes r
+                     FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
                      JOIN payment_providers p ON p.id = r.provider_id
-                     JOIN school_financial_accounts sfa ON sfa.id = COALESCE(r.settlement_financial_account_id, r.financial_account_id)
+                     JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sfa ON sfa.id = COALESCE(r.settlement_financial_account_id, r.financial_account_id)
                      WHERE sfa.status = 'active' AND r.active = 1 AND r.show_on_fee_structure = 1
                        AND r.purpose = 'fees'
                      ORDER BY r.display_order, r.display_name"
@@ -3712,16 +3803,7 @@ final class PrintService
                     p.first_name, p.last_name,
                     c.name AS class_name, st.name AS stream_name,
                     sty.name AS student_type
-             FROM students s
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN student_types sty ON sty.id = s.student_type_id
-             LEFT JOIN student_academic_enrollments sae
-               ON sae.student_id = s.id AND sae.academic_year_id = ?
-               AND sae.enrollment_status = 'active'
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN streams st ON st.id = aycs.stream_id
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
              WHERE s.id = ? LIMIT 1"
         );
         $studentStmt->execute([$yearId, $studentId]);
@@ -3739,11 +3821,11 @@ final class PrintService
                     COALESCE(v.balance, sfo.amount_due) AS balance,
                     COALESCE(v.payment_status, sfo.status) AS payment_status,
                     COALESCE(fc.name, 'School Fees') AS fee_item
-             FROM student_fee_obligations sfo
-             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
-             JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = sfo.academic_year_term_id
              JOIN terms t ON t.id = ayt.term_id
-             LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
              LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
                ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id
@@ -3786,11 +3868,11 @@ final class PrintService
                     eco.academic_year_term_id, t.name AS term_name,
                     ec.name AS fee_item
              FROM extra_charge_student_obligations eco
-             JOIN student_academic_enrollments sae ON sae.id = eco.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = eco.student_academic_enrollment_id
              JOIN extra_charge_schedules ecs ON ecs.id = eco.schedule_id
-             JOIN extra_charges ec ON ec.id = ecs.extra_charge_id
+             JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id = ecs.extra_charge_id
              LEFT JOIN terms t ON t.id = (
-                 SELECT ayt.term_id FROM academic_year_terms ayt
+                 SELECT ayt.term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
                  WHERE ayt.id = eco.academic_year_term_id LIMIT 1
              )
              WHERE sae.student_id = ? AND ec.academic_year_id = ?
@@ -3827,10 +3909,10 @@ final class PrintService
         $paymentStmt = $db->prepare(
             "SELECT receipt_no, amount AS amount_paid, payment_date, method AS payment_method,
                     reference, status
-             FROM payments
+             FROM " . ReadReplicaService::qualifiedRef("payments") . "
              WHERE student_id = ? AND payment_date BETWEEN
-                   (SELECT start_date FROM academic_years WHERE id = ?)
-                   AND (SELECT end_date FROM academic_years WHERE id = ?)
+                   (SELECT start_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
+                   AND (SELECT end_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
                    AND status IN ('confirmed','completed','success')
              ORDER BY payment_date DESC, id DESC"
         );

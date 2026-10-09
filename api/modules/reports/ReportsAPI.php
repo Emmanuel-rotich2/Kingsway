@@ -76,20 +76,35 @@ class ReportsAPI extends BaseAPI
     // --- Governed enterprise analytics ---
     public function governedCatalogue(array $params, array $user): array
     {
-        return $this->analyticsRegistry->listCatalogue($user, $params);
+        return array_map(
+            fn (array $definition): array => $this->analyticsRegistry->publicDefinition($definition),
+            $this->analyticsRegistry->listCatalogue($user, $params)
+        );
     }
 
     public function governedDefinition(string $code, array $user): array
     {
         $definition = $this->analyticsRegistry->accessibleDefinition($code, $user, 'view');
-        $definition['metrics'] = $this->analyticsRegistry->metricsForReport((int) $definition['id']);
-        return $definition;
+        // Sanitize the definition first, then attach the sanitized metric
+        // contract: publicDefinition() is an allowlist and would otherwise
+        // drop the nested metrics list.
+        $public = $this->analyticsRegistry->publicDefinition($definition);
+        $public['metrics'] = array_map(
+            fn (array $metric): array => $this->analyticsRegistry->publicMetric($metric),
+            $this->analyticsRegistry->metricsForReport((int) $definition['id'])
+        );
+
+        return $public;
     }
 
     public function governedMetrics(array $params, array $user): array
     {
         $domain = isset($params['domain']) ? (string) $params['domain'] : null;
-        return $this->analyticsRegistry->listMetrics($user, $domain);
+
+        return array_map(
+            fn (array $metric): array => $this->analyticsRegistry->publicMetric($metric),
+            $this->analyticsRegistry->listMetrics($user, $domain)
+        );
     }
 
     public function executeGoverned(

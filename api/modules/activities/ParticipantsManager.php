@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\activities;
+use App\API\Services\ReadReplicaService;
 
 
 use App\API\Includes\BaseAPI;
@@ -103,10 +104,10 @@ class ParticipantsManager extends BaseAPI
             // Get total count
             $sql = "
                 SELECT COUNT(DISTINCT ap.id)
-                FROM activity_participants ap
-                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
-                JOIN students s ON s.id = sae.student_id
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
                 WHERE $whereClause
             ";
             $stmt = $this->db->prepare($sql);
@@ -120,18 +121,15 @@ class ParticipantsManager extends BaseAPI
                     s.admission_no,
                     p.first_name,
                     p.last_name,
-                    c.name as class_name,
-                    stm.name AS stream_name,
+                    csd.class_name,
+                    csd.stream_name,
                     a.title as activity_title,
                     ac.name as category_name
-                FROM activity_participants ap
-                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
                 JOIN students s ON s.id = sae.student_id
                 LEFT JOIN persons p ON p.id = s.person_id
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                JOIN streams stm ON stm.id = aycs.stream_id
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
                 JOIN activities a ON ap.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
                 WHERE $whereClause
@@ -174,21 +172,18 @@ class ParticipantsManager extends BaseAPI
                     s.admission_no,
                     p.first_name,
                     p.last_name,
-                    c.name as class_name,
-                    stm.name AS stream_name,
+                    csd.class_name,
+                    csd.stream_name,
                     a.title as activity_title,
                     a.description as activity_description,
                     a.start_date,
                     a.end_date,
                     ac.name as category_name
-                FROM activity_participants ap
-                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
                 JOIN students s ON s.id = sae.student_id
                 LEFT JOIN persons p ON p.id = s.person_id
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                JOIN streams stm ON stm.id = aycs.stream_id
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
                 JOIN activities a ON ap.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
                 WHERE ap.id = ?
@@ -257,7 +252,7 @@ class ParticipantsManager extends BaseAPI
             // ... (other validation logic for status, dates, student, etc. can go here) ...
 
             // Check student exists
-            $stmt = $this->db->prepare("SELECT s.id, p.first_name, p.last_name FROM students s LEFT JOIN persons p ON p.id = s.person_id WHERE s.id = ?");
+            $stmt = $this->db->prepare("SELECT s.student_id AS id, s.first_name, s.last_name FROM " . ReadReplicaService::qualifiedRef("person_directory") . " s WHERE s.student_id = ?");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$student) {
@@ -492,10 +487,10 @@ class ParticipantsManager extends BaseAPI
                     a.end_date,
                     a.status as activity_status,
                     ac.name as category_name
-                FROM activity_participants ap
-                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ap.student_academic_enrollment_id
                 JOIN activities a ON ap.activity_id = a.id
-                LEFT JOIN activity_categories ac ON a.category_id = ac.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 WHERE sae.student_id = ?
                 ORDER BY a.start_date DESC
             ";
@@ -544,17 +539,15 @@ class ParticipantsManager extends BaseAPI
             // Get class distribution
             $sql = "
                 SELECT 
-                    c.name as class_name,
+                    csd.class_name,
                     COUNT(*) as student_count
-                FROM activity_participants ap
-                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
-                JOIN students s ON s.id = sae.student_id
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
+                FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
                 WHERE ap.activity_id = ? AND ap.status = 'active'
-                GROUP BY c.id
-                ORDER BY c.name
+                GROUP BY csd.class_id
+                ORDER BY csd.class_name
             ";
 
             $stmt = $this->db->prepare($sql);

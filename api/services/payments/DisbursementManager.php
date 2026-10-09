@@ -7,6 +7,7 @@ use PDO;
 use Exception;
 use App\API\Services\Logger;
 use App\API\Services\DataScopeService;
+use App\API\Services\ReadReplicaService;
 
 /**
  * DisbursementManager
@@ -54,8 +55,11 @@ class DisbursementManager
         $run = $this->db->prepare("SELECT id,month,year,status FROM payroll_runs WHERE id=? AND data_scope='live' LIMIT 1");
         $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            $run = $this->db->prepare("SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND pr.data_scope='live' AND ps.data_scope='live' LIMIT 1");
+            $run = $this->db->prepare("SELECT pr_id, pr_month, pr_year, pr_status FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND pr_data_scope='live' AND ps_data_scope='live' LIMIT 1");
             $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+            if ($period) {
+                $period = ['id' => $period['pr_id'], 'month' => $period['pr_month'], 'year' => $period['pr_year'], 'status' => $period['pr_status']];
+            }
         }
         if (!$period) throw new Exception('Payroll run not found.');
         if (in_array($period['status'], ['processing','completed','cancelled'], true)) throw new Exception('Source accounts cannot be changed after payroll disbursement has started.');
@@ -91,11 +95,14 @@ class DisbursementManager
         if (!$period) {
             [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
             [$pScope, $pParams] = DataScopeService::predicateFor('payslips', 'ps');
-            $run = $this->db->prepare("SELECT pr.id,pr.month,pr.year,pr.status,pr.data_scope FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND $prScope AND $pScope LIMIT 1");
+            $run = $this->db->prepare("SELECT pr_id, pr_month, pr_year, pr_status, pr_data_scope FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND $prScope AND $pScope LIMIT 1");
             $run->execute(array_merge([$payrollId], $prParams, $pParams)); $period = $run->fetch(PDO::FETCH_ASSOC);
+            if ($period) {
+                $period = ['id' => $period['pr_id'], 'month' => $period['pr_month'], 'year' => $period['pr_year'], 'status' => $period['pr_status'], 'data_scope' => $period['pr_data_scope']];
+            }
         }
         if (!$period) throw new Exception('Payroll run not found.');
-        $q=$this->db->prepare("SELECT ps.id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(p.first_name,' ',p.last_name) staff_name FROM payslips ps JOIN staff s ON s.id=ps.staff_id JOIN persons p ON p.id=s.person_id WHERE ps.payroll_month=? AND ps.payroll_year=? AND ps.data_scope=? ORDER BY p.last_name,p.first_name");
+        $q=$this->db->prepare("SELECT ps.payslip_id AS id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(ps.staff_first_name,' ',ps.staff_last_name) staff_name FROM ".ReadReplicaService::qualifiedRef('payslip')." ps WHERE ps.payroll_month=? AND ps.payroll_year=? AND ps.data_scope=? ORDER BY ps.staff_last_name,ps.staff_first_name");
         $q->execute([$period['month'],$period['year'],$period['data_scope']]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
     }
 
@@ -125,9 +132,9 @@ class DisbursementManager
                 "SELECT ps.*, p.first_name, p.last_name, COALESCE(NULLIF(spp.mpesa_phone,''),p.phone) AS phone_number,
                         spp.bank_account AS bank_account_number, spp.bank_name,
                         ps.payment_method
-                 FROM payslips ps
-                 JOIN staff st ON ps.staff_id = st.id
-                 JOIN persons p ON p.id = st.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                 JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON ps.staff_id = st.id
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
                  LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
                  WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                    AND ps.payslip_status = 'approved'
@@ -435,9 +442,9 @@ class DisbursementManager
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, COALESCE(NULLIF(spp.mpesa_phone,''),p.phone) AS phone_number,
                     spp.bank_account AS bank_account_number, spp.bank_name, ps.payment_method
-             FROM payslips ps
-             JOIN staff st ON ps.staff_id = st.id
-             JOIN persons p ON p.id = st.person_id
+             FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON ps.staff_id = st.id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
              WHERE ps.id = ? AND ps.payment_status = 'failed'
                AND ps.data_scope='live' AND st.data_scope='live'"
@@ -541,9 +548,9 @@ class DisbursementManager
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, st.staff_no AS employee_number,
                     ps.payment_method, ps.payment_status AS status
-             FROM payslips ps
-             JOIN staff st ON ps.staff_id = st.id
-             JOIN persons p ON p.id = st.person_id
+             FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON ps.staff_id = st.id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
              WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                AND ps.data_scope=? AND st.data_scope=?
              ORDER BY ps.payment_status DESC, p.last_name ASC"
@@ -562,11 +569,11 @@ class DisbursementManager
         [$prScopeSql, $prScopeParams] = DataScopeService::predicateFor('payroll_runs');
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.first_name AS first_name, p.last_name
-             FROM payslips ps
-             JOIN staff st ON ps.staff_id = st.id
-             JOIN persons p ON p.id = st.person_id
-             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND $prScopeSql)
-               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND $prScopeSql)
+             FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON ps.staff_id = st.id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
+             WHERE ps.payroll_month = (SELECT month FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . " WHERE id = ? AND $prScopeSql)
+               AND ps.payroll_year = (SELECT year FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . " WHERE id = ? AND $prScopeSql)
                AND $psScopeSql AND $stScopeSql
                AND ps.payment_status = 'failed'"
         );

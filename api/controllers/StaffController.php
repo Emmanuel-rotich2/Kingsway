@@ -111,6 +111,16 @@ class StaffController extends BaseController
         $this->teacherSpecializations = $this->contract('App\API\Services\TeacherSpecializationService', $this->db->getConnection());
     }
 
+    private function schoolAdminInvitations(): \App\API\Services\SchoolAdminInvitationService
+    {
+        return new \App\API\Services\SchoolAdminInvitationService($this->db->getConnection());
+    }
+
+    private function migrationService(): \App\API\Services\StaffMigrationService
+    {
+        return $this->contract('App\API\Services\StaffMigrationService', $this->db->getConnection());
+    }
+
     public function index()
     {
         // For /staff/index, return list to match frontend expectations
@@ -260,113 +270,7 @@ class StaffController extends BaseController
         if (!$this->userHasRole('System Administrator')) {
             return $this->forbidden('Only a System Administrator may invite a School Administrator.');
         }
-        $pdo = $this->db->getConnection();
-        $schoolAdminRoleStmt = $pdo->prepare(
-            "SELECT id,name FROM roles
-             WHERE LOWER(TRIM(name))='school administrator'
-               AND is_active=1 AND scope='school' AND is_system=0
-             LIMIT 1"
-        );
-        $schoolAdminRoleStmt->execute();
-        $schoolAdminRole = $schoolAdminRoleStmt->fetch(\PDO::FETCH_ASSOC) ?: null;
-        $count = 0;
-        if ($schoolAdminRole) {
-            $countStmt = $pdo->prepare(
-                'SELECT COUNT(DISTINCT u.id)
-                 FROM users u JOIN user_roles ur ON ur.user_id=u.id
-                 WHERE ur.role_id=? AND COALESCE(u.is_test_user,0)=0'
-            );
-            $countStmt->execute([(int)$schoolAdminRole['id']]);
-            $count = (int)$countStmt->fetchColumn();
-        }
-        $departments = $pdo->query("SELECT id,name,code FROM departments WHERE status='active' ORDER BY name")
-            ->fetchAll(\PDO::FETCH_ASSOC);
-        $staffTypes = $pdo->query("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC);
-        $staffCategories = $pdo->query("SELECT id,staff_type_id,category_name AS name FROM staff_categories WHERE is_active=1 ORDER BY category_name")->fetchAll(\PDO::FETCH_ASSOC);
-        $supervisors = $pdo->query("SELECT s.id,s.staff_no,CONCAT_WS(' ',p.first_name,p.last_name) AS name FROM staff s JOIN persons p ON p.id=s.person_id WHERE s.status='active' AND s.data_scope='live' ORDER BY p.last_name,p.first_name")->fetchAll(\PDO::FETCH_ASSOC);
-        // The employment position is a governed catalogue, not free text. Send
-        // the active options plus this role's default so the form can never
-        // offer a retired label that the server would reject.
-        $positions = \App\API\Services\StaffPositionCatalog::list($pdo, true);
-        $defaultPosition = $schoolAdminRole
-            ? \App\API\Services\StaffPositionCatalog::defaultForRole($pdo, (int)$schoolAdminRole['id'])
-            : null;
-        $positionRoleIds = [];
-        foreach ($positions as $positionRow) {
-            $positionRoleIds[(int)$positionRow['id']] = array_values(array_filter(array_map(
-                'intval',
-                explode(',', (string)($positionRow['role_ids'] ?? ''))
-            )));
-        }
-        unset($positionRow);
-        $invitationsQuery = $pdo->prepare("
-            SELECT u.id AS user_id, u.username, u.status AS user_status,
-                   u.force_password_change AS setup_required,
-                   u.profile_completed_at,
-                   u.created_at AS account_created_at,
-                   CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
-                   p.email, s.id AS staff_id, s.staff_no,
-                   COALESCE(d.name, employment_department.name) AS department_name,
-                   ui.id AS invitation_id, ui.status AS raw_invitation_status,
-                   CASE WHEN ui.id IS NULL THEN 'not_sent'
-                        WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired'
-                        ELSE ui.status END AS invitation_status,
-                   om.status AS email_delivery_status,
-                   om.sent_at AS invitation_sent_at, ui.expires_at,
-                   ui.accepted_at
-            FROM users u
-            JOIN persons p ON p.id=u.person_id
-            JOIN user_roles ur ON ur.user_id=u.id AND ur.role_id=?
-            LEFT JOIN staff s ON s.person_id=p.id
-            LEFT JOIN staff_department_assignments sda ON sda.id=(
-                SELECT a.id FROM staff_department_assignments a
-                WHERE a.staff_id=s.id AND a.effective_to IS NULL
-                ORDER BY a.effective_from DESC,a.id DESC LIMIT 1
-            )
-            LEFT JOIN departments d ON d.id=sda.department_id
-            LEFT JOIN staff_employment_profiles sep ON sep.id=(
-                SELECT current_sep.id FROM staff_employment_profiles current_sep
-                WHERE current_sep.staff_id=s.id AND current_sep.status='active'
-                ORDER BY COALESCE(current_sep.employment_date,'1000-01-01') DESC,
-                         current_sep.updated_at DESC,current_sep.id DESC LIMIT 1
-            )
-            LEFT JOIN departments employment_department ON employment_department.id=sep.department_id
-            LEFT JOIN user_invitations ui ON ui.id=(
-                SELECT ui2.id FROM user_invitations ui2
-                WHERE ui2.user_id=u.id ORDER BY ui2.id DESC LIMIT 1
-            )
-            LEFT JOIN outbound_messages om ON om.id=(
-                SELECT MAX(m.id) FROM outbound_messages m
-                WHERE m.user_id=u.id AND m.template_key='staff_account_invitation'
-            )
-            WHERE COALESCE(u.is_test_user,0)=0
-            ORDER BY COALESCE(ui.created_at,u.created_at) DESC,ui.id DESC,u.id DESC
-        ");
-        if ($schoolAdminRole) {
-            $invitationsQuery->execute([(int)$schoolAdminRole['id']]);
-            $invitations = $invitationsQuery->fetchAll(\PDO::FETCH_ASSOC);
-        } else {
-            $invitations = [];
-        }
-        $profileGate = new \App\API\Services\StaffProfileCompletionService($pdo);
-        foreach ($invitations as &$invitation) {
-            $invitation['profile_completed'] = !empty($invitation['staff_id'])
-                && !$profileGate->isRequired((int)$invitation['user_id']) ? 1 : 0;
-        }
-        unset($invitation);
-        return $this->success([
-            'available' => true,
-            'administrator_count' => $count,
-            'departments' => $departments,
-            'staff_types' => $staffTypes,
-            'staff_categories' => $staffCategories,
-            'supervisors' => $supervisors,
-            'positions' => $positions,
-            'position_role_ids' => $positionRoleIds,
-            'default_position' => $defaultPosition ? (string)$defaultPosition['name'] : null,
-            'invitations' => $invitations,
-            'role' => $schoolAdminRole,
-        ]);
+        return $this->success($this->schoolAdminInvitations()->bootstrapData());
     }
 
     /** POST /api/staff/school-administrator-bootstrap */
@@ -378,180 +282,23 @@ class StaffController extends BaseController
         $required = ['first_name', 'last_name', 'email', 'department_id', 'employment_date', 'contract_type', 'staff_type_id', 'staff_category_id'];
         $missing = array_values(array_filter($required, static fn($key) => !isset($data[$key]) || trim((string)$data[$key]) === ''));
         if ($missing) return $this->badRequest('Enter the administrator identity and school-owned employment assignment.', ['fields' => $missing]);
-        $data['first_name'] = trim((string)$data['first_name']);
-        $data['last_name'] = trim((string)$data['last_name']);
-        $data['email'] = strtolower(trim((string)$data['email']));
-        // Optional: when blank the position catalogue default for the School
-        // Administrator role is used, so the form never depends on a legacy
-        // free-text job title that may have been retired from the catalogue.
-        $data['position'] = \App\API\Services\StaffPositionCatalog::normalize((string)($data['position'] ?? ''));
-        $data['employment_date'] = trim((string)$data['employment_date']);
-        $data['contract_type'] = strtolower(trim((string)$data['contract_type']));
-        $data['staff_type_id'] = filter_var($data['staff_type_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $data['staff_category_id'] = filter_var($data['staff_category_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $data['salary'] = null;
-        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) return $this->badRequest('Enter a valid email address.');
-        if (mb_strlen($data['position']) > 100) return $this->badRequest('Position must be 100 characters or fewer.');
-        $identityCheck = $this->db->getConnection()->prepare('SELECT 1 FROM persons WHERE LOWER(email)=LOWER(?) LIMIT 1');
-        $identityCheck->execute([$data['email']]);
-        if ($identityCheck->fetchColumn()) {
-            return $this->conflict('This email already belongs to an account. Use staff management to assign the School Administrator role to an existing staff account.');
-        }
-        $employmentDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $data['employment_date']);
-        if (!$employmentDate || $employmentDate->format('Y-m-d') !== $data['employment_date'] || $employmentDate > new \DateTimeImmutable('today')) {
-            return $this->badRequest('Enter a valid employment date that is not in the future.');
-        }
-        if (!in_array($data['contract_type'], ['permanent', 'contract', 'temporary'], true)) return $this->badRequest('Choose a valid contract type.');
-        $position = $data['position'];
-        $employmentDateValue = $data['employment_date'];
-        $contractType = $data['contract_type'];
-        $staffTypeId = (int)$data['staff_type_id'];
-        $staffCategoryId = (int)$data['staff_category_id'];
+        if (!filter_var(trim((string)$data['email']), FILTER_VALIDATE_EMAIL)) return $this->badRequest('Enter a valid email address.');
+        if (mb_strlen(trim((string)($data['position'] ?? ''))) > 100) return $this->badRequest('Position must be 100 characters or fewer.');
+        $dt = trim((string)$data['employment_date']);
+        if (!\DateTimeImmutable::createFromFormat('!Y-m-d', $dt) || $dt > date('Y-m-d')) return $this->badRequest('Enter a valid employment date that is not in the future.');
+        if (!in_array(trim((string)$data['contract_type']), ['permanent', 'contract', 'temporary'], true)) return $this->badRequest('Choose a valid contract type.');
 
-        $pdo = $this->db->getConnection();
-        $departmentId = filter_var($data['department_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-        $departmentCheck = $pdo->prepare("SELECT id FROM departments WHERE id=? AND status='active' LIMIT 1");
-        $departmentCheck->execute([$departmentId ?: 0]);
-        if (!$departmentId || !$departmentCheck->fetchColumn()) return $this->badRequest('Choose an active department for this account.');
-        $classification = $pdo->prepare("SELECT EXISTS(SELECT 1 FROM staff_types WHERE id=? AND is_active=1 AND LOWER(name)='administration'), EXISTS(SELECT 1 FROM staff_categories WHERE id=? AND staff_type_id=? AND is_active=1)");
-        $classification->execute([(int)$data['staff_type_id'], (int)$data['staff_category_id'], (int)$data['staff_type_id']]);
-        if (array_map('intval', $classification->fetch(\PDO::FETCH_NUM) ?: []) !== [1, 1]) return $this->badRequest('Choose a valid staff type and matching category.');
-        $supervisorId = (int)($data['supervisor_id'] ?? 0);
-        if ($supervisorId > 0) {
-            $supervisorCheck = $pdo->prepare("SELECT 1 FROM staff WHERE id=? AND status='active' AND data_scope='live'");
-            $supervisorCheck->execute([$supervisorId]);
-            if (!$supervisorCheck->fetchColumn()) return $this->badRequest('Choose an active supervisor or leave the field blank.');
-        }
-
-        // Resolve the School Administrator role and the employment position
-        // BEFORE opening the transaction. The job title must be an active
-        // `staff_positions` catalogue entry compatible with the Administration
-        // classification and this role, otherwise the caller gets an
-        // actionable 400 instead of a rolled-back 500 from deep inside the
-        // transaction. A blank title falls back to the role's catalogue
-        // default, so retired legacy labels can never block an invitation.
-        $schoolAdminRoleLookup = $pdo->prepare(
-            "SELECT id FROM roles
-             WHERE LOWER(TRIM(name))='school administrator'
-               AND is_active=1 AND scope='school' AND is_system=0
-             LIMIT 1"
-        );
-        $schoolAdminRoleLookup->execute();
-        $schoolAdminRoleId = (int)$schoolAdminRoleLookup->fetchColumn();
-        if ($schoolAdminRoleId < 1) {
-            return $this->badRequest('The active School Administrator role is not configured.');
-        }
-        $catalog = \App\API\Services\StaffPositionCatalog::class;
         try {
-            if ($position === '') {
-                $fallback = $catalog::defaultForRole($pdo, $schoolAdminRoleId, $staffTypeId, $staffCategoryId);
-                if (!$fallback) {
-                    return $this->badRequest('No active employment position is configured for the School Administrator role. Ask the System Administrator to add one to the school position catalogue.');
-                }
-                $position = (string)$fallback['name'];
-            } else {
-                $position = $catalog::assertActive($pdo, $position, $staffTypeId, $staffCategoryId, $schoolAdminRoleId);
-            }
-            $positionId = $catalog::resolveId($pdo, $position);
-        } catch (RuntimeException $positionError) {
-            return $this->badRequest($positionError->getMessage(), ['field' => 'position']);
-        }
-        // Keep staff assignment fields out of UsersAPI's flattened payload;
-        // that legacy path enforces payroll eligibility during account creation.
-        unset(
-            $data['department_id'],
-            $data['position'],
-            $data['employment_date'],
-            $data['contract_type'],
-            $data['staff_type_id'],
-            $data['staff_category_id'],
-            $data['salary'],
-            $data['supervisor_id']
-        );
-        $lock = (int)$pdo->query("SELECT GET_LOCK('kingsway:school_administrator_invitation', 10)")->fetchColumn();
-        if ($lock !== 1) return $this->conflict('Another School Administrator invitation is being processed.');
-        try {
-            $pdo->beginTransaction();
-            // Re-verify inside the transaction: the role or the position could
-            // have been retired between validation and the write, and the
-            // invitation must never land against a deactivated role/position.
-            $schoolAdminRole = $pdo->prepare(
-                "SELECT id FROM roles
-                 WHERE LOWER(TRIM(name))='school administrator'
-                   AND is_active=1 AND scope='school' AND is_system=0
-                 LIMIT 1"
+            $result = $this->schoolAdminInvitations()->invite(
+                $data,
+                (int) ($this->getUserId() ?? 0),
+                $this->contract('App\\API\\Modules\\users\\UsersAPI'),
+                $this->migrationService()
             );
-            $schoolAdminRole->execute();
-            $lockedSchoolAdminRoleId = (int)$schoolAdminRole->fetchColumn();
-            if ($lockedSchoolAdminRoleId !== $schoolAdminRoleId) {
-                throw new \RuntimeException('The active School Administrator role is not configured.');
-            }
-            $activePosition = $pdo->prepare('SELECT id FROM staff_positions WHERE id=? AND is_active=1');
-            $activePosition->execute([$positionId]);
-            if ((int)$activePosition->fetchColumn() !== $positionId) {
-                throw new \RuntimeException('The selected employment position is no longer active. Choose an active school position.');
-            }
-            $data['role_id'] = $schoolAdminRoleId;
-            $data['role_ids'] = [$schoolAdminRoleId];
-            $data['status'] = 'active';
-            $data['force_password_change'] = 1;
-            $data['account_type'] = 'real';
-            $data['data_scope'] = 'live';
-            $data['password'] = 'Kwps-' . bin2hex(random_bytes(12)) . '!aA';
-            $usersApi = $this->contract('App\API\Modules\users\UsersAPI');
-            $result = $usersApi->create($data, true, true);
-            // UsersAPI returns a boolean `success` envelope, not a `status`
-            // string. Treating a successful create as failure rolled back the
-            // transaction before staff/invitation rows were written.
-            if (empty($result['success'])) {
-                if ($pdo->inTransaction()) $pdo->rollBack();
-                return $this->handleResponse($result);
-            }
-
-            $lookup = $pdo->prepare('SELECT u.id AS user_id, u.person_id FROM users u JOIN persons p ON p.id=u.person_id WHERE LOWER(p.email)=? LIMIT 1');
-            $lookup->execute([$data['email']]);
-            $created = $lookup->fetch(\PDO::FETCH_ASSOC);
-            if (!$created) throw new \RuntimeException('The created School Administrator could not be verified.');
-
-            $staffNo = (new \App\API\Services\StaffNumberService($pdo))->generate();
-            $pdo->prepare("INSERT INTO staff (person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,data_scope,supervisor_id,salary,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'active','live',NULLIF(?,0),?,NOW(),NOW())")
-                ->execute([(int)$created['person_id'], $staffTypeId, $staffCategoryId, $staffNo, $position, $contractType, $employmentDateValue, $supervisorId, null]);
-            $staffId = (int)$pdo->lastInsertId();
-            $pdo->prepare("INSERT INTO staff_employment_profiles
-                (staff_id,department_id,position_id,position,employment_date,contract_type,status,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,'active',NOW(),NOW())")
-                ->execute([$staffId, (int)$departmentId, $positionId, $position, $employmentDateValue, $contractType]);
-            // `role` on the department binding is a vestigial column; the job
-            // title lives on staff_employment_profiles. Match every other
-            // writer (StaffMigrationService) and keep it NULL.
-            $pdo->prepare("INSERT INTO staff_department_assignments(staff_id,department_id,role,effective_from,created_at) VALUES(?,?,NULL,?,NOW())")
-                ->execute([$staffId, (int)$departmentId, $employmentDateValue]);
-            $migration = $this->contract('App\\API\\Services\\StaffMigrationService', $pdo);
-            $invitation = $migration->resendInvitation((int)$created['user_id'], (int)($this->getUserId() ?? 0));
-            if (empty($invitation['queued'])) throw new \RuntimeException('The account was created but the invitation could not be queued.');
-            $pdo->commit();
-            $delivery = ['sent' => 0, 'failed' => 0];
-            try {
-                $delivery = $migration->processEmailQueue(1, (int)($invitation['message_id'] ?? 0));
-            } catch (\Throwable $mailError) {
-                \App\API\Services\Logger::legacyError('[SchoolAdministratorInvitation] Invitation queued but immediate delivery failed: ' . $mailError->getMessage());
-            }
-            return $this->created([
-                'user_id' => (int)$created['user_id'],
-                'staff_id' => $staffId,
-                'staff_no' => $staffNo,
-                'email' => $data['email'],
-                'invitation_queued' => true,
-                'email_sent' => !empty($delivery['sent']),
-            ], !empty($delivery['sent'])
-                ? 'School Administrator account created and invitation email sent.'
-                : 'School Administrator account created. Invitation is queued for email delivery.');
-        } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
-            \App\API\Services\Logger::legacyError('[SchoolAdministratorInvitation] ' . $e->getMessage());
-            return $this->serverError('The School Administrator invitation could not be completed.');
-        } finally {
-            $pdo->query("SELECT RELEASE_LOCK('kingsway:school_administrator_invitation')");
+            return $this->created($result, $result['email_sent'] ? 'School Administrator account created and invitation email sent.' : 'School Administrator account created. Invitation is queued for email delivery.');
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), $code >= 400 && $code < 600 ? $code : 500, false);
         }
     }
 
@@ -567,14 +314,12 @@ class StaffController extends BaseController
             return $this->badRequest('Choose a valid invitation action and account.');
         }
 
-        $pdo = $this->db->getConnection();
-        $target = $pdo->prepare("SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.id=? AND r.name='School Administrator' AND COALESCE(u.is_test_user,0)=0 LIMIT 1");
-        $target->execute([$userId]);
-        if (!$target->fetchColumn()) return $this->notFound('School Administrator account not found.');
+        $service = $this->schoolAdminInvitations();
+        if (!$service->isSchoolAdmin((int) $userId)) return $this->notFound('School Administrator account not found.');
+        $migration = $this->migrationService();
 
         if ($action === 'resend_otp') {
             try {
-                $migration = $this->contract('App\\API\\Services\\StaffMigrationService', $pdo);
                 $result = $migration->resendSetupOtp((int)$userId, (int)($this->getUserId() ?? 0));
                 return $this->success($result, 'A new setup verification code was sent.');
             } catch (\Throwable $e) {
@@ -585,7 +330,6 @@ class StaffController extends BaseController
 
         if ($action === 'resend') {
             try {
-                $migration = $this->contract('App\\API\\Services\\StaffMigrationService', $pdo);
                 $invitation = $migration->resendInvitation((int)$userId, (int)($this->getUserId() ?? 0));
                 $delivery = $migration->processEmailQueue(1, (int)($invitation['message_id'] ?? 0));
                 $sent = !empty($delivery['sent']);
@@ -601,20 +345,12 @@ class StaffController extends BaseController
         }
 
         try {
-            $pdo->beginTransaction();
-            $revoke = $pdo->prepare("UPDATE user_invitations SET status='revoked',revoked_at=NOW(),updated_at=NOW() WHERE user_id=? AND status='pending'");
-            $revoke->execute([(int)$userId]);
-            if ($revoke->rowCount() < 1) {
-                $pdo->rollBack();
-                return $this->badRequest('This invitation is no longer pending. Refresh the list and try again.');
-            }
-            $pdo->prepare("UPDATE outbound_messages SET status='cancelled',last_error='Invitation cancelled by administrator',updated_at=NOW() WHERE user_id=? AND template_key='staff_account_invitation' AND status IN ('queued','retry')")
-                ->execute([(int)$userId]);
-            $this->access->audit('cancel_school_administrator_invitation', 'user', (int)$userId, ['invitation_status' => 'pending'], ['invitation_status' => 'revoked']);
-            $pdo->commit();
+            $service->cancelInvitation((int) $userId, $this->access);
             return $this->success(['user_id' => (int)$userId, 'cancelled' => true], 'Invitation cancelled.');
+        } catch (\RuntimeException $e) {
+            $code = (int) $e->getCode();
+            return $this->respond(null, $e->getMessage(), $code >= 400 && $code < 600 ? $code : 500, false);
         } catch (\Throwable $e) {
-            if ($pdo->inTransaction()) $pdo->rollBack();
             \App\API\Services\Logger::legacyError('[SchoolAdministratorInvitation] Cancellation failed: ' . $e->getMessage());
             return $this->serverError('The invitation could not be cancelled.');
         }
@@ -824,31 +560,30 @@ return $this->serverError('An internal error occurred.');
         if ($id === null) {
             return $this->badRequest('Staff ID is required for update');
         }
+        // Qualification provenance is server-owned; never trust an actor ID
+        // supplied by the browser.
+        $data['_admin_actor_user_id'] = (int) ($this->getUserId() ?? 0);
         if (array_key_exists('position', $data)) {
             $pdo = $this->db->getConnection();
-            $current = $pdo->prepare('SELECT s.position,s.staff_type_id,s.staff_category_id,ur.role_id FROM staff s LEFT JOIN users u ON u.person_id=s.person_id LEFT JOIN user_roles ur ON ur.user_id=u.id AND ur.is_primary=1 WHERE s.id=? LIMIT 1');
-            $current->execute([(int)$id]);
-            $existing = $current->fetch(\PDO::FETCH_ASSOC);
-            if (!$existing) return $this->notFound('Staff member not found.');
-            if (trim((string)$existing['position']) !== trim((string)$data['position'])) {
+            $current = $this->recordsService->positionSnapshot((int) $id);
+            if (!$current) return $this->notFound('Staff member not found.');
+            if (trim((string)$current['position']) !== trim((string)$data['position'])) {
                 try {
                     $data['position'] = \App\API\Services\StaffPositionCatalog::assertActive(
                         $pdo,
                         (string)$data['position'],
-                        isset($data['staff_type_id']) ? (int)$data['staff_type_id'] : (int)$existing['staff_type_id'],
-                        isset($data['staff_category_id']) ? (int)$data['staff_category_id'] : (int)$existing['staff_category_id'],
-                        isset($data['role_id']) ? (int)$data['role_id'] : ($existing['role_id'] ? (int)$existing['role_id'] : null)
+                        isset($data['staff_type_id']) ? (int)$data['staff_type_id'] : (int)$current['staff_type_id'],
+                        isset($data['staff_category_id']) ? (int)$data['staff_category_id'] : (int)$current['staff_category_id'],
+                        (int) ($current['role_id'] ?? 0)
                     );
-                } catch (RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+                } catch (\RuntimeException $e) {
+                    return $this->badRequest($e->getMessage(), ['field' => 'position']);
+                }
             }
         }
-        // This is server-owned provenance; never accept it from the browser.
-        // Qualification changes made through staff management remain pending
-        // until independently verified by an authorised reviewer.
-        $data['_admin_actor_user_id'] = (int) $this->getUserId();
-        $result = $this->api->update($id, $data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->update((int) $id, $data));
     }
+
 
     /**
      * PUT /api/staff/staff/{id} - Alias for base PUT
@@ -925,23 +660,10 @@ return $this->serverError('An internal error occurred.');
             if (!$staffId) return $this->forbidden('No staff profile is linked to this account.');
 
             $pdo = $this->db->getConnection();
-            $personStmt = $pdo->prepare(
-                'SELECT s.person_id, p.first_name, p.middle_name, p.last_name, p.phone, p.email, p.national_id_no
-                   FROM staff s JOIN persons p ON p.id = s.person_id
-                  WHERE s.id = ? AND s.status = \'active\' LIMIT 1'
-            );
-            $personStmt->execute([(int) $staffId]);
-            $person = $personStmt->fetch(\PDO::FETCH_ASSOC);
+            // Identity + parent provisioning live in the services layer.
+            $person = \App\API\Services\StaffRecordsService::personForStaffId($pdo, (int) $staffId);
             if (!$person) return $this->forbidden('Active staff profile not found.');
-
-            $parentStmt = $pdo->prepare('SELECT id FROM parents WHERE person_id = ? LIMIT 1');
-            $parentStmt->execute([(int) $person['person_id']]);
-            $parentId = (int) ($parentStmt->fetchColumn() ?: 0);
-            if (!$parentId) {
-                $insert = $pdo->prepare("INSERT INTO parents (person_id, status) VALUES (?, 'active')");
-                $insert->execute([(int) $person['person_id']]);
-                $parentId = (int) $pdo->lastInsertId();
-            }
+            $parentId = \App\API\Modules\parent\ParentPortalManager::ensureParentForPerson($pdo, (int) $person['person_id']);
 
             $files = [];
             foreach ([
@@ -987,25 +709,18 @@ return $this->serverError('An internal error occurred.');
         }
     }
 
+
     /** GET /api/staff/my-admission-options */
     public function getMyAdmissionOptions($id = null, $data = [], $segments = [])
     {
         if (!$this->access->staffId()) return $this->forbidden('No staff profile is linked to this account.');
         $pdo = $this->db->getConnection();
-        $windows = $pdo->query(
-            "SELECT aw.id AS admission_window_id, aw.label AS admission_window_label,
-                    ayt.id AS target_term_id, ay.year_code
-               FROM admission_windows aw
-               JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
-               JOIN academic_years ay ON ay.id = ayt.academic_year_id
-              WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
-                AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
-                AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
-              ORDER BY aw.application_open_at, ayt.opening_date"
-        )->fetchAll(\PDO::FETCH_ASSOC);
-        $grades = $pdo->query("SELECT DISTINCT name FROM classes WHERE name IS NOT NULL AND name <> '' ORDER BY name")->fetchAll(\PDO::FETCH_COLUMN);
-        return $this->success(['windows' => $windows, 'grades' => $grades]);
+        return $this->success([
+            'windows' => \App\API\Modules\admission\AdmissionAdminManager::openWindows($pdo),
+            'grades' => $this->contract(\App\API\Services\AcademicContextService::class)->gradeNames(),
+        ]);
     }
+
 
     /**
      * Account-level profile for authenticated users with no linked staff record.
@@ -1016,17 +731,7 @@ return $this->serverError('An internal error occurred.');
     {
         $userId = $this->getUserId();
         $email = $this->user['email'] ?? $this->user['username'] ?? null;
-
-        $stmt = $this->db->getConnection()->prepare(
-            'SELECT p.first_name, p.middle_name, p.last_name, p.email,
-                    p.phone, p.gender, p.dob AS date_of_birth,
-                    u.username, u.status, u.last_login
-             FROM users u
-             LEFT JOIN persons p ON p.id = u.person_id
-             WHERE u.id = ? LIMIT 1'
-        );
-        $stmt->execute([$userId]);
-        $profile = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $profile = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $this->db->getConnection())->profileForUser((int) $userId);
 
         return [
             '_domain'          => 'system',
@@ -1034,15 +739,14 @@ return $this->serverError('An internal error occurred.');
             'middle_name'      => $profile['middle_name'] ?? null,
             'last_name'        => $profile['last_name'] ?? $this->user['last_name'] ?? null,
             'email'            => $profile['email'] ?? $email,
-            'username'         => $profile['username'] ?? $this->user['username'] ?? null,
+            'phone'            => $profile['phone'] ?? $this->user['phone'] ?? null,
             'gender'           => $profile['gender'] ?? null,
             'date_of_birth'    => $profile['date_of_birth'] ?? null,
-            'phone'            => $profile['phone'] ?? $this->user['phone'] ?? null,
-            'account_status'   => $profile['status'] ?? $this->user['status'] ?? null,
-            'last_login'       => $profile['last_login'] ?? $this->user['last_login'] ?? null,
-            'roles'            => $this->access->roles(),
+            'username'         => $profile['username'] ?? $this->user['username'] ?? null,
+            'last_login'       => $profile['last_login'] ?? null,
         ];
     }
+
 
     /**
      * GET /api/staff/schedule/get - Get staff schedule
@@ -2738,10 +2442,11 @@ return $this->serverError('An internal error occurred.');
     {
         if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
         $pdo = $this->db->getConnection();
-        $staffTypes = $pdo->query("SELECT id,name FROM staff_types WHERE is_active=1 ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC);
-        $staffCategories = $pdo->query("SELECT id,staff_type_id,category_name AS name FROM staff_categories WHERE is_active=1 ORDER BY category_name")->fetchAll(\PDO::FETCH_ASSOC);
-        $positions = \App\API\Services\StaffPositionCatalog::list($pdo);
-        return $this->success(['staff_types' => $staffTypes, 'staff_categories' => $staffCategories, 'positions' => $positions]);
+        return $this->success([
+            'staff_types' => $this->recordsService->staffTypes(),
+            'staff_categories' => $this->recordsService->staffCategories(),
+            'positions' => \App\API\Services\StaffPositionCatalog::list($pdo),
+        ]);
     }
 
     /** GET /api/staff/positions — controlled position catalogue. */
@@ -2755,9 +2460,9 @@ return $this->serverError('An internal error occurred.');
     public function getDepartmentCatalog($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator'])) return $denied;
-        $rows = $this->db->getConnection()->query('SELECT id,name,code,description,status FROM departments ORDER BY name')->fetchAll(\PDO::FETCH_ASSOC);
-        return $this->success(['departments' => $rows]);
+        return $this->success(['departments' => $this->recordsService->departmentCatalog()]);
     }
+
 
     /** POST /api/staff/departments — create a school department. */
     public function postDepartments($id = null, $data = [], $segments = [])
@@ -2766,16 +2471,15 @@ return $this->serverError('An internal error occurred.');
         $name = trim((string)($data['name'] ?? ''));
         $code = strtoupper(trim((string)($data['code'] ?? '')));
         if ($name === '' || mb_strlen($name) > 100 || !preg_match('/^[A-Z0-9_&-]{2,20}$/', $code)) return $this->badRequest('Enter a department name and a 2–20 character code using letters, numbers, ampersands, hyphens or underscores.');
-        $pdo = $this->db->getConnection();
         try {
-            $stmt = $pdo->prepare("INSERT INTO departments(name,code,status) VALUES(?,?,'active')");
-            $stmt->execute([$name, $code]);
+            $id = $this->recordsService->createDepartment($name, $code);
         } catch (\PDOException $e) {
             if ((string)$e->getCode() === '23000') return $this->conflict('The department name or code is already in use.');
             throw $e;
         }
-        return $this->success(['id' => (int)$pdo->lastInsertId()], 'Department added.');
+        return $this->success(['id' => $id], 'Department added.');
     }
+
 
     /** PUT /api/staff/departments/{id} — edit or deactivate without removing history. */
     public function putDepartments($id = null, $data = [], $segments = [])
@@ -2786,14 +2490,14 @@ return $this->serverError('An internal error occurred.');
         $code = strtoupper(trim((string)($data['code'] ?? '')));
         if (!$departmentId || $name === '' || mb_strlen($name) > 100 || !preg_match('/^[A-Z0-9_&-]{2,20}$/', $code)) return $this->badRequest('Enter a valid department, name and code.');
         try {
-            $stmt = $this->db->getConnection()->prepare('UPDATE departments SET name=?,code=?,status=? WHERE id=?');
-            $stmt->execute([$name, $code, !empty($data['is_active']) ? 'active' : 'inactive', $departmentId]);
+            $updated = $this->recordsService->updateDepartment($departmentId, $name, $code, !empty($data['is_active']) ? 'active' : 'inactive');
         } catch (\PDOException $e) {
             if ((string)$e->getCode() === '23000') return $this->conflict('The department code is already in use.');
             throw $e;
         }
-        return $this->success(['updated' => $stmt->rowCount() > 0], 'Department saved.');
+        return $this->success(['updated' => $updated], 'Department saved.');
     }
+
 
     /** POST /api/staff/positions */
     public function postPositions($id = null, $data = [], $segments = [])
@@ -2802,19 +2506,17 @@ return $this->serverError('An internal error occurred.');
         $name = trim((string)($data['name'] ?? ''));
         if ($name === '' || mb_strlen($name) > 120) return $this->badRequest('Enter a position name up to 120 characters.');
         foreach (['staff_type_id','staff_category_id'] as $key) if (!$this->validOptionalCatalogId($data[$key] ?? null)) return $this->badRequest('Choose valid staff classifications and role values.');
-        $pdo = $this->db->getConnection();
-        if (!$this->positionScopeValid($pdo, $data)) return $this->badRequest('The selected staff category does not belong to the selected staff type.');
+        if (!$this->recordsService->staffCategoryInType((int)($data['staff_type_id'] ?? 0), (int)($data['staff_category_id'] ?? 0))) return $this->badRequest('The selected staff category does not belong to the selected staff type.');
         $roleIds = $this->positionRoleIds($data['role_ids'] ?? []);
         if ($roleIds === null) return $this->badRequest('Choose active system roles.');
         $defaultRoleIds = $this->defaultPositionRoleIds($data['default_role_ids'] ?? [], $roleIds);
         if ($defaultRoleIds === null) return $this->badRequest('Default roles must be selected from the position’s related system roles.');
+        $pdo = $this->db->getConnection();
         try {
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare('INSERT INTO staff_positions(name,staff_type_id,staff_category_id,created_by) VALUES(?,?,?,?)');
-            $stmt->execute([$name, $this->nullablePositiveInt($data['staff_type_id'] ?? null), $this->nullablePositiveInt($data['staff_category_id'] ?? null), $this->access->userId()]);
-            $positionId = (int)$pdo->lastInsertId();
-            $this->syncPositionRoles($pdo, $positionId, $roleIds);
-            $this->syncDefaultPositionRoles($pdo, $positionId, $defaultRoleIds);
+            $positionId = $this->recordsService->insertPosition($name, (int)($data['staff_type_id'] ?? 0) ?: null, (int)($data['staff_category_id'] ?? 0) ?: null, $this->access->userId());
+            $this->recordsService->syncPositionRoles($pdo, $positionId, $roleIds);
+            $this->recordsService->syncDefaultPositionRoles($pdo, $positionId, $defaultRoleIds, (int)$this->access->userId());
             $pdo->commit();
         } catch (\PDOException $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
@@ -2823,6 +2525,7 @@ return $this->serverError('An internal error occurred.');
         }
         return $this->success(['id' => $positionId], 'Position added.');
     }
+
 
     /** PUT /api/staff/positions/{id}; deactivation preserves staff history. */
     public function putPositions($id = null, $data = [], $segments = [])
@@ -2833,26 +2536,26 @@ return $this->serverError('An internal error occurred.');
         $name = trim((string)($data['name'] ?? ''));
         if ($name === '' || mb_strlen($name) > 120) return $this->badRequest('Enter a position name up to 120 characters.');
         foreach (['staff_type_id','staff_category_id'] as $key) if (!$this->validOptionalCatalogId($data[$key] ?? null)) return $this->badRequest('Choose valid staff classifications and role values.');
-        $pdo = $this->db->getConnection();
-        if (!$this->positionScopeValid($pdo, $data)) return $this->badRequest('The selected staff category does not belong to the selected staff type.');
+        if (!$this->recordsService->staffCategoryInType((int)($data['staff_type_id'] ?? 0), (int)($data['staff_category_id'] ?? 0))) return $this->badRequest('The selected staff category does not belong to the selected staff type.');
         $roleIds = $this->positionRoleIds($data['role_ids'] ?? []);
         if ($roleIds === null) return $this->badRequest('Choose active system roles.');
         $defaultRoleIds = $this->defaultPositionRoleIds($data['default_role_ids'] ?? [], $roleIds);
         if ($defaultRoleIds === null) return $this->badRequest('Default roles must be selected from the position’s related system roles.');
+        $pdo = $this->db->getConnection();
         try {
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare('UPDATE staff_positions SET name=?,staff_type_id=?,staff_category_id=?,is_active=?,updated_by=? WHERE id=?');
-            $stmt->execute([$name, $this->nullablePositiveInt($data['staff_type_id'] ?? null), $this->nullablePositiveInt($data['staff_category_id'] ?? null), !empty($data['is_active']) ? 1 : 0, $this->access->userId(), $positionId]);
-            $this->syncPositionRoles($pdo, (int)$positionId, $roleIds);
-            $this->syncDefaultPositionRoles($pdo, (int)$positionId, $defaultRoleIds);
+            $updated = $this->recordsService->updatePosition($positionId, $name, (int)($data['staff_type_id'] ?? 0) ?: null, (int)($data['staff_category_id'] ?? 0) ?: null, !empty($data['is_active']) ? 1 : 0, $this->access->userId());
+            $this->recordsService->syncPositionRoles($pdo, $positionId, $roleIds);
+            $this->recordsService->syncDefaultPositionRoles($pdo, $positionId, $defaultRoleIds, (int)$this->access->userId());
             $pdo->commit();
         } catch (\PDOException $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();
             if ((string)$e->getCode() === '23000') return $this->conflict('That position already exists or its selected classification is invalid.');
             throw $e;
         }
-        return $this->success(['updated' => $stmt->rowCount() > 0], 'Position saved.');
+        return $this->success(['updated' => $updated], 'Position saved.');
     }
+
 
     private function nullablePositiveInt($value): ?int
     {
@@ -2866,19 +2569,9 @@ return $this->serverError('An internal error occurred.');
         if (!is_array($value)) return null;
         $ids = array_values(array_unique(array_filter(array_map('intval', $value), static fn(int $id): bool => $id > 0)));
         if (!$ids) return $value === [] ? [] : null;
-        $in = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->db->getConnection()->prepare("SELECT COUNT(*) FROM roles WHERE is_active=1 AND id IN ($in)");
-        $stmt->execute($ids);
-        return (int)$stmt->fetchColumn() === count($ids) ? $ids : null;
+        return $this->recordsService->countActiveRoles($ids) === count($ids) ? $ids : null;
     }
 
-    private function syncPositionRoles(\PDO $pdo, int $positionId, array $roleIds): void
-    {
-        $pdo->prepare('DELETE FROM staff_position_roles WHERE position_id=?')->execute([$positionId]);
-        if (!$roleIds) return;
-        $stmt = $pdo->prepare('INSERT INTO staff_position_roles(position_id,role_id) VALUES(?,?)');
-        foreach ($roleIds as $roleId) $stmt->execute([$positionId, $roleId]);
-    }
 
     private function defaultPositionRoleIds($value, array $linkedRoleIds): ?array
     {
@@ -2887,25 +2580,12 @@ return $this->serverError('An internal error occurred.');
         return array_diff($ids, $linkedRoleIds) ? null : $ids;
     }
 
-    private function syncDefaultPositionRoles(\PDO $pdo, int $positionId, array $roleIds): void
-    {
-        $pdo->prepare('DELETE FROM staff_role_default_positions WHERE position_id=?')->execute([$positionId]);
-        $stmt = $pdo->prepare('INSERT INTO staff_role_default_positions(role_id,position_id,updated_by) VALUES(?,?,?) ON DUPLICATE KEY UPDATE position_id=VALUES(position_id),updated_by=VALUES(updated_by)');
-        foreach ($roleIds as $roleId) $stmt->execute([$roleId, $positionId, $this->access->userId()]);
-    }
 
     private function validOptionalCatalogId($value): bool
     {
         return $value === null || $value === '' || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) !== false;
     }
 
-    private function positionScopeValid(\PDO $pdo, array $data): bool
-    {
-        if (empty($data['staff_type_id']) || empty($data['staff_category_id'])) return true;
-        $stmt = $pdo->prepare('SELECT 1 FROM staff_categories WHERE id=? AND staff_type_id=? AND is_active=1 LIMIT 1');
-        $stmt->execute([(int)$data['staff_category_id'], (int)$data['staff_type_id']]);
-        return (bool)$stmt->fetchColumn();
-    }
 
     /** GET /api/staff/role-assignments?staff_id=X */
     public function getRoleAssignments($id = null, $data = [], $segments = [])
@@ -2941,41 +2621,31 @@ return $this->badRequest('An internal error occurred.');
         if ($action === 'set_roles' && (!$roleIds || !in_array($primaryRoleId, $roleIds, true))) return $this->badRequest('Select a primary role from the selected school roles.');
 
         $pdo = $this->db->getConnection();
-        $placeholders = implode(',', array_fill(0, count($staffIds), '?'));
-        [$scopePredicate, $scopeBindings] = \App\API\Services\DataScopeService::predicateFor('staff', 's');
         try {
             $pdo->beginTransaction();
-            $stmt = $pdo->prepare("SELECT s.id, u.id AS user_id, u.status AS user_status, u.force_password_change
-                FROM staff s LEFT JOIN users u ON u.person_id=s.person_id
-                WHERE s.id IN ($placeholders) AND $scopePredicate FOR UPDATE");
-            $stmt->execute(array_merge($staffIds, $scopeBindings));
-            $targets = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $targets = $this->recordsService->lockedBulkTargets($pdo, $staffIds);
             if (count($targets) !== count($staffIds)) {
                 $pdo->rollBack();
                 return $this->forbidden('One or more selected staff records are unavailable in your data scope.');
             }
 
             if ($action === 'set_roles') {
-                $rolePlaceholders = implode(',', array_fill(0, count($roleIds), '?'));
-                $roleStmt = $pdo->prepare("SELECT id FROM roles WHERE id IN ($rolePlaceholders) AND is_active=1 AND scope='school'");
-                $roleStmt->execute($roleIds);
-                if (count($roleStmt->fetchAll(\PDO::FETCH_COLUMN)) !== count($roleIds)) {
+                $roleManager = $this->contract(\App\API\Modules\users\UserRoleManager::class, $pdo);
+                $found = $this->recordsService->activeSchoolRolesIn($pdo, $roleIds);
+                if (count($found) !== count($roleIds)) {
                     $pdo->rollBack();
                     return $this->badRequest('Choose active school roles only.');
                 }
                 $actorId = (int)($this->getUserId() ?? 0);
-                if (array_filter($targets, static fn($target) => (int)($target['user_id'] ?? 0) === $actorId)) {
-                    $pdo->rollBack();
-                    return $this->badRequest('You cannot change your own staff roles here.');
-                }
                 foreach ($targets as $target) {
                     if (empty($target['user_id'])) {
                         $pdo->rollBack();
                         return $this->badRequest('Every selected staff member must have a user account before roles can be updated.');
                     }
-                }
-                $roleManager = new \App\API\Modules\users\UserRoleManager($pdo);
-                foreach ($targets as $target) {
+                    if ((int)($target['user_id'] ?? 0) === $actorId) {
+                        $pdo->rollBack();
+                        return $this->badRequest('You cannot change your own staff roles here.');
+                    }
                     $updated = $roleManager->replaceRoles((int)$target['user_id'], $roleIds, $primaryRoleId, 'school');
                     if (empty($updated['success'])) {
                         $pdo->rollBack();
@@ -2984,7 +2654,7 @@ return $this->badRequest('An internal error occurred.');
                 }
             } else {
                 $actorId = (int)($this->getUserId() ?? 0);
-                $userUpdate = $pdo->prepare('UPDATE users SET status=? WHERE id=?');
+                $userIds = [];
                 foreach ($targets as $target) {
                     if (empty($target['user_id'])) {
                         $pdo->rollBack();
@@ -2998,8 +2668,9 @@ return $this->badRequest('An internal error occurred.');
                         $pdo->rollBack();
                         return $this->badRequest('Pending invitations must complete setup before their accounts can be activated.');
                     }
-                    $userUpdate->execute([$status, (int)$target['user_id']]);
+                    $userIds[] = (int)($target['user_id'] ?? 0);
                 }
+                $this->recordsService->bulkSetUserStatus($pdo, $userIds, $status);
             }
             $pdo->commit();
             $this->access->audit('bulk_' . $action, 'staff', null, null, ['staff_ids' => $staffIds, 'status' => $status ?: null, 'role_ids' => $roleIds, 'primary_role_id' => $action === 'set_roles' ? $primaryRoleId : null]);
@@ -3011,15 +2682,14 @@ return $this->badRequest('An internal error occurred.');
         }
     }
 
+
     /** POST /api/staff/password-reset-link: issue reset mail for a managed staff account. */
     public function postPasswordResetLink($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
         $staffId = (int)($data['staff_id'] ?? $id ?? 0);
         if ($staffId < 1) return $this->badRequest('staff_id is required.');
-        $stmt = $this->db->getConnection()->prepare('SELECT p.email FROM staff s JOIN persons p ON p.id=s.person_id JOIN users u ON u.person_id=p.id WHERE s.id=? LIMIT 1');
-        $stmt->execute([$staffId]);
-        $email = (string)($stmt->fetchColumn() ?: '');
+        $email = $this->recordsService->emailForStaff($staffId);
         if ($email === '') return $this->badRequest('This staff member has no user account email.');
         try {
             $result = $this->contract('App\\API\\Modules\\auth\\AuthAPI')->forgotPassword(['email' => $email]);
@@ -3032,64 +2702,15 @@ return $this->badRequest('An internal error occurred.');
         }
     }
 
+
     /** GET /api/staff/statutory-remittances */
     public function getStatutoryRemittances($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         try {
-            $year = (int)($_GET['year'] ?? date('Y'));
-            $agency = $_GET['agency'] ?? null;
-            $status = $_GET['status'] ?? null;
-            $sql = "SELECT * FROM statutory_remittances WHERE period_year = ?";
-            $params = [$year];
-            if ($agency) { $sql .= " AND agency = ?"; $params[] = $agency; }
-            if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
-            $sql .= " ORDER BY period_year DESC, period_month DESC, agency";
-            $stmt = $this->db->getConnection()->prepare($sql);
-            $stmt->execute($params);
-            $remittances = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            $ruleStmt = $this->db->getConnection()->prepare("SELECT deadline_day,deadline_basis FROM statutory_rule_versions
-                WHERE agency=? AND active=1 AND effective_from <= STR_TO_DATE(CONCAT(?, '-', LPAD(?, 2, '0'), '-01'), '%Y-%m-%d')
-                AND (effective_to IS NULL OR effective_to >= STR_TO_DATE(CONCAT(?, '-', LPAD(?, 2, '0'), '-01'), '%Y-%m-%d'))
-                ORDER BY effective_from DESC, id DESC LIMIT 1");
-            foreach ($remittances as &$remittance) {
-                if (!empty($remittance['due_date'])) continue;
-                $ruleStmt->execute([$remittance['agency'], $remittance['period_year'], $remittance['period_month'], $remittance['period_year'], $remittance['period_month']]);
-                $rule = $ruleStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-                $day = (int)($rule['deadline_day'] ?? 0);
-                if ($day < 1 || $day > 31) continue;
-                $due = new \DateTime(sprintf('%04d-%02d-01', (int)$remittance['period_year'], (int)$remittance['period_month']));
-                $due->modify('+1 month')->setDate((int)$due->format('Y'), (int)$due->format('m'), $day);
-                if (($rule['deadline_basis'] ?? '') === 'working_day_of_following_month') {
-                    while (in_array((int)$due->format('N'), [6, 7], true)) $due->modify('+1 day');
-                }
-                $remittance['due_date'] = $due->format('Y-m-d');
-            }
-            unset($remittance);
-            $monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            $agencies = ['KRA','SHIF','NSSF','Housing Levy'];
-            $breakdown = [];
-            foreach (range(1, 12) as $m) {
-                $row = ['period_month' => $m, 'kra' => 0, 'shif' => 0, 'nssf' => 0, 'housing_levy' => 0];
-                foreach ($agencies as $a) {
-                    $key = strtolower(str_replace(' ', '_', str_replace('/', '_', $a)));
-                    foreach ($remittances as $r) {
-                        if ((int)$r['period_month'] === $m && $r['agency'] === $a) {
-                            $row[$key === 'kra_(paye)' ? 'kra' : $key] = (float)$r['total_deducted'];
-                        }
-                    }
-                }
-                $breakdown[] = $row;
-            }
-            $totalDeducted = array_sum(array_column($remittances, 'total_deducted'));
-            $totalRemitted = array_sum(array_column($remittances, 'amount_remitted'));
-            $summary = [
-                'total_deducted' => $totalDeducted,
-                'total_remitted' => $totalRemitted,
-                'outstanding' => $totalDeducted - $totalRemitted,
-                'overdue_count' => count(array_filter($remittances, fn($r) => $r['status'] === 'overdue')),
-            ];
-            return $this->success(['remittances' => $remittances, 'breakdown' => $breakdown, 'summary' => $summary]);
+            $year = (int) ($_GET['year'] ?? date('Y'));
+            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+                ->remittances($year, $_GET['agency'] ?? null, $_GET['status'] ?? null));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] getStatutoryRemittances: ' . $e->getMessage());
             return $this->badRequest('Failed to load remittances.');
@@ -3102,20 +2723,12 @@ return $this->badRequest('An internal error occurred.');
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
         try {
-            $agency = $data['agency'] ?? null;
-            $month = (int)($data['period_month'] ?? 0);
-            $year = (int)($data['period_year'] ?? 0);
-            if (!$agency || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
-            $stmt = $this->db->getConnection()->prepare("INSERT INTO statutory_remittances (agency, period_month, period_year, total_deducted, amount_remitted, status, due_date, remittance_date, filing_reference, notes, filed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $agency, $month, $year,
-                $data['total_deducted'] ?? 0, $data['amount_remitted'] ?? 0,
-                $data['status'] ?? 'pending',
-                $data['due_date'] ?? null, $data['remittance_date'] ?? null,
-                $data['filing_reference'] ?? null, $data['notes'] ?? null,
-                $this->access->staffId()
-            ]);
-            return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Remittance saved');
+            $month = (int) ($data['period_month'] ?? 0);
+            $year = (int) ($data['period_year'] ?? 0);
+            if (empty($data['agency']) || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
+            $newId = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+                ->saveRemittance($data, (int) $this->access->staffId());
+            return $this->success(['id' => $newId], 'Remittance saved');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] createStatutoryRemittance: ' . $e->getMessage());
             return $this->badRequest('Failed to save remittance.');
@@ -3127,15 +2740,10 @@ return $this->badRequest('An internal error occurred.');
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
-        $remId = (int)($id ?? $data['id'] ?? 0);
+        $remId = (int) ($id ?? $data['id'] ?? 0);
         if (!$remId) return $this->badRequest('Remittance ID required');
         try {
-            $stmt = $this->db->getConnection()->prepare("UPDATE statutory_remittances SET amount_remitted = ?, status = ?, remittance_date = ?, filing_reference = ?, notes = ?, updated_at = NOW() WHERE id = ?");
-            $stmt->execute([
-                $data['amount_remitted'] ?? 0, $data['status'] ?? 'pending',
-                $data['remittance_date'] ?? null, $data['filing_reference'] ?? null,
-                $data['notes'] ?? null, $remId
-            ]);
+            (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->updateRemittance($remId, $data);
             return $this->success(null, 'Remittance updated');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] updateStatutoryRemittance: ' . $e->getMessage());
@@ -3167,9 +2775,7 @@ return $this->badRequest('An internal error occurred.');
         $agency = $_GET['agency'] ?? $data['agency'] ?? null;
         if (!$agency) return $this->badRequest('Agency is required');
         try {
-            $stmt = $this->db->getConnection()->prepare("SELECT id, agency, account_name, account_number, bank_name, bank_code, payment_reference_rule FROM statutory_agency_accounts WHERE agency = ? AND active = 1 ORDER BY account_name, id");
-            $stmt->execute([$agency]);
-            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+            return $this->success(['accounts' => (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->agencyAccounts((string) $agency)]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] statutory agency accounts: ' . $e->getMessage());
             return $this->badRequest('Failed to load agency accounts.');
@@ -3181,29 +2787,13 @@ return $this->badRequest('An internal error occurred.');
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         try {
-            $agency = $_GET['agency'] ?? null;
-            $month = (int)($_GET['month'] ?? 0);
-            $year = (int)($_GET['year'] ?? 0);
-            if (!$agency || !$month || !$year) return $this->badRequest('agency, month, year required');
-            $amountExpressions = [
-                'KRA' => 'p.paye_tax',
-                'SHIF' => 'p.shif_contribution',
-                'NSSF' => '(p.nssf_contribution + p.employer_nssf_contribution)',
-                'Housing Levy' => '(p.housing_levy + p.employer_housing_levy)',
-            ];
-            $amountExpression = $amountExpressions[$agency] ?? null;
-            if (!$amountExpression) return $this->badRequest('Unknown agency');
-            $sql = "SELECT p.staff_id, s.staff_no, CONCAT(ps.first_name, ' ', ps.last_name) AS staff_name,
-                {$amountExpression} AS amount
-                FROM payslips p JOIN staff s ON s.id = p.staff_id JOIN persons ps ON ps.id = s.person_id
-                WHERE p.payroll_month = ? AND p.payroll_year = ?
-                AND p.payslip_status IN ('approved','paid') AND {$amountExpression} > 0
-                ORDER BY ps.last_name, ps.first_name";
-            $stmt = $this->db->getConnection()->prepare($sql);
-            $stmt->execute([$month, $year]);
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            $total = array_sum(array_column($rows, 'amount'));
-            return $this->success(['total' => $total, 'staff' => $rows]);
+            $agency = (string) ($_GET['agency'] ?? '');
+            $month = (int) ($_GET['month'] ?? 0);
+            $year = (int) ($_GET['year'] ?? 0);
+            if ($agency === '' || !$month || !$year) return $this->badRequest('agency, month, year required');
+            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->calcDeductions($agency, $month, $year));
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] calcStatutoryDeduction: ' . $e->getMessage());
             return $this->badRequest('Failed to calculate deductions.');
@@ -3215,49 +2805,8 @@ return $this->badRequest('An internal error occurred.');
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         try {
-            $pdo = $this->db->getConnection();
             $year = (int)($_GET['year'] ?? $data['year'] ?? date('Y'));
-            $registers = $pdo->prepare('SELECT * FROM statutory_payroll_registers WHERE period_year = ? ORDER BY period_year DESC, period_month DESC');
-            $registers->execute([$year]);
-            $certificates = $pdo->query("SELECT c.*, s.staff_no, CONCAT(p.first_name, ' ', p.last_name) staff_name
-                FROM staff_certificates_of_service c
-                JOIN staff s ON s.id=c.staff_id
-                JOIN persons p ON p.id=s.person_id
-                ORDER BY c.issued_date DESC, c.id DESC")->fetchAll(\PDO::FETCH_ASSOC);
-            $rules = $pdo->query('SELECT id,agency,rule_code,version,effective_from,effective_to,calculation_method,
-                employee_rate,employer_rate,lower_earnings_limit,upper_earnings_limit,cap_amount,personal_relief,
-                deadline_day,deadline_basis,source_name,source_url,active
-                FROM statutory_rule_versions WHERE active=1 ORDER BY agency,effective_from DESC')->fetchAll(\PDO::FETCH_ASSOC);
-            $bands = $pdo->query('SELECT rule_version_id,band_order,lower_bound,upper_bound,tax_rate FROM statutory_tax_bands ORDER BY rule_version_id,band_order')->fetchAll(\PDO::FETCH_ASSOC);
-            $bandsByRule = [];
-            foreach ($bands as $band) {
-                $bandsByRule[(int)$band['rule_version_id']][] = [
-                    'up_to' => $band['upper_bound'] === null ? null : (float)$band['upper_bound'],
-                    'rate' => (float)$band['tax_rate'],
-                ];
-            }
-            foreach ($rules as &$rule) {
-                $rule['rules'] = [
-                    'calculation' => $rule['calculation_method'],
-                    'employee_rate' => $rule['employee_rate'] === null ? null : (float)$rule['employee_rate'],
-                    'employer_rate' => $rule['employer_rate'] === null ? null : (float)$rule['employer_rate'],
-                    'lower_earnings_limit' => $rule['lower_earnings_limit'] === null ? null : (float)$rule['lower_earnings_limit'],
-                    'upper_earnings_limit' => $rule['upper_earnings_limit'] === null ? null : (float)$rule['upper_earnings_limit'],
-                    'cap_amount' => $rule['cap_amount'] === null ? null : (float)$rule['cap_amount'],
-                    'personal_relief' => $rule['personal_relief'] === null ? null : (float)$rule['personal_relief'],
-                    'deadline_day' => $rule['deadline_day'],
-                    'deadline_basis' => $rule['deadline_basis'],
-                    'bands' => $bandsByRule[(int)$rule['id']] ?? [],
-                ];
-            }
-            unset($rule);
-            $retention = $pdo->query("SELECT COUNT(*) FROM statutory_record_retention WHERE status='active' AND retain_until <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)")->fetchColumn();
-            return $this->success([
-                'registers' => $registers->fetchAll(\PDO::FETCH_ASSOC),
-                'certificates' => $certificates,
-                'rules' => $rules,
-                'retention_due_90_days' => (int)$retention,
-            ]);
+            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->complianceBundle($year));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] statutory compliance: ' . $e->getMessage());
             return $this->badRequest('Failed to load statutory compliance records.');
@@ -3276,34 +2825,13 @@ return $this->badRequest('An internal error occurred.');
         $ruleCode = trim((string)($data['rule_code'] ?? ''));
         $version = trim((string)($data['version'] ?? ''));
         $effectiveFrom = trim((string)($data['effective_from'] ?? ''));
-        $rules = $data['rules'] ?? null;
-        if ($agency === '' || $ruleCode === '' || $version === '' || $effectiveFrom === '' || !is_array($rules)) {
+        if ($agency === '' || $ruleCode === '' || $version === '' || $effectiveFrom === '' || !is_array($data['rules'] ?? null)) {
             return $this->badRequest('Agency, rule code, version, effective date and rule values are required.');
         }
         try {
-            $pdo = $this->db->getConnection();
-            $pdo->beginTransaction();
-            $stmt = $pdo->prepare("INSERT INTO statutory_rule_versions
-                (agency,rule_code,version,effective_from,effective_to,calculation_method,employee_rate,employer_rate,
-                 lower_earnings_limit,upper_earnings_limit,cap_amount,personal_relief,deadline_day,deadline_basis,
-                 source_name,source_url,active,created_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)");
-            $stmt->execute([$agency,$ruleCode,$version,$effectiveFrom,$data['effective_to'] ?? null,
-                $rules['calculation'] ?? 'percentage_of_gross',$rules['employee_rate'] ?? null,$rules['employer_rate'] ?? null,
-                $rules['lower_earnings_limit'] ?? null,$rules['upper_earnings_limit'] ?? null,$rules['cap_amount'] ?? null,
-                $rules['personal_relief'] ?? null,$rules['deadline_day'] ?? null,$rules['deadline_basis'] ?? null,
-                $data['source_name'] ?? null,$data['source_url'] ?? null,$this->getUserId()]);
-            $id = (int)$pdo->lastInsertId();
-            if (!empty($rules['bands']) && is_array($rules['bands'])) {
-                $band = $pdo->prepare('INSERT INTO statutory_tax_bands(rule_version_id,band_order,lower_bound,upper_bound,tax_rate) VALUES(?,?,?,?,?)');
-                foreach (array_values($rules['bands']) as $index => $item) {
-                    $upper = array_key_exists('up_to', $item) && $item['up_to'] !== null ? $item['up_to'] : null;
-                    $lower = $index === 0 ? 0 : ($rules['bands'][$index - 1]['up_to'] ?? 0);
-                    $band->execute([$id,$index + 1,$lower,$upper,$item['rate'] ?? 0]);
-                }
-            }
-            $pdo->commit();
-            return $this->success(['id'=>$id], 'Statutory rule version added.');
+            $id = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+                ->addRuleVersion($data, (int) ($this->getUserId() ?? 0));
+            return $this->success(['id' => $id], 'Statutory rule version added.');
         } catch (\Throwable $e) {
             if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
             \App\API\Services\Logger::legacyError('[StaffController] statutory rule: ' . $e->getMessage());
@@ -3316,62 +2844,16 @@ return $this->badRequest('An internal error occurred.');
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
-        $month = (int)($data['month'] ?? 0);
-        $year = (int)($data['year'] ?? 0);
+        $month = (int) ($data['month'] ?? 0);
+        $year = (int) ($data['year'] ?? 0);
         if ($month < 1 || $month > 12 || $year < 2000) return $this->badRequest('A valid payroll month and year are required.');
         try {
-            $pdo = $this->db->getConnection();
-            $pdo->beginTransaction();
-            $q = $pdo->prepare("SELECT p.*, pr.id payroll_run_id FROM payslips p
-                LEFT JOIN payroll_runs pr ON pr.month=p.payroll_month AND pr.year=p.payroll_year
-                WHERE p.payroll_month=? AND p.payroll_year=? AND p.payslip_status IN ('approved','paid')
-                ORDER BY p.staff_id");
-            $q->execute([$month, $year]);
-            $payslips = $q->fetchAll(\PDO::FETCH_ASSOC);
-            if (!$payslips) throw new RuntimeException('No approved or paid payslips exist for this period.');
-            $gross = $employee = $employer = 0.0;
-            foreach ($payslips as $p) {
-                $employee += (float)$p['paye_tax'] + (float)$p['shif_contribution'] + (float)$p['nssf_contribution'] + (float)$p['housing_levy'];
-                $employer += (float)$p['employer_nssf_contribution'] + (float)$p['employer_housing_levy'];
-                $gross += (float)$p['gross_salary'];
-            }
-            $retentionUntil = sprintf('%04d-%02d-01', $year + 5, $month);
-            $runId = $payslips[0]['payroll_run_id'] ?: null;
-            $upsert = $pdo->prepare("INSERT INTO statutory_payroll_registers
-                (payroll_run_id,period_month,period_year,employee_count,gross_total,employee_deductions_total,employer_contributions_total,status,retention_until,created_by)
-                VALUES(?,?,?,?,?,?,?,'draft',?,?)
-                ON DUPLICATE KEY UPDATE payroll_run_id=VALUES(payroll_run_id),employee_count=VALUES(employee_count),
-                gross_total=VALUES(gross_total),employee_deductions_total=VALUES(employee_deductions_total),
-                employer_contributions_total=VALUES(employer_contributions_total),retention_until=VALUES(retention_until),updated_at=NOW()");
-            $upsert->execute([$runId,$month,$year,count($payslips),$gross,$employee,$employer,$retentionUntil,$this->getUserId()]);
-            $registerId = (int)$pdo->lastInsertId();
-            if (!$registerId) {
-                $find = $pdo->prepare('SELECT id FROM statutory_payroll_registers WHERE period_month=? AND period_year=?');
-                $find->execute([$month,$year]); $registerId = (int)$find->fetchColumn();
-            }
-            $item = $pdo->prepare("INSERT INTO statutory_payroll_register_items
-                (register_id,payslip_id,staff_id,gross_amount,paye_amount,shif_employee_amount,nssf_employee_amount,
-                 housing_employee_amount,nssf_employer_amount,housing_employer_amount,rule_snapshot)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)
-                ON DUPLICATE KEY UPDATE gross_amount=VALUES(gross_amount),paye_amount=VALUES(paye_amount),
-                shif_employee_amount=VALUES(shif_employee_amount),nssf_employee_amount=VALUES(nssf_employee_amount),
-                housing_employee_amount=VALUES(housing_employee_amount),nssf_employer_amount=VALUES(nssf_employer_amount),
-                housing_employer_amount=VALUES(housing_employer_amount),rule_snapshot=VALUES(rule_snapshot)");
-            foreach ($payslips as $p) {
-                $item->execute([$registerId,$p['id'],$p['staff_id'],$p['gross_salary'],$p['paye_tax'],$p['shif_contribution'],
-                    $p['nssf_contribution'],$p['housing_levy'],$p['employer_nssf_contribution'],$p['employer_housing_levy'],
-                    json_encode(['source'=>'payslip','payroll_month'=>$month,'payroll_year'=>$year])]);
-            }
-            $ret = $pdo->prepare("INSERT INTO statutory_record_retention(record_type,record_id,period_start,period_end,retain_until)
-                VALUES('payroll_register',?,?,LAST_DAY(?),?) ON DUPLICATE KEY UPDATE retain_until=VALUES(retain_until)");
-            $period = sprintf('%04d-%02d-01', $year, $month);
-            $ret->execute([$registerId,$period,$period,$retentionUntil]);
-            $pdo->prepare("INSERT INTO statutory_audit_log(actor_user_id,action,entity_type,entity_id,after_json) VALUES(?,?,?,?,?)")
-                ->execute([$this->getUserId(),'generated','statutory_payroll_register',$registerId,json_encode(['month'=>$month,'year'=>$year,'payslips'=>count($payslips)])]);
-            $pdo->commit();
-            return $this->success(['register_id'=>$registerId,'employee_count'=>count($payslips)], 'Statutory payroll register generated.');
+            $result = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+                ->generatePayrollRegister($month, $year, (int) ($this->getUserId() ?? 0));
+            return $this->success($result, 'Statutory payroll register generated.');
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
-            if ($this->db->getConnection()->inTransaction()) $this->db->getConnection()->rollBack();
             \App\API\Services\Logger::legacyError('[StaffController] statutory register: ' . $e->getMessage());
             return $this->badRequest($e->getMessage());
         }
@@ -3382,25 +2864,14 @@ return $this->badRequest('An internal error occurred.');
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator','director'])) return $denied;
-        $staffId = (int)($data['staff_id'] ?? 0);
+        $staffId = (int) ($data['staff_id'] ?? 0);
         if (!$staffId || empty($data['employment_start_date']) || empty($data['employment_end_date'])) return $this->badRequest('Staff member and employment dates are required.');
         try {
-            $pdo = $this->db->getConnection();
-            $staff = $pdo->prepare('SELECT s.staff_no,s.position,s.employment_date FROM staff s WHERE s.id=?');
-            $staff->execute([$staffId]); $row = $staff->fetch(\PDO::FETCH_ASSOC);
-            if (!$row) return $this->badRequest('Staff member not found.');
-            $certificateNo = trim((string)($data['certificate_number'] ?? ('COS-' . date('YmdHis') . '-' . $row['staff_no'])));
-            $issued = $data['issued_date'] ?? date('Y-m-d');
-            $retention = date('Y-m-d', strtotime($issued . ' +5 years'));
-            $stmt = $pdo->prepare("INSERT INTO staff_certificates_of_service
-                (staff_id,certificate_number,employment_start_date,employment_end_date,designation,department,reason_for_leaving,issued_date,status,retention_until,issued_by)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([$staffId,$certificateNo,$data['employment_start_date'],$data['employment_end_date'],$data['designation'] ?? $row['position'],
-                $data['department'] ?? null,$data['reason_for_leaving'] ?? null,$issued,$data['status'] ?? 'draft',$retention,$this->getUserId()]);
-            $certificateId = (int)$pdo->lastInsertId();
-            $pdo->prepare("INSERT INTO statutory_record_retention(record_type,record_id,period_start,period_end,retain_until) VALUES('certificate_of_service',?,?,?,?)")
-                ->execute([$certificateId,$data['employment_start_date'],$issued,$retention]);
-            return $this->success(['id'=>$certificateId,'certificate_number'=>$certificateNo], 'Certificate of service recorded.');
+            $result = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+                ->recordServiceCertificate($staffId, $data, (int) ($this->getUserId() ?? 0));
+            return $this->success($result, 'Certificate of service recorded.');
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] certificate of service: ' . $e->getMessage());
             return $this->badRequest('Failed to record certificate of service.');

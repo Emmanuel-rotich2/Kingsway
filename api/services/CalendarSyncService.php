@@ -61,7 +61,7 @@ class CalendarSyncService
     /**
      * Reconcile a single calendar day against school_events + exam_schedules.
      */
-    public function syncDay(int $dayId): array
+    public function syncDay(int $dayId, bool $createExamScheduleRows = true): array
     {
         $day = $this->fetchDay($dayId);
         if (!$day) {
@@ -82,7 +82,7 @@ class CalendarSyncService
         $eventType = self::DAY_TYPE_TO_EVENT[$dayType] ?? 'special_event';
         $this->upsertMirrorEvent($day, $eventType);
 
-        if ($dayType === 'exam_day' && $day['academic_year_term_id']) {
+        if ($createExamScheduleRows && $dayType === 'exam_day' && $day['academic_year_term_id']) {
             $exams = $this->syncExamSchedules($day['date'], (int) $day['academic_year_term_id'], $day['title']);
         }
 
@@ -181,7 +181,7 @@ class CalendarSyncService
         $examTypeId = (int) $this->db->query("SELECT id FROM calendar_day_types WHERE code = 'exam_day'")->fetchColumn();
 
         $days = $this->db->prepare(
-            "SELECT id, date, title FROM academic_year_calendar_days
+            "SELECT id, date, title FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . "
              WHERE date BETWEEN ? AND ?
                AND DAYOFWEEK(date) BETWEEN 2 AND 6
                AND calendar_day_type_id IN (
@@ -310,8 +310,8 @@ class CalendarSyncService
                 d.description AS day_desc,
                 d.is_manual,
                 ac.week_number,
-                ayt.term_id,
-                t.name AS term_name,
+                aterm.term_id,
+                aterm.term_name AS term_name,
                 ev.id AS event_id,
                 ev.title AS event_title,
                 ev.type AS event_type,
@@ -321,14 +321,12 @@ class CalendarSyncService
                 ev.end_at,
                 ev.status AS event_status,
                 ev.source AS event_source
-             FROM academic_year_calendar_days d
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
              LEFT JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-             LEFT JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
-             LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
-             LEFT JOIN terms t ON t.id = ayt.term_id
-             LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_term") . " aterm ON aterm.academic_year_term_id = ac.academic_year_term_id
              LEFT JOIN school_events ev ON ev.calendar_day_id = d.id AND ev.status <> 'cancelled'
-             WHERE (ay.is_current = 1 OR d.academic_year_calendar_id = 0)
+             WHERE (aterm.is_current_year = 1 OR d.academic_year_calendar_id = 0)
                AND (COALESCE(cdt.code, '') NOT IN ('school_day', 'weekend')
                     OR (COALESCE(cdt.code, '') = 'school_day'
                         AND d.title IS NOT NULL AND d.title <> '')
@@ -425,13 +423,12 @@ class CalendarSyncService
     private function fetchDay(int $dayId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT d.id, d.date, d.title, d.description, d.is_manual,
-                    cdt.code AS day_type, d.calendar_day_type_id,
-                    ac.academic_year_term_id
-             FROM academic_year_calendar_days d
-             LEFT JOIN calendar_day_types cdt ON cdt.id = d.calendar_day_type_id
-             LEFT JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
-             WHERE d.id = ?"
+            "SELECT calendar_day_id AS id, calendar_date AS date, day_title AS title,
+                    day_description AS description, day_is_manual AS is_manual,
+                    day_type_code AS day_type, calendar_day_type_id,
+                    academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef('calendar_day_type') . "
+             WHERE calendar_day_id = ?"
         );
         $stmt->execute([$dayId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -574,10 +571,10 @@ class CalendarSyncService
     {
         $stmt = $this->db->prepare(
             "SELECT d.id
-             FROM academic_year_calendar_days d
-             JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
-             JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
-             JOIN academic_years ay ON ay.id = ayt.academic_year_id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
              WHERE d.date = ? AND (ay.is_current = 1 OR d.academic_year_calendar_id = 0)
              LIMIT 1"
         );
@@ -618,12 +615,12 @@ class CalendarSyncService
 
         if ($date !== $day['date']) {
             $week = $this->db->prepare(
-                "SELECT id FROM academic_year_calendar ac
-                 JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+                "SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = ac.academic_year_term_id
                  WHERE ayt.academic_year_id = (
-                     SELECT ay.id FROM academic_year_terms ayt2
-                     JOIN academic_years ay ON ay.id = ayt2.academic_year_id
-                     JOIN academic_year_calendar ac2 ON ac2.academic_year_term_id = ayt2.id
+                     SELECT ay.id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt2
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt2.academic_year_id
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac2 ON ac2.academic_year_term_id = ayt2.id
                      WHERE ac2.id = ? LIMIT 1
                  ) AND ? BETWEEN ac.week_start AND ac.week_end LIMIT 1"
             );

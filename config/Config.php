@@ -183,6 +183,14 @@ class Config
         'JWT_SECRET', 'JWT_EXPIRY', 'JWT_ISSUER', 'JWT_AUDIENCE',
         'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS',
         'AI_ENABLED', 'AI_PROVIDER_NAME', 'AI_PROVIDER_BASE_URL', 'AI_PROVIDER_KIND', 'AI_MODEL', 'AI_API_KEY', 'AI_PROVIDER_FALLBACKS', 'AI_RESPONSE_FORMAT', 'AI_REASONING_EFFORT', 'AI_VISION_ENABLED', 'AI_FORCE_IPV4', 'AI_PYTHON_URL', 'AI_PYTHON_SECRET',
+        // Service routing for the PHP <-> Python endpoint-to-endpoint link.
+        // These decide where inter-service traffic is sent, so redirecting them
+        // at runtime in production would be a routing hijack.
+        'AI_PYTHON_INTERNAL_BASE_URL', 'AI_PYTHON_INTERNAL_HOST',
+        // Node.js realtime data-update layer routing (same hijack-protection rule).
+        'NODE_REALTIME_URL', 'NODE_REALTIME_PUBLIC_URL', 'NODE_REALTIME_BASE_URL',
+        'NODE_REALTIME_INTERNAL_BASE_URL', 'NODE_REALTIME_INTERNAL_HOST', 'NODE_REALTIME_PUBLISH_SECRET',
+        'NODE_REALTIME_WEB_ORIGIN',
     ];
 
     public static function set(string $key, $value)

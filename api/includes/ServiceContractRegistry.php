@@ -45,6 +45,7 @@ class ServiceContractRegistry
         // Core governed services (extended as controllers are wired).
         self::govern('App\\API\\Modules\\academic\\AcademicAPI', 'academic', 'academic.api');
         self::govern('App\\API\\Services\\ExamPeriodService', 'academic', 'academic.examperiodservice');
+        self::govern('App\\API\\Services\\AssessmentResultsService', 'academic', 'academic.assessmentresultsservice');
         self::govern('App\\API\\Modules\\finance\\FinanceAPI', 'finance', 'finance.api');
         self::govern('App\\API\\Modules\\attendance\\AttendanceAPI', 'attendance', 'attendance.api');
         self::govern('App\\API\\Modules\\reports\\ReportsAPI', 'reports', 'reports.api');
@@ -89,6 +90,7 @@ class ServiceContractRegistry
         self::govern('App\API\Modules\health\HealthAPI', 'health', 'health.healthapi');
         self::govern('App\API\Modules\boarding\BoardingManager', 'boarding', 'boarding.boardingmanager');
         self::govern('App\API\Modules\inventory\UniformSalesManager', 'inventory', 'inventory.uniformsalesmanager');
+        self::govern('App\API\Modules\inventory\SuppliersManager', 'inventory', 'inventory.suppliersmanager');
         self::govern('App\API\Modules\inventory\InventoryAPI', 'inventory', 'inventory.inventoryapi');
         self::govern('App\API\Modules\activities\SportsManager', 'activities', 'activities.sportsmanager');
         self::govern('App\API\Modules\activities\ActivitiesAPI', 'activities', 'activities.activitiesapi');
@@ -168,6 +170,10 @@ class ServiceContractRegistry
         self::govern('App\API\Services\DeputyAcademicAnalyticsService', '', 'deputyacademicanalyticsservice');
         self::govern('App\API\Services\OTPDeliveryService', '', 'otpdeliveryservice');
         self::govern('App\API\Services\EnvironmentPhaseService', '', 'environmentphaseservice');
+        self::govern('App\API\Services\AutomationRegistry', '', 'automationregistry');
+        self::govern('App\API\Services\AutomationBridge', '', 'automationbridge');
+        self::govern('App\API\Services\ReadProjectionBridge', '', 'readprojectionbridge');
+        self::govern('App\API\Services\automations\AutomationArtifacts', '', 'automationartifacts');
         self::govern('App\API\Services\HeadteacherAnalyticsService', '', 'headteacheranalyticsservice');
         self::govern('App\API\Services\payments\SupplierDisbursementService', 'payments', 'payments.supplierdisbursementservice');
         self::govern('App\API\Services\payments\TransportPaymentService', 'payments', 'payments.transportpaymentservice');
@@ -189,6 +195,7 @@ class ServiceContractRegistry
         self::govern('App\API\Services\StaffDomainAccessService', '', 'staffdomainaccessservice');
         self::govern('App\API\Services\StaffGateAttendanceService', '', 'staffgateattendanceservice');
         self::govern('App\API\Services\CommunicationOutboxService', '', 'communicationoutboxservice');
+        self::govern('App\API\Services\sms\TalksasaContactSyncService', '', 'talksasacontactsyncservice');
         self::govern('App\API\Services\StaffLifecycleService', '', 'stafflifecycleservice');
         self::govern('App\API\Services\AnalyticsExportAuditService', '', 'analyticsexportauditservice');
         self::govern('App\API\Services\PasskeyService', '', 'passkeyservice');

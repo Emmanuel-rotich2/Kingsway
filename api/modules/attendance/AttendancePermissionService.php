@@ -3,6 +3,7 @@
 namespace App\API\Modules\attendance;
 
 use App\API\Controllers\BaseController;
+use App\API\Services\ReadReplicaService;
 
 class AttendancePermissionService
 {
@@ -47,7 +48,8 @@ class AttendancePermissionService
             $streamScope = $controller->buildStreamScopeClause($streamId ? (int) $streamId : null, $scope);
             if ($streamScope['forbidden']) { return $controller->forbidden('You are not allowed to access permissions for this class'); }
             if ($streamScope['empty']) { return $controller->success([], 'Permissions retrieved'); }
-            $sql = "SELECT sp.*, CONCAT(p.first_name, ' ', p.last_name) as student_name, s.admission_no, c.name as class_name, stm.name AS stream_name, st.name as student_type, st.code as student_type_code, spt.name as permission_type_name, spt.code as permission_type_code, spt.applies_to, COALESCE(CONCAT(approver_p.first_name, ' ', approver_p.last_name), approver_user.username) as approved_by_name FROM student_permissions sp JOIN students s ON sp.student_id = s.id LEFT JOIN persons p ON p.id = s.person_id LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active' LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id LEFT JOIN streams stm ON stm.id = aycs.stream_id LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id LEFT JOIN classes c ON c.id = ayc.class_id LEFT JOIN student_types st ON st.id = s.student_type_id JOIN student_permission_types spt ON sp.permission_type_id = spt.id LEFT JOIN users approver_user ON sp.approved_by = approver_user.id LEFT JOIN staff approver_staff ON approver_staff.id IN (SELECT staff.id FROM staff WHERE staff.person_id IN (SELECT persons.id FROM persons WHERE persons.id = (SELECT u.person_id FROM users u WHERE u.id = approver_user.id))) LEFT JOIN persons approver_p ON approver_p.id = approver_staff.person_id WHERE 1=1 {$streamScope['sql']}";
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
+            $sql = "SELECT sp.*, CONCAT(p.first_name, ' ', p.last_name) as student_name, s.admission_no, lp.class_name as class_name, lp.stream_name AS stream_name, st.name as student_type, st.code as student_type_code, spt.name as permission_type_name, spt.code as permission_type_code, spt.applies_to, COALESCE(CONCAT(approver_p.first_name, ' ', approver_p.last_name), approver_user.username) as approved_by_name FROM " . ReadReplicaService::qualifiedRef("student_permissions") . " sp JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON sp.student_id = s.id LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id LEFT JOIN {$lp} lp ON lp.student_id = s.id LEFT JOIN student_types st ON st.id = s.student_type_id JOIN student_permission_types spt ON sp.permission_type_id = spt.id LEFT JOIN users approver_user ON sp.approved_by = approver_user.id LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " approver_staff ON approver_staff.id IN (SELECT staff.id FROM " . ReadReplicaService::qualifiedRef("staff") . " WHERE staff.person_id IN (SELECT persons.id FROM " . ReadReplicaService::qualifiedRef("persons") . " WHERE persons.id = (SELECT u.person_id FROM users u WHERE u.id = approver_user.id))) LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " approver_p ON approver_p.id = approver_staff.person_id WHERE 1=1 {$streamScope['sql']}";
             $params = $streamScope['params'];
             if ($studentId) { $sql .= " AND sp.student_id = ?"; $params[] = $studentId; }
             if ($status) { $sql .= " AND sp.status = ?"; $params[] = $status; }
@@ -86,7 +88,7 @@ class AttendancePermissionService
             if ($startDate > $endDate) { [$startDate, $endDate] = [$endDate, $startDate]; }
             $permissionType = $controller->getDb()->query("SELECT id, code, name, max_days, applies_to, status FROM student_permission_types WHERE id = ? AND status = 'active' LIMIT 1", [$permissionTypeId])->fetch(\PDO::FETCH_ASSOC);
             if (!$permissionType) { return $controller->badRequest('Invalid permission type'); }
-            $student = $controller->getDb()->query("SELECT s.id, st.code AS student_type_code, st.name AS student_type FROM students s LEFT JOIN student_types st ON st.id = s.student_type_id WHERE s.id = ? LIMIT 1", [$studentId])->fetch(\PDO::FETCH_ASSOC);
+            $student = $controller->getDb()->query("SELECT s.id, st.code AS student_type_code, st.name AS student_type FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE s.id = ? LIMIT 1", [$studentId])->fetch(\PDO::FETCH_ASSOC);
             if (!$student) { return $controller->badRequest('Invalid student'); }
             $studentTypeCode = strtoupper((string) ($student['student_type_code'] ?? ''));
             $isBoarder = strpos($studentTypeCode, 'BOARD') !== false;

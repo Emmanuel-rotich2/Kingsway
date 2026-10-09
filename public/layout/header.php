@@ -26,7 +26,7 @@ $canonicalUrl = $canonicalUrl ?? ($activePage === 'home'
   : (in_array($activePage, $publicRouteKeys, true)
       ? $siteBase . '/' . public_route_url($activePage)
       : $siteBase . '/'));
-$socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png';
+$socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png?v=' . asset_version('school_assets/official_school_logo.png');
 $organizationData = [
   '@context' => 'https://schema.org',
   '@type' => 'Organization',
@@ -76,10 +76,10 @@ $organizationData = [
   <?php endif; ?>
 
   <!-- Favicons -->
-  <link rel="icon" type="image/png" href="<?= $appBase ?>/images/favicon/favicon-96x96.png" sizes="96x96">
-  <link rel="icon" type="image/svg+xml" href="<?= $appBase ?>/images/favicon/favicon.svg">
-  <link rel="shortcut icon" href="<?= $appBase ?>/images/favicon/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="<?= $appBase ?>/images/favicon/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="<?= $appBase ?>/images/favicon/favicon-96x96.png?v=<?= asset_version('images/favicon/favicon-96x96.png') ?>" sizes="96x96">
+  <link rel="icon" type="image/svg+xml" href="<?= $appBase ?>/images/favicon/favicon.svg?v=<?= asset_version('images/favicon/favicon.svg') ?>">
+  <link rel="shortcut icon" href="<?= $appBase ?>/images/favicon/favicon.ico?v=<?= asset_version('images/favicon/favicon.ico') ?>">
+  <link rel="apple-touch-icon" sizes="180x180" href="<?= $appBase ?>/images/favicon/apple-touch-icon.png?v=<?= asset_version('images/favicon/apple-touch-icon.png') ?>">
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -114,7 +114,7 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
   <div class="container-fluid site-nav-inner">
 
     <a class="navbar-brand" href="<?= $appBase ?>/index.php">
-      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png?v=<?= asset_version('school_assets/official_school_logo.png') ?>" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
       <span class="school-name">Kingsway Preparatory School</span>
     </a>
 

@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use PDOStatement;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * BoardingManager - owns all boarding/dormitory SQL against the live
@@ -116,9 +117,9 @@ class BoardingManager extends BaseAPI
                         d.status,
                         CONCAT(hp.first_name, ' ', hp.last_name) AS house_parent,
                         d.house_parent_id
-                 FROM dormitories d
-                 LEFT JOIN staff hps ON hps.id = d.house_parent_id
-                 LEFT JOIN persons hp ON hp.id = hps.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("dormitories") . " d
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " hps ON hps.id = d.house_parent_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " hp ON hp.id = hps.person_id
                  WHERE d.status = 'active'
                  ORDER BY d.name"
             );
@@ -138,11 +139,11 @@ class BoardingManager extends BaseAPI
                         CONCAT(hp.first_name, ' ', hp.last_name) AS patron_name,
                         COUNT(da.id) AS occupied,
                         d.capacity - COUNT(da.id) AS available
-                 FROM dormitories d
+                 FROM " . ReadReplicaService::qualifiedRef("dormitories") . " d
                  LEFT JOIN dormitory_assignments da
                         ON da.dormitory_id = d.id AND da.status = 'active'
-                 LEFT JOIN staff hps ON hps.id = d.house_parent_id
-                 LEFT JOIN persons hp ON hp.id = hps.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " hps ON hps.id = d.house_parent_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " hp ON hp.id = hps.person_id
                  WHERE d.status = 'active'
                  GROUP BY d.id
                  ORDER BY d.name"
@@ -290,18 +291,7 @@ class BoardingManager extends BaseAPI
                            da.bed_number,
                            da.dormitory_id,
                            COALESCE(ba.status, '—') AS tonight_status
-                    FROM students s
-                    JOIN persons p ON p.id = s.person_id
-                    JOIN student_academic_enrollments sae
-                         ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                    JOIN dormitory_assignments da
-                         ON da.student_academic_enrollment_id = sae.id
-                    JOIN dormitories d ON d.id = da.dormitory_id
-                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                    LEFT JOIN classes c ON c.id = ayc.class_id
-                    LEFT JOIN boarding_attendance ba
-                         ON ba.student_id = s.id AND ba.date = CURDATE()
+                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY d.name, p.last_name, p.first_name
                     LIMIT 500";
@@ -368,8 +358,8 @@ class BoardingManager extends BaseAPI
 
             $dormStmt = $this->db->prepare(
                 "SELECT da.dormitory_id
-                 FROM dormitory_assignments da
-                 JOIN student_academic_enrollments sae ON sae.id = da.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::qualifiedRef("dormitory_assignments") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = da.student_academic_enrollment_id
                  WHERE sae.student_id = ? AND da.status = 'active'
                  ORDER BY da.id DESC LIMIT 1"
             );
@@ -439,14 +429,14 @@ class BoardingManager extends BaseAPI
                            s.admission_no,
                            d.name AS dormitory_name,
                            pt.name AS permission_type_name
-                    FROM student_permissions e
-                    JOIN students s ON s.id = e.student_id
-                    JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN student_academic_enrollments sae
+                    FROM " . ReadReplicaService::qualifiedRef("student_permissions") . " e
+                    JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = e.student_id
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                          ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                     LEFT JOIN dormitory_assignments da
                          ON da.student_academic_enrollment_id = sae.id AND da.status = 'active'
-                    LEFT JOIN dormitories d ON d.id = da.dormitory_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("dormitories") . " d ON d.id = da.dormitory_id
                     LEFT JOIN student_permission_types pt ON pt.id = e.permission_type_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY e.created_at DESC LIMIT 200";
@@ -515,8 +505,8 @@ class BoardingManager extends BaseAPI
                         CONCAT(p.first_name, ' ', p.last_name) AS name,
                         ba.status AS detail
                  FROM boarding_attendance ba
-                 JOIN students s ON s.id = ba.student_id
-                 JOIN persons p ON p.id = s.person_id
+                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = ba.student_id
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  ORDER BY ba.created_at DESC LIMIT 10"
             );
             $rows = array_merge($rows, $this->allRows($stmt));
@@ -525,9 +515,9 @@ class BoardingManager extends BaseAPI
                 "SELECT 'leave_request' AS type, e.updated_at AS ts,
                         CONCAT(p.first_name, ' ', p.last_name) AS name,
                         e.status AS detail
-                 FROM student_permissions e
-                 JOIN students s ON s.id = e.student_id
-                 JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_permissions") . " e
+                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = e.student_id
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  ORDER BY e.updated_at DESC LIMIT 10"
             );
             $rows = array_merge($rows, $this->allRows($stmt2));

@@ -1041,24 +1041,23 @@ final class SystemAdminAnalyticsService
 
         try {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $this->db->query(
+            $stmt = $this->db->getConnection()->prepare(
                 "SELECT
-                    u.id,
-                    u.username,
-                    u.status AS account_status,
-                    u.failed_login_attempts AS consecutive_failed_attempts,
-                    u.account_locked_until,
-                    pp.first_name,
-                    pp.last_name,
-                    pp.email
-                 FROM users u
-                 LEFT JOIN persons pp ON pp.id = u.person_id
-                 WHERE u.id IN ($placeholders)",
-                $ids
+                    user_id,
+                    username,
+                    user_status AS account_status,
+                    failed_login_attempts AS consecutive_failed_attempts,
+                    account_locked_until,
+                    first_name,
+                    last_name,
+                    email
+                 FROM " . ReadReplicaService::qualifiedRef('person_directory') . "
+                 WHERE user_id IN ($placeholders)"
             );
+            $stmt->execute($ids);
             $details = [];
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $details[(int) $row['id']] = $row;
+                $details[(int) $row['user_id']] = $row;
             }
             return $details;
         } catch (\Throwable $e) {

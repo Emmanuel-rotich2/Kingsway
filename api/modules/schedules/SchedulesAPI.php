@@ -10,6 +10,7 @@ use App\API\Services\CalendarSyncService;
 use App\API\Services\TeacherSpecializationService;
 use App\API\Services\TimetableAssignmentDraftValidator;
 use App\API\Services\NotificationService;
+use App\API\Services\ReadReplicaService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use function App\API\Includes\dayNameToNumber;
@@ -315,11 +316,15 @@ class SchedulesAPI extends BaseAPI {
 
     public function getTimetable($params = []) {
         try {
+            $entries = ReadReplicaService::qualifiedRef('timetable_entries');
+            $classStreams = ReadReplicaService::qualifiedRef('academic_year_class_streams');
+            $yearClasses = ReadReplicaService::qualifiedRef('academic_year_classes');
+            $timeSlots = ReadReplicaService::qualifiedRef('time_slots');
             $where = ["cs.status = 'scheduled'"];
             $bindings = [];
 
             if (!empty($params['class_id'])) {
-                $where[] = "cs.class_id = ?";
+                $where[] = "ayc.class_id = ?";
                 $bindings[] = (int) $params['class_id'];
             }
             if (!empty($params['teacher_id'])) {
@@ -327,7 +332,7 @@ class SchedulesAPI extends BaseAPI {
                 $bindings[] = (int) $params['teacher_id'];
             }
             if (!empty($params['academic_year_id'])) {
-                $where[] = "cs.academic_year_id = ?";
+                $where[] = "ayc.academic_year_id = ?";
                 $bindings[] = (int) $params['academic_year_id'];
             }
             $termId = $params['academic_year_term_id'] ?? $params['term_id'] ?? null;
@@ -363,10 +368,13 @@ class SchedulesAPI extends BaseAPI {
             $whereSql = implode(' AND ', $where);
 
             $sql = "
-                SELECT *
-                FROM vw_timetable_entries cs
+                SELECT cs.*, ts.start_time, ts.end_time
+                FROM {$entries} cs
+                INNER JOIN {$classStreams} acs ON acs.id = cs.academic_year_class_stream_id
+                INNER JOIN {$yearClasses} ayc ON ayc.id = acs.academic_year_class_id
+                LEFT JOIN {$timeSlots} ts ON ts.id = cs.time_slot_id
                 WHERE $whereSql
-                ORDER BY cs.day_of_week, cs.start_time
+                ORDER BY cs.day_of_week, ts.start_time
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -719,56 +727,24 @@ class SchedulesAPI extends BaseAPI {
 
     public function checkTimetableConflicts($params = []) {
         try {
-            $conflicts = [];
-
-            // Check teacher double-booking
-            $sql = "
-                SELECT
-                    cs1.id as schedule_id_1, cs2.id as schedule_id_2,
-                    cs1.day_of_week, cs1.start_time, cs1.end_time,
-                    cs1.teacher_name,
-                    cs1.class_name as class_1, cs2.class_name as class_2,
-                    'teacher_overlap' as conflict_type
-                FROM vw_timetable_entries cs1
-                JOIN vw_timetable_entries cs2 ON cs1.teacher_id = cs2.teacher_id
-                    AND cs1.day_of_week = cs2.day_of_week
-                    AND cs1.academic_year_term_id = cs2.academic_year_term_id
-                    AND cs1.id < cs2.id
-                    AND cs1.start_time < cs2.end_time AND cs1.end_time > cs2.start_time
-                WHERE cs1.status = 'scheduled' AND cs2.status = 'scheduled'
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $teacherConflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($teacherConflicts as $c) {
+            // Overlap detection is composed in vw_timetable_conflicts during
+            // the registered refresh and served from the physical reads table.
+            $stmt = $this->db->prepare(
+                'SELECT schedule_id_1, schedule_id_2, day_of_week, start_time, end_time,
+                        teacher_name, room_name, class_1, class_2, conflict_type
+                 FROM ' . ReadReplicaService::qualifiedRef('timetable_conflict') . '
+                 WHERE conflict_type IN (?, ?)'
+            );
+            $stmt->execute(['teacher_overlap', 'room_overlap']);
+            $conflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($conflicts as &$c) {
+                if ($c['conflict_type'] === 'teacher_overlap') {
                 $c['description'] = "{$c['teacher_name']} is double-booked: {$c['class_1']} and {$c['class_2']} on day {$c['day_of_week']} {$c['start_time']}-{$c['end_time']}";
-                $conflicts[] = $c;
-            }
-
-            // Check room double-booking
-            $sql = "
-                SELECT
-                    cs1.id as schedule_id_1, cs2.id as schedule_id_2,
-                    cs1.day_of_week, cs1.start_time, cs1.end_time,
-                    cs1.room_name,
-                    cs1.class_name as class_1, cs2.class_name as class_2,
-                    'room_overlap' as conflict_type
-                FROM vw_timetable_entries cs1
-                JOIN vw_timetable_entries cs2 ON cs1.room_id = cs2.room_id
-                    AND cs1.day_of_week = cs2.day_of_week
-                    AND cs1.academic_year_term_id = cs2.academic_year_term_id
-                    AND cs1.id < cs2.id
-                    AND cs1.start_time < cs2.end_time AND cs1.end_time > cs2.start_time
-                WHERE cs1.status = 'scheduled' AND cs2.status = 'scheduled'
-                AND cs1.room_id IS NOT NULL
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $roomConflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($roomConflicts as $c) {
+                } else {
                 $c['description'] = "{$c['room_name']} is double-booked: {$c['class_1']} and {$c['class_2']} on day {$c['day_of_week']} {$c['start_time']}-{$c['end_time']}";
-                $conflicts[] = $c;
+                }
             }
+            unset($c);
 
             return successResponse([
                 'conflicts' => $conflicts,
@@ -1418,7 +1394,7 @@ class SchedulesAPI extends BaseAPI {
             $yearId = (int) ($params['academic_year_id'] ?? 0);
             if (!$yearId) {
                 $yearId = (int) $this->db->query(
-                    "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                    "SELECT id FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . " is_current = 1 ORDER BY id DESC LIMIT 1"
                 )->fetchColumn();
             }
             if (!$yearId) {
@@ -1450,7 +1426,7 @@ class SchedulesAPI extends BaseAPI {
                     a.start_time,
                     a.end_time,
                     a.venue
-                FROM activity_schedule a
+                FROM " . ReadReplicaService::qualifiedRef("activity_schedule") . "
                 JOIN activities ac ON a.activity_id = ac.id
                 ORDER BY a.schedule_date, a.start_time
             ";
@@ -1504,14 +1480,19 @@ class SchedulesAPI extends BaseAPI {
 
     public function getRooms($params = []) {
         try {
+            $entries = ReadReplicaService::qualifiedRef('timetable_entries');
+            $classStreams = ReadReplicaService::qualifiedRef('academic_year_class_streams');
+            $examSchedules = ReadReplicaService::qualifiedRef('exam_schedules');
+            $rooms = ReadReplicaService::qualifiedRef('rooms');
             $sql = "
                 SELECT 
                     r.*,
-                    COUNT(DISTINCT vte.id) as timetable_count,
+                    COUNT(DISTINCT te.id) as timetable_count,
                     COUNT(DISTINCT es.id) as exam_count
-                FROM rooms r
-                LEFT JOIN vw_timetable_entries vte ON r.id = vte.room_id AND vte.status = 'scheduled'
-                LEFT JOIN exam_schedules es ON r.id = es.room_id
+                FROM {$rooms} r
+                LEFT JOIN {$classStreams} acs ON acs.room_id = r.id
+                LEFT JOIN {$entries} te ON te.academic_year_class_stream_id = acs.id AND te.status = 'scheduled'
+                LEFT JOIN {$examSchedules} es ON r.id = es.room_id
                     AND es.status IN ('scheduled', 'upcoming', 'in_progress')
                 WHERE r.status IN ('active', 'maintenance')
                 GROUP BY r.id
@@ -1582,11 +1563,11 @@ class SchedulesAPI extends BaseAPI {
                     CONCAT(dp.first_name, ' ', dp.last_name) as driver_name,
                     COUNT(DISTINCT ta.student_id) as student_count
                 FROM route_schedules rs
-                JOIN transport_routes r ON rs.route_id = r.id
+                JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " r ON rs.route_id = r.id
                 LEFT JOIN transport_vehicles v ON rs.vehicle_id = v.id
-                LEFT JOIN staff d ON rs.driver_id = d.id
-                LEFT JOIN persons dp ON dp.id = d.person_id
-                LEFT JOIN student_transport_assignments ta ON r.id = ta.route_id AND ta.status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " d ON rs.driver_id = d.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " dp ON dp.id = d.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " ta ON r.id = ta.route_id AND ta.status = 'active'
                 WHERE rs.status = 'active'
                 GROUP BY rs.id
                 ORDER BY rs.day_of_week, rs.pickup_time
@@ -1674,11 +1655,10 @@ class SchedulesAPI extends BaseAPI {
             return 0;
         }
         $stmt = $this->db->prepare(
-            "SELECT aycs.id
-             FROM academic_year_class_streams aycs
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
-             ORDER BY aycs.id LIMIT 1"
+            "SELECT class_stream_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ? AND class_id = ?
+             ORDER BY class_stream_id LIMIT 1"
         );
         $stmt->execute([$academicYearId, $classId]);
         return (int) $stmt->fetchColumn();
@@ -1744,7 +1724,7 @@ class SchedulesAPI extends BaseAPI {
     public function listTimetableDrafts(array $filters = []): array
     {
         $sql = "SELECT d.*, COUNT(e.id) AS entry_count
-                FROM timetable_drafts d
+                FROM " . ReadReplicaService::qualifiedRef("timetable_drafts") . "
                 LEFT JOIN timetable_draft_entries e ON e.draft_id = d.id
                 WHERE 1=1";
         $params = [];
@@ -1767,18 +1747,18 @@ class SchedulesAPI extends BaseAPI {
                        COALESCE(st.name, 'A') AS stream_name,
                        sla.id AS stream_learning_area_id, aycla.id AS class_learning_area_id, aycla.learning_area_id,
                        la.name AS learning_area_name
-                FROM academic_year_class_streams aycs
-                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams st ON st.id = aycs.stream_id
-                LEFT JOIN academic_year_class_learning_areas aycla
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla
                     ON aycla.academic_year_class_id = ayc.id
                    AND aycla.status IN ('planned','active')
-                LEFT JOIN academic_year_class_stream_learning_areas sla
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
                     ON sla.academic_year_class_stream_id = aycs.id
                    AND sla.academic_year_class_learning_area_id = aycla.id
                    AND sla.status IN ('planned','active','in_progress','covered')
-                LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
                 WHERE ayc.academic_year_id = ? AND aycs.status IN ('planning','active')
                 ORDER BY c.id, stream_name, la.name";
         $params = [(int)($filters['academic_year_id'] ?? 0)];
@@ -1827,7 +1807,7 @@ class SchedulesAPI extends BaseAPI {
         }catch(Exception $e){if($this->db->inTransaction())$this->db->rollBack();return errorResponse($e->getMessage(),400);}
     }
 
-    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM duty_roster_drafts d LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
+    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM " . ReadReplicaService::qualifiedRef("duty_roster_drafts") . " LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
     public function getDutyRosterDraft($id): array { $q=$this->db->prepare("SELECT * FROM duty_roster_drafts WHERE id=?");$q->execute([(int)$id]);$d=$q->fetch(PDO::FETCH_ASSOC);if(!$d)return errorResponse('Duty roster draft not found',404);$q=$this->db->prepare("SELECT * FROM duty_roster_draft_entries WHERE draft_id=? ORDER BY date,start_time");$q->execute([(int)$id]);$d['entries']=$q->fetchAll(PDO::FETCH_ASSOC);return successResponse($d); }
 
     public function saveExamTimetableDraft(array $data): array
@@ -1888,13 +1868,13 @@ class SchedulesAPI extends BaseAPI {
                  LIMIT 1"
             );
             $typeCheck = $this->db->prepare(
-                "SELECT name FROM assessment_types
+                "SELECT name FROM assessment_type_classifications
                  WHERE id = ? AND is_summative = 1 AND status = 'active' LIMIT 1"
             );
             $insert = $this->db->prepare(
                 'INSERT INTO exam_timetable_draft_entries
                     (draft_id, academic_year_class_stream_id, learning_area_id, exam_name, exam_type,
-                     assessment_type_id, max_marks, exam_date, start_time, end_time, duration_minutes,
+                     assessment_type_classification_id, max_marks, exam_date, start_time, end_time, duration_minutes,
                      room_id, venue, invigilator_id, supervisor_id, notes)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), NULLIF(?, 0), ?)'
             );
@@ -1904,7 +1884,7 @@ class SchedulesAPI extends BaseAPI {
                 $number = $index + 1;
                 $streamId = (int) ($entry['academic_year_class_stream_id'] ?? 0);
                 $learningAreaId = (int) ($entry['learning_area_id'] ?? 0);
-                $assessmentTypeId = (int) ($entry['assessment_type_id'] ?? 0);
+                $assessmentTypeId = (int) ($entry['assessment_type_classification_id'] ?? 0);
                 $maxMarks = (float) ($entry['max_marks'] ?? 0);
                 $examName = trim((string) ($entry['exam_name'] ?? ''));
                 $date = (string) ($entry['exam_date'] ?? '');
@@ -1971,7 +1951,7 @@ class SchedulesAPI extends BaseAPI {
     {
         $query = $this->db->query(
             'SELECT d.*, COUNT(e.id) AS entry_count
-             FROM exam_timetable_drafts d
+             FROM ' . ReadReplicaService::qualifiedRef('exam_timetable_drafts') . ' d
              LEFT JOIN exam_timetable_draft_entries e ON e.draft_id = d.id
              GROUP BY d.id ORDER BY d.updated_at DESC'
         );
@@ -1986,8 +1966,8 @@ class SchedulesAPI extends BaseAPI {
         if (!$draft) return errorResponse('Exam timetable draft not found', 404);
         $query = $this->db->prepare(
             'SELECT e.*, at.name AS assessment_type_name
-             FROM exam_timetable_draft_entries e
-             LEFT JOIN assessment_types at ON at.id = e.assessment_type_id
+             FROM ' . ReadReplicaService::qualifiedRef('exam_timetable_draft_entries') . ' e
+             LEFT JOIN assessment_type_classifications at ON at.id = e.assessment_type_classification_id
              WHERE e.draft_id = ? ORDER BY e.exam_date, e.start_time'
         );
         $query->execute([(int) $id]);
@@ -2064,11 +2044,11 @@ class SchedulesAPI extends BaseAPI {
             );
             $fallbackMarker = $this->db->prepare(
                 "SELECT teacher.staff_id
-                 FROM academic_year_class_streams stream
-                 JOIN academic_year_class_learning_areas class_area
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " stream
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " class_area
                    ON class_area.academic_year_class_id = stream.academic_year_class_id
                   AND class_area.learning_area_id = ?
-                 JOIN academic_year_class_learning_area_teachers teacher
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " teacher
                    ON teacher.academic_year_class_learning_area_id = class_area.id
                   AND teacher.academic_year_term_id = ?
                  WHERE stream.id = ?
@@ -2086,7 +2066,7 @@ class SchedulesAPI extends BaseAPI {
             $assessmentInsert = $this->db->prepare(
                 "INSERT INTO assessments
                     (academic_year_class_stream_id, academic_year_term_id, learning_area_id,
-                     assessment_type_id, title, max_marks, assessment_date, assigned_by, status)
+                     assessment_type_classification_id, title, max_marks, assessment_date, assigned_by, status)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_submission')"
             );
             $scheduleInsert = $this->db->prepare(
@@ -2137,7 +2117,7 @@ class SchedulesAPI extends BaseAPI {
                     (int) $entry['academic_year_class_stream_id'],
                     (int) $entry['academic_year_term_id'],
                     (int) $entry['learning_area_id'],
-                    (int) $entry['assessment_type_id'],
+                    (int) $entry['assessment_type_classification_id'],
                     $entry['exam_name'],
                     (float) $entry['max_marks'],
                     $entry['exam_date'],
@@ -2187,9 +2167,9 @@ class SchedulesAPI extends BaseAPI {
                 $stmt->execute([(int)$data['academic_year_id'], (int)$data['academic_year_term_id'], $data['scope'], $data['title'], (int)$data['created_by']]);
                 $id = (int) $this->db->lastInsertId();
             }
-            $streamCheck = $this->db->prepare("SELECT ayc.id, aycs.class_teacher_id, c.name AS class_name FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id JOIN classes c ON c.id = ayc.class_id WHERE aycs.id = ? AND ayc.academic_year_id = ? AND aycs.status IN ('planning','active') LIMIT 1");
+            $streamCheck = $this->db->prepare("SELECT aycs.academic_year_class_id AS id, aycs.class_teacher_id, aycs.class_name FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . " aycs WHERE aycs.class_stream_id = ? AND aycs.academic_year_id = ? AND aycs.class_stream_status IN ('planning','active') LIMIT 1");
             $slotCheck = $this->db->prepare("SELECT id FROM time_slots WHERE id = ? AND is_active = 1 LIMIT 1");
-            $areaCheck = $this->db->prepare("SELECT sla.id, cla.learning_area_id FROM academic_year_class_stream_learning_areas sla JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? AND sla.status IN ('planned','active','in_progress','covered') LIMIT 1");
+            $areaCheck = $this->db->prepare("SELECT id, learning_area_id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas_detailed") . " WHERE academic_year_class_stream_id = ? AND learning_area_id = ? AND status IN ('planned','active','in_progress','covered') LIMIT 1");
             $teacherCheck = $this->db->prepare("SELECT ayclt.id FROM academic_year_class_learning_area_teachers ayclt WHERE ayclt.academic_year_class_learning_area_id = ? AND ayclt.academic_year_term_id = ? AND ayclt.staff_id = ? LIMIT 1");
             $streamTeacherCheck = $this->db->prepare("SELECT id FROM academic_year_class_stream_learning_area_teachers WHERE academic_year_class_stream_learning_area_id = ? AND academic_year_term_id = ? AND staff_id = ? AND status = 'active' LIMIT 1");
             $contextTeacherCount = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_stream_learning_area_teachers WHERE academic_year_class_stream_learning_area_id = ? AND academic_year_term_id = ? AND status = 'active'");
@@ -2343,7 +2323,7 @@ class SchedulesAPI extends BaseAPI {
         $rows = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ?"); $rows->execute([$draftId]);
         $pendingRows = $rows->fetchAll(PDO::FETCH_ASSOC);
         $teacherConflict = $this->db->prepare(
-            "SELECT COUNT(*) FROM timetable_entries live
+            "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " live
              WHERE live.academic_year_term_id = ?
                AND live.status = 'scheduled'
                AND live.teacher_id = ?

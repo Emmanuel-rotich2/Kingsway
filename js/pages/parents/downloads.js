@@ -77,7 +77,7 @@
       P.apiFetch('/download-statement/' + _state.studentId, 'POST')
         .then(function (resp) {
           var d = resp.data !== undefined ? resp.data : resp;
-          if (d.download_url) window.open(d.download_url, '_blank', 'noopener');
+          if (d.download_url) window.PrintManager?.openDocument(d.download_url, { title: 'Fee statement' });
           else P.showError(el, d.message || 'Failed to generate statement');
         })
         .catch(function (e) { P.showError(el, e.message); })
@@ -91,7 +91,7 @@
         P.apiFetch('/download-receipt', 'POST', { student_id: _state.studentId, payment_id: Number(btn.dataset.payment) })
           .then(function (resp) {
             var d = resp.data !== undefined ? resp.data : resp;
-            if (d.download_url) window.open(d.download_url, '_blank', 'noopener');
+            if (d.download_url) window.PrintManager?.openDocument(d.download_url, { title: 'Payment receipt' });
             else P.showError(el, d.message || 'Failed to generate receipt');
           })
           .catch(function (e) { P.showError(el, e.message); })

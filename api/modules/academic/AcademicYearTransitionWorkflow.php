@@ -2,6 +2,7 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\ReadReplicaService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
@@ -417,10 +418,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // Count records to be archived
             if ($archiveAssessments) {
                 $assessStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM assessment_results ar
-                    INNER JOIN assessments a ON ar.assessment_id = a.id
-                    INNER JOIN academic_year_terms ayt ON a.academic_year_term_id = ayt.id
-                    INNER JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                    "SELECT COUNT(*) as count FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON ar.assessment_id = a.id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON a.academic_year_term_id = ayt.id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                     WHERE ay.id = :year_id"
                 );
                 $assessStmt->execute(['year_id' => $fromYearId]);
@@ -554,9 +555,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $targetStreamId = (int) ($targetStream->fetchColumn() ?: 0);
                 if (!$targetStreamId) {
                     $targetStream = $this->db->prepare(
-                        "SELECT aycs.id FROM academic_year_class_streams aycs
-                         JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                         WHERE ayc.academic_year_id = ? AND ayc.class_id = ? ORDER BY aycs.id LIMIT 1"
+                        "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                         WHERE academic_year_id = ? AND class_id = ? ORDER BY class_stream_id LIMIT 1"
                     );
                     $targetStream->execute([$toYearId, $targetClassId]);
                     $targetStreamId = (int) ($targetStream->fetchColumn() ?: 0);
@@ -652,17 +652,17 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                     targetClass.id AS target_class_id, targetClass.name AS target_class_name,
                     targetEnrollment.id AS target_enrollment_id,
                     targetEnrollment.academic_year_class_stream_id AS target_stream_id
-             FROM student_academic_enrollments sae
-             JOIN students s ON s.id = sae.student_id
-             JOIN persons p ON p.id = s.person_id
-             JOIN academic_year_class_streams srcAycs ON srcAycs.id = sae.academic_year_class_stream_id
-             JOIN streams srcStream ON srcStream.id = srcAycs.stream_id
-             JOIN academic_year_classes srcAyc ON srcAyc.id = srcAycs.academic_year_class_id
-             JOIN classes c ON c.id = srcAyc.class_id
-             LEFT JOIN academic_class_progression prog
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " srcAycs ON srcAycs.id = sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("streams") . " srcStream ON srcStream.id = srcAycs.stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " srcAyc ON srcAyc.id = srcAycs.academic_year_class_id
+             JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = srcAyc.class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_class_progression") . " prog
                ON prog.source_class_id = c.id AND prog.active = 1
-             LEFT JOIN classes targetClass ON targetClass.id = prog.target_class_id
-             LEFT JOIN student_academic_enrollments targetEnrollment
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " targetClass ON targetClass.id = prog.target_class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " targetEnrollment
                ON targetEnrollment.student_id = s.id AND targetEnrollment.academic_year_id = ?
              WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
                AND s.status = 'active'
@@ -676,9 +676,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             if ($targetClassId) {
                 $streamStmt = $this->db->prepare(
                     "SELECT aycs.id AS target_stream_id, streams.name AS stream_name
-                     FROM academic_year_class_streams aycs
-                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                     JOIN streams ON streams.id = aycs.stream_id
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                     JOIN " . ReadReplicaService::qualifiedRef("streams") . " ON streams.id = aycs.stream_id
                      WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
                      ORDER BY streams.name"
                 );
@@ -803,8 +803,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return ['fee_bundles_processed'=>$processed];
         }
         $records=$this->db->prepare(
-            "SELECT r.*, ay.year_code FROM student_fee_rollover_balances r
-             JOIN academic_years ay ON ay.id=r.to_academic_year_id
+            "SELECT r.*, ay.year_code FROM " . ReadReplicaService::qualifiedRef("student_fee_rollover_balances") . "
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=r.to_academic_year_id
              WHERE r.from_academic_year_id=? AND r.to_academic_year_id=? AND r.reconciled_at IS NULL"
         );
         $records->execute([$fromId,$toId]);
@@ -814,9 +814,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $target=$this->db->prepare(
                 "SELECT MIN(sfo.id) AS id,GREATEST(COALESCE(vfb.balance,0),0) AS outstanding,
                         sfo.academic_year_term_id
-                 FROM student_fee_obligations sfo JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id=sfo.student_academic_enrollment_id
                  LEFT JOIN vw_student_fee_balances vfb ON vfb.student_academic_enrollment_id=sae.id AND vfb.academic_year_term_id=sfo.academic_year_term_id
-                 JOIN academic_year_terms ayt ON ayt.id=sfo.academic_year_term_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=sfo.academic_year_term_id
                  WHERE sae.student_id=? AND sae.academic_year_id=? AND sae.enrollment_status='active'
                  GROUP BY sfo.academic_year_term_id,vfb.balance
                  ORDER BY ayt.opening_date,MIN(sfo.id)"
@@ -879,9 +879,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
                 $source = $this->db->prepare(
                     "SELECT sae.id, sae.academic_year_class_stream_id, ayc.class_id
-                     FROM student_academic_enrollments sae
-                     JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                     FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                      WHERE sae.student_id = ? AND sae.academic_year_id = ?
                        AND (sae.enrollment_status IN ('pending','active') OR EXISTS
                             (SELECT 1 FROM student_transitions st
@@ -893,9 +891,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 if (!$sourceRow) throw new Exception('Learner is not an active learner in the source year');
 
                 $target = $this->db->prepare(
-                    "SELECT aycs.id, ayc.class_id FROM academic_year_class_streams aycs
-                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                     WHERE aycs.id = ? AND ayc.academic_year_id = ? LIMIT 1"
+                    "SELECT class_stream_id, class_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                     WHERE class_stream_id = ? AND academic_year_id = ? LIMIT 1"
                 );
                 $target->execute([$targetAycsId, $toYearId]);
                 $targetRow = $target->fetch(PDO::FETCH_ASSOC);
@@ -947,10 +944,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // promotion board so they do not block completion.
             $graduates = $this->db->prepare(
                 "SELECT sae.id, sae.student_id
-                 FROM student_academic_enrollments sae
-                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN students s ON s.id = sae.student_id AND s.status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
                    AND NOT EXISTS (SELECT 1 FROM academic_class_progression p
                                    WHERE p.source_class_id = ayc.class_id AND p.active = 1)"
@@ -1152,35 +1146,33 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
         // Source structure: class => stream names (Term 3 / year-end snapshot).
         $sourceStmt = $this->db->prepare(
-            "SELECT c.id AS class_id, c.name AS class_name, c.level_id,
-                    ayc.id AS ayc_id
-             FROM academic_year_classes ayc
-             JOIN classes c ON c.id = ayc.class_id
-             WHERE ayc.academic_year_id = ?
-             ORDER BY c.id"
+            "SELECT class_id, class_name, academic_year_class_id AS ayc_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?
+             GROUP BY class_id, class_name, academic_year_class_id
+             ORDER BY class_id"
         );
         $sourceStmt->execute([$fromYearId]);
         $sourceClasses = $sourceStmt->fetchAll(PDO::FETCH_ASSOC);
 
         $streamStmt = $this->db->prepare(
-            "SELECT aycs.academic_year_class_id, s.name
-             FROM academic_year_class_streams aycs
-             JOIN streams s ON s.id = aycs.stream_id
-             WHERE aycs.academic_year_class_id IN (SELECT id FROM academic_year_classes WHERE academic_year_id = ?)"
+            "SELECT academic_year_class_id, stream_name
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?"
         );
         $streamStmt->execute([$fromYearId]);
         $streamsByAycs = [];
         foreach ($streamStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $streamsByAycs[(int) $row['academic_year_class_id']][] = $row['name'];
+            $streamsByAycs[(int) $row['academic_year_class_id']][] = $row['stream_name'];
         }
 
         // Existing structure in the target year (for idempotency).
         $existingTarget = [];
         $targetStmt = $this->db->prepare(
-            "SELECT c.id AS class_id, ayc.id AS ayc_id
-             FROM academic_year_classes ayc
-             JOIN classes c ON c.id = ayc.class_id
-             WHERE ayc.academic_year_id = ?"
+            "SELECT class_id, academic_year_class_id AS ayc_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?
+             GROUP BY class_id, academic_year_class_id"
         );
         $targetStmt->execute([$toYearId]);
         foreach ($targetStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -1274,8 +1266,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $areaStmt = $this->db->prepare(
             "SELECT id, academic_year_class_id, learning_area_id, strand_id,
                     sub_strand_id, planned_weeks, notes
-             FROM academic_year_class_learning_areas
-             WHERE academic_year_class_id IN (SELECT id FROM academic_year_classes WHERE academic_year_id = ?)"
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . "
+             WHERE academic_year_class_id IN (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE academic_year_id = ?)"
         );
         $areaStmt->execute([$fromYearId]);
         foreach ($areaStmt->fetchAll(PDO::FETCH_ASSOC) as $area) {
@@ -1311,12 +1303,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         // Copy class teachers by stream name, preserving the target-year stream row.
         $teacherCount = 0;
         $streamTeacherStmt = $this->db->prepare(
-            "SELECT srcAycs.academic_year_class_id, srcStream.name, srcAycs.class_teacher_id
-             FROM academic_year_class_streams srcAycs
-             JOIN streams srcStream ON srcStream.id = srcAycs.stream_id
-             WHERE srcAycs.academic_year_class_id IN
-                (SELECT id FROM academic_year_classes WHERE academic_year_id = ?)
-               AND srcAycs.class_teacher_id IS NOT NULL"
+            "SELECT academic_year_class_id, stream_name, class_teacher_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE academic_year_id = ?
+               AND class_teacher_id IS NOT NULL"
         );
         $streamTeacherStmt->execute([$fromYearId]);
         foreach ($streamTeacherStmt->fetchAll(PDO::FETCH_ASSOC) as $teacher) {
@@ -1338,13 +1328,13 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $streamMap = [];
         $sourceStreamMap = $this->db->prepare(
             "SELECT src.id AS source_stream_id, target.id AS target_stream_id
-             FROM academic_year_class_streams src
-             JOIN streams srcName ON srcName.id = src.stream_id
-             JOIN academic_year_classes srcClass ON srcClass.id = src.academic_year_class_id
-             JOIN academic_year_class_streams target ON target.academic_year_class_id =
-                 (SELECT id FROM academic_year_classes WHERE academic_year_id = ?
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " src
+             JOIN " . ReadReplicaService::qualifiedRef("streams") . " srcName ON srcName.id = src.stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " srcClass ON srcClass.id = src.academic_year_class_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " target ON target.academic_year_class_id =
+                 (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE academic_year_id = ?
                   AND class_id = srcClass.class_id LIMIT 1)
-             JOIN streams targetName ON targetName.id = target.stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("streams") . " targetName ON targetName.id = target.stream_id
              WHERE srcClass.academic_year_id = ?
                AND LOWER(srcName.name) = LOWER(targetName.name)"
         );
@@ -1359,12 +1349,12 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             "SELECT srcTeacher.academic_year_class_learning_area_id,
                     srcTeacher.academic_year_term_id, srcTeacher.staff_id, srcTeacher.role,
                     srcTerm.term_id
-             FROM academic_year_class_learning_area_teachers srcTeacher
-             JOIN academic_year_terms srcTerm ON srcTerm.id = srcTeacher.academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . "
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " srcTerm ON srcTerm.id = srcTeacher.academic_year_term_id
              WHERE srcTeacher.academic_year_class_learning_area_id IN
-                (SELECT id FROM academic_year_class_learning_areas
+                (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . "
                  WHERE academic_year_class_id IN
-                    (SELECT id FROM academic_year_classes WHERE academic_year_id = ?))"
+                    (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE academic_year_id = ?))"
         );
         $teacherStmt->execute([$fromYearId]);
         foreach ($teacherStmt->fetchAll(PDO::FETCH_ASSOC) as $teacher) {
@@ -1392,10 +1382,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
         $timetableStmt = $this->db->prepare(
             "SELECT academic_year_class_stream_id, academic_year_term_id,
                     day_of_week, time_slot_id, learning_area_id, teacher_id, status
-             FROM timetable_entries
-             WHERE academic_year_class_stream_id IN
-                (SELECT aycs.id FROM academic_year_class_streams aycs
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " academic_year_class_stream_id IN
+                (SELECT aycs.id FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
                  WHERE ayc.academic_year_id = ?)"
         );
         $timetableStmt->execute([$fromYearId]);
@@ -1724,8 +1713,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 4: Every active target class has at least one stream.
             $streamGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM academic_year_classes ayc
-                 LEFT JOIN academic_year_class_streams aycs
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                     ON aycs.academic_year_class_id = ayc.id
                  WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
                    AND aycs.id IS NULL"
@@ -1739,9 +1728,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 5: Classes that require CBC curriculum have learning areas.
             $learningAreaGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM academic_year_classes ayc
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN academic_year_class_learning_areas acla
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " acla
                     ON acla.academic_year_class_id = ayc.id
                  WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
                    AND c.name NOT IN ('Playgroup', 'Grade 0')
@@ -1756,8 +1745,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check 6: Calendar exists for every target term.
             $calendarGapsStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM academic_year_terms ayt
-                 LEFT JOIN academic_year_calendar aycal
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " aycal
                     ON aycal.academic_year_term_id = ayt.id
                  WHERE ayt.academic_year_id = ? AND aycal.id IS NULL"
             );
@@ -1772,8 +1761,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $calendarStructureStmt = $this->db->prepare(
                 "SELECT COUNT(*) FROM (
                      SELECT aycal.academic_year_term_id
-                     FROM academic_year_calendar aycal
-                     JOIN academic_year_terms ayt ON ayt.id = aycal.academic_year_term_id
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . "
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aycal.academic_year_term_id
                      WHERE ayt.academic_year_id = ?
                      GROUP BY aycal.academic_year_term_id
                      HAVING COUNT(*) <> COUNT(DISTINCT aycal.week_number)
@@ -1849,10 +1838,10 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $feeCountStmt->execute([$yearId]);
             $activeFees = (int) $feeCountStmt->fetchColumn();
             $feeGapStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM academic_year_classes ayc
-                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ayc.academic_year_id
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ayc.academic_year_id
                  JOIN student_types st ON st.status = 'active'
-                 LEFT JOIN academic_year_fee_schedules fs
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " fs
                    ON fs.academic_year_id = ayc.academic_year_id
                   AND fs.academic_year_class_id = ayc.id
                   AND fs.academic_year_term_id = ayt.id
@@ -1873,8 +1862,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // This is idempotent and keeps the stored procedure as the single
             // billing authority.
             $unseededStmt = $this->db->prepare(
-                "SELECT sae.id FROM student_academic_enrollments sae
-                 LEFT JOIN student_fee_obligations fo ON fo.student_academic_enrollment_id = sae.id
+                "SELECT sae.id FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
             );
@@ -1892,8 +1881,8 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             // one obligation unless it is a graduating/no-fee exception.
             $enrollmentCount = 0;
             $enrollmentGapStmt = $this->db->prepare(
-                "SELECT COUNT(*) FROM student_academic_enrollments sae
-                 LEFT JOIN student_fee_obligations fo ON fo.student_academic_enrollment_id = sae.id
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " fo ON fo.student_academic_enrollment_id = sae.id
                  WHERE sae.academic_year_id = ? AND sae.enrollment_status = 'active'
                    AND fo.id IS NULL"
             );

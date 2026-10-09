@@ -1,5 +1,9 @@
 /** Kingsway service worker: safe static caching only. */
-const CACHE_VERSION = 'v10.5-realtime-backoff-recovery';
+// Bump on every SW behaviour change so existing installations flush the old
+// worker; a cached worker would keep polling unconditionally forever.
+const CACHE_VERSION = 'v10.7-grading-aggregation';
+// How often the suppressed loop re-checks. Cheap: a timeout, no network.
+const POLL_SUPPRESSED_TICK_MS = 15000;
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [
@@ -111,6 +115,22 @@ self.addEventListener('message', (event) => {
       ? caches.delete(event.data.data.cacheName)
       : Promise.all(caches.keys().then((names) => names.map((name) => caches.delete(name)))));
   }
+  // The page reports whether the SSE stream is currently healthy. Suppressed
+  // polling is a performance decision, never a correctness one: if this flag
+  // is lost (worker restart, missed message) polling simply resumes.
+  if (type === 'SET_POLLING') {
+    const enabled = event.data?.enabled !== false;
+    const wasSuppressed = !!self.__kingswayPollSuppressed;
+    self.__kingswayPollSuppressed = !enabled;
+    // Poll immediately on resume so a gap that opened while suppressed is
+    // closed now, rather than after a full 12-18s tick.
+    if (wasSuppressed && enabled && self.__kingswayBuffers?.length) {
+      clearTimeout(self.__kingswayPollTimer);
+      self.__kingswayPollTimer = null;
+      self.__kingswayBuffers.forEach((u) => pollRealTimeBuffers().catch(() => {}));
+    }
+  }
+
   if (type === 'GET_CACHE_STATS' && event.ports?.[0]) {
     event.waitUntil((async () => {
       const stats = {};
@@ -133,6 +153,15 @@ self.addEventListener('message', (event) => {
     self.__kingswayFailedTicks = 0; // new URLs: reset the backoff cycle
     if (self.__kingswayBuffers.length && !self.__kingswayPollTimer) {
       const schedulePoll = async () => {
+        // Buffer polling is the FALLBACK. While the Node SSE stream is healthy
+        // it is pure waste: every open tab would fetch the same static files
+        // every 12-18s and, on a change, run a second refresh on top of the one
+        // SSE already triggered. The loop keeps ticking so the fallback can
+        // resume instantly, but it does no network work while suppressed.
+        if (self.__kingswayPollSuppressed) {
+          self.__kingswayPollTimer = setTimeout(schedulePoll, POLL_SUPPRESSED_TICK_MS);
+          return;
+        }
         const outcome = await pollRealTimeBuffers();
         let delay = 12000 + Math.floor(Math.random() * 6001);
         if (outcome === 'all_failed' || outcome === 'rotated') {

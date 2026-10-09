@@ -1,5 +1,14 @@
 [
   {
+    "name": "Summative Results Ready",
+    "template_type": "sms",
+    "category": "results_ready",
+    "subject": null,
+    "template_body": "Kingsway: {{student_name}} {{term_name}} results ready. Overall {{average}}. Parent portal: {{portal_url}}",
+    "variables_json": "{\"student_name\":\"string\",\"term_name\":\"string\",\"average\":\"string\",\"portal_url\":\"string\"}",
+    "example_output": "Kingsway: Amina K. Term 2 results: 78.4%. Parent portal: https://school.example/parent_portal.php"
+  },
+  {
     "name": "Student Results SMS",
     "template_type": "sms",
     "category": "results",

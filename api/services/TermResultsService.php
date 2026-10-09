@@ -125,9 +125,9 @@ final class TermResultsService
     {
         $stmt = $this->db->prepare(
             'SELECT ayt.academic_year_id, ayt.term_id, aycs.academic_year_class_id
-             FROM academic_year_terms ayt
-             JOIN academic_year_class_streams aycs ON aycs.id = ?
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             FROM ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' ayt
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_year_class_streams') . ' aycs ON aycs.id = ?
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_year_classes') . ' ayc ON ayc.id = aycs.academic_year_class_id
                                       AND ayc.academic_year_id = ayt.academic_year_id
              WHERE ayt.id = ? LIMIT 1'
         );
@@ -163,8 +163,8 @@ final class TermResultsService
     private function learningAreas(int $streamId, ?int $areaId): array
     {
         $sql = "SELECT DISTINCT cla.learning_area_id
-                FROM academic_year_class_stream_learning_areas sla
-                JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                 WHERE sla.academic_year_class_stream_id = ?
                   AND sla.status IN ('planned','active','in_progress','covered')";
         $params = [$streamId];
@@ -185,19 +185,20 @@ final class TermResultsService
             "SELECT fs.student_id, a.learning_area_id AS subject_id, 'formative' AS bucket,
                     fs.score, fs.max_score, 'present' AS entry_status
              FROM formative_scores fs
-             JOIN assessments a ON a.id = fs.assessment_id
-             JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_formative = 1
+             JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id
+             JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id AND a.is_formative = 1
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
                AND a.status = 'approved'{$areaFilter}
              UNION ALL
              SELECT sae.student_id, a.learning_area_id, 'summative', ar.marks_obtained,
                     a.max_marks, ar.entry_status
-             FROM assessment_results ar
-             JOIN assessments a ON a.id = ar.assessment_id
-             JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_summative = 1
-             JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+             FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+             JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+             JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id AND a.is_formative = 0 = 1
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ar.student_academic_enrollment_id
              WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ?
-               AND a.status = 'approved' AND ar.is_submitted = 1 AND ar.is_approved = 1{$areaFilter}"
+               AND a.status = 'approved' AND ar.deleted_at IS NULL
+               AND ar.is_submitted = 1 AND ar.is_approved = 1{$areaFilter}"
         );
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -231,11 +232,11 @@ final class TermResultsService
                     AVG(overall_points) AS overall_points,
                     SUM(CASE WHEN overall_percentage IS NULL THEN 1 ELSE 0 END) AS incomplete_count,
                     expected.expected_count
-             FROM term_subject_scores tss
+             FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
              JOIN (
                 SELECT sla.academic_year_class_stream_id, COUNT(DISTINCT cla.learning_area_id) AS expected_count
-                FROM academic_year_class_stream_learning_areas sla
-                JOIN academic_year_class_learning_areas cla ON cla.id=sla.academic_year_class_learning_area_id
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " sla
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id=sla.academic_year_class_learning_area_id
                 WHERE sla.status IN ('planned','active','in_progress','covered')
                 GROUP BY sla.academic_year_class_stream_id
              ) expected ON expected.academic_year_class_stream_id=tss.academic_year_class_stream_id

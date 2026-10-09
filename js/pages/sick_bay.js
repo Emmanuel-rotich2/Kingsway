@@ -224,8 +224,8 @@ const sickBayController = {
 
   _loadStudentDropdown: async function () {
     try {
-      const r = await callAPI('/students/list', 'GET').catch(() => callAPI('/students', 'GET'));
-      const students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/students/student?page=1&limit=200', 'GET').catch(() => null);
+      const students = r?.data?.students ?? (Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []));
       const sel = document.getElementById('sbStudentId');
       if (!sel) return;
       sel.innerHTML = '<option value="">— Select student —</option>';

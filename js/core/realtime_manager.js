@@ -53,44 +53,104 @@ const RealtimeManager = (() => {
   let handshakeRetryTimer = 0;
   const HANDSHAKE_MAX_RETRIES = 5;
 
+  // Buffer polling is the fallback for when SSE is unavailable. Running both at
+  // once doubles every user's network and, worse, refreshes pages TWICE per
+  // change. So the loop is suppressed while the stream is provably alive and
+  // resumed the moment it is not.
+  //
+  // "Provably" matters: EventSource.readyState stays OPEN on a connection the
+  // peer has silently stopped writing to, so the socket state alone is not
+  // evidence. Liveness is the engine's typed HEARTBEAT arriving on schedule;
+  // missing it past the staleness window re-enables polling regardless of what
+  // readyState claims.
+  let sseConnected = false;
+  let lastPulseAt = 0;
+  let pollingSuppressed = false;
+  const SSE_STALE_MS = 75000;
+
   try {
     if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(CHANNEL_NAME);
   } catch (ignored) {
     channel = null;
   }
 
-  /**
-   * Emit a real-time payload to this tab as a CustomEvent and re-broadcast it
-   * over the shared channel so sibling tabs receive it locally even if they
-   * are not the tab that owns the Service Worker's polling.
+/**
+   * Deliver a buffer payload to this tab, and to sibling tabs over the shared
+   * channel so they receive it locally even when they are not the tab that owns
+   * the Service Worker's polling.
+   *
+   * The manager's only jobs here are (a) suppressing events it has already
+   * forwarded, which is what `lastSeenByScope` tracks, and (b) handing the rest
+   * to the single dispatcher. Every decision about refreshing lives in the
+   * dispatcher, so this transport cannot double-act on a change.
    */
   function emit(scope, payload) {
-    const detail = { scope, payload, at: Date.now() };
-    window.dispatchEvent(new CustomEvent('kingsway:realtime', { detail }));
-    applyInvalidations(scope, payload);
-  }
-
-  function applyInvalidations(scope, payload) {
     const events = Array.isArray(payload?.events) ? payload.events : [];
     const previousId = Number(lastSeenByScope.get(scope) || 0);
-    const freshEvents = events.filter((event) => Number(event?.id || 0) > previousId);
+    const fresh = events.filter((event) => Number(event?.id || 0) > previousId);
     const latestId = Number(payload?.latest_id || 0);
     if (latestId > previousId) lastSeenByScope.set(scope, latestId);
-    if (!freshEvents.length) return;
+    if (!fresh.length) return;
 
-    const targets = [...new Set(freshEvents.flatMap((event) =>
-      Array.isArray(event?.payload?.targets) ? event.payload.targets : [event?.domain]
-    ).filter((target) => typeof target === 'string' && target))];
-
-    if (targets.length && window.DataStore?.invalidateMany) {
-      window.DataStore.invalidateMany(targets).catch((error) => {
-        console.warn('[RealtimeManager] Cache invalidation failed:', error);
+    for (const event of fresh) {
+      window.RealtimeDispatch?.dispatch?.({
+        type: event?.type,
+        scope,
+        payload: event?.payload || {},
+        source: 'static-buffer',
       });
     }
-    window.APIRealtime?.schedule?.(targets);
-    window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
-      detail: { source: 'realtime', scope, targets, events: freshEvents },
+  }
+
+  /**
+   * Is the SSE stream healthy enough to suspend buffer polling?
+   *
+   * Requires a connected stream AND a recent engine heartbeat. Either alone is
+   * insufficient: a stream that never connected has nothing to trust, and a
+   * stream that connected and then went quiet is not delivering regardless of
+   * what its socket state reports.
+   */
+  function sseIsHealthy() {
+    if (!sseConnected || !lastPulseAt) return false;
+    return (Date.now() - lastPulseAt) < SSE_STALE_MS;
+  }
+
+  /**
+   * Tell the Service Worker whether buffer polling should run, and record the
+   * decision so nudgeWorker() and the watchdog agree. Suppression is a pure
+   * performance optimisation: if any part of this path breaks, polling runs,
+   * which is the older, always-correct behaviour.
+   */
+  function applyPollingSuppression() {
+    const suppress = sseIsHealthy();
+    if (suppress === pollingSuppressed) return;
+    pollingSuppressed = suppress;
+    navigator.serviceWorker?.controller?.postMessage({ type: 'SET_POLLING', enabled: !suppress });
+    // A worker that was not yet controlling the page missed the flag. Once it
+    // takes control it asks for the held URLs, and registerBuffers() re-sends
+    // the current decision.
+    if (suppress) return;
+    window.dispatchEvent(new CustomEvent('kingsway:polling-mode', {
+      detail: { polling: true, reason: sseConnected ? 'stream_stale' : 'stream_down' },
     }));
+  }
+
+  function watchSseHealth() {
+    window.addEventListener('kingsway:realtime-status', (event) => {
+      sseConnected = event.detail?.state === 'connected';
+      if (sseConnected) lastPulseAt = Date.now();
+      applyPollingSuppression();
+    });
+    // Only the engine heartbeat proves the SSE stream is alive. Buffer events
+    // also emit kingsway:realtime, and listening to that here would let the
+    // FALLBACK transport vouch for the SSE transport — which is precisely the
+    // case where suppression must not happen.
+    window.addEventListener('kingsway:realtime-pulse', () => {
+      lastPulseAt = Date.now();
+      applyPollingSuppression();
+    });
+    // Catches the silent-stall case no socket event reports.
+    window.setInterval(applyPollingSuppression, 15000);
   }
 
   /**
@@ -109,6 +169,12 @@ const RealtimeManager = (() => {
       // this tab (other tabs or a later registration may still deliver events).
     }
 
+    // Node SSE is enabled only when the authenticated shell receives a
+    // validated public gateway origin. The static buffer remains the fallback.
+    if (window.KINGSWAY_REALTIME_SSE_ENABLED) {
+      await window.RealtimeSSE?.initialize?.();
+    }
+
     // If a worker already controls the page, register buffers now. Otherwise
     // wait until a worker takes control on first install.
     if (navigator.serviceWorker?.controller) {
@@ -120,15 +186,12 @@ const RealtimeManager = (() => {
     // Relay buffer polls produced by the Service Worker in this tab.
     navigator.serviceWorker?.addEventListener('message', onServiceWorkerMessage);
 
+    watchSseHealth();
+
     // Relay events pushed over the channel from sibling tabs.
     if (channel) channel.onmessage = (event) => {
       const data = event.data || {};
-      if (data?.type === 'EVENT') {
-        window.dispatchEvent(new CustomEvent('kingsway:realtime', {
-          detail: { scope: data.scope, payload: data.payload, at: data.at || Date.now() },
-        }));
-        applyInvalidations(data.scope || 'all', data.payload);
-      }
+      if (data?.type === 'EVENT') emit(data.scope || 'all', data.payload);
     };
 
     // Whenever a hidden tab becomes visible, prompt the worker to poll
@@ -191,6 +254,7 @@ const RealtimeManager = (() => {
     const worker = navigator.serviceWorker?.controller;
     if (worker) {
       worker.postMessage({ type: 'REGISTER_BUFFERS', urls: registeredScopeUrls });
+      reassertPollingDecision();
     }
   }
 
@@ -200,6 +264,16 @@ const RealtimeManager = (() => {
     handshakeRetries += 1;
     if (handshakeRetryTimer) window.clearTimeout(handshakeRetryTimer);
     handshakeRetryTimer = window.setTimeout(registerBuffers, delay);
+  }
+
+  /**
+   * Re-send the current polling decision after a handshake. A Service Worker
+   * that was restarted or replaced while SSE was healthy never saw the original
+   * SET_POLLING message, and would otherwise poll for the rest of its life.
+   */
+  function reassertPollingDecision() {
+    if (!pollingSuppressed) return;
+    navigator.serviceWorker?.controller?.postMessage({ type: 'SET_POLLING', enabled: false });
   }
 
   function clearHandshakeRetry() {
@@ -216,6 +290,9 @@ const RealtimeManager = (() => {
   function nudgeWorker() {
     const worker = navigator.serviceWorker?.controller;
     if (!worker) return;
+    // A healthy SSE stream already delivers everything the buffers carry, so a
+    // focus-triggered poll would be a redundant network round trip.
+    if (sseIsHealthy()) return;
     if (registeredScopeUrls.length) {
       worker.postMessage({ type: 'REGISTER_BUFFERS', urls: registeredScopeUrls });
     } else {
@@ -247,6 +324,7 @@ const RealtimeManager = (() => {
           type: 'REGISTER_BUFFERS',
           urls: registeredScopeUrls,
         });
+        reassertPollingDecision();
       } else {
         registerBuffers();
       }
@@ -292,6 +370,8 @@ const RealtimeManager = (() => {
 
   return {
     initialize: init,
+    sseIsHealthy,
+    pollingSuppressed: () => pollingSuppressed,
     init,
     onEvent,
     isEnabled,

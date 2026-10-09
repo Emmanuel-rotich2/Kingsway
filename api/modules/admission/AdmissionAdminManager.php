@@ -1,6 +1,7 @@
 <?php
 
 namespace App\API\Modules\admission;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -184,6 +185,22 @@ class AdmissionAdminManager extends BaseAPI
 
     private array $parentIdCache = [];
 
+    /** Open admission windows accepting applications now (staff self-service picker). */
+    public static function openWindows(\PDO $pdo): array
+    {
+        return $pdo->query(
+            "SELECT aw.id AS admission_window_id, aw.label AS admission_window_label,
+                    ayt.id AS target_term_id, ay.year_code
+               FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
+               JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
+               JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
+              WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+                AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+              ORDER BY aw.application_open_at, ayt.opening_date"
+        )->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
     public function __construct()
     {
         parent::__construct('admission');
@@ -216,8 +233,7 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*) as total_pending
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.status NOT IN ('enrolled', 'cancelled'){$scopeFilter}"
             );
             $countRow = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -225,8 +241,7 @@ class AdmissionAdminManager extends BaseAPI
 
             $rows = $this->db->query(
                 "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, aa.status, aa.created_at as admission_date, wi.current_stage
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.status NOT IN ('enrolled', 'cancelled'){$scopeFilter}
                  ORDER BY aa.created_at DESC
                  LIMIT 8"
@@ -329,25 +344,20 @@ class AdmissionAdminManager extends BaseAPI
 
             $baseSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
-                           (SELECT s0.admission_no FROM students s0 WHERE s0.id = aa.enrolled_student_id LIMIT 1) AS admission_number,
-                           (SELECT c2.name
-                              FROM student_academic_enrollments sae2
-                              JOIN academic_year_class_streams aycs2 ON aycs2.id = sae2.academic_year_class_stream_id
-                              JOIN academic_year_classes ayc2 ON ayc2.id = aycs2.academic_year_class_id
-                              JOIN classes c2 ON c2.id = ayc2.class_id
-                             WHERE sae2.student_id = aa.enrolled_student_id
-                               AND sae2.enrollment_status = 'active'
-                             ORDER BY sae2.id DESC LIMIT 1) AS assigned_class_name,
-                           (SELECT s2.name
-                              FROM student_academic_enrollments sae3
-                              JOIN academic_year_class_streams aycs3 ON aycs3.id = sae3.academic_year_class_stream_id
-                              JOIN streams s2 ON s2.id = aycs3.stream_id
-                             WHERE sae3.student_id = aa.enrolled_student_id
-                               AND sae3.enrollment_status = 'active'
-                             ORDER BY sae3.id DESC LIMIT 1) AS assigned_stream_name,
+                           (SELECT s0.admission_no FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s0 WHERE s0.student_id = aa.enrolled_student_id LIMIT 1) AS admission_number,
+                           (SELECT d.class_name
+                              FROM " . ReadReplicaService::qualifiedRef("student_directory") . " d
+                             WHERE d.student_id = aa.enrolled_student_id
+                               AND d.enrollment_status = 'active'
+                             ORDER BY d.enrollment_id DESC LIMIT 1) AS assigned_class_name,
+                           (SELECT d.stream_name
+                              FROM " . ReadReplicaService::qualifiedRef("student_directory") . " d
+                             WHERE d.student_id = aa.enrolled_student_id
+                               AND d.enrollment_status = 'active'
+                             ORDER BY d.enrollment_id DESC LIMIT 1) AS assigned_stream_name,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                            (SELECT ad.document_path
-                              FROM admission_documents ad
+                              FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
                              WHERE ad.application_id = aa.id
                                AND ad.document_type = 'passport_photo'
                                AND ad.verification_status <> 'rejected'
@@ -355,21 +365,21 @@ class AdmissionAdminManager extends BaseAPI
                              LIMIT 1) AS passport_photo_url,
                            wi.current_stage, wi.data_json,
                            aa.workflow_data_json,
-                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id) as doc_count,
-                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'verified') as verified_count,
-                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'rejected') as rejected_count
-                    FROM admission_applications aa
-                    LEFT JOIN parents p ON aa.parent_id = p.id
-                    LEFT JOIN persons pp ON pp.id = p.person_id
-                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                           (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " WHERE application_id = aa.id) as doc_count,
+                           (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " WHERE application_id = aa.id AND verification_status = 'verified') as verified_count,
+                           (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " WHERE application_id = aa.id AND verification_status = 'rejected') as rejected_count
+                    FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON aa.parent_id = p.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi2
                                    WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)";
 
             $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.updated_at,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                            (SELECT ad.document_path
-                              FROM admission_documents ad
+                              FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
                              WHERE ad.application_id = aa.id
                                AND ad.document_type = 'passport_photo'
                                AND ad.verification_status <> 'rejected'
@@ -381,15 +391,15 @@ class AdmissionAdminManager extends BaseAPI
                            ai.venue AS interview_venue, ai.interviewer_id AS interview_interviewer_id,
                            ai.status AS interview_status, CONCAT(COALESCE(ipt.first_name,''),' ',COALESCE(ipt.last_name,'')) AS interview_interviewer_name,
                            ipt.phone AS interview_interviewer_phone
-                    FROM admission_applications aa
-                    LEFT JOIN parents p ON aa.parent_id = p.id
-                    LEFT JOIN persons pp ON pp.id = p.person_id
-                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                    FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON aa.parent_id = p.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi2
                                    WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)
                     LEFT JOIN admission_interviews ai ON ai.application_id = aa.id AND ai.status <> 'cancelled'
-                    LEFT JOIN staff ist ON ist.id=ai.interviewer_id
-                    LEFT JOIN persons ipt ON ipt.id=ist.person_id";
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " ist ON ist.id=ai.interviewer_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ipt ON ipt.id=ist.person_id";
 
             if ($hasAdmissionOversight || $this->hasAnyAdmissionPermission('view_all', $ctx)) {
                 $stmt = $this->db->query(
@@ -496,97 +506,85 @@ class AdmissionAdminManager extends BaseAPI
                 $queues['placement_pending'] = $this->attachQueueActions($placementRows, $ctx);
             }
 
-            if ($canViewPayment || $canRecordPayment) {
+if ($canViewPayment || $canRecordPayment) {
+                $awc = ReadReplicaService::qualifiedRef('admission_workflow_context');
+                $lp = ReadReplicaService::qualifiedRef('learner_placement');
+                $admissionApplications = ReadReplicaService::qualifiedRef('admission_applications');
                 $stmt = $this->db->query(
-                    "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
-                            aa.status, aa.created_at, aa.updated_at,
+                    "SELECT awc.application_id AS id, awc.application_no, awc.applicant_name, awc.gender, awc.grade_applying_for,
+                            awc.application_status AS status, awc.created_at, awc.updated_at,
                             CASE WHEN EXISTS (
-                                SELECT 1 FROM student_parents sp0
-                                WHERE sp0.parent_id = aa.parent_id
-                                  AND (aa.enrolled_student_id IS NULL OR sp0.student_id <> aa.enrolled_student_id)
+                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp0
+                                WHERE sp0.parent_id = awc.parent_id
+                                  AND (awc.enrolled_student_id IS NULL OR sp0.student_id <> awc.enrolled_student_id)
                             ) THEN COALESCE(
                                 (SELECT tier.amount
                                  FROM extra_charge_pricing_tiers tier
-                                 JOIN extra_charges ec ON ec.id=tier.extra_charge_id
-                                 JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
+                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
                                  JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
                                    AND ec.name='Registration Fee' AND ec.status='active'
                                    AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
                                    AND tier.condition_code IN ('existing_parent','existing')
                                  ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM extra_charges ec JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
                                  JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
                                    AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
                                  ORDER BY ec.id LIMIT 1)
                             ) ELSE COALESCE(
                                 (SELECT tier.amount
                                  FROM extra_charge_pricing_tiers tier
-                                 JOIN extra_charges ec ON ec.id=tier.extra_charge_id
-                                 JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=tier.extra_charge_id
+                                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
                                  JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
                                    AND ec.name='Registration Fee' AND ec.status='active'
                                    AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
                                    AND tier.condition_code IN ('new_parent','new')
                                  ORDER BY tier.sort_order, tier.id LIMIT 1),
-                                (SELECT ec.amount FROM extra_charges ec JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                (SELECT ec.amount FROM " . ReadReplicaService::qualifiedRef("extra_charges") . " ec JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ec.academic_year_id
                                  JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
-                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=awc.academic_year
                                    AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
                                  ORDER BY ec.id LIMIT 1)
                             ) END AS registration_fee_due,
-                            s0.admission_no AS admission_number,
-                            (SELECT c0.name
-                               FROM student_academic_enrollments sae0
-                               JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
-                               JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
-                               JOIN classes c0 ON c0.id = ayc0.class_id
-                              WHERE sae0.student_id = aa.enrolled_student_id
-                                AND sae0.enrollment_status = 'active'
-                              ORDER BY sae0.id DESC LIMIT 1) AS assigned_class_name,
-                            (SELECT s1.name
-                               FROM student_academic_enrollments sae1
-                               JOIN academic_year_class_streams aycs1 ON aycs1.id = sae1.academic_year_class_stream_id
-                               JOIN streams s1 ON s1.id = aycs1.stream_id
-                              WHERE sae1.student_id = aa.enrolled_student_id
-                                AND sae1.enrollment_status = 'active'
-                              ORDER BY sae1.id DESC LIMIT 1) AS assigned_stream_name,
-                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
+                            awc.enrolled_admission_no AS admission_number,
+                            lp.class_name AS assigned_class_name,
+                            lp.stream_name AS assigned_stream_name,
+                            awc.parent_first_name, awc.parent_last_name, awc.parent_phone AS phone_1,
                            (SELECT ad.document_path
-                              FROM admission_documents ad
-                             WHERE ad.application_id = aa.id
-                               AND ad.document_type = 'passport_photo'
-                               AND ad.verification_status <> 'rejected'
-                             ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
-                             LIMIT 1) AS passport_photo_url,
-                           wi.current_stage, wi.data_json,
-                            JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.total_fees')) as total_fees,
-                            JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.assigned_class_id')) as assigned_class_id,
+                             FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
+                            WHERE ad.application_id = awc.application_id
+                              AND ad.document_type = 'passport_photo'
+                              AND ad.verification_status <> 'rejected'
+                            ORDER BY CASE WHEN ad.verification_status = 'verified' THEN 0 ELSE 1 END, ad.id DESC
+                            LIMIT 1) AS passport_photo_url,
+                            awc.stage_code AS current_stage, aa.workflow_data_json AS data_json,
+                            JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.total_fees')) as total_fees,
+                            JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.assigned_class_id')) as assigned_class_id,
                             (SELECT ap0.id FROM admission_payments ap0
-                              WHERE ap0.application_id = aa.id AND ap0.status = 'pending_verification'
+                              WHERE ap0.application_id = awc.application_id AND ap0.status = 'pending_verification'
                               ORDER BY ap0.id DESC LIMIT 1) AS pending_payment_id,
                             (SELECT ap1.reference_no FROM admission_payments ap1
-                              WHERE ap1.application_id = aa.id AND ap1.status = 'pending_verification'
+                              WHERE ap1.application_id = awc.application_id AND ap1.status = 'pending_verification'
                               ORDER BY ap1.id DESC LIMIT 1) AS pending_payment_reference,
                             (SELECT ap2.amount FROM admission_payments ap2
-                              WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
+                              WHERE ap2.application_id = awc.application_id AND ap2.status = 'pending_verification'
                               ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_amount
                             ,(SELECT ap2.payment_method FROM admission_payments ap2
-                              WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
+                              WHERE ap2.application_id = awc.application_id AND ap2.status = 'pending_verification'
                               ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_method
                             ,(SELECT COALESCE(SUM(CASE WHEN ap3.status IN ('recorded', 'posted') THEN ap3.amount ELSE 0 END), 0)
-                              FROM admission_payments ap3 WHERE ap3.application_id = aa.id) AS recorded_payment_amount
-                     FROM admission_applications aa
-                     LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
-                     LEFT JOIN parents p ON aa.parent_id = p.id
-                     LEFT JOIN persons pp ON pp.id = p.person_id
-                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                     WHERE wi.current_stage IN ('class_placement', 'fees_payment')
-                       AND aa.status NOT IN ('cancelled', 'enrolled')
+                              FROM admission_payments ap3 WHERE ap3.application_id = awc.application_id) AS recorded_payment_amount
+                     FROM {$awc} awc
+                     LEFT JOIN {$admissionApplications} aa ON aa.id = awc.application_id
+                     LEFT JOIN {$lp} lp ON lp.student_id = awc.enrolled_student_id
+                     WHERE awc.stage_code IN ('class_placement', 'fees_payment')
+                       AND awc.application_status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
-                     ORDER BY aa.created_at DESC"
+                     ORDER BY awc.created_at DESC"
                 );
                 $paymentRows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
                 // Keep every payment-stage modal aligned with the canonical
@@ -631,13 +629,12 @@ class AdmissionAdminManager extends BaseAPI
                         aa.status, aa.created_at, aa.updated_at, aa.enrolled_student_id, aa.application_source,
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                         COALESCE(
-                            (SELECT sp.photo_url
-                               FROM students ss
-                               JOIN persons sp ON sp.id = ss.person_id
-                              WHERE ss.id = aa.enrolled_student_id
+                            (SELECT sd.photo_url
+                               FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                              WHERE sd.student_id = aa.enrolled_student_id
                               LIMIT 1),
                             (SELECT ad.document_path
-                               FROM admission_documents ad
+                               FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
                               WHERE ad.application_id = aa.id
                                 AND ad.document_type = 'passport_photo'
                                 AND ad.verification_status <> 'rejected'
@@ -645,11 +642,11 @@ class AdmissionAdminManager extends BaseAPI
                               LIMIT 1)
                         ) AS passport_photo_url,
                         wi.current_stage, wi.data_json
-                 FROM admission_applications aa
-                 LEFT JOIN parents p ON aa.parent_id = p.id
-                 LEFT JOIN persons pp ON pp.id = p.person_id
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON aa.parent_id = p.id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi2
                                    WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)
                  WHERE wi.current_stage = 'enrolled'
                  {$scopeFilter}
@@ -711,21 +708,16 @@ class AdmissionAdminManager extends BaseAPI
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name,
                         pp.phone as phone_1, pp.phone as phone_2, pp.email as parent_email,
                         s0.admission_no as admission_number,
-                        (SELECT c0.name
-                           FROM student_academic_enrollments sae0
-                           JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
-                           JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
-                           JOIN classes c0 ON c0.id = ayc0.class_id
-                          WHERE sae0.student_id = aa.enrolled_student_id
-                            AND sae0.enrollment_status = 'active'
-                          ORDER BY sae0.id DESC LIMIT 1) as assigned_class_name,
-                        (SELECT st0.name
-                           FROM student_academic_enrollments sae1
-                           JOIN academic_year_class_streams aycs1 ON aycs1.id = sae1.academic_year_class_stream_id
-                           JOIN streams st0 ON st0.id = aycs1.stream_id
-                          WHERE sae1.student_id = aa.enrolled_student_id
-                            AND sae1.enrollment_status = 'active'
-                          ORDER BY sae1.id DESC LIMIT 1) as assigned_stream_name,
+                        (SELECT d.class_name
+                           FROM " . ReadReplicaService::qualifiedRef("student_directory") . " d
+                          WHERE d.student_id = aa.enrolled_student_id
+                            AND d.enrollment_status = 'active'
+                          ORDER BY d.enrollment_id DESC LIMIT 1) as assigned_class_name,
+                        (SELECT d.stream_name
+                           FROM " . ReadReplicaService::qualifiedRef("student_directory") . " d
+                          WHERE d.student_id = aa.enrolled_student_id
+                            AND d.enrollment_status = 'active'
+                          ORDER BY d.enrollment_id DESC LIMIT 1) as assigned_stream_name,
                         (SELECT ap0.id FROM admission_payments ap0
                            WHERE ap0.application_id = aa.id AND ap0.status = 'pending_verification'
                            ORDER BY ap0.id DESC LIMIT 1) as pending_payment_id,
@@ -742,11 +734,11 @@ class AdmissionAdminManager extends BaseAPI
                            FROM admission_payments ap4 WHERE ap4.application_id = aa.id) as recorded_payment_amount,
                         wi.id as workflow_instance_id, wi.current_stage, wi.status as workflow_status, wi.data_json,
                         wi.started_by, wi.started_at
-                 FROM admission_applications aa
-                 LEFT JOIN parents p ON aa.parent_id = p.id
-                 LEFT JOIN persons pp ON pp.id = p.person_id
-                 LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON aa.parent_id = p.id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s0 ON s0.id = aa.enrolled_student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.id = ?
                  ORDER BY wi.id DESC
                  LIMIT 1"
@@ -782,7 +774,7 @@ class AdmissionAdminManager extends BaseAPI
                         mf.context as media_context,
                         mf.entity_id as media_entity_id,
                         mf.album_id as media_album_id
-                 FROM admission_documents ad
+                 FROM " . ReadReplicaService::qualifiedRef("admission_documents") . "
                  LEFT JOIN media_files mf
                    ON ad.document_path REGEXP '^[0-9]+$'
                   AND mf.id = CAST(ad.document_path AS UNSIGNED)
@@ -830,7 +822,7 @@ class AdmissionAdminManager extends BaseAPI
             }
             $assessmentItems = [];
             try {
-                $itemStmt = $this->db->prepare("SELECT aii.id, aii.learning_area_id, aii.learning_area_name, aii.competency, aii.max_score, aii.score, aii.grade_code, aii.performance_level, aii.rubric_notes FROM admission_interview_assessment_items aii JOIN admission_interviews ai ON ai.id=(SELECT MAX(ai2.id) FROM admission_interviews ai2 WHERE ai2.application_id=? AND ai2.status <> 'cancelled') ORDER BY aii.id");
+                $itemStmt = $this->db->prepare("SELECT aii.id, aii.learning_area_id, aii.learning_area_name, aii.competency, aii.max_score, aii.score, aii.grade_code, aii.performance_level, aii.rubric_notes FROM " . ReadReplicaService::qualifiedRef("admission_interview_assessment_items") . " JOIN admission_interviews ai ON ai.id=(SELECT MAX(ai2.id) FROM admission_interviews ai2 WHERE ai2.application_id=? AND ai2.status <> 'cancelled') ORDER BY aii.id");
                 $itemStmt->execute([(int) $id]);
                 $assessmentItems = $itemStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
             } catch (\Throwable $ignored) {
@@ -865,7 +857,7 @@ class AdmissionAdminManager extends BaseAPI
                 $yearStmt->execute([$targetTermId]);
                 $yearId = (int) ($yearStmt->fetchColumn() ?: 0);
                 if ($yearId) {
-                    $areaStmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM academic_year_classes ayc JOIN classes c ON c.id=ayc.class_id JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN learning_areas la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
+                    $areaStmt = $this->db->prepare("SELECT c.name AS class_name, la.id, la.name FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id=ayc.class_id JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.academic_year_class_id=ayc.id AND aycla.status IN ('planned','in_progress','covered') JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id=aycla.learning_area_id AND la.status='active' WHERE ayc.academic_year_id=? AND ayc.status='active' ORDER BY la.name");
                     $areaStmt->execute([$yearId]);
                     $wantedClass = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $currentClass));
                     foreach ($areaStmt->fetchAll(\PDO::FETCH_ASSOC) as $area) {
@@ -1137,9 +1129,9 @@ class AdmissionAdminManager extends BaseAPI
                              WHEN aw.application_open_at IS NOT NULL AND NOW() < aw.application_open_at THEN 'scheduled'
                              WHEN aw.application_close_at IS NOT NULL AND NOW() > aw.application_close_at THEN 'closed'
                              ELSE 'open' END AS effective_status
-                 FROM admission_windows aw
-                 JOIN academic_years ay ON ay.id = aw.academic_year_id
-                 LEFT JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = aw.academic_year_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
                  LEFT JOIN terms t ON t.id = ayt.term_id
                  ORDER BY ay.start_date DESC, ayt.opening_date ASC, aw.id ASC"
             )->fetchAll(\PDO::FETCH_ASSOC);
@@ -1354,9 +1346,9 @@ class AdmissionAdminManager extends BaseAPI
                         ay.year_code, ay.year_name,
                         ayt.status AS term_status,
                         ayt.opening_date, ayt.closing_date
-                 FROM admission_windows aw
-                 JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
-                 JOIN academic_years ay ON ay.id = aw.academic_year_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . " aw
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = aw.academic_year_id
                  JOIN terms t ON t.id = ayt.term_id
                  WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
                    AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
@@ -1389,11 +1381,11 @@ class AdmissionAdminManager extends BaseAPI
                            COUNT(ai.id) AS assigned_count,
                            GROUP_CONCAT(CONCAT(aa.application_no, ' — ', aa.applicant_name) ORDER BY aa.applicant_name SEPARATOR '||') AS assigned_applicants
                     FROM admission_interview_sessions s
-                    JOIN admission_windows aw ON aw.id = s.admission_window_id
-                    LEFT JOIN staff iu ON iu.id = s.interviewer_id AND iu.status = 'active' AND iu.staff_type_id = 1
-                    LEFT JOIN persons ip ON ip.id = iu.person_id
+                    JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.id = s.admission_window_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " iu ON iu.id = s.interviewer_id AND iu.status = 'active' AND iu.staff_type_id = 1
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ip ON ip.id = iu.person_id
                     LEFT JOIN admission_interviews ai ON ai.session_id = s.id AND ai.status <> 'cancelled'
-                    LEFT JOIN admission_applications aa ON aa.id = ai.application_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = ai.application_id
                     " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
                     GROUP BY s.id, aw.label, aw.application_open_at, aw.application_close_at,
                              iu.id, ip.first_name, ip.last_name, ip.phone
@@ -1402,7 +1394,7 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute($params);
             $sessions = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
             try {
-                $supervisorStmt = $this->db->query("SELECT aiss.session_id, GROUP_CONCAT(aiss.staff_id ORDER BY aiss.is_primary DESC, aiss.staff_id SEPARATOR ',') AS supervisor_ids, GROUP_CONCAT(CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) ORDER BY aiss.is_primary DESC, p.last_name SEPARATOR ', ') AS supervisor_names FROM admission_interview_session_supervisors aiss JOIN staff st ON st.id=aiss.staff_id JOIN persons p ON p.id=st.person_id GROUP BY aiss.session_id");
+                $supervisorStmt = $this->db->query("SELECT aiss.session_id, GROUP_CONCAT(aiss.staff_id ORDER BY aiss.is_primary DESC, aiss.staff_id SEPARATOR ',') AS supervisor_ids, GROUP_CONCAT(CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) ORDER BY aiss.is_primary DESC, p.last_name SEPARATOR ', ') AS supervisor_names FROM admission_interview_session_supervisors aiss JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id=aiss.staff_id JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=st.person_id GROUP BY aiss.session_id");
                 $supervisors = [];
                 foreach ($supervisorStmt->fetchAll(PDO::FETCH_ASSOC) as $supervisor) $supervisors[(int) $supervisor['session_id']] = $supervisor;
                 foreach ($sessions as &$session) {
@@ -1450,8 +1442,8 @@ class AdmissionAdminManager extends BaseAPI
             $windowStmt = $this->db->prepare(
                 "SELECT aw.*, COALESCE(DATE(aw.application_open_at), ayt.opening_date) AS valid_from,
                         DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
-                 FROM admission_windows aw
-                 LEFT JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . "
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aw.academic_year_term_id
                  WHERE aw.id = ?"
             );
             $windowStmt->execute([$windowId]);
@@ -1664,8 +1656,8 @@ class AdmissionAdminManager extends BaseAPI
         if ($windowId !== null) {
             $windowStmt = $this->db->prepare(
                 "SELECT aw.id, aw.academic_year_id, aw.academic_year_term_id, ay.year_code
-                 FROM admission_windows aw
-                 JOIN academic_years ay ON ay.id = aw.academic_year_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_windows") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = aw.academic_year_id
                  WHERE aw.id = ?"
             );
             $windowStmt->execute([$windowId]);
@@ -1783,11 +1775,9 @@ class AdmissionAdminManager extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT CONCAT(t.name, ' ', ay.year_code)
-                 FROM academic_year_terms ayt
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 JOIN terms t ON t.id = ayt.term_id
-                 WHERE ayt.academic_year_id = ? AND ayt.id = ?
+                "SELECT CONCAT(term_name, ' ', year_code)
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+                 WHERE academic_year_id = ? AND academic_year_term_id = ?
                  LIMIT 1"
             );
             $stmt->execute([$yearId, $termId]);
@@ -1809,14 +1799,14 @@ class AdmissionAdminManager extends BaseAPI
                         c.name,
                         COALESCE(s.capacity, 0) AS capacity,
                         COUNT(sae.id) AS student_count
-                 FROM academic_years ay
-                 JOIN academic_year_classes ayc
+                 FROM " . ReadReplicaService::qualifiedRef("academic_years") . " ay
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc
                    ON ayc.academic_year_id = ay.id AND ayc.status = 'active'
-                 JOIN classes c ON c.id = ayc.class_id
-                 JOIN academic_year_class_streams aycs
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
                    ON aycs.academic_year_class_id = ayc.id AND aycs.status = 'active'
-                 JOIN streams s ON s.id = aycs.stream_id
-                 LEFT JOIN student_academic_enrollments sae
+                 JOIN " . ReadReplicaService::qualifiedRef("streams") . " s ON s.id = aycs.stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                    ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
                  WHERE (ay.status = 'active' OR ay.is_current = 1)
                  GROUP BY c.id, aycs.id, s.id, s.name, c.name, s.capacity
@@ -1853,16 +1843,14 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*) as total
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}"
             );
             $stats['total_applications'] = (int) $stmt->fetchColumn();
 
             $stmt = $this->db->query(
                 "SELECT aa.status, COUNT(*) as count
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
                  GROUP BY aa.status"
             );
@@ -1870,8 +1858,7 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT grade_applying_for, COUNT(*) as count
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.academic_year = YEAR(CURDATE()){$scopeFilter}
                  GROUP BY grade_applying_for"
             );
@@ -1879,8 +1866,7 @@ class AdmissionAdminManager extends BaseAPI
 
             $stmt = $this->db->query(
                 "SELECT COUNT(*)
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY){$scopeFilter}"
             );
             $stats['this_week'] = (int) $stmt->fetchColumn();
@@ -1905,8 +1891,8 @@ class AdmissionAdminManager extends BaseAPI
                             aa.applicant_name,
                             aa.application_no,
                             aa.grade_applying_for
-                     FROM admission_placement_tests apt
-                     JOIN admission_applications aa ON aa.id = apt.application_id
+                     FROM " . ReadReplicaService::qualifiedRef("admission_placement_tests") . "
+                     JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = apt.application_id
                      WHERE apt.id = ?
                      LIMIT 1"
                 );
@@ -1924,8 +1910,8 @@ class AdmissionAdminManager extends BaseAPI
                         aa.applicant_name,
                         aa.application_no,
                         aa.grade_applying_for
-                 FROM admission_placement_tests apt
-                 JOIN admission_applications aa ON aa.id = apt.application_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_placement_tests") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = apt.application_id
                  ORDER BY apt.created_at DESC"
             );
             $stmt->execute();
@@ -2074,8 +2060,7 @@ class AdmissionAdminManager extends BaseAPI
             if ($canViewApplicationIntake) {
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM admission_applications aa
-                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                      WHERE wi.current_stage = 'application_applied'
                        AND aa.status NOT IN ('cancelled', 'enrolled'){$scopeFilter}"
                 );
@@ -2108,8 +2093,7 @@ class AdmissionAdminManager extends BaseAPI
 
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM admission_applications aa
-                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                      WHERE ({$interviewStageSql})
                        AND aa.status NOT IN ('cancelled', 'enrolled'){$scopeFilter}"
                 );
@@ -2130,8 +2114,7 @@ class AdmissionAdminManager extends BaseAPI
             if ($canRecordPayment) {
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM admission_applications aa
-                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                      WHERE aa.status IN ('placement_offered', 'fees_pending'){$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
@@ -2150,8 +2133,7 @@ class AdmissionAdminManager extends BaseAPI
 
             if ($canCompleteEnrollment) {
                 $stmt = $this->db->query(
-                    "SELECT COUNT(*) FROM admission_applications aa
-                     JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                      WHERE wi.current_stage = 'final_enrollment' AND aa.status != 'enrolled'{$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
@@ -2915,10 +2897,10 @@ class AdmissionAdminManager extends BaseAPI
                         aa.applicant_name,
                         COALESCE(MAX(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_label'))), aw.label, '—') AS application_window,
                         COALESCE((SELECT c0.name
-                                  FROM student_academic_enrollments sae0
-                                  JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
-                                  JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
-                                  JOIN classes c0 ON c0.id = ayc0.class_id
+                                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae0
+                                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
+                                  JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc0 ON ayc0.id = aycs0.academic_year_class_id
+                                  JOIN " . ReadReplicaService::qualifiedRef("classes") . " c0 ON c0.id = ayc0.class_id
                                   WHERE sae0.student_id = aa.enrolled_student_id
                                     AND sae0.enrollment_status = 'active'
                                   ORDER BY sae0.id DESC LIMIT 1), '—') AS class_assigned,
@@ -2926,9 +2908,9 @@ class AdmissionAdminManager extends BaseAPI
                         MAX(CASE WHEN ap.status IN ('recorded', 'posted') THEN COALESCE(ap.payment_date, ap.created_at) END) AS paid_at,
                         GROUP_CONCAT(DISTINCT ap.reference_no ORDER BY ap.id DESC SEPARATOR ', ') AS payment_references
                  FROM admission_payments ap
-                 JOIN admission_applications aa ON aa.id = ap.application_id
-                 LEFT JOIN students s ON s.id = aa.enrolled_student_id
-                 LEFT JOIN admission_windows aw ON aw.academic_year_term_id = aa.target_term_id
+                 JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = ap.application_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = aa.enrolled_student_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("admission_windows") . " aw ON aw.academic_year_term_id = aa.target_term_id
                  WHERE aa.academic_year = :academic_year
                    AND ap.status IN ('recorded', 'posted')
                  GROUP BY aa.id, aa.academic_year, aa.application_no, s.admission_no,
@@ -2952,8 +2934,7 @@ class AdmissionAdminManager extends BaseAPI
         try {
             $stmt = $this->db->prepare(
                 "SELECT aa.*, wi.data_json, wi.current_stage, wi.started_by
-                 FROM admission_applications aa
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
                  WHERE aa.id = ?
                  ORDER BY wi.id DESC
                  LIMIT 1"
@@ -2972,9 +2953,9 @@ class AdmissionAdminManager extends BaseAPI
         try {
             $stmt = $this->db->prepare(
                 "SELECT aa.*, wi.data_json, wi.current_stage, wi.started_by
-                 FROM admission_documents ad
-                 JOIN admission_applications aa ON aa.id = ad.application_id
-                 LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_documents") . " ad
+                 JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = ad.application_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE ad.id = ?
                  ORDER BY wi.id DESC
                  LIMIT 1"
@@ -3461,8 +3442,8 @@ class AdmissionAdminManager extends BaseAPI
         try {
             $rows = $this->db->query(
                 "SELECT ws.code, ws.name, ws.required_role, ws.allowed_transitions, ws.sequence
-                 FROM workflow_stages ws
-                 JOIN workflow_definitions wd ON wd.id = ws.workflow_id
+                 FROM " . ReadReplicaService::qualifiedRef("workflow_stages") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("workflow_definitions") . " wd ON wd.id = ws.workflow_id
                  WHERE wd.code = 'student_admission'
                    AND ws.is_active = 1
                  ORDER BY ws.sequence ASC"
@@ -3547,8 +3528,8 @@ class AdmissionAdminManager extends BaseAPI
             if ($userId > 0) {
                 $stmt = $this->db->prepare(
                     "SELECT ur.is_allowed
-                     FROM user_routes ur
-                     JOIN routes_registry r ON r.id = ur.route_id
+                     FROM " . ReadReplicaService::masterRef("user_routes") . "
+                     JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = ur.route_id
                      WHERE ur.user_id = ?
                        AND r.name IN ({$routePlaceholders})
                        AND r.is_active = 1
@@ -3572,8 +3553,8 @@ class AdmissionAdminManager extends BaseAPI
             $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
             $stmt = $this->db->prepare(
                 "SELECT 1
-                 FROM role_routes rr
-                 JOIN routes_registry r ON r.id = rr.route_id
+                 FROM " . ReadReplicaService::masterRef("role_routes") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " r ON r.id = rr.route_id
                  WHERE rr.is_allowed = 1
                    AND r.is_active = 1
                    AND r.name IN ({$routePlaceholders})
@@ -3603,7 +3584,7 @@ class AdmissionAdminManager extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT DISTINCT rl.name
                  FROM role_routes rr
-                 JOIN routes_registry rt ON rt.id = rr.route_id
+                 JOIN " . ReadReplicaService::qualifiedRef("routes_registry") . " rt ON rt.id = rr.route_id
                  JOIN roles rl ON rl.id = rr.role_id
                  WHERE rr.is_allowed = 1
                    AND rt.is_active = 1
@@ -3700,10 +3681,10 @@ class AdmissionAdminManager extends BaseAPI
 
         try {
             $stmt = $this->db->prepare(
-                "SELECT p.id
-                 FROM parents p
-                 JOIN persons pp ON pp.id = p.person_id
-                 WHERE LOWER(TRIM(COALESCE(pp.email, ''))) = ?
+                "SELECT p.parent_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " p
+                 WHERE p.parent_id IS NOT NULL
+                   AND LOWER(TRIM(COALESCE(p.email, ''))) = ?
                  LIMIT 1"
             );
             $stmt->execute([$email]);

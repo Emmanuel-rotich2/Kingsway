@@ -16,6 +16,7 @@
 namespace App\API\Modules\communications;
 
 use App\API\Services\NotificationService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 
@@ -40,9 +41,8 @@ class InternalMessagingManager
                        c.last_message_at, c.participant_count,
                        cp.unread_count, cp.last_read_at, cp.is_muted,
                        (SELECT CONCAT_WS(' ', sp.first_name, sp.last_name)
-                          FROM users su
-                          JOIN persons sp ON sp.id = su.person_id
-                         WHERE su.id = c.last_message_by) AS last_sender_name,
+                          FROM " . ReadReplicaService::qualifiedRef("person_directory") . " sp
+                         WHERE sp.user_id = c.last_message_by) AS last_sender_name,
                        (SELECT im2.message_body
                           FROM internal_messages im2
                          WHERE im2.conversation_id = c.id
@@ -60,7 +60,7 @@ class InternalMessagingManager
                                   SEPARATOR ', ')
                           FROM conversation_participants cp2
                           JOIN users pu ON pu.id = cp2.participant_id
-                          JOIN persons pp ON pp.id = pu.person_id
+                          JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = pu.person_id
                          WHERE cp2.conversation_id = c.id
                            AND cp2.participant_id <> :exclude_user_id
                             AND cp2.left_at IS NULL) AS participant_names
@@ -95,7 +95,7 @@ class InternalMessagingManager
                                       SEPARATOR ', ')
                               FROM conversation_participants cp2
                               JOIN users pu ON pu.id = cp2.participant_id
-                              JOIN persons pp ON pp.id = pu.person_id
+                              JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = pu.person_id
                              WHERE cp2.conversation_id = c.id
                                AND cp2.left_at IS NULL) AS participant_names
                       FROM internal_conversations c
@@ -111,7 +111,7 @@ class InternalMessagingManager
                           mrs.read_at
                      FROM internal_messages im
                      LEFT JOIN users u ON u.id = im.sender_id
-                     LEFT JOIN persons p ON p.id = u.person_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                      LEFT JOIN message_read_status mrs
                             ON mrs.message_id = im.id AND mrs.recipient_id = :reader_user_id
                     WHERE im.conversation_id = :cid
@@ -164,6 +164,7 @@ class InternalMessagingManager
         $title = $subject !== '' ? $subject : $this->deriveTitle($userId, $validRecipients);
 
         try {
+            $senderName = $this->senderDisplayName($userId);
             $this->db->beginTransaction();
 
             $this->db->prepare(
@@ -189,7 +190,7 @@ class InternalMessagingManager
             $messageId = $this->insertMessage($conversationId, $userId, $subject, $message, $priority);
 
             $this->bumpUnread($conversationId, $validRecipients);
-            $this->notifyMessageRecipients($validRecipients, $conversationId, $userId, $message, false);
+            $this->notifyMessageRecipients($validRecipients, $conversationId, $message, false, $senderName);
             $this->markSenderRead($conversationId, $userId, $messageId);
 
             $this->db->commit();
@@ -228,13 +229,14 @@ class InternalMessagingManager
         }
 
         try {
+            $senderName = $this->senderDisplayName($userId);
             $this->db->beginTransaction();
 
             $messageId = $this->insertMessage($conversationId, $userId, '', $message, $priority);
 
             $others = $this->otherParticipants($conversationId, $userId);
             $this->bumpUnread($conversationId, $others);
-            $this->notifyMessageRecipients($others, $conversationId, $userId, $message, true);
+            $this->notifyMessageRecipients($others, $conversationId, $message, true, $senderName);
             $this->markSenderRead($conversationId, $userId, $messageId);
 
             $this->db->commit();
@@ -262,10 +264,7 @@ class InternalMessagingManager
                        CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
                        p.email, p.photo_url,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS roles
-                  FROM users u
-                  JOIN persons p ON p.id = u.person_id
-                  JOIN user_roles ur ON ur.user_id = u.id
-                  JOIN roles r ON r.id = ur.role_id
+                  FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                  WHERE u.status = 'active'
                    AND u.id <> :user_id
                    AND (
@@ -337,15 +336,22 @@ class InternalMessagingManager
         }
     }
 
-    private function notifyMessageRecipients(array $recipientIds, int $conversationId, int $senderId, string $message, bool $isReply): void
+    private function senderDisplayName(int $userId): string
+    {
+        $people = ReadReplicaService::qualifiedRef('person_directory');
+        $stmt = $this->db->prepare(
+            "SELECT CONCAT_WS(' ', first_name, last_name)
+               FROM {$people}
+              WHERE user_id = ?
+              LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        return trim((string) $stmt->fetchColumn()) ?: 'a colleague';
+    }
+
+    private function notifyMessageRecipients(array $recipientIds, int $conversationId, string $message, bool $isReply, string $sender): void
     {
         if (empty($recipientIds)) return;
-        $stmt = $this->db->prepare(
-            "SELECT CONCAT_WS(' ', p.first_name, p.last_name)
-               FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?"
-        );
-        $stmt->execute([$senderId]);
-        $sender = trim((string) $stmt->fetchColumn()) ?: 'a colleague';
         $service = new NotificationService($this->db);
         $service->push($recipientIds, $isReply ? 'message_reply' : 'message',
             $isReply ? "New reply from {$sender}" : "New message from {$sender}",
@@ -416,9 +422,8 @@ class InternalMessagingManager
         $ids = array_merge([$userId], $recipientIds);
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->db->prepare(
-            "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
-               FROM users u
-               JOIN persons p ON p.id = u.person_id
+            "SELECT CONCAT_WS(' ', pd.first_name, pd.last_name) AS full_name
+               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
               WHERE u.id IN ($placeholders)
               ORDER BY full_name ASC"
         );

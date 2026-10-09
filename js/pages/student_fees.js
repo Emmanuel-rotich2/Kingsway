@@ -44,6 +44,18 @@ const StudentFeesController = {
     return div.innerHTML;
   },
 
+  /**
+   * Sibling page controllers all expose `esc` and use it when building option
+   * lists. This controller defined `escapeHtml` but rendered the filter
+   * dropdowns with `this.esc`, so every one of those renders threw
+   * "this.esc is not a function". Because `loadInitialData` swallowed the
+   * error, the academic-year dropdown kept only its static "All years"
+   * option, the term list was never requested, and the table came up empty.
+   */
+  esc: function (value) {
+    return this.escapeHtml(value);
+  },
+
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
@@ -194,10 +206,20 @@ const StudentFeesController = {
     }
 
     if (this.ui.yearFilter) {
-      this.ui.yearFilter.addEventListener("change", (event) => {
+      // Changing the year must rebuild the term picker, because each year owns
+      // its own academic_year_terms rows. The year and the term have to move
+      // together or the page silently mixes a year's label with another
+      // year's numbers.
+      this.ui.yearFilter.addEventListener("change", async (event) => {
         const value = event.target.value;
         this.filters.academic_year = value ? value : "";
         this.filters.page = 1;
+        try {
+          await this.loadTermsForYear(this.filters.academic_year);
+        } catch (error) {
+          console.error("Failed to load terms for year:", error);
+          this.populateTermFilter([]);
+        }
         this.loadPaymentStatus();
       });
     }
@@ -281,56 +303,97 @@ const StudentFeesController = {
     return roles.some((r) => ["director", "school administrator", "system administrator"].includes(r));
   },
 
+  /**
+   * Each loader is independent on purpose.
+   *
+   * This used to be one try/catch around three calls, so a single throw — the
+   * undefined this.esc in populateYearFilter, for instance — skipped the
+   * remaining loaders and left the page showing its static "All years"
+   * placeholder, no terms, and no ledger. Now a failure in one dropdown is
+   * reported on its own and the rest of the workspace still loads.
+   */
   loadInitialData: async function () {
-    try {
-      const [classesResp, yearsResp] = await Promise.all([
-        window.API.academic.listClasses(),
-        window.API.academic.listYears(),
-      ]);
+    const errors = [];
 
-      const classes = this.unwrapList(classesResp);
+    const [classes, years] = await Promise.all([
+      this.loadClasses().catch((error) => {
+        errors.push("classes");
+        console.error("Failed to load classes:", error);
+        return [];
+      }),
+      this.loadYears().catch((error) => {
+        errors.push("academic years");
+        console.error("Failed to load academic years:", error);
+        return [];
+      }),
+    ]);
+
+    if (classes.length) {
       this.data.classes = classes;
       this.populateClassFilter(classes);
+    }
 
-      const years = this.unwrapList(yearsResp);
+    if (years.length) {
       this.data.years = years;
       this.populateYearFilter(years);
       const currentYear = years.find(
         (year) => year.is_current == 1 || year.is_current === "1",
       );
-      if (currentYear?.id && window.API.students?.getAcademicYearTerms) {
-        const termsResp = await window.API.students.getAcademicYearTerms(currentYear.id);
-        this.data.academicYearTerms = this.unwrapList(termsResp);
-      }
-      let activeAcademicYear = "";
-      if (currentYear) {
-        activeAcademicYear = this.normalizeAcademicYearValue(
-          currentYear.year_code || currentYear.year || currentYear.name || "",
-        );
-        this.filters.academic_year = activeAcademicYear;
-      }
-
-      try {
-        const termParams = {};
-        if (activeAcademicYear) {
-          termParams.academic_year = activeAcademicYear;
-          termParams.year = activeAcademicYear;
-        }
-        const termsResp = await window.API.academic.listTerms(termParams);
-        const terms = this.unwrapList(termsResp);
-        this.populateTermFilter(terms);
-      } catch (termError) {
-        console.warn("Failed to load terms:", termError);
-        this.populateTermFilter([]);
-      }
-    } catch (error) {
-      console.error("Failed to load initial data:", error);
+      const active = this.normalizeAcademicYearValue(
+        (this.ui.yearFilter && this.ui.yearFilter.value) ||
+          (currentYear &&
+            (currentYear.year_code || currentYear.year || currentYear.name)) ||
+          "",
+      );
+      this.filters.academic_year = active;
     }
+
+    try {
+      await this.loadTermsForYear(this.filters.academic_year);
+    } catch (error) {
+      errors.push("terms");
+      console.error("Failed to load terms:", error);
+      this.populateTermFilter([]);
+    }
+
+    if (errors.length) {
+      this.notify(
+        `Could not load fee filter options: ${errors.join(
+          ", ",
+        )}. The ledger below still shows real data.`,
+        "warning",
+      );
+    }
+  },
+
+  loadClasses: async function () {
+    const resp = await window.API.academic.listClasses();
+    return this.unwrapList(resp);
+  },
+
+  loadYears: async function () {
+    const resp = await window.API.academic.listYears();
+    return this.unwrapList(resp);
   },
 
   loadPaymentStatus: async function () {
     try {
       const params = { ...this.filters };
+
+      // The class picker carries the class id; send it under the key the
+      // ledger filters on so a "Grade 8" selection is matched by identity
+      // rather than by a label that varies with the stream.
+      if (params.class_name && this.ui.classFilter) {
+        const option = this.ui.classFilter.selectedOptions?.[0];
+        const className = option?.dataset?.className || params.class_name;
+        if (option && option.value && /^\d+$/.test(option.value)) {
+          params.class_id = Number(option.value);
+          delete params.class_name;
+        } else if (className && className !== params.class_name) {
+          params.class_name = className;
+        }
+      }
+
       const response =
         await window.API.finance.getStudentPaymentStatusList(params);
       const payload = response?.data ?? response;
@@ -347,13 +410,24 @@ const StudentFeesController = {
         total: pagination.total || 0,
       };
       this.data.summary = summary;
+      if (summary?.academic_year) {
+        this.data.summaryYear = summary.academic_year;
+      }
 
       this.renderTable();
       this.renderSummary();
       this.renderPagination();
       this.populatePaymentStudents();
     } catch (error) {
+      // Never leave a silent empty table: a broken filter and genuinely no
+      // fee rows must look different to the operator.
       console.error("Failed to load fee status:", error);
+      this.data.rows = [];
+      this.renderTable();
+      this.notify(
+        "Could not read the fee ledger. The filters above are still usable — adjust them or retry.",
+        "danger",
+      );
     }
   },
 
@@ -387,12 +461,16 @@ const StudentFeesController = {
     this.ui.collectionRate.textContent = `${summary.collection_rate || 0}%`;
 
     // The selected-term (or current-term) figures below each annual figure —
-    // picked from the summary's terms, which come from the actual term rows.
+    // picked from the summary's terms, which come from the actual term rows of
+    // the selected year. The summary always carries every term of that year,
+    // so drilling into Term 1 still shows the whole year's annual position.
     const terms = Array.isArray(summary.terms) ? summary.terms : [];
     const selectedTermNumber = this.filters.term_number
-      ? Number(this.filters.term_number)
+      ? this.termNumberOf(this.filters.term_number)
       : (hasCurrent ? currentTerm : 0);
-    const selectedTerm = terms.find((t) => Number(t.term_number) === selectedTermNumber) || null;
+    const selectedTerm =
+      terms.find((t) => this.termNumberOf(t.term_number) === selectedTermNumber) ||
+      null;
     const termLine = (el, format) => {
       if (!el) return;
       if (!selectedTerm) {
@@ -828,6 +906,11 @@ const StudentFeesController = {
     modal.show();
   },
 
+  /**
+   * Academic years come from academic_years. The option value is the canonical
+   * year_code because that is what the fee ledger stores, and the year picker
+   * is also what scopes the term list.
+   */
   populateYearFilter: function (years) {
     if (!this.ui.yearFilter) return;
     const list = Array.isArray(years) ? years : [];
@@ -835,13 +918,40 @@ const StudentFeesController = {
       '<option value="">All years</option>' +
       list
         .map((year) => {
-          const value = year.year_code || year.year || year.name || year.id || "";
-          const label = `${value}${year.is_current == 1 ? " (current)" : ""}`;
+          const value =
+            year.year_code || year.year || year.name || year.id || "";
+          const isCurrent =
+            year.is_current == 1 || year.is_current === "1";
+          const label = `${value}${isCurrent ? " (current)" : ""}`;
           return `<option value="${this.esc(String(value))}">${this.esc(label)}</option>`;
         })
         .join("");
+
+    // Default the selection to the current year so the first open shows a
+    // defined period instead of an unfiltered multi-year total.
+    const current = this.currentYearOptionValue(list);
+    if (current) {
+      this.ui.yearFilter.value = current;
+    }
   },
 
+  currentYearOptionValue: function (years) {
+    const list = Array.isArray(years) ? years : [];
+    const current = list.find(
+      (year) => year.is_current == 1 || year.is_current === "1",
+    );
+    if (!current) return "";
+    return String(
+      current.year_code || current.year || current.name || current.id || "",
+    );
+  },
+
+  /**
+   * Classes come from the classes table, so the option carries the class id
+   * and the label carries the display name. The fee ledger matches on class_id
+   * where it exists; sending the name only worked when a learner happened to
+   * sit in a stream-less "Grade 8" and silently returned zero for the rest.
+   */
   populateClassFilter: function (classes) {
     if (!this.ui.classFilter) {
       return;
@@ -849,49 +959,92 @@ const StudentFeesController = {
 
     const firstOption = this.ui.classFilter.options[0];
     this.ui.classFilter.innerHTML = "";
-    this.ui.classFilter.appendChild(firstOption);
+    if (firstOption) {
+      this.ui.classFilter.appendChild(firstOption);
+    }
 
-    classes.forEach((cls) => {
+    const list = Array.isArray(classes) ? classes : [];
+    list.forEach((cls) => {
+      const name = cls.name || cls.class_name || "";
+      if (!name) {
+        return;
+      }
       const option = document.createElement("option");
-      option.value = cls.name || cls.class_name || cls.id;
-      option.textContent = cls.name || cls.class_name || "";
+      option.value = cls.id != null && cls.id !== "" ? String(cls.id) : name;
+      option.dataset.className = name;
+      option.textContent = name;
       this.ui.classFilter.appendChild(option);
     });
   },
 
+  /**
+   * Term options come from academic_year_terms for the selected year — never
+   * from a hardcoded 1/2/3 list, because a year can be configured with a
+   * different term set and an unopened year may not be the current one.
+   *
+   * The default scope stays "Whole Year (All Terms)": the annual position and
+   * the per-term breakdown are both returned, so the first open answers the
+   * question the page is actually asked — what does this year owe, what has
+   * been paid, and what is left.
+   */
   populateTermFilter: function (terms) {
     if (!this.ui.termFilter) {
       return;
     }
 
+    const previous = this.ui.termFilter.value || this.filters.term_number || "";
+
     this.ui.termFilter.innerHTML =
       '<option value="">Whole Year (All Terms)</option>';
 
     if (!Array.isArray(terms) || terms.length === 0) {
+      this.ui.termFilter.value = "";
       return;
     }
 
+    // Scoped to the selected year: the endpoint is year-filtered, but drop any
+    // straggler row from another year so labels can never collide.
+    const selectedYear = this.filters.academic_year || "";
+    const scoped = terms.filter((term) => {
+      if (!selectedYear) {
+        return true;
+      }
+      const code = String(term.year_code || term.year_name || "");
+      const yearId = String(term.year ?? "");
+      return (
+        code === selectedYear ||
+        yearId === selectedYear ||
+        yearId === String(this.currentYearId(selectedYear))
+      );
+    });
+
     const unique = new Map();
-    terms.forEach((term) => {
-      const termNumber = term.term_number ?? null;
+    (scoped.length ? scoped : terms).forEach((term) => {
+      const termNumber = term.term_number ?? term.code ?? null;
       if (!termNumber) {
         return;
       }
-      const key = `${termNumber}-${term.year || ""}`;
-      if (!unique.has(key)) {
-        unique.set(key, term);
-      }
+      unique.set(String(termNumber), term);
     });
 
-    const sorted = Array.from(unique.values()).sort((a, b) =>
-      Number(a.term_number || 0) - Number(b.term_number || 0),
+    const sorted = Array.from(unique.values()).sort(
+      (a, b) =>
+        this.termNumberOf(a.term_number ?? a.code) -
+        this.termNumberOf(b.term_number ?? b.code),
     );
 
     sorted.forEach((term) => {
       const option = document.createElement("option");
-      option.value = term.term_number;
-      const yearLabel = term.year ? ` (${term.year})` : "";
-      option.textContent = `Term ${term.term_number}${yearLabel}`;
+      const raw = term.term_number ?? term.code;
+      option.value = String(raw);
+      const n = this.termNumberOf(raw);
+      const dates =
+        term.start_date && term.end_date
+          ? ` (${this.formatDate(term.start_date)} – ${this.formatDate(
+              term.end_date,
+            )})`
+          : "";
+      option.textContent = `Term ${n}${dates}`;
       this.ui.termFilter.appendChild(option);
     });
 
@@ -902,11 +1055,55 @@ const StudentFeesController = {
         term.is_current == 1 ||
         term.is_current === "1",
     );
-    if (currentTerm && currentTerm.term_number) {
+    if (currentTerm && (currentTerm.term_number || currentTerm.code)) {
       // The current term badges the progress strip; the default scope stays
       // the whole year so the first open shows the complete position.
-      this.data.currentTermNumber = Number(currentTerm.term_number);
+      this.data.currentTermNumber = this.termNumberOf(
+        currentTerm.term_number || currentTerm.code,
+      );
     }
+
+    // Keep the operator's term choice when the year changes, but only if that
+    // term still exists in the newly selected year.
+    const optionValues = Array.from(this.ui.termFilter.options).map((o) =>
+      o.value,
+    );
+    const keep = previous && optionValues.includes(previous) ? previous : "";
+    this.ui.termFilter.value = keep;
+    this.filters.term_number = keep;
+  },
+
+  /** 'T3' and 3 both mean Term 3. */
+  termNumberOf: function (value) {
+    const match = String(value ?? "").match(/(\d+)/);
+    return match ? Number(match[1]) : 0;
+  },
+
+  currentYearId: function (yearValue) {
+    const list = Array.isArray(this.data.years) ? this.data.years : [];
+    const match = list.find(
+      (year) =>
+        String(year.year_code || year.year || year.name || year.id || "") ===
+        String(yearValue),
+    );
+    return match ? match.id : "";
+  },
+
+  /**
+   * Load the term list for one academic year. Every year has its own
+   * academic_year_terms rows, so the term picker is always rebuilt for the
+   * year the ledger is showing.
+   */
+  loadTermsForYear: async function (academicYear) {
+    const params = {};
+    if (academicYear) {
+      params.academic_year = academicYear;
+    }
+    const termsResp = await window.API.academic.listTerms(params);
+    const terms = this.unwrapList(termsResp);
+    this.data.academicYearTerms = terms;
+    this.populateTermFilter(terms);
+    return terms;
   },
 
   populatePaymentStudents: function () {
@@ -1275,6 +1472,15 @@ const StudentFeesController = {
     };
   },
 
+  /**
+   * The canonical academic-year value that every API in this workspace
+   * accepts (id, "2026/2027" or "2026").
+   *
+   * This used to reduce "2026/2027" to "2026", which silently dropped the
+   * year code: the fee ledger then matched on a prefix guess and the summary
+   * echoed a year the user never selected. The full code is now passed
+   * through unchanged.
+   */
   normalizeAcademicYearValue: function (value) {
     if (value === null || value === undefined) {
       return "";
@@ -1285,8 +1491,17 @@ const StudentFeesController = {
       return "";
     }
 
-    const match = text.match(/(\d{4})/);
-    return match ? match[1] : text;
+    // A full year code is already canonical.
+    if (/^\d{4}\s*[/-]\s*\d{4}$/.test(text)) {
+      return text.replace(/\s+/g, "");
+    }
+
+    // A bare year still identifies the academic year that opens in it.
+    if (/^\d{4}$/.test(text)) {
+      return text;
+    }
+
+    return text;
   },
 };
 

@@ -23,6 +23,7 @@ class AuthController extends BaseController
     // POST /api/auth/login
     public function postLogin($id = null, $data = [], $segments = [])
     {
+        \App\API\Services\StickyMasterService::clear();
         $result = $this->api->login($data);
         return $this->handleResponse($result);
     }

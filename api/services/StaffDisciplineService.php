@@ -65,13 +65,13 @@ final class StaffDisciplineService
                     CONCAT_WS(' ', rap.first_name, rap.last_name) AS assigned_to_name,
                     CONCAT_WS(' ', rp.first_name, rp.last_name) AS resolved_by_name
              FROM staff_disciplinary_cases sdc
-             JOIN staff s ON s.id = sdc.staff_id
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN departments d ON d.id = sdc.department_id
-             LEFT JOIN staff ra ON ra.id = sdc.assigned_to
-             LEFT JOIN persons rap ON rap.id = ra.person_id
-             LEFT JOIN staff rr ON rr.id = sdc.resolved_by
-             LEFT JOIN persons rp ON rp.id = rr.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sdc.staff_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sdc.department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " ra ON ra.id = sdc.assigned_to
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rap ON rap.id = ra.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " rr ON rr.id = sdc.resolved_by
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rp ON rp.id = rr.person_id
              WHERE $where
              ORDER BY sdc.incident_date DESC, sdc.id DESC
              LIMIT 500"
@@ -97,9 +97,9 @@ final class StaffDisciplineService
                     CONCAT_WS(' ', p.first_name, p.last_name) AS staff_name,
                     d.name AS department_name
              FROM staff_disciplinary_cases sdc
-             JOIN staff s ON s.id = sdc.staff_id
-             JOIN persons p ON p.id = s.person_id
-             LEFT JOIN departments d ON d.id = sdc.department_id
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sdc.staff_id
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sdc.department_id
              WHERE sdc.id = ?
              LIMIT 1"
         );
@@ -211,10 +211,7 @@ final class StaffDisciplineService
         $staffId = null;
         if ($status === 'escalated') {
             $stmt = $this->db->query(
-                "SELECT s.id FROM staff s
-                 JOIN user_roles ur ON ur.user_id = s.person_id
-                 JOIN users u ON u.id = ur.user_id
-                 JOIN roles r ON r.id = ur.role_id
+                "SELECT s.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                  WHERE LOWER(r.name) = 'deputy head - discipline' AND s.status='active'
                  LIMIT 1"
             );
@@ -262,9 +259,9 @@ final class StaffDisciplineService
     {
         return [
             'staff' => $this->db->query(
-                "SELECT s.id, s.staff_no, CONCAT_WS(' ', p.first_name, p.last_name) AS name
-                 FROM staff s JOIN persons p ON p.id = s.person_id
-                 WHERE s.status = 'active' ORDER BY p.last_name, p.first_name"
+                "SELECT s.staff_id AS id, s.staff_no, CONCAT_WS(' ', s.first_name, s.last_name) AS name
+                 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                 WHERE s.staff_status = 'active' AND s.person_id IS NOT NULL ORDER BY s.last_name, s.first_name"
             )->fetchAll(PDO::FETCH_ASSOC),
             'departments' => $this->db->query(
                 "SELECT id, code, name FROM departments WHERE status='active' ORDER BY name"

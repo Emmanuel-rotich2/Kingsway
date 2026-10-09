@@ -173,7 +173,7 @@ const financeController = {
             showNotification('Receipt generated successfully', 'success');
             
             if (response.url || response.file_path) {
-                window.open(response.url || response.file_path, '_blank');
+                window.PrintManager?.openDocument(response.url || response.file_path, { title: 'Finance document' });
             }
         } catch (error) {
             console.error('Error generating receipt:', error);
@@ -335,7 +335,7 @@ const financeController = {
             showNotification('Payroll report generated successfully', 'success');
             
             if (response.url || response.file_path) {
-                window.open(response.url || response.file_path, '_blank');
+                window.PrintManager?.openDocument(response.url || response.file_path, { title: 'Finance document' });
             }
         } catch (error) {
             console.error('Error generating report:', error);

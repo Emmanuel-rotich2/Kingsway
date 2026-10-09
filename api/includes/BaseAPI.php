@@ -427,8 +427,38 @@ class BaseAPI extends FileLifecycleBase
     protected function dbQuery(string $sql, array $params = []): \PDOStatement
     {
         $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        $started = microtime(true);
+        try {
+            $stmt->execute($params);
+        } catch (\Throwable $error) {
+            $this->recordQueryTelemetry($sql, (int) round((microtime(true) - $started) * 1000), false, $error);
+            throw $error;
+        }
+        $this->recordQueryTelemetry($sql, (int) round((microtime(true) - $started) * 1000), true);
         return $stmt;
+    }
+
+    /**
+     * Record only slow-query metadata. SQL text and bound values can contain
+     * learner, parent, staff, or finance data and are deliberately excluded.
+     */
+    private function recordQueryTelemetry(string $sql, int $durationMs, bool $ok, ?\Throwable $error = null): void
+    {
+        $threshold = max(50, (int) (getenv('DB_SLOW_QUERY_MS') ?: 250));
+        if ($durationMs < $threshold && $ok) return;
+
+        $firstToken = strtoupper((string) strtok(ltrim($sql), " \t\r\n(\"`"));
+        $operation = in_array($firstToken, ['SELECT', 'WITH', 'INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CALL'], true)
+            ? $firstToken : 'OTHER';
+        FileLogger::write('database_performance', [
+            'event' => $ok ? 'slow_query' : 'query_failed',
+            'module' => (string) ($this->module ?? 'unknown'),
+            'operation' => $operation,
+            'duration_ms' => $durationMs,
+            'query_fingerprint' => hash('sha256', preg_replace('/\s+/', ' ', trim($sql)) ?? trim($sql)),
+            'error_class' => $error ? get_class($error) : null,
+            'request_id' => (string) ($this->request_id ?? ''),
+        ], $ok ? 'warning' : 'error');
     }
 
     // ---------- Stored routine helpers ----------

@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Uniform Sales Manager
@@ -37,10 +38,10 @@ class UniformSalesManager extends BaseAPI
                     ii.current_quantity as total_stock,
                     ii.reorder_level,
                     ii.status,
-                    (SELECT COUNT(*) FROM uniform_sizes WHERE item_id = ii.id AND quantity_available > 0) as available_sizes,
-                    (SELECT SUM(quantity_available) FROM uniform_sizes WHERE item_id = ii.id) as total_available,
-                    (SELECT SUM(quantity_sold) FROM uniform_sizes WHERE item_id = ii.id) as total_sold
-                FROM inventory_items ii
+                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " WHERE item_id = ii.id AND quantity_available > 0) as available_sizes,
+                    (SELECT SUM(quantity_available) FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " WHERE item_id = ii.id) as total_available,
+                    (SELECT SUM(quantity_sold) FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " WHERE item_id = ii.id) as total_sold
+                FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " ii
                 WHERE ii.category_id = 10
                 ORDER BY ii.name ASC
             ";
@@ -131,8 +132,7 @@ return $this->formatError('An internal error occurred.', 500);
             }
 
             // Check uniform item exists and size available
-            $sizeSql = "SELECT quantity_available, unit_price FROM uniform_sizes 
-                       WHERE item_id = ? AND size = ?";
+            $sizeSql = "SELECT quantity_available, unit_price FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " item_id = ? AND size = ?";
             $sizeStmt = $this->dbQuery($sizeSql, [$item_id, $size]);
             $sizeData = $sizeStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -191,8 +191,8 @@ return $this->formatError('An internal error occurred.', 500);
                     us.sale_date,
                     us.received_date,
                     us.notes
-                FROM uniform_sales us
-                JOIN inventory_items ii ON us.item_id = ii.id
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.student_id = ?
                 ORDER BY us.sale_date DESC
             ";
@@ -286,8 +286,8 @@ return $this->formatError('An internal error occurred.', 500);
                     COUNT(us.id) as sales_count,
                     SUM(us.quantity) as total_quantity,
                     SUM(us.quantity * us.unit_price) as total_amount
-                FROM uniform_sales us
-                JOIN inventory_items ii ON us.item_id = ii.id
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE MONTH(us.sale_date) = MONTH(CURDATE())
                 AND YEAR(us.sale_date) = YEAR(CURDATE())
                 GROUP BY us.item_id
@@ -483,12 +483,12 @@ return $this->formatError('An internal error occurred.', 500);
                     us.received_date,
                     us.notes,
                     CONCAT(sp.first_name, ' ', sp.last_name) as sold_by_name
-                FROM uniform_sales us
-                JOIN students s ON us.student_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                JOIN inventory_items ii ON us.item_id = ii.id
-                LEFT JOIN staff st ON us.sold_by = st.id
-                LEFT JOIN persons sp ON sp.id = st.person_id
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON us.student_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON us.sold_by = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " sp ON sp.id = st.person_id
                 WHERE {$whereClause}
                 ORDER BY us.sale_date DESC, us.id DESC
                 LIMIT {$limit} OFFSET {$offset}
@@ -611,8 +611,8 @@ return $this->formatError('An internal error occurred.', 500);
                         WHEN us.quantity_available <= 20 THEN 'low'
                         ELSE 'adequate'
                     END as stock_status
-                FROM uniform_sizes us
-                JOIN inventory_items ii ON us.item_id = ii.id
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sizes") . " us
+                JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.quantity_available <= 20
                 ORDER BY us.quantity_available ASC, ii.name ASC, 
                          FIELD(us.size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
@@ -666,8 +666,8 @@ return $this->formatError('An internal error occurred.', 500);
                     SUM(CASE WHEN us.payment_status = 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as paid_amount,
                     SUM(CASE WHEN us.payment_status != 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as pending_amount,
                     COUNT(*) as sale_count
-                FROM uniform_sales us
-                JOIN inventory_items ii ON us.item_id = ii.id
+                FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . "
+                JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON us.item_id = ii.id
                 WHERE us.sale_date BETWEEN ? AND ?
                 GROUP BY us.item_id
                 ORDER BY total_amount DESC
@@ -926,12 +926,12 @@ return $this->formatError('An internal error occurred.', 500);
                         JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.delivery_note')) AS delivery_note,
                         r.status, r.notes,
                         CONCAT(p.first_name,' ',p.last_name) AS received_by_name,
-                        (SELECT COUNT(*) FROM requisition_items ri WHERE ri.requisition_id = r.id) AS line_count,
+                        (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("requisition_items") . " ri WHERE ri.requisition_id = r.id) AS line_count,
                         (SELECT COALESCE(SUM(ri.fulfilled_quantity * ri.unit_cost),0)
-                           FROM requisition_items ri WHERE ri.requisition_id = r.id) AS total_cost
-                 FROM requisitions r
-                 LEFT JOIN staff s ON s.id = r.approved_by
-                 LEFT JOIN persons p ON p.id = s.person_id
+                           FROM " . ReadReplicaService::qualifiedRef("requisition_items") . " ri WHERE ri.requisition_id = r.id) AS total_cost
+                 FROM " . ReadReplicaService::qualifiedRef("requisitions") . " r
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = r.approved_by
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  WHERE r.requisition_number LIKE 'PUR-%'
                  ORDER BY r.requisition_date DESC, r.id DESC
                  LIMIT $limit OFFSET $offset"
@@ -965,9 +965,9 @@ return $this->formatError('An internal error occurred.', 500);
                         JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.invoice_number')) AS invoice_number,
                         JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.delivery_note')) AS delivery_note,
                         CONCAT(p.first_name,' ',p.last_name) AS received_by_name
-                 FROM requisitions r
-                 LEFT JOIN staff s ON s.id = r.approved_by
-                 LEFT JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("requisitions") . " r
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = r.approved_by
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  WHERE r.id = ?",
                 [$id]
             )->fetch(\PDO::FETCH_ASSOC);
@@ -976,8 +976,8 @@ return $this->formatError('An internal error occurred.', 500);
 
             $lines = $this->dbQuery(
                 "SELECT ri.*, ii.name AS item_name, ii.code AS item_code
-                 FROM requisition_items ri
-                 JOIN inventory_items ii ON ii.id = ri.item_id
+                 FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON ii.id = ri.item_id
                  WHERE ri.requisition_id = ?",
                 [$id]
             )->fetchAll(\PDO::FETCH_ASSOC);
@@ -1029,10 +1029,10 @@ return $this->formatError('An internal error occurred.', 500);
                 "SELECT us.*, ii.name AS item_name,
                         CONCAT(p.first_name,' ',p.last_name) AS student_name,
                         s.admission_no AS admission_number
-                 FROM uniform_sales us
-                 JOIN students s ON s.id = us.student_id
-                 JOIN persons p ON p.id = s.person_id
-                 JOIN inventory_items ii ON ii.id = us.item_id
+                 FROM " . ReadReplicaService::qualifiedRef("uniform_sales") . " us
+                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = us.student_id
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " ii ON ii.id = us.item_id
                  WHERE us.id = ?",
                 [$saleId]
             )->fetch(\PDO::FETCH_ASSOC);
@@ -1041,9 +1041,9 @@ return $this->formatError('An internal error occurred.', 500);
 
             $payments = $this->dbQuery(
                 "SELECT upr.*, CONCAT(p.first_name,' ',p.last_name) AS recorded_by_name
-                 FROM uniform_payment_records upr
-                 LEFT JOIN staff s ON s.id = upr.recorded_by
-                 LEFT JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("uniform_payment_records") . " upr
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = upr.recorded_by
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  WHERE upr.sale_id = ?
                  ORDER BY upr.payment_date, upr.id",
                 [$saleId]
@@ -1082,11 +1082,7 @@ return $this->formatError('An internal error occurred.', 500);
                         COALESCE(SUM(upr.amount), 0) AS total_paid,
                         SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) AS total_balance,
                         MAX(us.sale_date) AS last_purchase
-                 FROM students s
-                 JOIN persons p ON p.id = s.person_id
-                 JOIN uniform_sales us ON us.student_id = s.id
-                 LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
-                 $where
+                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                  GROUP BY s.id, p.first_name, p.last_name, s.admission_no
                  HAVING total_balance > 0
                  ORDER BY total_balance DESC
@@ -1097,11 +1093,7 @@ return $this->formatError('An internal error occurred.', 500);
             $total = (int)$this->dbQuery(
                 "SELECT COUNT(*) FROM (
                     SELECT s.id
-                    FROM students s
-                    JOIN persons p ON p.id = s.person_id
-                    JOIN uniform_sales us ON us.student_id = s.id
-                    LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
-                    $where
+                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                     GROUP BY s.id
                     HAVING SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) > 0
                 ) t",

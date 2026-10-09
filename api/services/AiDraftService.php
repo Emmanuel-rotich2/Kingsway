@@ -318,4 +318,14 @@ class AiDraftService
         }
         return $safe;
     }
+
+    /** Workflow id recorded on a draft row — callers verify scope before approving. */
+    public function workflowIdForDraft(\PDO $pdo, int $draftId): string
+    {
+        $stmt = $pdo->prepare('SELECT workflow_id FROM ai_workflow_drafts WHERE id = ? LIMIT 1');
+        $stmt->execute([$draftId]);
+        return (string) ($stmt->fetchColumn() ?: '');
+    }
+
+
 }

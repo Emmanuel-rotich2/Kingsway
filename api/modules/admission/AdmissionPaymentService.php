@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\admission;
 
+use App\API\Services\ReadReplicaService;
+
 use PDO;
 use Exception;
 use App\API\Services\FinancialPostingCoordinator;
@@ -170,8 +172,8 @@ class AdmissionPaymentService
                     "SELECT apa.amount, COALESCE(coa.account_code,'120001') AS account_code, ec.name AS description
                      FROM admission_payment_allocations apa
                      JOIN extra_charge_application_obligations eao ON eao.id=apa.application_obligation_id
-                     JOIN extra_charges ec ON ec.id=eao.extra_charge_id
-                     LEFT JOIN chart_of_accounts coa ON coa.id=ec.gl_account_id
+                     JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id=eao.extra_charge_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " coa ON coa.id=ec.gl_account_id
                      WHERE apa.admission_payment_id=?"
                 );
                 $allocations->execute([(int) $payment['id']]);

@@ -1,6 +1,7 @@
 <?php
 
 namespace App\API\Modules\staff;
+use App\API\Services\ReadReplicaService;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -48,10 +49,9 @@ class StaffLeaveManager extends BaseAPI
             $this->db->beginTransaction();
 
             $staffStmt = $this->db->prepare(
-                "SELECT s.id, s.staff_type_id, s.status
-                 FROM staff s
-                 INNER JOIN persons p ON p.id = s.person_id
-                 WHERE s.id = ? AND s.status IN ('active', 'on_leave')
+                "SELECT s.staff_id AS id, s.staff_type_id, s.staff_status AS status
+                 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                 WHERE s.staff_id = ? AND s.staff_status IN ('active', 'on_leave')
                  LIMIT 1"
             );
             $staffStmt->execute([$staffId]);
@@ -183,12 +183,12 @@ class StaffLeaveManager extends BaseAPI
                            s.staff_no,
                            CONCAT_WS(' ', ap.first_name, ap.last_name) AS approved_by_name
                     FROM staff_leaves sl
-                    INNER JOIN staff s ON s.id = sl.staff_id
-                    INNER JOIN persons p ON p.id = s.person_id
-                    INNER JOIN leave_types lt ON lt.id = sl.leave_type_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sl.staff_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("leave_types") . " lt ON lt.id = sl.leave_type_id
                     LEFT JOIN users au ON au.id = sl.approved_by
-                    LEFT JOIN staff approver ON approver.person_id = au.person_id
-                    LEFT JOIN persons ap ON ap.id = approver.person_id";
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " approver ON approver.person_id = au.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = approver.person_id";
             if ($where) {
                 $sql .= ' WHERE ' . implode(' AND ', $where);
             }
@@ -209,7 +209,7 @@ class StaffLeaveManager extends BaseAPI
                            COALESCE(SUM(CASE
                                WHEN sl.status = 'approved' AND YEAR(sl.start_date) = YEAR(CURDATE())
                                THEN sl.days_requested ELSE 0 END), 0) AS used_days
-                    FROM leave_types lt
+                    FROM " . ReadReplicaService::qualifiedRef("leave_types") . "
                     LEFT JOIN staff_leaves sl
                            ON sl.leave_type_id = lt.id
                           AND sl.staff_id = ?

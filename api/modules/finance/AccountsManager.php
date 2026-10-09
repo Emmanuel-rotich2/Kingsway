@@ -7,6 +7,7 @@ use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
 use App\API\Services\payments\ReferenceNormalizer;
+use App\API\Services\ReadReplicaService;
 
 /**
  * AccountsManager
@@ -27,12 +28,12 @@ class AccountsManager extends BaseAPI
             GROUP_CONCAT(DISTINCT r.collection_product ORDER BY r.collection_product SEPARATOR ',') collection_products,
             GROUP_CONCAT(DISTINCT r.reference_policy ORDER BY r.reference_policy SEPARATOR ',') reference_policies,
             GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes
-            FROM school_financial_accounts a
+            FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
             JOIN financial_account_kinds k ON k.id=a.account_kind_id
             LEFT JOIN payment_providers p ON p.id=a.provider_id
-            LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
-            LEFT JOIN school_financial_accounts sa ON sa.id=a.settlement_financial_account_id
-            LEFT JOIN payment_collection_routes r ON r.financial_account_id=a.id AND r.active=1
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c ON c.id=a.ledger_account_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=a.settlement_financial_account_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r ON r.financial_account_id=a.id AND r.active=1
             LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
             LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
             GROUP BY a.id ORDER BY a.account_name");
@@ -47,7 +48,7 @@ class AccountsManager extends BaseAPI
             'channels' => $this->db->query('SELECT code,name FROM financial_channels ORDER BY name')->fetchAll(PDO::FETCH_ASSOC),
             'providers' => $this->db->query("SELECT code,display_name,environment FROM payment_providers WHERE active=1 ORDER BY display_name")->fetchAll(PDO::FETCH_ASSOC),
             'ledger_accounts' => $this->db->query("SELECT account_code,account_name FROM chart_of_accounts WHERE status='active' AND is_postable=1 ORDER BY account_code")->fetchAll(PDO::FETCH_ASSOC),
-            'settlement_accounts' => $this->db->query("SELECT a.id,a.account_name,a.account_identifier,k.code account_kind FROM school_financial_accounts a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing') ORDER BY a.account_name")->fetchAll(PDO::FETCH_ASSOC),
+            'settlement_accounts' => $this->db->query("SELECT a.id,a.account_name,a.account_identifier,k.code account_kind FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing') ORDER BY a.account_name")->fetchAll(PDO::FETCH_ASSOC),
             'roles' => $this->db->query("SELECT id,name FROM roles WHERE id NOT IN (2) ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
         ]);
     }
@@ -104,7 +105,7 @@ class AccountsManager extends BaseAPI
 
     public function financialAccountPermissions(int $id): array
     {
-        $s=$this->db->prepare('SELECT p.id AS role_id,p.name,COALESCE(ap.can_receive,0) can_receive,COALESCE(ap.can_disburse,0) can_disburse FROM roles p LEFT JOIN school_financial_account_permissions ap ON ap.role_id=p.id AND ap.financial_account_id=? WHERE p.id NOT IN (2) ORDER BY p.name');
+        $s=$this->db->prepare('SELECT p.id AS role_id,p.name,COALESCE(ap.can_receive,0) can_receive,COALESCE(ap.can_disburse,0) can_disburse FROM ' . ReadReplicaService::masterRef('roles') . ' p LEFT JOIN school_financial_account_permissions ap ON ap.role_id=p.id AND ap.financial_account_id=? WHERE p.id NOT IN (2) ORDER BY p.name');
         $s->execute([$id]);
         return formatResponse(true,['permissions'=>$s->fetchAll(PDO::FETCH_ASSOC)]);
     }
@@ -176,7 +177,7 @@ class AccountsManager extends BaseAPI
     /** Account channels are the maximum; cash is additionally controlled per collection purpose. */
     private function collectionChannelCodes(int $accountId, string $purpose, array $data): array
     {
-        $s=$this->db->prepare('SELECT c.code FROM school_financial_account_channels ac JOIN financial_channels c ON c.id=ac.channel_id WHERE ac.financial_account_id=?');
+        $s=$this->db->prepare('SELECT c.code FROM ' . ReadReplicaService::qualifiedRef('school_financial_account_channels') . ' ac JOIN financial_channels c ON c.id=ac.channel_id WHERE ac.financial_account_id=?');
         $s->execute([$accountId]); $codes=array_map('strval',$s->fetchAll(PDO::FETCH_COLUMN));
         $overrides=(array)($data['collection_channel_overrides'] ?? []);
         if ($purpose === 'fees' || (array_key_exists($purpose,$overrides) && empty($overrides[$purpose]['cash']))) {
@@ -196,7 +197,7 @@ class AccountsManager extends BaseAPI
             if ($kindCode === 'mobile_money') throw new Exception('A mobile-money Paybill or Till account must have a settlement financial account.');
             return $accountId > 0 ? $accountId : null;
         }
-        $s=$this->db->prepare("SELECT a.id FROM school_financial_accounts a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing')");
+        $s=$this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.id=? AND a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing')");
         $s->execute([$requested]);
         if (!$s->fetchColumn()) throw new Exception('Selected settlement financial account does not exist or is not usable.');
         return $requested;
@@ -301,9 +302,9 @@ class AccountsManager extends BaseAPI
                 a.is_primary, a.created_at, a.updated_at, k.code AS account_kind,
                 c.account_code AS ledger_code,
                 GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') AS purposes
-            FROM school_financial_accounts a
+            FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
             JOIN financial_account_kinds k ON k.id = a.account_kind_id
-            LEFT JOIN chart_of_accounts c ON c.id = a.ledger_account_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c ON c.id = a.ledger_account_id
             LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id = a.id
             LEFT JOIN financial_account_purposes fp ON fp.id = ap.purpose_id
             WHERE k.code = 'bank'
@@ -333,10 +334,10 @@ class AccountsManager extends BaseAPI
     {
         try {
             if ($bankId) {
-                $stmt = $this->db->prepare('SELECT bt.*, a.account_name, a.account_identifier FROM bank_transactions bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id WHERE bt.financial_account_id = ? OR bt.account_number = ? ORDER BY bt.transaction_date DESC LIMIT 500');
+                $stmt = $this->db->prepare('SELECT bt.*, a.account_name, a.account_identifier FROM ' . ReadReplicaService::qualifiedRef('bank_transactions') . ' bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id WHERE bt.financial_account_id = ? OR bt.account_number = ? ORDER BY bt.transaction_date DESC LIMIT 500');
                 $stmt->execute([$bankId, $bankId]);
             } else {
-                $stmt = $this->db->query('SELECT bt.*, a.account_name, a.account_identifier FROM bank_transactions bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id ORDER BY bt.transaction_date DESC LIMIT 500');
+                $stmt = $this->db->query('SELECT bt.*, a.account_name, a.account_identifier FROM ' . ReadReplicaService::qualifiedRef('bank_transactions') . ' bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id ORDER BY bt.transaction_date DESC LIMIT 500');
             }
             $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 

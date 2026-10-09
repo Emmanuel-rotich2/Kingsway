@@ -43,11 +43,9 @@ final class IncidentController extends BaseController
         }
         $assignedStaffId = 0;
         try {
-            $stmt = $this->db->getConnection()->prepare(
-                'SELECT id FROM staff WHERE person_id = (SELECT person_id FROM users WHERE id = ?) LIMIT 1'
+            $assignedStaffId = \App\API\Services\StaffRecordsService::staffIdForUserId(
+                $this->db->getConnection(), $this->operatorId()
             );
-            $stmt->execute([$this->operatorId()]);
-            $assignedStaffId = (int) ($stmt->fetchColumn() ?: 0);
         } catch (\Throwable $e) {
             $assignedStaffId = 0;
         }

@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\staff;
 
+use App\API\Services\ReadReplicaService;
+
 use App\Config;
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -269,10 +271,10 @@ class StaffOnboardingManager extends BaseAPI
                        CONCAT(ap.first_name, ' ', ap.last_name) as assigned_to_name,
                        CONCAT(cp.first_name, ' ', cp.last_name) as completed_by_name
                 FROM onboarding_tasks ot
-                LEFT JOIN staff assigned_s ON ot.assigned_to = assigned_s.id
-                LEFT JOIN persons ap ON ap.id = assigned_s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " assigned_s ON ot.assigned_to = assigned_s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " ap ON ap.id = assigned_s.person_id
                 LEFT JOIN users completed_u ON ot.completed_by = completed_u.id
-                LEFT JOIN persons cp ON cp.id = completed_u.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " cp ON cp.id = completed_u.person_id
                 WHERE ot.onboarding_id = ?";
 
             $params = [$onboardingId];
@@ -383,8 +385,8 @@ class StaffOnboardingManager extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT pr.*, CONCAT(rp.first_name, ' ', rp.last_name) AS reviewer_name
                 FROM staff_probation_reviews pr
-                LEFT JOIN staff r ON r.id = pr.reviewer_id
-                LEFT JOIN persons rp ON rp.id = r.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " r ON r.id = pr.reviewer_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " rp ON rp.id = r.person_id
                 WHERE pr.onboarding_id = ?
                 ORDER BY pr.review_month ASC
             ");

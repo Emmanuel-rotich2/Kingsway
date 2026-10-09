@@ -36,7 +36,7 @@ final class AnalyticsExportAuditService
             "SELECT rr.id AS run_id, rr.requested_by, rr.status, rd.id AS report_definition_id,
                     rd.code, rd.version, rd.title, rd.sensitivity, rd.export_formats_json,
                     MAX(ara.can_export) AS can_export
-             FROM analytics_report_runs rr
+             FROM " . ReadReplicaService::qualifiedRef("analytics_report_runs") . " rr
              JOIN analytics_report_definitions rd ON rd.id = rr.report_definition_id
              JOIN analytics_report_role_access ara
                ON ara.report_definition_id = rd.id

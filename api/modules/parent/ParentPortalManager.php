@@ -88,6 +88,28 @@ class ParentPortalManager extends BaseAPI
     // ========================================================================
 
     /**
+     * Resolve the active parent record linked to a user (staff+parent hybrid
+     * workspaces). Central identity lookup — controllers call this instead of
+     * querying directly.
+     */
+    public static function parentIdForUserId(\PDO $pdo, int $userId): int
+    {
+        $stmt = $pdo->prepare(
+            "SELECT pr.id
+               FROM users u
+               JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+               JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.person_id = p.id
+              WHERE u.id = ?
+                AND u.status = 'active'
+                AND pr.status = 'active'
+              LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+
+    /**
      * Email-or-phone + password login against users.password_hash (normalised
      * account). The identifier may be the parent's registered email address OR
      * phone number; the verification code always goes to the registered email.
@@ -129,8 +151,8 @@ class ParentPortalManager extends BaseAPI
                        u.password_hash, u.status AS user_status,
                        u.data_scope AS user_data_scope, p.data_scope AS person_data_scope
                 FROM users u
-                JOIN persons p ON p.id = u.person_id
-                JOIN parents pr ON pr.person_id = u.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.person_id = p.id
                 WHERE ({$phoneOrEmail})
                   AND pr.status = 'active'
                   AND u.status = 'active'
@@ -331,10 +353,9 @@ class ParentPortalManager extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT u.id, u.password_hash, u.status, u.data_scope, p.email
-                 FROM users u
-                 JOIN persons p ON p.id = u.person_id
-                 WHERE p.email = :email
+                "SELECT u.id, u.password_hash, u.status, u.data_scope, pd.email
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+                 WHERE pd.email = :email
                    AND u.status = 'active'
                  LIMIT 1"
             );
@@ -431,30 +452,21 @@ class ParentPortalManager extends BaseAPI
             $scopeIn = implode(',', array_fill(0, count($scopes), '?'));
             $stmt = $this->db->prepare(
                 "SELECT s.id, ps.first_name, ps.last_name, ps.photo_url, s.admission_no, s.status,
-                        c.name AS class_name, sl.name AS level_name,
+                        sd.class_name, sl.name AS level_name,
                         COALESCE((SELECT SUM(fb.balance) FROM $feeBalView fb
-                                  WHERE fb.student_academic_enrollment_id = sae.id
-                                    AND fb.academic_year_id = sae.academic_year_id), 0) AS current_balance,
+                                  WHERE fb.student_academic_enrollment_id = sd.enrollment_id
+                                    AND fb.academic_year_id = sd.academic_year_id), 0) AS current_balance,
                         (SELECT MAX(pt.payment_date) FROM vw_payment_transactions_with_amount pt
                          WHERE pt.student_id = s.id
                            AND pt.status IN ('confirmed','completed','success')) AS last_payment_date
-                 FROM student_parents sp
-                 JOIN students s ON s.id = sp.student_id AND s.status = 'active'
-                 JOIN persons ps ON ps.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae
-                        ON sae.student_id = s.id
-                       AND sae.enrollment_status = 'active'
-                       AND sae.academic_year_id = (
-                           SELECT ay_current.id
-                           FROM academic_years ay_current
-                           WHERE ay_current.is_current = 1
-                           ORDER BY ay_current.id DESC
-                           LIMIT 1
-                       )
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN school_levels sl ON sl.id = c.level_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sp.student_id AND s.status = 'active'
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " ps ON ps.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                        ON sd.student_id = s.id
+                       AND sd.enrollment_status = 'active'
+                       AND sd.is_current_year = 1
+                 LEFT JOIN school_levels sl ON sl.id = sd.level_id
                  WHERE sp.parent_id = ?
                    AND ps.data_scope IN ($scopeIn)
                  ORDER BY ps.first_name, ps.last_name"
@@ -486,8 +498,7 @@ class ParentPortalManager extends BaseAPI
         if ($this->parentId < 1) return $this->errorResponse('Not authenticated', 401);
         try {
             $scope = $this->db->prepare(
-                'SELECT s.id FROM students s
-                 JOIN student_parents sp ON sp.student_id = s.id
+                'SELECT s.id FROM ' . ReadReplicaService::qualifiedRef('student_directory') . ' 
                  WHERE s.id = ? AND sp.parent_id = ? LIMIT 1'
             );
             $scope->execute([$studentId, $this->parentId]);
@@ -556,20 +567,20 @@ class ParentPortalManager extends BaseAPI
                         aa.enrolled_student_id,
                         ay.year_code AS term_year, t.name AS term_name,
                         wi.current_stage, wi.status AS workflow_status,
-                        (SELECT wh.action_taken FROM workflow_stage_history wh
+                        (SELECT wh.action_taken FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . " wh
                          WHERE wh.instance_id = wi.id ORDER BY wh.id DESC LIMIT 1) AS last_action,
-                        (SELECT wh.processed_at FROM workflow_stage_history wh
+                        (SELECT wh.processed_at FROM " . ReadReplicaService::qualifiedRef("workflow_stage_history") . " wh
                          WHERE wh.instance_id = wi.id ORDER BY wh.id DESC LIMIT 1) AS last_action_at
-                 FROM admission_applications aa
-                 LEFT JOIN academic_year_terms ayt ON ayt.id = aa.target_term_id
+                 FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = aa.target_term_id
                  LEFT JOIN terms t ON t.id = ayt.term_id
-                 LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
                  LEFT JOIN (
                      SELECT wi.id, wi.reference_id, wi.current_stage, wi.status
-                     FROM workflow_instances wi
+                     FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " wi
                      JOIN (
                          SELECT reference_id, MAX(id) AS max_id
-                         FROM workflow_instances
+                         FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
                          WHERE reference_type = 'admission_application'
                          GROUP BY reference_id
                      ) latest ON latest.max_id = wi.id
@@ -924,8 +935,7 @@ class ParentPortalManager extends BaseAPI
             // Recent 30 entries
             $stmt = $this->db->prepare(
                 "SELECT sa.date, sa.status, sa.absence_reason
-                 FROM student_attendance sa
-                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                  WHERE sae.student_id = :sid
                  ORDER BY sa.date DESC, sa.id DESC
                  LIMIT 30"
@@ -941,8 +951,7 @@ class ParentPortalManager extends BaseAPI
                         SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS days_present,
                         SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS days_absent,
                         SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS days_late
-                 FROM student_attendance sa
-                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
                  WHERE sae.student_id = :sid AND sa.date BETWEEN :start AND :end
                  GROUP BY DATE_FORMAT(sa.date, '%Y-%m')
                  ORDER BY month ASC"
@@ -982,15 +991,15 @@ class ParentPortalManager extends BaseAPI
                         v.registration_number, CONCAT_WS(' ', dp.first_name, dp.last_name) AS driver_name,
                         te.id AS entitlement_id, te.amount_due, te.entitlement_status,
                         te.route_id AS entitlement_route_id
-                   FROM student_transport_assignments a
-                   JOIN transport_routes r ON r.id = a.route_id
+                   FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
+                   JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " r ON r.id = a.route_id
               LEFT JOIN transport_stops ps ON ps.id = COALESCE(a.pickup_stop_id, a.stop_id)
               LEFT JOIN transport_stops ds ON ds.id = COALESCE(a.dropoff_stop_id, a.stop_id)
-              LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = r.id AND tvr.status = 'active'
+              LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = r.id AND tvr.status = 'active'
               LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
-              LEFT JOIN staff d ON d.id = v.driver_id
-              LEFT JOIN persons dp ON dp.id = d.person_id
-              LEFT JOIN student_transport_entitlements te
+              LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " d ON d.id = v.driver_id
+              LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " dp ON dp.id = d.person_id
+              LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " te
                      ON te.student_id = a.student_id AND te.entitlement_status = 'active'
                   WHERE a.student_id = ?
                ORDER BY a.year DESC, a.month DESC, te.id DESC LIMIT 1"
@@ -1123,14 +1132,14 @@ class ParentPortalManager extends BaseAPI
                 "SELECT ay.id AS academic_year_id, ay.year_code, ayt.id AS academic_year_term_id,
                         t.name AS term_name, sae.academic_year_class_stream_id,
                         c.name AS class_name, sn.name AS stream_name
-                 FROM student_academic_enrollments sae
-                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
                  JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
                  WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                  LIMIT 1"
             );
@@ -1146,14 +1155,14 @@ class ParentPortalManager extends BaseAPI
                         st.strand_id, st.sub_strand_id,
                         sn.name AS strand_name, ss.name AS sub_strand_name,
                         st.activities, st.resources, st.assessment_methods
-                 FROM schemes_of_work sw
-                 JOIN academic_year_class_stream_learning_areas aysla
+                 FROM " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                    ON aysla.id = sw.academic_year_class_stream_learning_area_id
-                 JOIN scheme_templates st ON st.id = sw.scheme_template_id
-                 JOIN learning_areas la ON la.id = st.learning_area_id
-                 LEFT JOIN strands sn ON sn.id = st.strand_id
-                 LEFT JOIN sub_strands ss ON ss.id = st.sub_strand_id
-                 JOIN academic_year_calendar ac ON ac.id = sw.academic_year_calendar_week_id
+                 JOIN " . ReadReplicaService::qualifiedRef("scheme_templates") . " st ON st.id = sw.scheme_template_id
+                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = st.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = st.strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = st.sub_strand_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = sw.academic_year_calendar_week_id
                  WHERE aysla.academic_year_class_stream_id = ?
                    AND ac.academic_year_term_id = ?
                    AND sw.status = 'approved'
@@ -1167,17 +1176,17 @@ class ParentPortalManager extends BaseAPI
                         la.name AS learning_area, lt.title,
                         lt.duration, lt.activities, lt.resources, lt.assessment,
                         sn.name AS strand_name, ss.name AS sub_strand_name
-                 FROM lesson_plans lp
-                 JOIN schemes_of_work sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
-                 JOIN academic_year_class_stream_learning_areas aysla
+                 FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
+                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                    ON aysla.id = lp.academic_year_class_stream_learning_area_id
                   AND aysla.academic_year_class_stream_id = ?
                  JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
-                 JOIN learning_areas la ON la.id = lt.learning_area_id
-                 LEFT JOIN strands sn ON sn.id = lt.strand_id
-                 LEFT JOIN sub_strands ss ON ss.id = lt.sub_strand_id
-                 JOIN academic_year_calendar_days d ON d.id = lp.academic_year_calendar_day_id
-                 JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = lt.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = lt.strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = lt.sub_strand_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.id = lp.academic_year_calendar_day_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                  WHERE ac.academic_year_term_id = ?
                    AND lp.status IN ('approved','delivered')
                  ORDER BY d.date, lp.id"
@@ -1221,14 +1230,14 @@ class ParentPortalManager extends BaseAPI
                         ayt.status AS term_status, t.name AS term_name,
                         sae.academic_year_class_stream_id,
                         c.name AS class_name, sn.name AS stream_name
-                 FROM student_academic_enrollments sae
-                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
                  JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
                  WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                  LIMIT 1"
             );
@@ -1269,13 +1278,13 @@ class ParentPortalManager extends BaseAPI
                           WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
                           ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
                  FROM assignments a
-                 JOIN student_academic_enrollments a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
-                 JOIN academic_year_class_streams aycs ON aycs.id = a2s.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
-                 LEFT JOIN strands sn ON sn.id = a.strand_id
-                 LEFT JOIN sub_strands ss ON ss.id = a.sub_strand_id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a2s.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = a.strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = a.sub_strand_id
                  WHERE a.class_id = c.id
                    AND a.status = 'published'
                    AND a.deleted_at IS NULL
@@ -1291,18 +1300,16 @@ class ParentPortalManager extends BaseAPI
             $workbookStmt = $this->db->prepare(
                 "SELECT swb.title AS workbook_title, wbw.week_number,
                         la.name AS learning_area,
-                        st.title AS strand_title, st.name AS strand_name,
+                        st.name AS strand_title, st.name AS strand_name,
                         sst.name AS sub_strand_name,
                         it.id AS item_id, it.title AS item_title,
                         swbi.outcome_text, swbi.is_custom AS outcome_is_custom,
                         q.question_text, q.is_custom AS question_is_custom,
                         ex.experience_text, ex.is_custom AS experience_is_custom
-                 FROM scheme_workbooks swb
-                 JOIN academic_year_class_stream_learning_areas aysla
-                   ON aysla.id = swb.academic_year_class_stream_learning_area_id
-                 JOIN academic_year_class_learning_areas ayscla
-                   ON ayscla.id = aysla.academic_year_class_learning_area_id
-                 JOIN learning_areas la ON la.id = ayscla.learning_area_id
+                 FROM " . ReadReplicaService::qualifiedRef("scheme_workbooks") . " swb
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas_detailed") . " d
+                   ON d.id = swb.academic_year_class_stream_learning_area_id
+                 JOIN learning_areas la ON la.id = d.learning_area_id
                  JOIN scheme_workbook_weeks wbw ON wbw.workbook_id = swb.id
                  JOIN scheme_workbook_items it ON it.workbook_week_id = wbw.id
                  LEFT JOIN strands st ON st.id = it.strand_id
@@ -1310,7 +1317,7 @@ class ParentPortalManager extends BaseAPI
                  LEFT JOIN scheme_workbook_item_outcomes swbi ON swbi.workbook_item_id = it.id
                  LEFT JOIN scheme_workbook_item_questions q ON q.workbook_item_id = it.id
                  LEFT JOIN scheme_workbook_item_experiences ex ON ex.workbook_item_id = it.id
-                 WHERE aysla.academic_year_class_stream_id = ?
+                 WHERE d.academic_year_class_stream_id = ?
                    AND swb.academic_year_term_id = ?
                    AND swb.status = 'approved'
                  ORDER BY wbw.week_number, it.sort_order, it.id"
@@ -1330,10 +1337,10 @@ class ParentPortalManager extends BaseAPI
                             lo.strand_id, lo.sub_strand_id,
                             sn.name AS strand_name, ss.name AS sub_strand_name,
                             lo.outcome
-                     FROM learning_outcomes lo
-                     JOIN learning_areas la ON la.id = lo.learning_area_id
-                     LEFT JOIN strands sn ON sn.id = lo.strand_id
-                     LEFT JOIN sub_strands ss ON ss.id = lo.sub_strand_id
+                     FROM " . ReadReplicaService::qualifiedRef("learning_outcomes") . " lo
+                     JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = lo.learning_area_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = lo.strand_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = lo.sub_strand_id
                      WHERE lo.grade_level LIKE ?
                      ORDER BY la.name, sn.name, ss.name, lo.id"
                 );
@@ -1376,14 +1383,14 @@ class ParentPortalManager extends BaseAPI
                         ayt.status AS term_status, t.name AS term_name,
                         sae.academic_year_class_stream_id,
                         c.name AS class_name, sn.name AS stream_name
-                 FROM student_academic_enrollments sae
-                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
-                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
                  JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sn ON sn.id = aycs.stream_id
                  WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                  LIMIT 1"
             );
@@ -1401,17 +1408,17 @@ class ParentPortalManager extends BaseAPI
                         la.name AS learning_area, lt.title,
                         lt.duration, lt.activities, lt.resources, lt.assessment,
                         sn.name AS strand_name, ss.name AS sub_strand_name
-                 FROM lesson_plans lp
-                 JOIN schemes_of_work sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
-                 JOIN academic_year_class_stream_learning_areas aysla
+                 FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
+                 JOIN " . ReadReplicaService::qualifiedRef("schemes_of_work") . " sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . " aysla
                    ON aysla.id = lp.academic_year_class_stream_learning_area_id
                   AND aysla.academic_year_class_stream_id = ?
                  JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
-                 JOIN learning_areas la ON la.id = lt.learning_area_id
-                 LEFT JOIN strands sn ON sn.id = lt.strand_id
-                 LEFT JOIN sub_strands ss ON ss.id = lt.sub_strand_id
-                 JOIN academic_year_calendar_days d ON d.id = lp.academic_year_calendar_day_id
-                 JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = lt.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = lt.strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = lt.sub_strand_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.id = lp.academic_year_calendar_day_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac ON ac.id = d.academic_year_calendar_id
                  WHERE ac.academic_year_term_id = ?
                    AND lp.status IN ('approved','delivered')
                  ORDER BY ac.week_number, d.date, la.name, lp.id"
@@ -1437,13 +1444,13 @@ class ParentPortalManager extends BaseAPI
                           WHERE ap.assignment_id = a.id AND ap.student_id = a2s.student_id
                           ORDER BY ap.submitted_at DESC LIMIT 1) AS is_graded
                  FROM assignments a
-                 JOIN student_academic_enrollments a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
-                 JOIN academic_year_class_streams aycs ON aycs.id = a2s.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
-                 LEFT JOIN strands sn ON sn.id = a.strand_id
-                 LEFT JOIN sub_strands ss ON ss.id = a.sub_strand_id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " a2s ON a2s.student_id = ? AND a2s.enrollment_status = 'active'
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a2s.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sn ON sn.id = a.strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = a.sub_strand_id
                  WHERE a.class_id = c.id
                    AND a.status = 'published'
                    AND a.deleted_at IS NULL
@@ -1777,8 +1784,8 @@ class ParentPortalManager extends BaseAPI
                             lc.evidence, lc.teacher_notes,
                             lc.assessed_date,
                             (lc.id IS NOT NULL) AS has_assessment
-                     FROM core_competencies cc
-                     LEFT JOIN learner_competencies lc
+                     FROM " . ReadReplicaService::qualifiedRef("core_competencies") . " cc
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc
                             ON lc.competency_id = cc.id
                            AND lc.student_id = :sid
                            AND lc.term_id = :tid
@@ -1795,8 +1802,8 @@ class ParentPortalManager extends BaseAPI
                     "SELECT cv.id, cv.code, cv.name AS value_name,
                             lva.evidence, lva.incident_date,
                             (lva.id IS NOT NULL) AS has_evidence
-                     FROM core_values cv
-                     LEFT JOIN learner_values_acquisition lva
+                     FROM " . ReadReplicaService::qualifiedRef("core_values") . "
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_values_acquisition") . " lva
                             ON lva.value_id = cv.id
                            AND lva.student_id = :sid
                            AND lva.term_id = :tid
@@ -1898,11 +1905,11 @@ class ParentPortalManager extends BaseAPI
                         ac.name AS category_name,
                         ap.role, ap.status AS participant_status, ap.joined_at, ap.notes,
                         ap.student_academic_enrollment_id
-                 FROM activity_participants ap
-                 JOIN student_academic_enrollments sae
+                 FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " ap
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                    ON sae.id = ap.student_academic_enrollment_id AND sae.student_id = ?
                  JOIN activities act ON act.id = ap.activity_id
-                 LEFT JOIN activity_categories ac ON ac.id = act.category_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = act.category_id
                  ORDER BY act.start_date DESC, act.id DESC"
             );
             $stmt->execute([$studentId]);
@@ -1961,27 +1968,23 @@ class ParentPortalManager extends BaseAPI
             $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Upcoming assessments/exams for the parent's children.
+            $lg = \App\API\Services\ReadReplicaService::qualifiedRef('learner_guardian');
             $exams = $this->db->prepare(
                 "SELECT a.id, a.title, a.assessment_date, a.status, a.max_marks,
                         a.max_marks,
                         la.name AS learning_area,
                         aty.name AS assessment_type,
-                        c.name AS class_name, sn.name AS stream_name,
-                        s.id AS student_id,
-                        CONCAT_WS(' ', p.first_name, p.last_name) AS student_name
-                 FROM assessments a
-                 JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
-                 LEFT JOIN learning_areas la ON la.id = a.learning_area_id
-                 LEFT JOIN assessment_types aty ON aty.id = a.assessment_type_id
-                 JOIN student_academic_enrollments sae
-                   ON sae.academic_year_class_stream_id = a.academic_year_class_stream_id
-                  AND sae.enrollment_status = 'active'
-                 JOIN students s ON s.id = sae.student_id
-                 JOIN persons p ON p.id = s.person_id
-                 JOIN student_parents sp ON sp.student_id = s.id AND sp.parent_id = :pid
+                        lg.class_name, lg.stream_name,
+                        lg.student_id,
+                        lg.student_first_name AS student_first_name,
+                        lg.student_last_name AS student_last_name,
+                        CONCAT_WS(' ', lg.student_first_name, lg.student_last_name) AS student_name
+                 FROM " . ReadReplicaService::qualifiedRef("assessments") . " a
+                 JOIN {$lg} lg
+                   ON lg.academic_year_class_stream_id = a.academic_year_class_stream_id
+                  AND lg.parent_id = :pid
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                 LEFT JOIN assessment_type_classifications aty ON aty.id = a.assessment_type_classification_id
                  WHERE a.assessment_date >= CURDATE()
                    AND a.status IN ('pending_submission', 'submitted')
                  GROUP BY a.id
@@ -1992,14 +1995,12 @@ class ParentPortalManager extends BaseAPI
 
             // Current academic-year term dates (opening / half-term / closing).
             $termDates = $this->db->prepare(
-                "SELECT ayt.id, t.name AS term_name,
-                        ayt.opening_date, ayt.half_term_start, ayt.half_term_end,
-                        ayt.closing_date, ayt.status
-                 FROM academic_year_terms ayt
-                 JOIN terms t ON t.id = ayt.term_id
-                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 WHERE ay.is_current = 1
-                 ORDER BY t.id"
+                "SELECT academic_year_term_id AS id, term_name,
+                        opening_date, half_term_start, half_term_end,
+                        closing_date, term_period_status AS status
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+                 WHERE is_current_year = 1
+                 ORDER BY term_id"
             );
             $termDates->execute();
             $termDates = $termDates->fetchAll(PDO::FETCH_ASSOC);
@@ -2044,7 +2045,7 @@ class ParentPortalManager extends BaseAPI
                             CASE WHEN im.sender_id = :pid THEN 'parent' ELSE 'staff' END AS sender_type,
                             CASE WHEN im.sender_id = :pid THEN 'You'
                                  ELSE (SELECT CONCAT_WS(' ', sp.first_name, sp.last_name)
-                                       FROM users su JOIN persons sp ON sp.id = su.person_id
+                                       FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                                        WHERE su.id = im.sender_id)
                             END AS sender_name
                      FROM internal_messages im
@@ -2159,9 +2160,10 @@ class ParentPortalManager extends BaseAPI
                      WHERE conversation_id = ? AND participant_id = ?"
                 )->execute([(int)$conversation['id'], (int)$schoolUser]);
 
+                $personDirectory = ReadReplicaService::qualifiedRef('person_directory');
                 $nameStmt = $this->db->prepare(
-                    "SELECT CONCAT_WS(' ', p.first_name, p.last_name)
-                       FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?"
+                    "SELECT CONCAT_WS(' ', first_name, last_name)
+                       FROM {$personDirectory} WHERE user_id = ? LIMIT 1"
                 );
                 $nameStmt->execute([(int) $this->user_id]);
                 $sender = trim((string) $nameStmt->fetchColumn()) ?: 'a parent or guardian';
@@ -2245,7 +2247,7 @@ class ParentPortalManager extends BaseAPI
         try {
             $stmt = $this->db->prepare(
                 "SELECT p.*,
-                        (SELECT COUNT(*) FROM portfolio_artifacts WHERE portfolio_id = p.id) AS artifact_count
+                        (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " WHERE portfolio_id = p.id) AS artifact_count
                  FROM portfolios p
                  WHERE p.student_id = :sid AND p.status = 'active'
                  ORDER BY p.created_date DESC
@@ -2258,9 +2260,9 @@ class ParentPortalManager extends BaseAPI
             if ($portfolio) {
                 $stmt = $this->db->prepare(
                     "SELECT pa.*, cc.name AS competency_name, cv.name AS value_name
-                     FROM portfolio_artifacts pa
-                     LEFT JOIN core_competencies cc ON cc.id = pa.competency_id
-                     LEFT JOIN core_values cv ON cv.id = pa.value_id
+                     FROM " . ReadReplicaService::qualifiedRef("portfolio_artifacts") . " pa
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("core_competencies") . " cc ON cc.id = pa.competency_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("core_values") . " cv ON cv.id = pa.value_id
                      WHERE pa.portfolio_id = :pid
                      ORDER BY pa.upload_date DESC"
                 );
@@ -2491,7 +2493,7 @@ class ParentPortalManager extends BaseAPI
                 $entStmt = $this->db->prepare(
                     "SELECT te.id, te.amount_due, te.student_id,
                             te.entitlement_status, r.name AS route_name
-                     FROM student_transport_entitlements te
+                     FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . "
                      LEFT JOIN transport_routes r ON r.id = te.route_id
                      WHERE te.student_id = ? AND te.entitlement_status = 'active'
                      ORDER BY te.id DESC LIMIT 1"
@@ -2722,7 +2724,7 @@ class ParentPortalManager extends BaseAPI
                         vp.amount_paid AS amount, vp.payment_date, vp.notes,
                         t.name AS term_name
                  FROM vw_payment_transactions_with_amount vp
-                 LEFT JOIN academic_year_terms ayt ON ayt.id = vp.term_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = vp.term_id
                  LEFT JOIN terms t ON t.id = ayt.term_id
                  WHERE vp.id = ? AND vp.student_id = ?
                    AND vp.status IN ('confirmed','completed','success')
@@ -2894,9 +2896,7 @@ class ParentPortalManager extends BaseAPI
         $stmt = $this->db->prepare(
             "SELECT u.id AS user_id, pr.id AS parent_id, p.id AS person_id,
                     p.first_name, p.last_name, p.email
-             FROM users u
-             JOIN persons p ON p.id = u.person_id
-             JOIN parents pr ON pr.person_id = u.person_id
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
              WHERE u.id = :uid
                AND u.status = 'active'
                AND pr.status = 'active'
@@ -2924,11 +2924,12 @@ class ParentPortalManager extends BaseAPI
      */
     private function getParentProfile(int $parentId): array
     {
+        $personDirectory = ReadReplicaService::qualifiedRef('person_directory');
         $stmt = $this->db->prepare(
-            "SELECT p.first_name, p.last_name, p.email, p.phone
-             FROM parents pr
-             JOIN persons p ON p.id = pr.person_id
-             WHERE pr.id = :pid"
+            "SELECT first_name, last_name, email, phone
+             FROM {$personDirectory}
+             WHERE parent_id = :pid
+             LIMIT 1"
         );
         $stmt->execute([':pid' => $parentId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -2945,14 +2946,13 @@ class ParentPortalManager extends BaseAPI
         try {
             $scopes = DataScopeService::scopes();
             $scopeIn = implode(',', array_fill(0, count($scopes), '?'));
+            $guardianLink = ReadReplicaService::qualifiedRef('guardian_link');
             $stmt = $this->db->prepare(
-                "SELECT sp.student_id
-                 FROM student_parents sp
-                 JOIN students s ON s.id = sp.student_id
-                 JOIN persons child_person ON child_person.id = s.person_id
-                 WHERE sp.parent_id = ?
-                   AND sp.student_id = ?
-                   AND child_person.data_scope IN ($scopeIn)
+                "SELECT gl.student_id
+                 FROM {$guardianLink} gl
+                 WHERE gl.parent_id = ?
+                   AND gl.student_id = ?
+                   AND gl.student_person_data_scope IN ($scopeIn)
                  LIMIT 1"
             );
             $stmt->execute(array_merge([$this->parentId, $studentId], array_values($scopes)));
@@ -2987,11 +2987,9 @@ class ParentPortalManager extends BaseAPI
     private function getCurrentTerm(): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT t.id, t.name, t.code AS term_number, ay.year_code AS year
-             FROM academic_year_terms ayt
-             JOIN terms t ON t.id = ayt.term_id
-             JOIN academic_years ay ON ay.id = ayt.academic_year_id
-             WHERE ayt.status = 'current'
+            "SELECT term_id AS id, term_name AS name, term_code AS term_number, year_code AS year
+             FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_term') . "
+             WHERE term_period_status = 'current'
              LIMIT 1"
         );
         $stmt->execute();
@@ -3027,18 +3025,11 @@ class ParentPortalManager extends BaseAPI
     private function getStudentInfo(int $studentId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT s.id, ps.first_name, ps.last_name, ps.middle_name,
-                    s.admission_no, s.status, ps.gender, ps.dob, ps.photo_url,
-                    c.name AS class_name, sn.name AS stream_name
-             FROM students s
-             JOIN persons ps ON ps.id = s.person_id
-             LEFT JOIN student_academic_enrollments sae
-                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
-             LEFT JOIN streams sn ON sn.id = aycs.stream_id
-             WHERE s.id = :id
+            "SELECT s.student_id AS id, s.first_name, s.last_name, s.middle_name,
+                    s.admission_no, s.student_status AS status, s.gender, s.dob, s.photo_url,
+                    s.class_name, s.stream_name
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
+             WHERE s.student_id = :id
              LIMIT 1"
         );
         $stmt->execute([':id' => $studentId]);
@@ -3067,12 +3058,12 @@ class ParentPortalManager extends BaseAPI
                     sfo.is_sponsored, sfo.sponsored_waiver_amount,
                     ay.year_code AS academic_year, t.id AS term_id, t.name AS term_name,
                     t.code AS term_number, 'School Fees' AS fee_type_name, 'SCHOOL_FEES' AS fee_type_code
-             FROM student_fee_obligations sfo
-             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
-             JOIN academic_years ay ON ay.id = sfo.academic_year_id
-             JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sfo.academic_year_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = sfo.academic_year_term_id
              JOIN terms t ON t.id = ayt.term_id
-             JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
              WHERE sae.student_id = :sid
              ORDER BY ay.year_code DESC, t.id ASC"
         );
@@ -3183,7 +3174,7 @@ class ParentPortalManager extends BaseAPI
                     vp.receipt_no, vp.reference_no, vp.term_id, vp.status,
                     t.name AS term_name
              FROM vw_payment_transactions_with_amount vp
-             LEFT JOIN academic_year_terms ayt ON ayt.id = vp.term_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = vp.term_id
              LEFT JOIN terms t ON t.id = ayt.term_id
              WHERE vp.student_id = :sid AND vp.status IN ('confirmed','completed','success')
              ORDER BY vp.payment_date DESC
@@ -3241,8 +3232,8 @@ class ParentPortalManager extends BaseAPI
             if ($termId) {
                 $stmt = $this->db->prepare(
                     "SELECT tss.*, la.name AS subject_name, la.code AS subject_code
-                     FROM term_subject_scores tss
-                     JOIN learning_areas la ON la.id = tss.subject_id
+                     FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
+                     JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
                      WHERE tss.student_id = :sid AND tss.term_id = :tid
                      ORDER BY la.name"
                 );
@@ -3256,11 +3247,9 @@ class ParentPortalManager extends BaseAPI
                 $stmt = $this->db->prepare(
                     "SELECT lc.competency_id, lc.performance_level_id, lc.evidence,
                             lc.teacher_notes AS notes,
-                            cc.code, cc.name AS competency_name,
-                            plc.code AS level_code, plc.name AS level_name
-                     FROM learner_competencies lc
-                     JOIN core_competencies cc ON cc.id = lc.competency_id
-                     LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
+                            lc.competency_code AS code, lc.competency_name,
+                            lc.level_code, lc.level_name
+                     FROM " . ReadReplicaService::qualifiedRef('learner_competency') . " lc
                      WHERE lc.student_id = :sid AND lc.term_id = :tid"
                 );
                 $stmt->execute([':sid' => $studentId, ':tid' => $termId]);
@@ -3271,10 +3260,9 @@ class ParentPortalManager extends BaseAPI
             $values = [];
             if ($termId) {
                 $stmt = $this->db->prepare(
-                    "SELECT lva.value_id, cv.name AS value_name, lva.evidence
-                     FROM learner_values_acquisition lva
-                     JOIN core_values cv ON cv.id = lva.value_id
-                     WHERE lva.student_id = :sid AND lva.term_id = :tid"
+                    "SELECT value_id, value_name, evidence
+                     FROM " . ReadReplicaService::qualifiedRef("learner_values_acquisition_values") . "
+                     WHERE student_id = :sid AND term_id = :tid"
                 );
                 $stmt->execute([':sid' => $studentId, ':tid' => $termId]);
                 $values = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -3307,13 +3295,12 @@ class ParentPortalManager extends BaseAPI
             // Admission interview evidence remains part of the learner's
             // academic history after enrollment; do not discard it at intake.
             $interview = $this->db->prepare(
-                "SELECT aa.application_no, ai.scheduled_date, ai.conducted_at, ai.status,
-                        ai.academic_readiness_score, ai.behavior_score, ai.communication_score,
-                        ai.overall_score, ai.recommendation, ai.remarks
-                   FROM admission_applications aa
-                   JOIN admission_interviews ai ON ai.application_id = aa.id
-                  WHERE aa.enrolled_student_id = ? AND ai.status = 'completed'
-                  ORDER BY ai.id DESC LIMIT 1"
+                "SELECT application_no, scheduled_date, conducted_at, interview_status AS status,
+                        academic_readiness_score, behavior_score, communication_score,
+                        overall_score, interview_recommendation AS recommendation, interview_remarks AS remarks
+                   FROM " . ReadReplicaService::qualifiedRef("admission_applications_interviews") . "
+                  WHERE enrolled_student_id = ? AND interview_status = 'completed'
+                  ORDER BY interview_record_id DESC LIMIT 1"
             );
             $interview->execute([$studentId]);
             $payload['admission_interview'] = $interview->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -3353,10 +3340,10 @@ class ParentPortalManager extends BaseAPI
     {
         $stmt = $this->db->prepare(
             "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS teacher_name
-             FROM student_academic_enrollments sae
-             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN staff st ON st.id = aycs.class_teacher_id
-             LEFT JOIN persons p ON p.id = st.person_id
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = aycs.class_teacher_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
              WHERE sae.student_id = :sid AND sae.enrollment_status = 'active'
              LIMIT 1"
         );
@@ -3493,9 +3480,9 @@ class ParentPortalManager extends BaseAPI
         // Class teacher account first
         $stmt = $this->db->prepare(
             "SELECT u.id
-             FROM student_academic_enrollments sae
-             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             JOIN staff st ON st.id = aycs.class_teacher_id
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON st.id = aycs.class_teacher_id
              JOIN users u ON u.person_id = st.person_id
              WHERE sae.student_id = :sid AND sae.enrollment_status = 'active' AND u.status = 'active'
              LIMIT 1"
@@ -3507,14 +3494,13 @@ class ParentPortalManager extends BaseAPI
         }
 
         // Any active admin account
+        $userRoleGrant = ReadReplicaService::masterRef('user_role_grant');
         $stmt = $this->db->prepare(
-            "SELECT u.id
-             FROM users u
-             JOIN user_roles ur ON ur.user_id = u.id
-             JOIN roles r ON r.id = ur.role_id
-             WHERE u.status = 'active'
-               AND (r.name = 'admin' OR r.name = 'super_admin' OR r.name = 'administrator')
-             ORDER BY r.id
+            "SELECT urg.user_id AS id
+             FROM {$userRoleGrant} urg
+             WHERE urg.user_status = 'active'
+               AND (urg.role_name = 'admin' OR urg.role_name = 'super_admin' OR urg.role_name = 'administrator')
+             ORDER BY urg.role_id
              LIMIT 1"
         );
         $stmt->execute();
@@ -3553,4 +3539,39 @@ class ParentPortalManager extends BaseAPI
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
         }
     }
+
+    /** Find or create the parents row for a person (staff-parent self service). */
+    public static function ensureParentForPerson(\PDO $pdo, int $personId): int
+    {
+        $stmt = $pdo->prepare('SELECT id FROM parents WHERE person_id = ? LIMIT 1');
+        $stmt->execute([$personId]);
+        $id = (int) $stmt->fetchColumn();
+        if ($id) return $id;
+        $pdo->prepare("INSERT INTO parents (person_id, status) VALUES (?, 'active')")->execute([$personId]);
+        return (int) $pdo->lastInsertId();
+    }
+
+    /** Whether the user id belongs to an active parent account. */
+    public static function isParentAccount(\PDO $pdo, int $userId): bool
+    {
+        if ($userId < 1) return false;
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT 1
+                   FROM users u
+                   JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
+                   JOIN " . ReadReplicaService::qualifiedRef("parents") . " pr ON pr.person_id = p.id
+                  WHERE u.id = ?
+                    AND u.status = 'active'
+                    AND pr.status = 'active'
+                  LIMIT 1"
+            );
+            $stmt->execute([$userId]);
+            return (bool) $stmt->fetchColumn();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+
 }

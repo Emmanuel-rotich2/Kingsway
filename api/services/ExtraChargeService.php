@@ -51,7 +51,7 @@ final class ExtraChargeService
 
         $charges = $this->db->prepare(
             "SELECT ec.*
-             FROM extra_charges ec
+             FROM " . ReadReplicaService::qualifiedRef("extra_charges") . "
              JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
              WHERE ec.academic_year_id=? AND ec.status='active'
                AND ec.target_scope='new_admissions'
@@ -181,7 +181,7 @@ final class ExtraChargeService
         $stmt = $this->db->prepare(
             "SELECT aa.id AS application_id, aa.application_no, aa.academic_year,
                     a.waiver_type, a.waiver_amount, a.waiver_details, a.skipped_at, a.skipped_by
-               FROM admission_applications aa
+               FROM " . ReadReplicaService::qualifiedRef("admission_applications") . "
                JOIN admission_stage_skip_audit a
                  ON a.id = (SELECT a2.id FROM admission_stage_skip_audit a2
                               WHERE a2.application_id = aa.id AND a2.waiver_type IS NOT NULL
@@ -202,10 +202,9 @@ final class ExtraChargeService
             if ($schoolType === 'none' && $row['waiver_type'] === 'full_waiver') $schoolType = 'full';
         }
         $schoolAmount = $this->db->prepare(
-            "SELECT COALESCE(SUM(sfo.sponsored_waiver_amount), 0)
-               FROM student_fee_obligations sfo
-               JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
-              WHERE sae.student_id = ?"
+            "SELECT COALESCE(SUM(sponsored_waiver_amount), 0)
+               FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations_enrolled") . "
+              WHERE student_id = ?"
         );
         $schoolAmount->execute([$studentId]);
         $registrationAmount = $this->db->prepare(
@@ -325,10 +324,10 @@ final class ExtraChargeService
         $context = $this->db->prepare(
             "SELECT sae.student_id, sae.academic_year_id, s.student_type_id,
                     ayc.class_id, s.admission_no
-             FROM student_academic_enrollments sae
-             JOIN students s ON s.id=sae.student_id
-             JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
-             JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id=sae.student_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id=sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id=aycs.academic_year_class_id
              WHERE sae.id=? LIMIT 1"
         );
         $context->execute([$enrollmentId]);

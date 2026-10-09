@@ -291,4 +291,47 @@ class EventBroadcaster
             fclose($lock);
         }
     }
+    /** Sync batch of in-scope events after $lastId (RealtimeController GET). */
+    public static function syncBatch(PDO $pdo, int $lastId, array $allowedScopes, int $limit): array
+    {
+        $scopeMarks = implode(',', array_fill(0, count($allowedScopes), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT id, domain, event_name, payload, created_at
+             FROM system_realtime_events
+             WHERE id > ? AND (target_scope IN ({$scopeMarks}) OR target_scope IS NULL)
+             ORDER BY id ASC
+             LIMIT " . max(1, $limit)
+        );
+        $stmt->execute(array_merge([$lastId], $allowedScopes));
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Highest event id currently visible to the caller's scopes (cursor init). */
+    public static function latestVisibleId(PDO $pdo, array $allowedScopes): int
+    {
+        try {
+            $allowedScopes = array_values(array_unique(array_map([self::class, 'normalizeScope'], $allowedScopes)));
+            if ($allowedScopes === []) return 0;
+            $marks = implode(',', array_fill(0, count($allowedScopes), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT COALESCE(MAX(id), 0) FROM system_realtime_events
+                 WHERE target_scope IN ({$marks}) OR target_scope IS NULL"
+            );
+            $stmt->execute($allowedScopes);
+            return (int) $stmt->fetchColumn();
+        } catch (\Exception) {
+            return 0;
+        }
+    }
+
+    /** Purge events older than 12 hours (retention endpoint). Returns removed rows. */
+    public static function purgeOldEvents(PDO $pdo): int
+    {
+        $stmt = $pdo->prepare(
+            "DELETE FROM system_realtime_events WHERE created_at < NOW() - INTERVAL 12 HOUR"
+        );
+        $stmt->execute();
+        return (int) $stmt->rowCount();
+    }
+
 }

@@ -1,5 +1,6 @@
 <?php
 namespace App\API\Modules\transport;
+use App\API\Services\ReadReplicaService;
 
 use PDO;
 use Exception;
@@ -35,13 +36,13 @@ class StudentTransportAssignmentManager
                    s.name AS stop_name,
                    v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
                    p.first_name AS driver_first_name, p.last_name AS driver_last_name, p.phone AS driver_phone
-            FROM student_transport_assignments a
-            JOIN transport_routes r ON a.route_id = r.id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
+            JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " r ON a.route_id = r.id
             JOIN transport_stops s ON a.stop_id = s.id
-            LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = r.id AND tvr.status = 'active'
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = r.id AND tvr.status = 'active'
             LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
-            LEFT JOIN staff d ON d.id = v.driver_id AND d.position = 'Driver'
-            LEFT JOIN persons p ON p.id = d.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " d ON d.id = v.driver_id AND d.position = 'Driver'
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = d.person_id
             WHERE a.student_id = ?
             ORDER BY a.year DESC, a.month DESC
         ";
@@ -55,9 +56,9 @@ class StudentTransportAssignmentManager
     {
         $sql = "
             SELECT a.*, p.first_name, p.last_name, s.admission_no, st.name AS stop_name
-            FROM student_transport_assignments a
-            JOIN students s ON a.student_id = s.id
-            JOIN persons p ON p.id = s.person_id
+            FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON a.student_id = s.id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
             JOIN transport_stops st ON a.stop_id = st.id
             WHERE a.route_id = ? AND a.status = 'active'"
             . ($month ? " AND a.month = " . intval($month) : "")
@@ -74,11 +75,11 @@ class StudentTransportAssignmentManager
         $sql = "
             SELECT r.*, v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
                    p.first_name AS driver_first_name, p.last_name AS driver_last_name, p.phone AS driver_phone
-            FROM transport_routes r
-            LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = r.id AND tvr.status = 'active'
+            FROM " . ReadReplicaService::qualifiedRef("transport_routes") . " r
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = r.id AND tvr.status = 'active'
             LEFT JOIN transport_vehicles v ON v.id = tvr.vehicle_id
-            LEFT JOIN staff d ON d.id = v.driver_id AND d.position = 'Driver'
-            LEFT JOIN persons p ON p.id = d.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " d ON d.id = v.driver_id AND d.position = 'Driver'
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = d.person_id
             ORDER BY r.name
         ";
         $stmt = $this->db->prepare($sql);
@@ -145,12 +146,11 @@ class StudentTransportAssignmentManager
     // Get all drivers (staff with position='Driver')
     public function getAllDrivers()
     {
-        $sql = "SELECT s.id, s.staff_no, s.position, s.status,
-                       p.first_name, p.last_name, p.phone
-                FROM staff s
-                JOIN persons p ON p.id = s.person_id
+        $sql = "SELECT s.staff_id AS id, s.staff_no, s.position, s.staff_status AS status,
+                       s.first_name, s.last_name, s.phone
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
                 WHERE s.position = 'Driver'
-                ORDER BY p.first_name, p.last_name";
+                ORDER BY s.first_name, s.last_name";
         $stmt = $this->db->prepare($sql);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

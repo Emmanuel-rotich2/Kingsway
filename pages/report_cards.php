@@ -185,6 +185,14 @@
         </select>
     </div>
     <div>
+        <label class="form-label small fw-semibold mb-1">Results on report</label>
+        <select class="form-select form-select-sm" id="reportResultMode" style="width:185px">
+            <option value="both">Formative + summative</option>
+            <option value="summative">Summative only</option>
+            <option value="formative">Formative only</option>
+        </select>
+    </div>
+    <div>
         <label class="form-label small fw-semibold mb-1">Class</label>
         <select class="form-select form-select-sm" id="classFilter" style="width:175px">
             <option value="">All Classes</option>

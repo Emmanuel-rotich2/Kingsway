@@ -6,6 +6,7 @@ use App\Database\Database;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Budget Management Class
@@ -112,7 +113,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Check if budget exists and is editable
             $stmt = $this->db->prepare("
-                SELECT id, status FROM budgets WHERE id = ?
+                SELECT id, status FROM " . ReadReplicaService::qualifiedRef("budgets") . " id = ?
             ");
             $stmt->execute([$budgetId]);
             $budget = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -194,7 +195,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get main budget details
             $stmt = $this->db->prepare("
                 SELECT b.*, u.username as created_by_name
-                FROM budgets b
+                FROM " . ReadReplicaService::qualifiedRef("budgets") . "
                 LEFT JOIN users u ON b.created_by = u.id
                 WHERE b.id = ?
             ");
@@ -217,9 +218,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                                (COALESCE(SUM(e.amount), 0) / bli.allocated_amount * 100)
                            ELSE 0 
                        END as utilization_percentage
-                FROM budget_line_items bli
+                FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli
                 LEFT JOIN expense_categories ec ON ec.id = bli.category_id
-                LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("expenses") . " e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
                 GROUP BY bli.id
@@ -262,9 +263,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             $sql = "SELECT b.*,
                            u.username as created_by_name,
                            COUNT(DISTINCT bli.id) as line_item_count
-                    FROM budgets b
+                    FROM " . ReadReplicaService::qualifiedRef("budgets") . " b
                     LEFT JOIN users u ON b.created_by = u.id
-                    LEFT JOIN budget_line_items bli ON b.id = bli.budget_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli ON b.id = bli.budget_id
                     WHERE 1=1";
 
             $params = [];
@@ -343,9 +344,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                                ((COALESCE(SUM(e.amount), 0) / SUM(bli.allocated_amount)) * 100)
                            ELSE 0
                        END as utilization_percentage
-                FROM budget_line_items bli
+                FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli
                 LEFT JOIN expense_categories ec ON ec.id = bli.category_id
-                LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("expenses") . " e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
                 GROUP BY ec.id, ec.name

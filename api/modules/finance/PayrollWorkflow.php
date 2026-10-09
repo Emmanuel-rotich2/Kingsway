@@ -6,6 +6,7 @@ use App\API\Services\ServiceContractBroker;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Payroll Processing Workflow
@@ -76,11 +77,7 @@ class PayrollWorkflow extends WorkflowHandler
             $sql = "SELECT s.id, s.staff_no, s.position,
                            p.first_name, p.last_name,
                            d.name as department_name, st.name as staff_type
-                    FROM staff s
-                    JOIN persons p ON s.person_id = p.id
-                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                    LEFT JOIN departments d ON sda.department_id = d.id
-                    LEFT JOIN staff_types st ON s.staff_type_id = st.id
+                    FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                     WHERE s.status = 'active'";
 
             $params = [];
@@ -498,11 +495,11 @@ class PayrollWorkflow extends WorkflowHandler
                            p.first_name,
                            p.last_name,
                            d.name AS department_name
-                    FROM payslips ps
-                    JOIN staff s ON ps.staff_id = s.id
-                    JOIN persons p ON s.person_id = p.id
-                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
-                    LEFT JOIN departments d ON d.id = sda.department_id
+                    FROM " . ReadReplicaService::qualifiedRef("payslips") . " ps
+                    JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON ps.staff_id = s.id
+                    JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
                     WHERE ps.id IN ($placeholders)
                     ORDER BY p.last_name, p.first_name
                 ");

@@ -282,11 +282,7 @@ class WebsiteController extends BaseController
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
 
         try {
-            $years = $this->db->query(
-                "SELECT id, year_code, year_name, status
-                 FROM academic_years
-                 ORDER BY id DESC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
+            $years = $this->contract(\App\API\Services\AcademicContextService::class)->yearsNewestFirst();
 
             $years = array_map(static function (array $year): array {
                 return [
@@ -336,9 +332,7 @@ class WebsiteController extends BaseController
                 return $this->badRequest('Invalid printable document type.');
             }
 
-            $years = $this->db->query(
-                "SELECT id, year_code, year_name, status FROM academic_years ORDER BY id DESC"
-            )->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+            $years = $this->contract(\App\API\Services\AcademicContextService::class)->yearsNewestFirst();
             $years = array_map(static function (array $year): array {
                 return [
                     'id' => (int) ($year['id'] ?? 0),
@@ -433,15 +427,7 @@ class WebsiteController extends BaseController
             }
         }
 
-        $stmt = $this->db->prepare(
-            "SELECT DISTINCT c.id, c.name
-             FROM academic_year_classes ayc
-             JOIN classes c ON c.id = ayc.class_id
-             WHERE ayc.academic_year_id = ?
-             ORDER BY c.id"
-        );
-        $stmt->execute([$yearId]);
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $class) {
+        foreach ($this->contract(\App\API\Services\AcademicContextService::class)->classesForYear((int) $yearId) as $class) {
             $classId = (int) $class['id'];
             $className = (string) $class['name'];
             foreach (['both' => 'Both Types', 'day' => 'Day Scholar', 'boarder' => 'Boarder'] as $type => $label) {
@@ -541,7 +527,11 @@ class WebsiteController extends BaseController
 
     public function getSettings($id = null, $data = [], $segments = [])
     {
-        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        // AuthMiddleware allows GET /api/website/settings without auth for public site
+        // Only enforce permission for authenticated users (writes are handled by AuthMiddleware)
+        if ($this->user && !$this->hasPerm('website_view')) {
+            return $this->forbidden('Access denied.');
+        }
         return $this->handleResponse($this->manager->getSettings());
     }
 
@@ -716,7 +706,48 @@ class WebsiteController extends BaseController
     public function getHistory($id = null, $data = [], $segments = [])    { return $this->genericRead('history', $id, $data); }
     public function getValues($id = null, $data = [], $segments = [])     { return $this->genericRead('values', $id, $data); }
     public function getBenefits($id = null, $data = [], $segments = [])   { return $this->genericRead('benefits', $id, $data); }
-    public function getTestimonials($id = null, $data = [], $segments = []) { return $this->genericRead('testimonials', $id, $data); }
+    /**
+     * GET /api/website/streams?class_id=…
+     * Public class→streams cascade for the admissions/enrolment forms.
+     */
+    public function getStreams($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        $classId = (int)($data['class_id'] ?? 0);
+        return $this->success(
+            ['streams' => $classId > 0 ? $this->contract(\App\API\Services\AcademicContextService::class)->activeStreamsForClass($classId) : []],
+            'Streams retrieved'
+        );
+    }
+
+    /**
+     * GET /api/website/calendar-download?year=…
+     * Public academic calendar PDF (streams the attachment and exits).
+     */
+    public function getCalendarDownload($id = null, $data = [], $segments = [])
+    {
+        $yearId = !empty($data['year']) ? (int)$data['year'] : null;
+        $pdfPath = (new \App\API\Services\PrintService())->printAcademicCalendar($yearId ? ['academicYear' => $yearId] : []);
+        $yearLabel = 'calendar';
+        if ($yearId) {
+            $code = $this->contract(\App\API\Services\AcademicContextService::class)->yearCode($yearId);
+            if ($code) $yearLabel = $code;
+        }
+        (new \App\API\Services\DownloadService())->streamAbsolutePath(
+            $pdfPath, 'Kingsway_Academic_Calendar_' . $yearLabel . '.pdf', 'application/pdf', 'attachment'
+        );
+        exit; // streamAbsolutePath terminates; dead-code guard
+    }
+
+    public function getTestimonials($id = null, $data = [], $segments = [])
+    {
+        // Anonymous visitors receive only the moderated public testimonials
+        // (the homepage carousel rows); the admin list stays website_view-gated.
+        if (!$this->user) {
+            return $this->success(['items' => $this->manager->publicTestimonials()], 'Testimonials retrieved');
+        }
+        return $this->genericRead('testimonials', $id, $data);
+    }
 
     public function getDepartments($id = null, $data = [], $segments = [])
     {

@@ -44,13 +44,10 @@ class SchoolAdminAnalyticsService
             // Total active students - from student_academic_enrollments + persons for gender
             $query = "SELECT 
                         COUNT(DISTINCT sae.student_id) as total_students,
-                        COUNT(DISTINCT aycs.id) as active_streams,
-                        SUM(CASE WHEN LOWER(p.gender) = 'male' THEN 1 ELSE 0 END) as male,
-                        SUM(CASE WHEN LOWER(p.gender) = 'female' THEN 1 ELSE 0 END) as female
-                      FROM student_academic_enrollments sae
-                      JOIN students st ON st.id = sae.student_id
-                      LEFT JOIN persons p ON p.id = st.person_id
-                      LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                        COUNT(DISTINCT sae.academic_year_class_stream_id) as active_streams,
+                        SUM(CASE WHEN LOWER(sae.gender) = 'male' THEN 1 ELSE 0 END) as male,
+                        SUM(CASE WHEN LOWER(sae.gender) = 'female' THEN 1 ELSE 0 END) as female
+                      FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sae
                       WHERE sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -82,12 +79,11 @@ class SchoolAdminAnalyticsService
             // Total teaching staff
             $query = "SELECT 
                         COUNT(*) as total_teaching,
-                        st.name as staff_type
-                      FROM staff s
-                      LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                      WHERE s.status = 'active' 
-                        AND (st.name LIKE '%teach%' OR s.position LIKE '%teacher%' OR s.position LIKE '%Head%')
-                      GROUP BY st.name";
+                        s.staff_type_name as staff_type
+                      FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                      WHERE s.staff_status = 'active' 
+                        AND (s.staff_type_name LIKE '%teach%' OR s.position LIKE '%teacher%' OR s.position LIKE '%Head%')
+                      GROUP BY s.staff_type_name";
             $stmt = $this->db->query($query);
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -413,10 +409,10 @@ class SchoolAdminAnalyticsService
                         c.id,
                         c.name as class_name,
                         COUNT(DISTINCT sae.student_id) as student_count
-                      FROM classes c
-                      JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
-                      LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
+                      FROM " . ReadReplicaService::qualifiedRef("classes") . " c
+                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id AND ayc.status = 'active'
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
                       GROUP BY c.id, c.name
                       ORDER BY c.name";
             $stmt = $this->db->query($query);
@@ -557,10 +553,10 @@ class SchoolAdminAnalyticsService
             $query = "SELECT 
                         c.name as class_name,
                         COUNT(DISTINCT sae.student_id) as student_count
-                      FROM classes c
-                      JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
-                      LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'";
+                      FROM " . ReadReplicaService::qualifiedRef("classes") . " c
+                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.class_id = c.id AND ayc.status = 'active'
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'";
 
             $params = [];
             if ($filter !== 'all') {
@@ -804,10 +800,10 @@ class SchoolAdminAnalyticsService
                             ) THEN 'Absent'
                             ELSE 'Not marked'
                         END as status
-                      FROM staff s
-                      LEFT JOIN persons p ON p.id = s.person_id
+                      FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = s.person_id
                       LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
-                      LEFT JOIN departments d ON d.id = sep.department_id
+                      LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sep.department_id
                       WHERE s.status = 'active'";
 
             $params = [];

@@ -70,17 +70,29 @@ $studentReadOnly = !empty($studentReadOnly);
         </table>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mt-3 d-none" id="studentContextPager">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 pt-3 border-top d-none" id="studentContextPager">
         <span class="small text-muted" id="studentContextPageInfo"></span>
-        <div class="btn-group">
-            <button class="btn btn-outline-secondary btn-sm" type="button" data-page-action="prev">
-                <i class="bi bi-chevron-left"></i>
-            </button>
-            <button class="btn btn-outline-secondary btn-sm" type="button" data-page-action="next">
-                <i class="bi bi-chevron-right"></i>
-            </button>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small text-muted" for="studentContextPageSize">Rows</label>
+            <select id="studentContextPageSize" class="form-select form-select-sm" style="width:auto" aria-label="Rows per page">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+            <div class="btn-group">
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-page-action="prev">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="btn btn-outline-secondary btn-sm disabled" id="studentContextPagePosition" type="button">1 / 1</button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-page-action="next">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
         </div>
     </div>
 </section>
+
+<?php require __DIR__ . '/view_student_modal_snippet.php'; ?>
 
 <script src="js/pages/student_context.js?v=20260703"></script>

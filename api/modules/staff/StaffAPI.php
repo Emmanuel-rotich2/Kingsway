@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
 use App\API\Services\StaffMigrationService;
 use App\API\Services\DataScopeService;
+use App\API\Services\ReadReplicaService;
 use App\API\Services\PhoneNumberNormalizer;
 use PDO;
 use Exception;
@@ -49,7 +50,7 @@ class StaffAPI extends BaseAPI {
     {
         // Resolve staff_no so we match media stored under staff/documents & staff/profile_pictures.
         $entityId = $staffId;
-        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT staff_no FROM " . ReadReplicaService::qualifiedRef("staff_directory") . "  WHERE id = ?");
         $stmt->execute([$staffId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row && !empty($row['staff_no'])) {
@@ -105,28 +106,30 @@ class StaffAPI extends BaseAPI {
             $order = in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
 
             $sortMap = [
-                'id' => 's.id',
-                'staff_no' => 's.staff_no',
-                'first_name' => 'p.first_name',
-                'last_name' => 'p.last_name',
-                'department' => 'd.name',
+                'id' => 'sc.staff_id',
+                'staff_no' => 'sc.staff_no',
+                'first_name' => 'sc.first_name',
+                'last_name' => 'sc.last_name',
+                'department' => 'sc.department_name',
                 'position' => 'display_position',
-                'status' => 's.status',
+                'status' => 'sc.staff_status',
             ];
-            $sort = $sortMap[$sort] ?? 's.id';
+            $sort = $sortMap[$sort] ?? 'sc.staff_id';
 
-            [$scopeQuery, $scopesBindings] = DataScopeService::predicateFor('staff', 's');
+            // The query below reads staff_context as `sc`; scope the projection
+            // column instead of an unrelated `s` alias (which does not exist).
+            [$scopeQuery, $scopesBindings] = DataScopeService::predicateFor('staff', 'sc');
             $where = [$scopeQuery];
             $bindings = $scopesBindings;
             if (!empty($search)) {
                 $where[] = "(
-                    s.staff_no LIKE ?
-                    OR p.first_name LIKE ?
-                    OR p.last_name LIKE ?
-                    OR p.email LIKE ?
-                    OR d.name LIKE ?
-                    OR sc.category_name LIKE ?
-                    OR st.name LIKE ?
+                    sc.staff_no LIKE ?
+                    OR sc.first_name LIKE ?
+                    OR sc.last_name LIKE ?
+                    OR sc.email LIKE ?
+                    OR sc.department_name LIKE ?
+                    OR sc.staff_category_name LIKE ?
+                    OR sc.staff_type_name LIKE ?
                 )";
                 $searchTerm = "%$search%";
                 $bindings = array_merge($bindings, [
@@ -140,120 +143,25 @@ class StaffAPI extends BaseAPI {
                 ]);
             }
             if (!empty($request['department_id'])) {
-                $where[] = 'sda.department_id = ?';
+                $where[] = 'sc.department_assignment_id = ?';
                 $bindings[] = (int) $request['department_id'];
             }
             if (!empty($request['staff_type_id'])) {
-                $where[] = 's.staff_type_id = ?';
+                $where[] = 'sc.staff_type_id = ?';
                 $bindings[] = (int) $request['staff_type_id'];
             }
             if (!empty($request['status'])) {
-                $where[] = 's.status = ?';
+                $where[] = 'sc.staff_status = ?';
                 $bindings[] = $request['status'];
             }
             $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-            // Get total count
+            // Get total count using staff_context projection
+            $sc = ReadReplicaService::qualifiedRef('staff_context');
             $sql = "
-                SELECT COUNT(DISTINCT s.id)
-                FROM staff s
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN users u ON u.person_id = s.person_id
-                LEFT JOIN staff_department_assignments sda ON sda.id = (
-                    SELECT latest_sda.id FROM staff_department_assignments latest_sda
-                    WHERE latest_sda.staff_id = s.id
-                      AND (latest_sda.effective_to IS NULL OR latest_sda.effective_to >= CURDATE())
-                    ORDER BY latest_sda.effective_from DESC, latest_sda.id DESC LIMIT 1
-                )
-                LEFT JOIN departments d ON d.id = sda.department_id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                $whereSql
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($bindings);
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results with user data and role count (subquery avoids GROUP BY issues)
-            $sql = "
-                SELECT
-                    s.*,
-                    COALESCE((SELECT so.gross_salary FROM staff_salary_overrides so
-                        WHERE so.staff_id=s.id AND so.effective_from<=CURDATE()
-                          AND (so.effective_to IS NULL OR so.effective_to>=CURDATE())
-                        ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
-                        SELECT rs.gross_salary FROM user_roles pur JOIN roles pr ON pr.id=pur.role_id
-                        JOIN users pu ON pu.id=pur.user_id JOIN staff_role_salary_rates rs ON rs.role_id=pur.role_id
-                        WHERE pu.person_id=s.person_id AND pur.is_primary=1 AND rs.effective_from<=CURDATE()
-                          AND (rs.effective_to IS NULL OR rs.effective_to>=CURDATE())
-                        ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
-                    ),0) AS salary,
-                    spp.bank_name AS bank_name,
-                    spp.bank_account AS bank_account,
-                    s.position AS raw_position,
-                    p.first_name AS first_name,
-                    p.last_name AS last_name,
-                    CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-                    p.first_name AS user_first_name,
-                    p.last_name AS user_last_name,
-                    p.email AS email,
-                    p.phone AS phone,
-                    p.gender AS gender,
-                    u.id AS user_id,
-                    u.status as user_status,
-                    u.force_password_change AS setup_required,
-                    u.profile_completed_at,
-                    CASE WHEN NULLIF(TRIM(p.phone),'') IS NOT NULL
-                              AND NULLIF(TRIM(p.gender),'') IS NOT NULL
-                              AND p.dob IS NOT NULL
-                              AND EXISTS (SELECT 1 FROM person_addresses pa
-                                          WHERE pa.person_id=p.id AND pa.address_type='residential'
-                                            AND pa.valid_to IS NULL AND NULLIF(TRIM(pa.address_line),'') IS NOT NULL)
-                         THEN 1 ELSE 0 END AS profile_completed,
-                    CASE WHEN ui.id IS NULL THEN 'not_sent'
-                         WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired'
-                         ELSE ui.status END AS invitation_status,
-                    COALESCE(om.status,'not_queued') AS invitation_delivery_status,
-                    om.sent_at AS invitation_sent_at,
-                    CASE
-                        WHEN EXISTS(SELECT 1 FROM staff_import_rows sir WHERE sir.staff_id=s.id AND sir.status='created') THEN 'existing_import'
-                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[job_application_id=%') THEN 'new_online_hire'
-                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[candidate_source=walk_in]%') THEN 'new_walk_in_hire'
-                        WHEN EXISTS(SELECT 1 FROM staff_appointments sa WHERE sa.created_staff_id=s.id AND sa.status='onboarded') THEN 'new_school_entered_hire'
-                        ELSE 'existing_manual'
-                    END AS employment_source,
-                    r.id as role_id,
-                    r.name as role_name,
-                    d.name as department_name,
-                    d.code as department_code,
-                    d.name as department,
-                    sc.category_name AS staff_category_name,
-                    st.name as staff_type_name,
-                    COALESCE(
-                        NULLIF((
-                            SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
-                            FROM user_roles ur
-                            INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
-                            WHERE ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)
-                        ), ''),
-                        r.name
-                    ) AS role_names,
-                    NULLIF(TRIM(s.position), '') AS position,
-                    NULLIF(TRIM(s.position), '') AS display_position,
-                    CASE s.staff_type_id
-                        WHEN 1 THEN 'teaching'
-                        WHEN 2 THEN 'non-teaching'
-                        WHEN 3 THEN 'admin'
-                        ELSE NULL
-                    END as staff_type,
-                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)) AS role_count,
-                    sda.department_id AS department_id,
-                    spp.kra_pin AS kra_pin,
-                    spp.nssf_no AS nssf_no,
-                    spp.nhif_no AS nhif_no
-                FROM staff s
-                JOIN persons p ON p.id = s.person_id
-                LEFT JOIN users u ON u.person_id = s.person_id
+                SELECT COUNT(DISTINCT sc.staff_id)
+                FROM {$sc} sc
+                LEFT JOIN users u ON u.person_id = sc.person_id
                 LEFT JOIN roles r ON r.id = (
                     SELECT ur2.role_id FROM user_roles ur2
                     WHERE ur2.user_id = u.id
@@ -265,16 +173,108 @@ class StaffAPI extends BaseAPI {
                 LEFT JOIN outbound_messages om ON om.id=(
                     SELECT om2.id FROM outbound_messages om2 WHERE om2.user_id=u.id AND om2.template_key='staff_account_invitation' ORDER BY om2.id DESC LIMIT 1
                 )
-                LEFT JOIN staff_department_assignments sda ON sda.id = (
-                    SELECT latest_sda.id FROM staff_department_assignments latest_sda
-                    WHERE latest_sda.staff_id = s.id
-                      AND (latest_sda.effective_to IS NULL OR latest_sda.effective_to >= CURDATE())
-                    ORDER BY latest_sda.effective_from DESC, latest_sda.id DESC LIMIT 1
+                LEFT JOIN staff_import_rows sir ON sir.staff_id = sc.staff_id AND sir.status = 'created'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa ON sa.created_staff_id = sc.staff_id AND sa.status = 'onboarded'
+                $whereSql
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+            $total = $stmt->fetchColumn();
+
+            // Get paginated results using staff_context projection
+            $sc = ReadReplicaService::qualifiedRef('staff_context');
+            $sql = "
+                SELECT
+                    sc.*,
+                    sc.staff_status AS status,
+                    COALESCE((SELECT so.gross_salary FROM staff_salary_overrides so
+                        WHERE so.staff_id=sc.staff_id AND so.effective_from<=CURDATE()
+                          AND (so.effective_to IS NULL OR so.effective_to>=CURDATE())
+                        ORDER BY so.effective_from DESC,so.id DESC LIMIT 1), (
+                        SELECT rs.gross_salary FROM user_roles pur JOIN roles pr ON pr.id=pur.role_id
+                        JOIN users pu ON pu.id=pur.user_id JOIN staff_role_salary_rates rs ON rs.role_id=pur.role_id
+                        WHERE pu.person_id=sc.person_id AND pur.is_primary=1 AND rs.effective_from<=CURDATE()
+                          AND (rs.effective_to IS NULL OR rs.effective_to>=CURDATE())
+                        ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1
+                    ),0) AS salary,
+                    sc.payroll_bank_name AS bank_name,
+                    sc.payroll_bank_account AS bank_account,
+                    sc.position AS raw_position,
+                    sc.first_name AS first_name,
+                    sc.last_name AS last_name,
+                    sc.full_name,
+                    sc.first_name AS user_first_name,
+                    sc.last_name AS user_last_name,
+                    sc.email AS email,
+                    sc.phone AS phone,
+                    sc.gender AS gender,
+                    u.id AS user_id,
+                    u.status as user_status,
+                    u.force_password_change AS setup_required,
+                    u.profile_completed_at,
+                    CASE WHEN NULLIF(TRIM(sc.phone),'') IS NOT NULL
+                              AND NULLIF(TRIM(sc.gender),'') IS NOT NULL
+                              AND sc.date_of_birth IS NOT NULL
+                              AND EXISTS (SELECT 1 FROM person_addresses pa
+                                          WHERE pa.person_id=sc.person_id AND pa.address_type='residential'
+                                            AND pa.valid_to IS NULL AND NULLIF(TRIM(pa.address_line),'') IS NOT NULL)
+                         THEN 1 ELSE 0 END AS profile_completed,
+                    CASE WHEN ui.id IS NULL THEN 'not_sent'
+                         WHEN ui.status='pending' AND ui.expires_at<=NOW() THEN 'expired'
+                         ELSE ui.status END AS invitation_status,
+                    COALESCE(om.status,'not_queued') AS invitation_delivery_status,
+                    om.sent_at AS invitation_sent_at,
+                    CASE
+                        WHEN EXISTS(SELECT 1 FROM staff_import_rows sir WHERE sir.staff_id=sc.staff_id AND sir.status='created') THEN 'existing_import'
+                        WHEN EXISTS(SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=sc.staff_id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[job_application_id=%') THEN 'new_online_hire'
+                        WHEN EXISTS(SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=sc.staff_id AND sa.status='onboarded' AND sa.candidate_notes LIKE '%[candidate_source=walk_in]%') THEN 'new_walk_in_hire'
+                        WHEN EXISTS(SELECT 1 FROM " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa WHERE sa.created_staff_id=sc.staff_id AND sa.status='onboarded') THEN 'new_school_entered_hire'
+                        ELSE 'existing_manual'
+                    END AS employment_source,
+                    r.id as role_id,
+                    r.name as role_name,
+                    sc.department_name,
+                    sc.department_code,
+                    sc.department_name AS department,
+                    sc.staff_category_name,
+                    sc.staff_type_name,
+                    COALESCE(
+                        NULLIF((
+                            SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
+                            FROM user_roles ur
+                            INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
+                            WHERE ur.user_id = u.id
+                        ), ''),
+                        r.name
+                    ) AS role_names,
+                    NULLIF(TRIM(sc.position), '') AS position,
+                    NULLIF(TRIM(sc.position), '') AS display_position,
+                    CASE sc.staff_type_id
+                        WHEN 1 THEN 'teaching'
+                        WHEN 2 THEN 'non-teaching'
+                        WHEN 3 THEN 'admin'
+                        ELSE NULL
+                    END as staff_type,
+                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = u.id) AS role_count,
+                    sc.department_assignment_id AS department_id,
+                    sc.kra_pin,
+                    sc.nssf_no,
+                    sc.nhif_no
+                FROM {$sc} sc
+                LEFT JOIN users u ON u.person_id = sc.person_id
+                LEFT JOIN roles r ON r.id = (
+                    SELECT ur2.role_id FROM user_roles ur2
+                    WHERE ur2.user_id = u.id
+                    ORDER BY ur2.id ASC LIMIT 1
                 )
-                LEFT JOIN departments d ON d.id = sda.department_id
-                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
+                LEFT JOIN user_invitations ui ON ui.id=(
+                    SELECT ui2.id FROM user_invitations ui2 WHERE ui2.user_id=u.id ORDER BY ui2.id DESC LIMIT 1
+                )
+                LEFT JOIN outbound_messages om ON om.id=(
+                    SELECT om2.id FROM outbound_messages om2 WHERE om2.user_id=u.id AND om2.template_key='staff_account_invitation' ORDER BY om2.id DESC LIMIT 1
+                )
+                LEFT JOIN staff_import_rows sir ON sir.staff_id = sc.staff_id AND sir.status = 'created'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_appointments") . " sa ON sa.created_staff_id = sc.staff_id AND sa.status = 'onboarded'
                 $whereSql
                 ORDER BY $sort $order
                 LIMIT ? OFFSET ?
@@ -352,8 +352,7 @@ class StaffAPI extends BaseAPI {
 
             $presentStmt = $this->db->prepare("
                 SELECT COUNT(DISTINCT sa.staff_id)
-                FROM staff_attendance sa
-                JOIN staff s ON s.id=sa.staff_id
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                 WHERE sa.date = ? AND sa.status = 'present' AND $scopeSql
             ");
             $presentStmt->execute(array_merge([$today], $scopeParams));
@@ -361,11 +360,11 @@ class StaffAPI extends BaseAPI {
 
             $deptStmt = $this->db->prepare("
                 SELECT d.name AS department, COUNT(DISTINCT s.id) AS count
-                FROM staff s
-                LEFT JOIN staff_department_assignments sda
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda
                     ON sda.staff_id = s.id
                    AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
-                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
                 WHERE s.status = 'active' AND $scopeSql
                 GROUP BY sda.department_id, d.name
                 ORDER BY count DESC
@@ -399,36 +398,72 @@ class StaffAPI extends BaseAPI {
     public function keyContacts(): array
     {
         try {
-             [$scopeSqlKc, $scopeParamsKc] = DataScopeService::predicateFor('staff', 's');
-             $stmt = $this->db->prepare(
-                 "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
-                         COALESCE(ur.name, 'Administration') AS role,
-                         p.phone AS phone,
-                         p.email AS email,
-                         s.id AS staff_id
-                    FROM staff s
-                    INNER JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN users u ON u.person_id = s.person_id
-                    LEFT JOIN user_roles ul ON ul.user_id = u.id
-                    LEFT JOIN roles ur ON ur.id = ul.role_id
-                   WHERE s.status = 'active' AND $scopeSqlKc
-                    AND (
-                           LOWER(COALESCE(ur.name, '')) IN (
-                             'director', 'headteacher', 'school administrator',
-                             'system administrator', 'deputy head - academic',
-                             'deputy head academic', 'deputy head - discipline',
-                             'deputy head discipline'
-                           )
-                          )
-                   ORDER BY FIELD(
-                              LOWER(COALESCE(ur.name, '')),
-                              'director', 'headteacher', 'school administrator',
-                              'deputy head - academic', 'deputy head - discipline'
-                            ),
-                            p.first_name, p.last_name"
-             );
-             $stmt->execute($scopeParamsKc);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            [$scopeSqlKc, $scopeParamsKc] = DataScopeService::predicateFor('staff', 's');
+            $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
+            $roleRef = ReadReplicaService::masterRef('user_role_grant');
+            $staffStmt = $this->db->prepare(
+                "SELECT s.staff_id, s.person_id, s.first_name, s.last_name,
+                        s.phone, s.email
+                   FROM {$staffRef} s
+                  WHERE s.staff_status = 'active' AND {$scopeSqlKc}"
+            );
+            $staffStmt->execute($scopeParamsKc);
+            $staffByPerson = [];
+            foreach ($staffStmt->fetchAll(PDO::FETCH_ASSOC) as $staffRow) {
+                $staffByPerson[(int) $staffRow['person_id']] = $staffRow;
+            }
+
+            if ($staffByPerson === []) {
+                return $this->response(['status' => 'success', 'data' => []]);
+            }
+
+            // Role grants are already materialized one row per grant. Match
+            // them to the staff star by person_id in PHP so the scoped staff
+            // selection remains the boundary and the request issues no JOIN.
+            $roleStmt = $this->db->query(
+                "SELECT user_person_id AS person_id, role_name AS name
+                   FROM {$roleRef}
+                  WHERE LOWER(role_name) IN (
+                      'director', 'headteacher', 'school administrator',
+                      'system administrator', 'deputy head - academic',
+                      'deputy head academic', 'deputy head - discipline',
+                      'deputy head discipline'
+                  )"
+            );
+            $roleOrder = [
+                'director', 'headteacher', 'school administrator',
+                'system administrator', 'deputy head - academic',
+                'deputy head - discipline',
+            ];
+            $rows = [];
+            foreach ($roleStmt->fetchAll(PDO::FETCH_ASSOC) as $roleRow) {
+                $personId = (int) $roleRow['person_id'];
+                if (!isset($staffByPerson[$personId])) {
+                    continue;
+                }
+                $staffRow = $staffByPerson[$personId];
+                $rows[] = [
+                    'name' => trim((string) $staffRow['first_name'] . ' ' . (string) $staffRow['last_name']),
+                    'role' => $roleRow['name'],
+                    'phone' => $staffRow['phone'],
+                    'email' => $staffRow['email'],
+                    'staff_id' => $staffRow['staff_id'],
+                    '_role_order' => array_search(strtolower((string) $roleRow['name']), $roleOrder, true),
+                    '_first_name' => (string) $staffRow['first_name'],
+                    '_last_name' => (string) $staffRow['last_name'],
+                ];
+            }
+            usort($rows, static function (array $left, array $right): int {
+                $leftOrder = $left['_role_order'] === false ? 0 : $left['_role_order'] + 1;
+                $rightOrder = $right['_role_order'] === false ? 0 : $right['_role_order'] + 1;
+                return ($leftOrder <=> $rightOrder)
+                    ?: strcasecmp($left['_first_name'], $right['_first_name'])
+                    ?: strcasecmp($left['_last_name'], $right['_last_name']);
+            });
+            foreach ($rows as &$row) {
+                unset($row['_role_order'], $row['_first_name'], $row['_last_name']);
+            }
+            unset($row);
             foreach ($rows as &$row) {
                 $row['icon'] = '👤';
             }
@@ -479,11 +514,11 @@ class StaffAPI extends BaseAPI {
                 // Teaching load is now academic_year_class_learning_area_teachers → learning-area context.
                 $where[] = "EXISTS (
                     SELECT 1
-                    FROM academic_year_class_learning_area_teachers subject_filter
-                    JOIN academic_year_class_learning_areas sf_area
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " subject_filter
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " sf_area
                         ON sf_area.id = subject_filter.academic_year_class_learning_area_id
-                    JOIN academic_year_classes sf_ayc ON sf_ayc.id = sf_area.academic_year_class_id
-                    JOIN academic_years subject_year ON subject_year.id = sf_ayc.academic_year_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " sf_ayc ON sf_ayc.id = sf_area.academic_year_class_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " subject_year ON subject_year.id = sf_ayc.academic_year_id
                     WHERE subject_filter.staff_id = s.id
                       AND subject_year.status = 'active'
                       AND sf_area.learning_area_id = ?
@@ -504,16 +539,16 @@ class StaffAPI extends BaseAPI {
                     s.id,
                     s.staff_no AS employee_id,
                     s.staff_no,
-                    p.first_name,
-                    p.last_name,
-                    p.phone,
-                    p.gender,
+                    pd.first_name,
+                    pd.last_name,
+                    pd.phone,
+                    pd.gender,
                     s.employment_date,
                     s.contract_type,
                     dar.work_start_time,
                     dar.work_end_time,
-                    p.email,
-                    p.photo_url,
+                    pd.email,
+                    pd.photo_url,
                     sda.department_id,
                     d.name AS department_name,
                     s.position,
@@ -543,8 +578,8 @@ class StaffAPI extends BaseAPI {
                          THEN 1 ELSE 0 END AS is_class_teacher,
                     CASE WHEN COALESCE(assign.hod_count, 0) > 0
                          THEN 1 ELSE 0 END AS is_hod
-                FROM staff s
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 LEFT JOIN users u ON u.person_id = s.person_id
                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
@@ -583,19 +618,19 @@ class StaffAPI extends BaseAPI {
                         SUM(CASE WHEN t.role = 'hod' THEN 1 ELSE 0 END) AS hod_count,
                         COUNT(DISTINCT t.id) AS assignment_count,
                         SUM(COALESCE(aycla.planned_weeks, 0)) AS periods_per_week
-                    FROM academic_year_class_learning_area_teachers t
-                    JOIN academic_year_class_learning_areas aycla
+                    FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla
                         ON aycla.id = t.academic_year_class_learning_area_id
-                    JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                    JOIN academic_years ay ON ay.id = ayc.academic_year_id
-                    LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
-                    INNER JOIN classes c ON c.id = ayc.class_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
                     LEFT JOIN school_levels sl ON sl.id = c.level_id
                     WHERE ay.status = 'active'
                     GROUP BY t.staff_id
                 ) assign ON assign.staff_id = s.id
                 WHERE " . implode(' AND ', $where) . "
-                ORDER BY p.first_name, p.last_name
+                ORDER BY pd.first_name, pd.last_name
             ");
             $stmt->execute($params);
 
@@ -744,26 +779,24 @@ class StaffAPI extends BaseAPI {
                 c.id AS class_id,
                 c.name AS class_name,
                 sl.name AS school_level,
-                str.name AS stream_name,
-                ay.year_name AS academic_year,
+                csd.stream_name,
+                aycd.year_name AS academic_year,
                 aycla.planned_weeks AS periods_per_week,
-                ayt.opening_date AS start_date,
-                ayt.closing_date AS end_date,
+                aterm.opening_date AS start_date,
+                aterm.closing_date AS end_date,
                 aycla.status,
                 aycla.notes
-            FROM academic_year_class_learning_area_teachers t
-            JOIN academic_year_class_learning_areas aycla
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla
                 ON aycla.id = t.academic_year_class_learning_area_id
-            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-            JOIN academic_years ay ON ay.id = ayc.academic_year_id
-            LEFT JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_class_directory") . " aycd ON aycd.id = aycla.academic_year_class_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_term") . " aterm ON aterm.academic_year_term_id = t.academic_year_term_id
             LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
-            INNER JOIN classes c ON c.id = ayc.class_id
+            INNER JOIN classes c ON c.id = aycd.class_id
             LEFT JOIN school_levels sl ON sl.id = c.level_id
-            LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-            LEFT JOIN streams str ON str.id = aycs.stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.academic_year_class_id = aycd.id
             WHERE t.staff_id = ?
-              AND ay.status = 'active'
+              AND aycd.academic_year_status = 'active'
             ORDER BY c.name, la.name, t.role
         ");
         $stmt->execute([$staffId]);
@@ -780,18 +813,18 @@ class StaffAPI extends BaseAPI {
         $stmt = $this->db->prepare("
             SELECT
                 COUNT(DISTINCT t.id) AS active_assignments,
-                (SELECT COUNT(*) FROM academic_year_class_streams cs
-                 JOIN academic_year_classes ayc ON ayc.id = cs.academic_year_class_id
-                 JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " cs
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = cs.academic_year_class_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
                  WHERE cs.class_teacher_id = ? AND ay.status = 'active') AS class_teacher_classes,
                 COUNT(DISTINCT aycla.learning_area_id) AS learning_areas_count,
                 COUNT(DISTINCT ayc.class_id) AS classes_count,
-                (SELECT COUNT(*) FROM timetable_entries te WHERE te.teacher_id = ? AND te.status = 'scheduled') AS assignment_periods_per_week
-            FROM academic_year_class_learning_area_teachers t
-            JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
-            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-            JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
-            JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te WHERE te.teacher_id = ? AND te.status = 'scheduled') AS assignment_periods_per_week
+            FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = t.academic_year_class_learning_area_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = t.academic_year_term_id
+            JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
             WHERE t.staff_id = ?
               AND ay.status = 'active'
         ");
@@ -801,11 +834,13 @@ class StaffAPI extends BaseAPI {
         $stmt = $this->db->prepare("
             SELECT
                 COUNT(*) AS scheduled_periods,
-                COUNT(DISTINCT subject_id) AS scheduled_learning_areas,
-                COUNT(DISTINCT class_id) AS scheduled_classes
-            FROM vw_timetable_entries
-            WHERE teacher_id = ?
-              AND status = 'scheduled'
+                COUNT(DISTINCT te.learning_area_id) AS scheduled_learning_areas,
+                COUNT(DISTINCT ayc.class_id) AS scheduled_classes
+            FROM " . ReadReplicaService::qualifiedRef("timetable_entries") . " te
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = te.academic_year_class_stream_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE te.teacher_id = ?
+              AND te.status = 'scheduled'
         ");
         $stmt->execute([$staffId]);
         $schedule = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -906,7 +941,7 @@ class StaffAPI extends BaseAPI {
                 pr.status,
                 pr.notes,
                 (SELECT COALESCE(ROUND(AVG(prk.score), 1), 0)
-                   FROM performance_review_kpis prk
+                   FROM " . ReadReplicaService::qualifiedRef("performance_review_kpis") . " prk
                   WHERE prk.review_id = pr.id) AS overall_score
             FROM performance_reviews pr
             WHERE pr.staff_id = ?
@@ -926,9 +961,9 @@ class StaffAPI extends BaseAPI {
     {
         $stmt = $this->db->prepare("
             SELECT a.title, ac.name AS category, a.status, asp.joined_at
-            FROM activity_staff_participants asp
+            FROM " . ReadReplicaService::qualifiedRef("activity_participants") . " asp
             INNER JOIN activities a ON a.id = asp.activity_id
-            LEFT JOIN activity_categories ac ON ac.id = a.category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = a.category_id
             WHERE asp.staff_id = ?
               AND asp.status = 'active'
             ORDER BY a.title
@@ -947,8 +982,8 @@ class StaffAPI extends BaseAPI {
                 SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS submitted,
                 SUM(CASE WHEN lp.status = 'draft' THEN 1 ELSE 0 END) AS drafts,
                 MAX(acd.date) AS latest_lesson_date
-            FROM lesson_plans lp
-            LEFT JOIN academic_year_calendar_days acd ON acd.id = lp.academic_year_calendar_day_id
+            FROM " . ReadReplicaService::qualifiedRef("lesson_plans") . " lp
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " acd ON acd.id = lp.academic_year_calendar_day_id
             WHERE lp.teacher_id = ?
         ");
         $stmt->execute([$staffId]);
@@ -995,12 +1030,12 @@ class StaffAPI extends BaseAPI {
                        CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
                 FROM staff s
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
-                LEFT JOIN persons sp ON sp.id = supervisor.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = supervisor.person_id
                 LEFT JOIN user_roles ur ON ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)
                 LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE " . implode(' AND ', $where) . "
@@ -1165,7 +1200,7 @@ class StaffAPI extends BaseAPI {
             // The add-staff form does not ask administrators to choose this.
             $supervisorId = $data['supervisor_id'] ?? null;
             if (empty($supervisorId) && !empty($data['department_id'])) {
-                $head = $this->db->prepare("SELECT d.head_id FROM departments d
+                $head = $this->db->prepare("SELECT d.head_id FROM " . ReadReplicaService::qualifiedRef("departments") . "
                     JOIN staff h ON h.id=d.head_id AND h.status='active' AND h.data_scope='live'
                     WHERE d.id=? AND d.status='active' LIMIT 1");
                 $head->execute([(int)$data['department_id']]);
@@ -1207,7 +1242,7 @@ class StaffAPI extends BaseAPI {
             $roleIds = $this->ensureSubjectTeacherRoleForTeachingStaff($roleIds, $staffInfo);
             $this->validateAssignableStaffRoles($roleIds);
             $classification = $this->db->prepare(
-                'SELECT 1 FROM staff_types st JOIN staff_categories sc ON sc.staff_type_id=st.id
+                'SELECT 1 FROM ' . ReadReplicaService::qualifiedRef('staff_types') . ' st JOIN staff_categories sc ON sc.staff_type_id=st.id
                  WHERE st.id=? AND sc.id=? AND st.is_active=1 AND sc.is_active=1 LIMIT 1'
             );
             $classification->execute([(int)($staffInfo['staff_type_id'] ?? 0), (int)($staffInfo['staff_category_id'] ?? 0)]);
@@ -1225,7 +1260,7 @@ class StaffAPI extends BaseAPI {
                 throw new InvalidArgumentException('Enter a valid employment date.');
             }
             if (!empty($staffInfo['supervisor_id'])) {
-                $supervisorCheck = $this->db->prepare("SELECT 1 FROM staff WHERE id=? AND status='active' AND data_scope='live' LIMIT 1");
+                $supervisorCheck = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "   WHERE id=? AND status='active' AND data_scope='live' LIMIT 1");
                 $supervisorCheck->execute([(int)$staffInfo['supervisor_id']]);
                 if (!$supervisorCheck->fetchColumn()) throw new InvalidArgumentException('Choose an active school staff supervisor.');
             }
@@ -1257,8 +1292,8 @@ class StaffAPI extends BaseAPI {
                 SELECT u.id, u.username, u.status, u.password_changed_at,
                        u.profile_completed_at, u.force_password_change
                 FROM users u
-                JOIN persons p ON p.id = u.person_id
-                WHERE LOWER(p.email) = LOWER(?)
+                JOIN ' . ReadReplicaService::qualifiedRef('person_directory') . ' pd ON pd.user_id = u.id
+                WHERE LOWER(pd.email) = LOWER(?)
                 LIMIT 1
             ');
             $existingUserStmt->execute([$data['email']]);
@@ -1296,8 +1331,7 @@ class StaffAPI extends BaseAPI {
                 // staff assignment is being added to it.
             } else {
                 $existingStaffPersonStmt = $this->db->prepare(
-                    'SELECT p.id AS person_id FROM persons p JOIN staff s ON s.person_id=p.id
-                     LEFT JOIN users u ON u.person_id=p.id
+                    'SELECT p.id AS person_id FROM ' . ReadReplicaService::qualifiedRef('person_directory') . ' 
                      WHERE LOWER(p.email)=LOWER(?) AND u.id IS NULL LIMIT 1'
                 );
                 $existingStaffPersonStmt->execute([$data['email']]);
@@ -1322,9 +1356,8 @@ class StaffAPI extends BaseAPI {
                 if (!$userId) {
                     $stmt = $this->db->prepare("
                         SELECT u.id
-                        FROM users u
-                        JOIN persons p ON p.id = u.person_id
-                        WHERE LOWER(p.email) = LOWER(?)
+                        FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
+                        WHERE LOWER(pd.email) = LOWER(?)
                     ");
                     $stmt->execute([$data['email']]);
                     $row = $stmt->fetch();
@@ -1341,9 +1374,7 @@ class StaffAPI extends BaseAPI {
             // through persons (staff.person_id = users.person_id); the photo lives on persons.photo_url.
             $stmt = $this->db->prepare("
                 SELECT s.id, s.staff_no, p.photo_url
-                FROM staff s
-                JOIN users u ON u.person_id = s.person_id
-                JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                 WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
@@ -1530,10 +1561,9 @@ class StaffAPI extends BaseAPI {
 
             // Resolve the person + user behind this staff row (4NF: staff→persons; users→persons).
             $link = $this->db->prepare("
-                SELECT s.person_id, u.id AS user_id
-                FROM staff s
-                LEFT JOIN users u ON u.person_id = s.person_id
-                WHERE s.id = ?
+                SELECT s.person_id, s.user_id AS user_id
+                FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+                WHERE s.staff_id = ?
             ");
             $link->execute([$id]);
             $linkRow = $link->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -1876,15 +1906,15 @@ class StaffAPI extends BaseAPI {
                     c.name as class_name,
                     str.name AS stream_name,
                     ay.year_name AS academic_year
-                FROM academic_year_class_learning_area_teachers t
-                JOIN academic_year_class_learning_areas aycla
+                FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla
                     ON aycla.id = t.academic_year_class_learning_area_id
-                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                JOIN academic_years ay ON ay.id = ayc.academic_year_id
-                JOIN learning_areas la ON la.id = aycla.learning_area_id
-                JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                LEFT JOIN streams str ON str.id = aycs.stream_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
+                JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = aycla.learning_area_id
+                JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " str ON str.id = aycs.stream_id
                 WHERE t.staff_id = ? AND ay.status = 'active'
             ";
 
@@ -1935,10 +1965,10 @@ class StaffAPI extends BaseAPI {
                     lt.name as leave_type,
                     lt.days_allowed,
                     CONCAT(p.first_name, ' ', p.last_name) as approved_by_name
-                FROM staff_leaves sl
-                JOIN leave_types lt ON sl.leave_type_id = lt.id
-                LEFT JOIN staff s ON sl.approved_by = s.id
-                LEFT JOIN persons p ON p.id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
+                JOIN " . ReadReplicaService::qualifiedRef("leave_types") . " lt ON sl.leave_type_id = lt.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sl.approved_by = s.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 WHERE sl.staff_id = ?
                 ORDER BY sl.start_date DESC
             ";
@@ -1964,8 +1994,8 @@ class StaffAPI extends BaseAPI {
                     sd.*,
                     d.name as department_name,
                     CASE WHEN d.head_id = ? THEN true ELSE false END as is_hod
-                FROM staff_department_assignments sd
-                JOIN departments d ON sd.department_id = d.id
+                FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . "
+                JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON sd.department_id = d.id
                 WHERE sd.staff_id = ?
             ";
             
@@ -2033,52 +2063,45 @@ class StaffAPI extends BaseAPI {
 
     public function getProfile($id) {
         try {
+            $sc = ReadReplicaService::qualifiedRef('staff_context');
             $sql = "
                 SELECT
-                    s.*,
-                    p.email,
-                    p.middle_name,
-                    p.phone,
-                    p.gender,
-                    p.dob AS date_of_birth,
-                    p.photo_url,
-                    sc.category_name,
-                    d.name AS department_name,
-                    spp.kra_pin,
-                    spp.nssf_no,
-                    spp.nhif_no,
-                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS supervisor_name,
+                    sc.*,
+                    sc.email,
+                    sc.middle_name,
+                    sc.phone,
+                    sc.gender,
+                    sc.date_of_birth,
+                    sc.photo_url,
+                    sc.staff_category_name AS category_name,
+                    sc.department_name,
+                    sc.kra_pin,
+                    sc.nssf_no,
+                    sc.nhif_no,
+                    sc.supervisor_full_name AS supervisor_name,
                     (
                         SELECT COUNT(DISTINCT ayc.class_id)
-                        FROM academic_year_class_learning_area_teachers t
-                        JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
-                        JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-                        JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
-                        JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                        WHERE t.staff_id = s.id AND ay.status = 'active'
+                        FROM " . ReadReplicaService::qualifiedRef("academic_year_class_learning_area_teachers") . " t
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " aycla ON aycla.id = t.academic_year_class_learning_area_id
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = t.academic_year_term_id
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
+                        WHERE t.staff_id = sc.staff_id AND ay.status = 'active'
                     ) + (
                         SELECT COUNT(DISTINCT ayc.class_id)
-                        FROM academic_year_class_streams cs
-                        JOIN academic_year_classes ayc ON ayc.id = cs.academic_year_class_id
-                        JOIN academic_years ay ON ay.id = ayc.academic_year_id
-                        WHERE cs.class_teacher_id = s.id AND ay.status = 'active'
+                        FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " cs
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = cs.academic_year_class_id
+                        JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id
+                        WHERE cs.class_teacher_id = sc.staff_id AND ay.status = 'active'
                     ) AS assigned_classes,
                     (
-                        SELECT COUNT(DISTINCT cs.subject_id)
+                        SELECT COUNT(DISTINCT cs.learning_area_id)
                         FROM vw_timetable_entries cs
-                        WHERE cs.teacher_id = s.id
+                        WHERE cs.teacher_id = sc.staff_id
                           AND cs.status = 'scheduled'
                     ) AS assigned_subjects
-                FROM staff s
-                INNER JOIN persons p ON p.id = s.person_id
-                LEFT JOIN users u ON u.person_id = p.id
-                LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
-                LEFT JOIN persons sp ON sp.id = supervisor.person_id
-                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
-                LEFT JOIN departments d ON d.id = sda.department_id
-                WHERE s.id = ?
+                FROM {$sc} sc
+                WHERE sc.staff_id = ?
                 LIMIT 1
             ";
 
@@ -2168,10 +2191,9 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
             $stmt = $this->db->prepare(
-                "SELECT aycs.id FROM academic_year_class_streams aycs
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 WHERE ayc.academic_year_id = ? AND ayc.class_id = ? AND aycs.stream_id = ?
-                 ORDER BY aycs.id LIMIT 1"
+                "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+                 WHERE academic_year_id = ? AND class_id = ? AND stream_id = ?
+                 ORDER BY class_stream_id LIMIT 1"
             );
             $stmt->execute([$ayId, $data['class_id'], $data['stream_id']]);
             $classStreamId = (int) $stmt->fetchColumn();
@@ -2207,8 +2229,8 @@ class StaffAPI extends BaseAPI {
             }
             $contextId = (int)$this->db->query(
                 "SELECT sla.id
-                 FROM academic_year_class_stream_learning_areas sla
-                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                 FROM " . ReadReplicaService::qualifiedRef("academic_year_class_stream_learning_areas") . "
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                  WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
                 [$classStreamId, $learningAreaId]
             )->fetchColumn();
@@ -2255,8 +2277,8 @@ class StaffAPI extends BaseAPI {
                     s.id AS staff_id,
                     d.name AS department_name
                 FROM staff_attendance sa
-                JOIN staff s ON sa.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sa.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sa.date BETWEEN ? AND ?
@@ -2340,8 +2362,8 @@ class StaffAPI extends BaseAPI {
                     s.id as staff_id,
                     d.name as department_name
                 FROM staff_leaves sl
-                JOIN staff s ON sl.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sl.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sl.start_date >= ? AND sl.end_date <= ?
@@ -2511,8 +2533,8 @@ class StaffAPI extends BaseAPI {
                     WHEN 3 THEN 'admin'
                     ELSE NULL
                 END as staff_type
-            FROM staff s
-            JOIN persons p ON p.id = s.person_id
+            FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+            JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
             LEFT JOIN users u ON u.person_id = s.person_id
             LEFT JOIN roles r ON r.id = (
                 SELECT ur2.role_id FROM user_roles ur2
@@ -2763,7 +2785,7 @@ class StaffAPI extends BaseAPI {
         }
 
         if ($personId && !empty($data['leadership_position_name'])) {
-            $position = $this->db->prepare("SELECT lp.id FROM leadership_positions lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
+            $position = $this->db->prepare("SELECT lp.id FROM " . ReadReplicaService::qualifiedRef("leadership_positions") . " lp JOIN leadership_categories lc ON lc.id=lp.leadership_category_id WHERE LOWER(TRIM(lp.name))=LOWER(TRIM(?)) AND lp.is_active=1 AND lc.is_active=1 AND lc.holder_scope IN ('staff','any_person') LIMIT 1");
             $position->execute([trim((string)$data['leadership_position_name'])]);
             $positionId = (int)$position->fetchColumn();
             $yearId = (int)$this->db->query('SELECT id FROM academic_years ORDER BY is_current DESC,id DESC LIMIT 1')->fetchColumn();
@@ -2889,8 +2911,8 @@ class StaffAPI extends BaseAPI {
                     p.last_name,
                     d.name as department_name
                 FROM staff_contracts sc
-                JOIN staff s ON sc.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sc.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
             ";
@@ -3440,8 +3462,8 @@ class StaffAPI extends BaseAPI {
                     a.id AS application_id,
                     a.status AS application_status,
                     a.created_at AS applied_at
-             FROM job_vacancies j
-             LEFT JOIN departments d ON d.id = j.department_id
+             FROM " . ReadReplicaService::qualifiedRef("job_vacancies") . " j
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = j.department_id
              LEFT JOIN job_applications a
                     ON a.job_id = j.id
                    AND a.applicant_type = 'internal'
@@ -3478,11 +3500,7 @@ class StaffAPI extends BaseAPI {
             $profileStmt = $this->db->prepare(
                 "SELECT s.id, p.first_name, p.last_name, p.phone,
                         s.position, sda.department_id, p.email
-                 FROM staff s
-                 INNER JOIN persons p ON p.id = s.person_id
-                 LEFT JOIN staff_department_assignments sda
-                        ON sda.staff_id = s.id
-                       AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                 FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
                  WHERE s.id = ? AND s.status IN ('active', 'on_leave')
                  LIMIT 1"
             );

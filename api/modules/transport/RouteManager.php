@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\transport;
 
+use App\API\Services\ReadReplicaService;
+
 use PDO;
 
 class RouteManager
@@ -108,13 +110,13 @@ class RouteManager
                     v.id AS vehicle_id, v.registration_number AS vehicle_registration,
                     v.status AS vehicle_status, s.id AS driver_id,
                     CONCAT(p.first_name, ' ', p.last_name) AS driver_name
-             FROM transport_routes r
+             FROM " . ReadReplicaService::qualifiedRef("transport_routes") . " r
              LEFT JOIN transport_stops ts ON ts.route_id=r.id AND ts.status='active'
-             LEFT JOIN student_transport_assignments a ON a.route_id=r.id
-             LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id=r.id AND tvr.status='active'
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a ON a.route_id=r.id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id=r.id AND tvr.status='active'
              LEFT JOIN transport_vehicles v ON v.id=tvr.vehicle_id
-             LEFT JOIN staff s ON s.id=v.driver_id
-             LEFT JOIN persons p ON p.id=s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id=v.driver_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id=s.person_id
              GROUP BY r.id, v.id, s.id, p.first_name, p.last_name
              ORDER BY r.name");
         $stmt->execute();

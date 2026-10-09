@@ -87,8 +87,7 @@
         this.page = 1;
         this.load();
       }));
-      this.root.querySelector('[data-page-action="prev"]')?.addEventListener("click", () => {
-        if (this.page > 1) {
+      this.root.querySelector('[data-page-action="prev"]')?.addEventListener("click", () => {        if (this.page > 1) {
           this.page -= 1;
           this.load();
         }
@@ -96,6 +95,16 @@
       this.root.querySelector('[data-page-action="next"]')?.addEventListener("click", () => {
         if (this.pagination && this.page < this.pagination.total_pages) {
           this.page += 1;
+          this.load();
+        }
+      });
+      // Rows-per-page selector: the page count follows the rows the user
+      // displays and the data size (the staff-table pagination shape).
+      this.root.querySelector("#studentContextPageSize")?.addEventListener("change", (event) => {
+        const value = Number(event.target.value);
+        if (value > 0) {
+          this.limit = value;
+          this.page = 1;
           this.load();
         }
       });
@@ -189,9 +198,30 @@
 
       this.root.querySelectorAll("[data-profile-id]").forEach((btn) => {
         btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-profile-id");
-          const suffix = this.context ? `&context=${encodeURIComponent(this.context)}` : "";
-          window.location.href = `${window.APP_BASE || ""}/home.php?route=student_profiles&id=${encodeURIComponent(id)}${suffix}`;
+          const id = Number(btn.getAttribute("data-profile-id"));
+          // Open the SAME student-details modal the School Administrator uses
+          // (viewStudentModal, rendered by manage_students.js) instead of
+          // navigating away — the Director/Headteacher reads the profile
+          // right here on the overview page.
+          const openModal = () => {
+            const opener = window.studentsManagementController?.viewStudent;
+            if (typeof opener === "function") {
+              opener(id);
+              return;
+            }
+            const suffix = this.context ? `&context=${encodeURIComponent(this.context)}` : "";
+            window.location.href = `${window.APP_BASE || ""}/home.php?route=student_profiles&id=${encodeURIComponent(id)}${suffix}`;
+          };
+          if (window.studentsManagementController?.viewStudent) {
+            openModal();
+          } else {
+            // The modal's controller ships with the page's snippet; load it
+            // once, then open.
+            const script = document.createElement("script");
+            script.src = `${window.APP_BASE || ""}/js/pages/manage_students.js?v=${Date.now()}`;
+            script.onload = openModal;
+            document.head.appendChild(script);
+          }
         });
       });
 
@@ -203,9 +233,16 @@
     renderPager() {
       const pager = this.root.querySelector("#studentContextPager");
       const info = this.root.querySelector("#studentContextPageInfo");
+      const position = this.root.querySelector("#studentContextPagePosition");
       if (!this.pagination || !pager || !info) return;
       pager.classList.remove("d-none");
-      info.textContent = `${this.pagination.total} students, page ${this.pagination.page} of ${this.pagination.total_pages || 1}`;
+      const total = Number(this.pagination.total || 0);
+      const page = Number(this.pagination.page || 1);
+      const pages = Math.max(1, Number(this.pagination.total_pages || Math.ceil(total / (this.limit || 25)) || 1));
+      const from = total ? (page - 1) * (this.limit || 25) + 1 : 0;
+      const to = Math.min(page * (this.limit || 25), total);
+      info.textContent = `Showing ${from}–${to} of ${total}`;
+      if (position) position.textContent = `${page} / ${pages}`;
     },
 
     renderLoading() {

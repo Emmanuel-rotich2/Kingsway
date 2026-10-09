@@ -10,8 +10,14 @@ use Throwable;
 /** Shared gate for the personal-profile and school-assignment onboarding steps. */
 final class StaffProfileCompletionService
 {
-    public function __construct(private PDO $db)
+    private PDO $db;
+
+    public function __construct(?PDO $db = null)
     {
+        $this->db = $db ?? ConnectionManager::run(
+            fn () => Database::getInstance()->getConnection(),
+            'master'
+        );
     }
 
     /**
@@ -53,7 +59,7 @@ final class StaffProfileCompletionService
                        ) AS has_classification
                 FROM users u
                 JOIN staff s ON s.person_id=u.person_id
-                JOIN persons p ON p.id=s.person_id
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_employment_profiles sep ON sep.id=(
                     SELECT current_sep.id
                     FROM staff_employment_profiles current_sep
@@ -68,23 +74,10 @@ final class StaffProfileCompletionService
             $stmt->execute([$userId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
-                // A school staff role without its required staff/person graph is
-                // a broken lifecycle state, not a non-staff account. Keep it
-                // outside the application until the school repairs the link.
-                // Parents and system-only operators are not staff profiles.
-                $staffRole = $this->db->prepare(<<<'SQL'
-                    SELECT EXISTS (
-                        SELECT 1
-                        FROM users u
-                        JOIN user_roles ur ON ur.user_id=u.id
-                        JOIN roles r ON r.id=ur.role_id
-                        WHERE u.id=? AND u.status='active'
-                          AND r.scope='school' AND r.is_active=1
-                          AND LOWER(TRIM(r.name)) NOT IN ('parent','system administrator')
-                    )
-                    SQL);
-                $staffRole->execute([$userId]);
-                return (bool)$staffRole->fetchColumn();
+                // Profile completion applies only to an actual school staff
+                // row. SYSTEM-domain and parent-only accounts must never be
+                // redirected to the staff onboarding page.
+                return false;
             }
 
             $employmentDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string)($row['employment_date'] ?? ''));

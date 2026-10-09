@@ -10,6 +10,8 @@ const RubricsController = {
     state: {
         rubrics: [],
         tools: [],
+        page: 1,
+        pageSize: 25,
     },
 
     async init() {
@@ -35,10 +37,22 @@ const RubricsController = {
     },
 
     setupEventListeners() {
-        document.getElementById('toolFilter')?.addEventListener('change', () => this.loadRubrics());
-        document.getElementById('searchFilter')?.addEventListener('input', () => this.render());
+        document.getElementById('toolFilter')?.addEventListener('change', () => { this.state.page = 1; this.loadRubrics(); });
+        document.getElementById('searchFilter')?.addEventListener('input', () => { this.state.page = 1; this.render(); });
+        document.getElementById('rubricPageSize')?.addEventListener('change', event => { this.state.pageSize = Number(event.target.value) || 25; this.state.page = 1; this.render(); });
+        document.getElementById('rubricPagination')?.addEventListener('click', event => {
+            const button = event.target.closest('[data-rubric-page]');
+            if (!button || button.disabled) return;
+            this.state.page = Number(button.dataset.rubricPage) || 1;
+            this.render();
+        });
         document.getElementById('saveRubricBtn')?.addEventListener('click', () => this.save());
         document.getElementById('saveToolBtn')?.addEventListener('click', () => this.saveTool());
+        document.getElementById('exportRubricsBtn')?.addEventListener('click', () => this.exportRubrics());
+        document.getElementById('printRubricsBtn')?.addEventListener('click', () => {
+            if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('assessments')) return showNotification('You do not have permission to print assessment data.', 'error');
+            window.print();
+        });
     },
 
     async loadToolReferences() {
@@ -113,6 +127,7 @@ const RubricsController = {
             const url = toolId ? `/api/academic/assessment-rubrics?tool_id=${toolId}` : '/api/academic/assessment-rubrics';
             const res = await callAPI(url);
             this.state.rubrics = Array.isArray(res) ? res : (res?.data || []);
+            this.state.page = 1;
             this.render();
         } catch (e) {
             console.error('Failed to load rubrics', e);
@@ -130,13 +145,31 @@ const RubricsController = {
                 (r.tool_name || '').toLowerCase().includes(search)
             );
         }
-        if (!rubrics.length) {
+        const total = rubrics.length;
+        const pageSize = Math.max(1, Number(this.state.pageSize) || 25);
+        const pageCount = Math.max(1, Math.ceil(total / pageSize));
+        this.state.page = Math.min(Math.max(1, Number(this.state.page) || 1), pageCount);
+        const start = (this.state.page - 1) * pageSize;
+        const pageRows = rubrics.slice(start, start + pageSize);
+        const summary = document.getElementById('rubricPageSummary');
+        if (summary) summary.textContent = `Showing ${total ? start + 1 : 0}–${Math.min(start + pageSize, total)} of ${total}`;
+        const pagination = document.getElementById('rubricPagination');
+        if (pagination) {
+            const pages = [];
+            const first = Math.max(1, this.state.page - 2);
+            const last = Math.min(pageCount, first + 4);
+            pages.push(`<li class="page-item ${this.state.page === 1 ? 'disabled' : ''}"><button class="page-link" data-rubric-page="${this.state.page - 1}" ${this.state.page === 1 ? 'disabled' : ''} aria-label="Previous">&laquo;</button></li>`);
+            for (let page = first; page <= last; page++) pages.push(`<li class="page-item ${page === this.state.page ? 'active' : ''}"><button class="page-link" data-rubric-page="${page}" aria-current="${page === this.state.page ? 'page' : 'false'}">${page}</button></li>`);
+            pages.push(`<li class="page-item ${this.state.page === pageCount ? 'disabled' : ''}"><button class="page-link" data-rubric-page="${this.state.page + 1}" ${this.state.page === pageCount ? 'disabled' : ''} aria-label="Next">&raquo;</button></li>`);
+            pagination.innerHTML = pageCount > 1 ? pages.join('') : '';
+        }
+        if (!total) {
             tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No rubrics found.</td></tr>';
             return;
         }
-        tbody.innerHTML = rubrics.map((r, i) => `
+        tbody.innerHTML = pageRows.map((r, i) => `
             <tr>
-                <td>${i + 1}</td>
+                <td>${start + i + 1}</td>
                 <td>${escapeHtml(r.criteria_name)}</td>
                 <td>${escapeHtml(r.tool_name || '—')}</td>
                 <td class="text-muted small">${escapeHtml(r.level_1_descriptor || '—')}</td>
@@ -155,6 +188,15 @@ const RubricsController = {
                 ` : '<a class="btn btn-sm btn-outline-success" href="home.php?route=curriculum_proposals">Propose</a>'}</td>
             </tr>
         `).join('');
+    },
+
+    exportRubrics() {
+        if (window.AuthContext?.canExport && !window.AuthContext.canExport('assessments')) return showNotification('You do not have permission to export assessment data.', 'error');
+        const search = (document.getElementById('searchFilter')?.value || '').trim().toLowerCase();
+        const rows = this.state.rubrics.filter(row => !search || `${row.criteria_name || ''} ${row.tool_name || ''}`.toLowerCase().includes(search));
+        const quote = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+        const columns = [['Criteria', 'Assessment Tool', 'Level 1 (BE)', 'Level 2 (AE)', 'Level 3 (ME)', 'Level 4 (EE)', 'Points Per Level', 'Sort Order'], ...rows.map(row => [row.criteria_name, row.tool_name, row.level_1_descriptor, row.level_2_descriptor, row.level_3_descriptor, row.level_4_descriptor, row.points_per_level, row.sort_order])];
+        window.KingswayFileLifecycle?.exportText(columns.map(row => row.map(quote).join(',')).join('\r\n'), `assessment_rubrics_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
     },
 
     openModal(id) {

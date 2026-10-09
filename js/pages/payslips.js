@@ -493,7 +493,7 @@ const payslipsController = {
         const params = new URLSearchParams({ year });
         params.set('staff_id', staffId);
         const url = (window.APP_BASE || '') + '/api/staff/payroll-download-p9?' + params.toString();
-        window.open(url, '_blank');
+        window.PrintManager?.openDocument(url, { title: 'P9 certificate' });
       }
     } catch (e) { showNotification('P9 download failed', 'error'); }
   },

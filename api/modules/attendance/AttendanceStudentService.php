@@ -3,6 +3,7 @@
 namespace App\API\Modules\attendance;
 
 use App\API\Controllers\BaseController;
+use App\API\Services\ReadReplicaService;
 
 class AttendanceStudentService
 {
@@ -41,7 +42,7 @@ class AttendanceStudentService
         $studentId = $id;
         try {
             $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
-            $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days FROM student_attendance sa JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id WHERE sae.student_id = ?";
+            $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . "  WHERE sae.student_id = ?";
             $params = [$studentId];
             if ($termId) { $sql .= " AND sae.academic_year_terms_id = ?"; $params[] = $termId; }
             $result = $controller->getDb()->query($sql, $params);
@@ -74,7 +75,7 @@ class AttendanceStudentService
             $scope = $controller->getAccessibleClassScope();
             if ($scope['restricted'] && !in_array((int) $streamId, $scope['stream_ids'], true)) { return $controller->forbidden('You are not allowed to access this class attendance register'); }
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
-            $query = "SELECT s.id, s.admission_no, p.first_name, p.last_name, st.name as student_type, st.code as student_type_code, sa.id as attendance_id, sa.status as stored_status, sa.absence_reason, CASE WHEN sa.absence_reason = 'permission' THEN 'permission' ELSE sa.status END as attendance_status, CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission, spt.code as permission_type_code, spt.name as permission_type, sp.reason as permission_reason FROM students s JOIN persons p ON p.id = s.person_id LEFT JOIN student_types st ON s.student_type_id = st.id JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active' JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id LEFT JOIN admission_applications aa ON aa.id = s.application_id LEFT JOIN student_attendance sa ON sa.student_academic_enrollment_id = sae.id AND sa.date = ? LEFT JOIN student_permissions sp ON sp.student_id = s.id AND ? BETWEEN sp.start_date AND sp.end_date AND sp.status = 'approved' LEFT JOIN student_permission_types spt ON spt.id = sp.permission_type_id WHERE aycs.id = ? AND s.status = 'active' AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ? ORDER BY p.last_name, p.first_name";
+            $query = "SELECT s.id, s.admission_no, p.first_name, p.last_name, st.name as student_type, st.code as student_type_code, sa.id as attendance_id, sa.status as stored_status, sa.absence_reason, CASE WHEN sa.absence_reason = 'permission' THEN 'permission' ELSE sa.status END as attendance_status, CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission, spt.code as permission_type_code, spt.name as permission_type, sp.reason as permission_reason FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE aycs.id = ? AND s.status = 'active' AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ? ORDER BY p.last_name, p.first_name";
             $result = $controller->getDb()->query($query, [$date, $date, $streamId, $date]);
             $students = $result->fetchAll(\PDO::FETCH_ASSOC);
             return $controller->success($students, 'Students retrieved successfully');
@@ -97,26 +98,91 @@ class AttendanceStudentService
             $scope = $controller->getAccessibleClassScope();
             if ($scope['restricted'] && !in_array((int) $streamId, $scope['stream_ids'], true)) { return $controller->forbidden('You are not allowed to mark attendance for this class'); }
             $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
-            $activeYear = $controller->getDb()->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
-            $academicYearId = $activeYear['id'] ?? null;
+
+            // Set-based N+1 fix (scaling masterplan): resolve every submitted
+            // learner's ACTIVE enrollment in ONE query and all existing marks in
+            // ONE query, then run prepared-once writes. A whole class register
+            // previously cost 2 queries per learner (~100 queries for 50 pupils).
+            $db = $controller->getDb();
+            $studentIds = array_values(array_unique(array_filter(array_map(
+                static fn ($r) => (int) ($r['student_id'] ?? 0),
+                $attendance
+            ))));
+            if ($studentIds === []) {
+                return $controller->success(['created' => 0, 'updated' => 0, 'total' => 0, 'date' => $date, 'stream_id' => $streamId], 'Attendance marked successfully');
+            }
+
+            $inStudents = implode(',', array_fill(0, count($studentIds), '?'));
+            $enrollStmt = $db->prepare(
+                "SELECT sae.student_id, sae.id
+                 FROM student_academic_enrollments sae
+                 JOIN students s ON s.id = sae.student_id
+                 LEFT JOIN admission_applications aa ON aa.id = s.application_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 WHERE sae.student_id IN ({$inStudents})
+                   AND aycs.id = ?
+                   AND sae.enrollment_status = 'active'
+                   AND COALESCE(
+                       CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END,
+                       CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END
+                   ) <= ?"
+            );
+            $enrollStmt->execute(array_merge($studentIds, [$streamId, $date]));
+            $enrollmentByStudent = [];
+            foreach ($enrollStmt->fetchAll(\PDO::FETCH_KEY_PAIR) as $sid => $saeId) {
+                $enrollmentByStudent[(int) $sid] = (int) $saeId;
+            }
+            if ($enrollmentByStudent === []) {
+                return $controller->success(['created' => 0, 'updated' => 0, 'total' => 0, 'date' => $date, 'stream_id' => $streamId], 'Attendance marked successfully');
+            }
+
+            $saeIds = array_values($enrollmentByStudent);
+            $inSae = implode(',', array_fill(0, count($saeIds), '?'));
+            $existingStmt = $db->prepare(
+                "SELECT id, student_academic_enrollment_id FROM student_attendance
+                 WHERE student_academic_enrollment_id IN ({$inSae})
+                   AND date = ? AND register_type = ?
+                   AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))"
+            );
+            $existingStmt->execute(array_merge($saeIds, [$date, $registerType, $sessionId, $sessionId]));
+            $existingBySae = [];
+            foreach ($existingStmt->fetchAll(\PDO::FETCH_KEY_PAIR) as $attId => $saeId) {
+                $existingBySae[(int) $saeId] = (int) $attId;
+            }
+
+            $updateStmt = $db->prepare(
+                "UPDATE student_attendance
+                 SET status = ?, absence_reason = ?, marked_by = ?, updated_at = NOW()
+                 WHERE id = ?"
+            );
+            $insertStmt = $db->prepare(
+                "INSERT INTO student_attendance
+                    (student_academic_enrollment_id, date, register_type, session_id, status, absence_reason, marked_by, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
+            );
+
             $created = 0; $updated = 0;
-            foreach ($attendance as $record) {
-                $studentId = $record['student_id'] ?? null;
-                $status = strtolower((string)($record['status'] ?? 'present'));
-                $reason = $record['absence_reason'] ?? null;
-                if (!$studentId) continue;
-                if (!in_array($status, ['present', 'absent', 'late'], true)) $status = 'present';
-                $enrollment = $controller->getDb()->query("SELECT sae.id FROM student_academic_enrollments sae JOIN students s ON s.id=sae.student_id LEFT JOIN admission_applications aa ON aa.id=s.application_id JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id WHERE sae.student_id = ? AND aycs.id = ? AND sae.enrollment_status = 'active' AND COALESCE(CASE WHEN s.entry_source = 'admission' THEN aa.enrolled_at END, CASE WHEN s.entry_source IS NULL OR s.entry_source <> 'admission' THEN sae.enrolled_on END) <= ? LIMIT 1", [$studentId, $streamId, $date])->fetch(\PDO::FETCH_ASSOC);
-                if (!$enrollment) continue;
-                $saeId = (int) $enrollment['id'];
-                $existing = $controller->getDb()->query("SELECT id FROM student_attendance WHERE student_academic_enrollment_id = ? AND date = ? AND register_type = ? AND (session_id = ? OR (session_id IS NULL AND ? IS NULL))", [$saeId, $date, $registerType, $sessionId, $sessionId])->fetch(\PDO::FETCH_ASSOC);
-                if ($existing) {
-                    $controller->getDb()->query("UPDATE student_attendance SET status = ?, absence_reason = ?, marked_by = ?, updated_at = NOW() WHERE id = ?", [$status, $reason, $markedBy, $existing['id']]);
-                    $updated++;
-                } else {
-                    $controller->getDb()->query("INSERT INTO student_attendance (student_academic_enrollment_id, date, register_type, session_id, status, absence_reason, marked_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())", [$saeId, $date, $registerType, $sessionId, $status, $reason, $markedBy]);
-                    $created++;
+            $db->beginTransaction();
+            try {
+                foreach ($attendance as $record) {
+                    $studentId = (int) ($record['student_id'] ?? 0);
+                    if (!$studentId || !isset($enrollmentByStudent[$studentId])) continue;
+                    $status = strtolower((string)($record['status'] ?? 'present'));
+                    $reason = $record['absence_reason'] ?? null;
+                    if (!in_array($status, ['present', 'absent', 'late'], true)) $status = 'present';
+                    $saeId = $enrollmentByStudent[$studentId];
+                    if (isset($existingBySae[$saeId])) {
+                        $updateStmt->execute([$status, $reason, $markedBy, $existingBySae[$saeId]]);
+                        $updated++;
+                    } else {
+                        $insertStmt->execute([$saeId, $date, $registerType, $sessionId, $status, $reason, $markedBy]);
+                        $created++;
+                    }
                 }
+                $db->commit();
+            } catch (\Throwable $writeError) {
+                if ($db->inTransaction()) $db->rollBack();
+                throw $writeError;
             }
             return $controller->success(['created' => $created, 'updated' => $updated, 'total' => $created + $updated, 'date' => $date, 'stream_id' => $streamId], 'Attendance marked successfully');
         } catch (\Exception $e) {
@@ -136,14 +202,14 @@ class AttendanceStudentService
                         t.name AS term_name, ayc.class_id, c.name AS class_name,
                         sa.register_type, sa.date, sa.status, sa.absence_reason, sa.session_id,
                         ass.name AS session_name, ass.type AS session_type
-                 FROM student_attendance sa
-                 JOIN student_academic_enrollments sae ON sa.student_academic_enrollment_id = sae.id
-                 LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes c ON c.id = ayc.class_id
-                 LEFT JOIN attendance_sessions ass ON ass.id = sa.session_id
-                 LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = sae.academic_year_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sa.student_academic_enrollment_id = sae.id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("attendance_sessions") . " ass ON ass.id = sa.session_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.academic_year_id = sae.academic_year_id
                  LEFT JOIN terms t ON t.id = ayt.term_id
                  WHERE sae.student_id = ? ORDER BY sa.date ASC, sa.session_id ASC",
                 [$studentId]

@@ -13,6 +13,47 @@ final class FinanceCrudService
 {
     private PDO $db;
 
+    /** Trial balance rows (posted journals grouped by account). */
+    public function trialBalance(): array
+    {
+        return $this->db->query("SELECT c.account_code,c.account_name,t.code AS account_type,
+                ROUND(COALESCE(SUM(CASE WHEN j.status='posted' THEN l.debit_amount-l.credit_amount ELSE 0 END),0),2) AS balance
+                FROM " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c JOIN accounting_account_types t ON t.id=c.account_type_id
+                LEFT JOIN accounting_journal_lines l ON l.chart_account_id=c.id LEFT JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
+                WHERE t.code IN ('asset','liability','equity') GROUP BY c.id,c.account_code,c.account_name,t.code ORDER BY c.account_code")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** Ledger report for a group ('balance'|'cashflow'|'performance'). */
+    public function accountingReport(string $type): array
+    {
+        $where = $type === 'balance' ? "t.code IN ('asset','liability','equity')" : ($type === 'cashflow' ? "t.code='asset' AND c.account_code LIKE '110%'" : "t.code IN ('revenue','expense')");
+        $sql = "SELECT c.account_code,c.account_name,t.code AS account_type,
+                ROUND(COALESCE(SUM(CASE WHEN j.status='posted' THEN l.debit_amount-l.credit_amount ELSE 0 END),0),2) AS balance
+                FROM " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c JOIN accounting_account_types t ON t.id=c.account_type_id
+                LEFT JOIN accounting_journal_lines l ON l.chart_account_id=c.id LEFT JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
+                WHERE {$where} GROUP BY c.id,c.account_code,c.account_name,t.code ORDER BY c.account_code";
+        return $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /** School financial accounts directory (account + routes + purposes). */
+    public function financialAccountsDetail(): array
+    {
+        return $this->db->query("SELECT a.*,k.code account_kind,p.code provider_code,c.account_code ledger_code,
+                sa.account_name settlement_account_name, sa.account_identifier settlement_account_identifier,
+                GROUP_CONCAT(DISTINCT r.collection_product ORDER BY r.collection_product SEPARATOR ',') collection_products,
+                GROUP_CONCAT(DISTINCT r.reference_policy ORDER BY r.reference_policy SEPARATOR ',') reference_policies,
+                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes
+                FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
+                JOIN financial_account_kinds k ON k.id=a.account_kind_id
+                LEFT JOIN payment_providers p ON p.id=a.provider_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c ON c.id=a.ledger_account_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=a.settlement_financial_account_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r ON r.financial_account_id=a.id AND r.active=1
+                LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
+                LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
+                GROUP BY a.id ORDER BY a.account_name")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -101,7 +142,7 @@ final class FinanceCrudService
              FROM petty_cash_transactions t
              LEFT JOIN expense_categories ec ON ec.id = t.category_id
              LEFT JOIN users u ON u.id = t.recorded_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              WHERE " . implode(' AND ', $where) . " ORDER BY transaction_date DESC, id DESC LIMIT 200"
         );
         $txns->execute($params);
@@ -143,11 +184,11 @@ final class FinanceCrudService
         $r = $this->db->prepare(
             "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name,
                     COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name
-             FROM cash_reconciliation_sessions s
+             FROM " . ReadReplicaService::qualifiedRef("cash_reconciliation_sessions") . "
              LEFT JOIN users u ON u.id = s.cashier_id
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              LEFT JOIN users a ON a.id = s.approved_by
-             LEFT JOIN persons ap ON ap.id = a.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.person_id = a.person_id
              WHERE s.reconciliation_date=?"
         );
         $r->execute([$date]);
@@ -159,11 +200,11 @@ final class FinanceCrudService
         $r = $this->db->prepare(
             "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name,
                     COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name
-             FROM cash_reconciliation_sessions s
+             FROM " . ReadReplicaService::qualifiedRef("cash_reconciliation_sessions") . "
              LEFT JOIN users u ON u.id = s.cashier_id
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              LEFT JOIN users a ON a.id = s.approved_by
-             LEFT JOIN persons ap ON ap.id = a.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.person_id = a.person_id
              WHERE s.id=?"
         );
         $r->execute([$id]);
@@ -174,9 +215,9 @@ final class FinanceCrudService
     {
         return $this->db->query(
             "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name
-             FROM cash_reconciliation_sessions s
+             FROM " . ReadReplicaService::qualifiedRef("cash_reconciliation_sessions") . "
              LEFT JOIN users u ON u.id = s.cashier_id
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              ORDER BY s.reconciliation_date DESC LIMIT 60"
         )->fetchAll() ?: [];
     }
@@ -218,13 +259,13 @@ final class FinanceCrudService
                     COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS student_name,
                     COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS requested_by,
                     COALESCE(CONCAT(ap.first_name,' ',ap.last_name), a.username) AS approved_by
-             FROM fee_credit_notes fcn
-             LEFT JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN persons sp ON sp.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " fcn
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = fcn.student_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN users u ON u.id = fcn.created_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              LEFT JOIN users a ON a.id = fcn.approved_by
-             LEFT JOIN persons ap ON ap.id = a.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " ap ON ap.person_id = a.person_id
              WHERE " . implode(' AND ', $where) . " ORDER BY fcn.created_at DESC LIMIT 200"
         );
         $rows->execute($params);
@@ -352,11 +393,11 @@ final class FinanceCrudService
                     fcn.created_at AS detected_at, fcn.updated_at,
                     COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS affected_party,
                     COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS resolved_by_name
-             FROM fee_credit_notes fcn
-             LEFT JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN persons sp ON sp.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " fcn
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = fcn.student_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN users u ON u.id = fcn.approved_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              WHERE fcn.notes LIKE '[status:pending]%' OR fcn.notes LIKE '[status:rejected]%'
              ORDER BY fcn.created_at DESC LIMIT 200"
         );
@@ -418,9 +459,9 @@ final class FinanceCrudService
                     COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS created_by_name,
                     v.total_spent, v.total_allocated, v.total_committed, v.utilization_pct
              FROM " . ReadReplicaService::qualifiedRef('budget_utilization') . " v
-             LEFT JOIN budgets b ON b.id = v.budget_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("budgets") . " b ON b.id = v.budget_id
              LEFT JOIN users u ON u.id = b.created_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              ORDER BY v.academic_year DESC, v.term"
         )->fetchAll() ?: [];
     }
@@ -433,7 +474,7 @@ final class FinanceCrudService
         if (!$b) return null;
 
         $lines = $this->db->prepare(
-            "SELECT bl.*, ec.name AS category_name FROM budget_line_items bl
+            "SELECT bl.*, ec.name AS category_name FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . "
              LEFT JOIN expense_categories ec ON ec.id = bl.category_id WHERE bl.budget_id=?"
         );
         $lines->execute([$id]);
@@ -488,14 +529,14 @@ final class FinanceCrudService
                     s.admission_no, c.name AS class_name,
                     COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS approved_by_name
              FROM fee_discounts_waivers fdw
-             JOIN students s ON s.id = fdw.student_id
-             LEFT JOIN persons sp ON sp.id = s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = fdw.student_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN student_academic_enrollments sae ON sae.student_id = fdw.student_id AND sae.enrollment_status = 'active'
              LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
              LEFT JOIN users u ON u.id = fdw.approved_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              WHERE " . implode(' AND ', $where) . " ORDER BY fdw.created_at DESC"
         );
         $rows->execute($params);
@@ -536,7 +577,7 @@ final class FinanceCrudService
         if (!$obligationId && empty($d['term_id'])) {
             $terms = $this->db->prepare(
                 "SELECT v.academic_year_term_id, v.term_id, v.balance,
-                        (SELECT MIN(sfo.id) FROM student_fee_obligations sfo
+                        (SELECT MIN(sfo.id) FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
                          JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
                          WHERE sae.student_id=? AND sfo.academic_year_term_id=v.academic_year_term_id) AS obligation_id
                  FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
@@ -658,11 +699,11 @@ final class FinanceCrudService
             "SELECT ssa.*, sp.name AS programme_name, sp.code AS programme_code,
                     ay.year_code, s.admission_no,
                     COALESCE(CONCAT(p.first_name,' ',p.last_name), s.admission_no) AS student_name
-             FROM student_scholarship_awards ssa
+             FROM " . ReadReplicaService::qualifiedRef("student_scholarship_awards") . " ssa
              JOIN scholarship_programs sp ON sp.id = ssa.scholarship_program_id
-             JOIN academic_years ay ON ay.id = ssa.academic_year_id
-             JOIN students s ON s.id = ssa.student_id
-             LEFT JOIN persons p ON p.id = s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ssa.academic_year_id
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = ssa.student_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY ssa.created_at DESC"
         );
@@ -826,12 +867,12 @@ final class FinanceCrudService
                     COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS student_name, s.admission_no,
                     t.name AS term_name,
                     COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS created_by_name
-             FROM fee_credit_notes fcn
-             JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN persons sp ON sp.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("fee_credit_notes") . " fcn
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = fcn.student_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN terms t ON t.id = fcn.term_id
              LEFT JOIN users u ON u.id = fcn.created_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY fcn.created_at DESC"
         );
@@ -961,10 +1002,10 @@ final class FinanceCrudService
                     COALESCE(CONCAT(sp.first_name,' ',sp.last_name), '—') AS staff_name, s.staff_no AS employee_number,
                     COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS approved_by_name
              FROM staff_salary_advances sa
-             JOIN staff s ON s.id = sa.staff_id
-             LEFT JOIN persons sp ON sp.id = s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = sa.staff_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN users u ON u.id = sa.approved_by
-             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " up ON up.person_id = u.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY sa.request_date DESC"
         );
@@ -1072,7 +1113,7 @@ final class FinanceCrudService
                 JOIN staff_role_salary_rates rs ON rs.role_id=ur.role_id
                 WHERE u.person_id=s.person_id AND rs.effective_from<=? AND (rs.effective_to IS NULL OR rs.effective_to>=?)
                 ORDER BY rs.effective_from DESC,rs.id DESC LIMIT 1),0)
-            FROM staff s WHERE s.id = ?");
+            FROM " . ReadReplicaService::qualifiedRef("staff") . " s WHERE s.id = ?");
         $stmt->execute([$periodStart,$periodStart,$periodStart,$periodStart,$staffId]);
         $value = $stmt->fetchColumn();
         return $value !== false ? (float) $value : 0.0;
@@ -1088,9 +1129,8 @@ final class FinanceCrudService
                     mt.amount, mt.transaction_date, 'mpesa' AS source,
                     TRIM(CONCAT(COALESCE(mt.first_name,''), ' ', COALESCE(mt.last_name,''))) AS payer_name,
                     mt.status
-                FROM mpesa_transactions mt
-                LEFT JOIN payments pt ON mt.mpesa_code = pt.reference COLLATE utf8mb4_general_ci
-                WHERE pt.reference IS NULL
+                FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
+                WHERE mt.payment_id IS NULL
                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed'))
                 ORDER BY mt.transaction_date DESC
                 LIMIT ? OFFSET ?"
@@ -1099,9 +1139,8 @@ final class FinanceCrudService
 
         $total = (int) $this->db->query(
             "SELECT COUNT(*)
-             FROM mpesa_transactions mt
-             LEFT JOIN payments pt ON mt.mpesa_code = pt.reference COLLATE utf8mb4_general_ci
-             WHERE pt.reference IS NULL
+             FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
+             WHERE mt.payment_id IS NULL
                AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed'))"
         )->fetchColumn();
 

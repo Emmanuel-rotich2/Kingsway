@@ -146,7 +146,7 @@
                     <div class="mb-2" id="pfClassPickerWrap">
                         <label class="form-label small fw-semibold">Class</label>
                         <select class="form-select form-select-sm" id="pfClassFilter">
-                            <option value="">Select a class...</option>
+                            <option value="">All assigned classes</option>
                         </select>
                     </div>
                     <div class="mb-2" id="pfStudentPickerWrap">
@@ -163,7 +163,7 @@
             <div id="portfolioContent">
                 <div class="text-center text-muted py-5 bg-white rounded shadow-sm">
                     <i class="bi bi-folder2-open" style="font-size:3rem"></i>
-                    <p class="mt-2">Select a student to view their cumulative portfolio</p>
+                    <p class="mt-2">Loading the first learner in your authorized scope…</p>
                 </div>
             </div>
         </div>
@@ -243,6 +243,34 @@
                     <div class="mb-2">
                         <label class="form-label small fw-semibold">Title *</label>
                         <input type="text" class="form-control form-control-sm" id="pfArtifactTitle" placeholder="e.g. Science Fair Project Board" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Term (SBA cycle phase)</label>
+                            <select class="form-select form-select-sm" id="pfArtifactTerm"></select>
+                        </div>
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Evidence source</label>
+                            <select class="form-select form-select-sm" id="pfArtifactSource">
+                                <option value="">— Not set —</option>
+                                <option value="project">Project (Term 2 SBA)</option>
+                                <option value="performance_task">Performance task</option>
+                                <option value="written_test">Written test (Term 3 SBA)</option>
+                                <option value="homework">Homework</option>
+                                <option value="co_curricular">Co-curricular / CSL</option>
+                                <option value="reflection">Reflection</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">Learning area</label>
+                            <select class="form-select form-select-sm" id="pfArtifactArea"></select>
+                        </div>
+                        <div class="col-6 mb-2">
+                            <label class="form-label small fw-semibold">KNEC verification ref</label>
+                            <input type="text" class="form-control form-control-sm" id="pfArtifactKnecRef" placeholder="Script / evidence ref (optional)">
+                        </div>
                     </div>
                     <div class="mb-2">
                         <label class="form-label small fw-semibold">Description</label>

@@ -53,6 +53,28 @@ class DashboardController extends BaseController
     }
 
     /**
+     * POST /api/dashboard/assessment-policy-watch — worker-secret curl-cron
+     * endpoint that watches EVERY configured assessment authority (KICD, KNEC
+     * via KNEC_POLICY_SOURCE, MoE via MOE_POLICY_SOURCE) with independent
+     * baselines. Dormant per authority until its source is configured.
+     */
+    public function postAssessmentPolicyWatch()
+    {
+        try {
+            $agent = new \App\API\Services\CurriculumPolicyWatchAgent();
+            $results = $agent->runSources($this->db->getConnection());
+            $summary = [];
+            foreach ($results as $authority => $result) {
+                $summary[$authority] = (string) ($result['status'] ?? 'unknown');
+            }
+            return $this->success(['authorities' => $summary, 'results' => $results], 'Assessment policy watch completed.');
+        } catch (Throwable $error) {
+            error_log('[DashboardController] assessment policy watch failed: ' . $error->getMessage());
+            return $this->serverError('The assessment policy watch could not run.');
+        }
+    }
+
+    /**
      * GET /api/dashboard/ai-assistant-catalog
      * Return only contextual assistance the current staff member may use.
      * This powers the shell assistant; domain actions remain in their own
@@ -399,14 +421,9 @@ class DashboardController extends BaseController
         }
         try {
             $pdo = $this->getDb()->getConnection();
-            $stmt = $pdo->prepare(
-                'SELECT DISTINCT user_id FROM v_user_permissions_effective
-                 WHERE permission_code IN (?, ?) AND user_id IS NOT NULL AND user_id > 0'
-            );
-            $stmt->execute(['analytics_catalogue_view', '*']);
-            $userIds = array_values(array_unique(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN))));
-
-            $permissionsByUser = $this->effectivePermissionsForUsers($pdo, $userIds);
+            $permManager = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $pdo);
+            $userIds = $permManager->userIdsWithPermissions(['analytics_catalogue_view', '*']);
+            $permissionsByUser = $permManager->effectivePermissionsByUser($userIds);
             $queued = 0;
             $skipped = 0;
             $agent = $this->contract(AiAgentService::class);
@@ -460,14 +477,9 @@ class DashboardController extends BaseController
         }
         try {
             $pdo = $this->getDb()->getConnection();
-            $eligible = $pdo->prepare(
-                'SELECT DISTINCT user_id FROM v_user_permissions_effective
-                 WHERE permission_code IN (?, ?) AND user_id IS NOT NULL AND user_id > 0'
-            );
-            $eligible->execute(['analytics_catalogue_view', '*']);
-            $userIds = array_values(array_unique(array_map('intval', $eligible->fetchAll(\PDO::FETCH_COLUMN))));
-
-            $permissionsByUser = $this->effectivePermissionsForUsers($pdo, $userIds);
+            $permManager = $this->contract(\App\API\Modules\users\UserPermissionManager::class, $pdo);
+            $userIds = $permManager->userIdsWithPermissions(['analytics_catalogue_view', '*']);
+            $permissionsByUser = $permManager->effectivePermissionsByUser($userIds);
             $orchestrator = $this->contract(AiInsightOrchestrator::class);
             $queued = 0;
             $skipped = 0;
@@ -545,31 +557,6 @@ class DashboardController extends BaseController
      * @param int[] $userIds
      * @return array<int,string[]>
      */
-    private function effectivePermissionsForUsers(\PDO $pdo, array $userIds): array
-    {
-        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
-        if ($userIds === []) {
-            return [];
-        }
-        $inClause = implode(',', $userIds);
-        $stmt = $pdo->prepare(
-            "SELECT user_id, permission_code FROM v_user_permissions_effective
-             WHERE user_id IN ($inClause)"
-        );
-        $stmt->execute();
-        $byUser = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $userId = (int) ($row['user_id'] ?? 0);
-            $permission = trim((string) ($row['permission_code'] ?? ''));
-            if ($userId < 1 || $permission === '') {
-                continue;
-            }
-            if (!in_array($permission, $byUser[$userId] ?? [], true)) {
-                $byUser[$userId][] = $permission;
-            }
-        }
-        return $byUser;
-    }
 
     private function hasValidWorkerCredential(): bool
     {
@@ -624,12 +611,10 @@ class DashboardController extends BaseController
     {
         $userId = $this->getUserId();
         if (!$userId) return null;
-        $stmt = $this->getDb()->getConnection()->prepare(
-            'SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1'
+        $staffId = \App\API\Services\StaffRecordsService::staffIdForUserId(
+            $this->getDb()->getConnection(), (int) $userId
         );
-        $stmt->execute([(int) $userId]);
-        $staffId = $stmt->fetchColumn();
-        return $staffId ? (int) $staffId : null;
+        return $staffId ?: null;
     }
     /**
      * GET /api/dashboard/director/announcements
@@ -1453,8 +1438,13 @@ class DashboardController extends BaseController
             }
 
             // Standard financial dashboard
+            // Pass the academic-year filter through UNRESOLVED: the service's
+            // canonical resolver (FeeLedgerFilter::academicYear) handles the
+            // id / stored "2026/2027" code / bare "2026" forms against the
+            // context tables. Forcing a bare date('Y') here matched nothing —
+            // the view stores "2026/2027".
             $safeFilters = [];
-            $safeFilters['academic_year'] = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+            $safeFilters['academic_year'] = trim((string) ($filters['academic_year'] ?? ''));
             foreach (['date_from', 'date_to'] as $dateKey) {
                 if (!empty($filters[$dateKey]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters[$dateKey])) {
                     $safeFilters[$dateKey] = $filters[$dateKey];

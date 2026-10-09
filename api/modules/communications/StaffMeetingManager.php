@@ -3,6 +3,7 @@ namespace App\API\Modules\communications;
 
 use PDO;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * StaffMeetingManager
@@ -37,18 +38,13 @@ class StaffMeetingManager
     public function listStaffForPicker(): array
     {
         $stmt = $this->db->query(
-            "SELECT s.id, s.staff_no,
-                    CONCAT(p.first_name, ' ', p.last_name) AS name,
-                    s.position,
-                    d.name AS department_name
-             FROM staff s
-             LEFT JOIN persons p ON p.id = s.person_id
-             LEFT JOIN staff_department_assignments sda
-                    ON sda.staff_id = s.id
-                   AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
-             LEFT JOIN departments d ON d.id = sda.department_id
-             WHERE s.status = 'active'
-             ORDER BY p.first_name, p.last_name"
+            "SELECT sd.staff_id AS id, sd.staff_no,
+                    sd.full_name AS name,
+                    sd.position,
+                    sd.department_name
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " sd
+             WHERE sd.staff_status = 'active'
+             ORDER BY sd.first_name, sd.last_name"
         );
         return [
             'staff' => $stmt->fetchAll(PDO::FETCH_ASSOC),
@@ -98,9 +94,9 @@ class StaffMeetingManager
                    COALESCE(SUM(a.status = 'declined'), 0) AS declined_count,
                    MAX(CASE WHEN a.staff_id = ? THEN a.status END) AS my_status
             FROM staff_meetings m
-            LEFT JOIN staff s ON s.id = m.organizer_staff_id
-            LEFT JOIN persons p ON p.id = s.person_id
-            LEFT JOIN departments d ON d.id = m.department_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = m.organizer_staff_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = m.department_id
             LEFT JOIN staff_meeting_attendees a ON a.meeting_id = m.id
             WHERE " . implode(' AND ', $where) . "
             GROUP BY m.id
@@ -124,9 +120,9 @@ class StaffMeetingManager
                     d.name AS department_name,
                     (SELECT COUNT(*) FROM staff_meeting_attendees a WHERE a.meeting_id = m.id) AS attendee_count
              FROM staff_meetings m
-             LEFT JOIN staff s ON s.id = m.organizer_staff_id
-             LEFT JOIN persons p ON p.id = s.person_id
-             LEFT JOIN departments d ON d.id = m.department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = m.organizer_staff_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = m.department_id
              WHERE m.id = ?"
         );
         $stmt->execute([$id]);
@@ -140,12 +136,12 @@ class StaffMeetingManager
                     CONCAT(p.first_name, ' ', p.last_name) AS name,
                     s.position, d.name AS department_name
              FROM staff_meeting_attendees a
-             LEFT JOIN staff s ON s.id = a.staff_id
-             LEFT JOIN persons p ON p.id = s.person_id
-             LEFT JOIN staff_department_assignments sda
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = a.staff_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda
                     ON sda.staff_id = a.staff_id
                    AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
-             LEFT JOIN departments d ON d.id = sda.department_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON d.id = sda.department_id
              WHERE a.meeting_id = ?
              ORDER BY p.first_name, p.last_name"
         );
@@ -462,8 +458,7 @@ class StaffMeetingManager
         }
         $in = implode(',', array_fill(0, count($staffIds), '?'));
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT u.id FROM users u
-             JOIN staff s ON s.person_id = u.person_id
+            "SELECT DISTINCT u.id FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
              WHERE s.id IN ($in) AND u.status = 'active'"
         );
         $stmt->execute($staffIds);

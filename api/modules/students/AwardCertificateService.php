@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App\API\Modules\students;
 
+use App\API\Services\ReadReplicaService;
+
 use PDO;
 use App\API\Services\PrintService;
 use App\API\Services\DownloadService;
@@ -50,11 +52,11 @@ class AwardCertificateService
                    CONCAT_WS(' ', p.first_name, p.last_name) AS student_name,
                    st.admission_no
             FROM student_awards a
-            JOIN students st ON st.id = a.student_id
-            JOIN persons p ON p.id = st.person_id
-            LEFT JOIN student_award_types t ON t.id = a.award_type_id
-            LEFT JOIN student_award_categories c ON c.id = t.category_id
-            LEFT JOIN academic_years ay ON ay.id = a.academic_year_id
+            JOIN " . ReadReplicaService::qualifiedRef("students") . " st ON st.id = a.student_id
+            JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_types") . " t ON t.id = a.award_type_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("student_award_categories") . " c ON c.id = t.category_id
+            LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = a.academic_year_id
             WHERE a.id = ?
         ");
         $stmt->execute([$awardId]);

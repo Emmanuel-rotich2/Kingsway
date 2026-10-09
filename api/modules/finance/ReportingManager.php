@@ -47,12 +47,29 @@ class ReportingManager extends FileLifecycleBase
     public function getFinancialDashboard($filters = [])
     {
         try {
-            $academicYear = $filters['academic_year'] ?? date('Y');
+            // The academic-year context tables are the source of truth: resolve
+            // the filter (an id, a stored "2026/2027" code, or a bare "2026")
+            // to the STORED year code via the canonical resolver. date('Y')
+            // alone matches nothing — the view stores "2026/2027".
+            $feeLedgerFilter = new \App\API\Services\payments\FeeLedgerFilter();
+            $academicYear = $feeLedgerFilter->academicYear($filters['academic_year'] ?? null);
+            if ($academicYear === '') {
+                $ayStmt = $this->db->query("SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1");
+                $academicYear = (string) ($ayStmt->fetchColumn() ?: date('Y'));
+            }
             $filterStart = $filters['date_from'] ?? ($academicYear . '-01-01');
             $filterEnd = $filters['date_to'] ?? ($academicYear . '-12-31');
 
             // Get current term
-            $stmt = $this->db->query("SELECT ayt.id AS id, t.name AS name, CAST(SUBSTRING(t.code,2) AS UNSIGNED) AS term_number FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id JOIN terms t ON t.id = ayt.term_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1");
+            $stmt = $this->db->query(
+                "SELECT academic_year_term_id AS id,
+                        term_name AS name,
+                        CAST(SUBSTRING(term_code, 2) AS UNSIGNED) AS term_number
+                 FROM " . ReadReplicaService::qualifiedRef('academic_term_terms') . "
+                 WHERE is_current_year = 1
+                   AND term_period_status = 'current'
+                 LIMIT 1"
+            );
             $currentTerm = $stmt->fetch(PDO::FETCH_ASSOC);
             $currentTermId = $currentTerm['id'] ?? null;
             $currentTermName = $currentTerm['name'] ?? 'N/A';
@@ -89,8 +106,8 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare(
                 "SELECT 
                     COALESCE(SUM(p.amount), 0) as total_cash_collected
-                FROM payments p
-                JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
+                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                 WHERE p.status = 'confirmed' 
                   AND ay.year_code = ?"
             );
@@ -215,7 +232,7 @@ class ReportingManager extends FileLifecycleBase
             $paymentMethods = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Average payment & counts for reconciliation (include 'confirmed' status)
-            $stmt = $this->db->prepare("SELECT AVG(p.amount) as avg_amount, COUNT(*) as completed_count FROM payments p WHERE p.status = 'confirmed' AND DATE(p.payment_date) BETWEEN ? AND ?");
+            $stmt = $this->db->prepare("SELECT AVG(mt.payment_amount) as avg_amount, COUNT(*) as completed_count FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt WHERE mt.payment_status = 'confirmed' AND DATE(mt.payment_date) BETWEEN ? AND ?");
             $stmt->execute([$filterStart, $filterEnd]);
             $avgRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -224,9 +241,8 @@ class ReportingManager extends FileLifecycleBase
             $endDate = $filterEnd;
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
-                FROM mpesa_transactions mt
-                LEFT JOIN payments p ON mt.mpesa_code COLLATE utf8mb4_unicode_ci = p.reference COLLATE utf8mb4_unicode_ci
-                WHERE p.reference IS NULL 
+                FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions_payments") . " mt
+                WHERE mt.payment_id IS NULL
                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'matched'))
                   AND mt.transaction_date BETWEEN ? AND ?
             ");
@@ -311,6 +327,15 @@ class ReportingManager extends FileLifecycleBase
                     'term_outstanding' => (float) ($termFees['outstanding'] ?? 0),
                     'term_collection_rate' => round($termCollectionRate, 2),
                     'current_term_name' => $currentTermName,
+                    // From the database: the learners with a payment recorded
+                    // in the current term — the count card's term value.
+                    'term_collected_count' => (int) ($this->db->query(
+                        "SELECT COUNT(DISTINCT f.student_id)
+                         FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f
+                         WHERE f.academic_year = '" . $academicYear . "'
+                           AND f.academic_year_term_id = " . (int) ($currentTermId ?? 0) . "
+                           AND f.amount_paid > 0"
+                    )->fetchColumn() ?: 0),
                     // Student metrics
                     'defaulters_count' => (int) ($defaulters['count'] ?? 0),
                     'full_payment_count' => $fullPaymentCount
@@ -413,7 +438,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $limit = (int) $limit;
             // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
-            $sql = "SELECT p.id, p.reference AS reference, p.payment_date, p.method AS method, p.amount AS amount, CONCAT(COALESCE(pn.first_name,''),' ',COALESCE(pn.last_name,'')) as student_name FROM payments p JOIN students s ON s.id = p.student_id LEFT JOIN persons pn ON s.person_id = pn.id WHERE p.status = 'confirmed'";
+            $sql = "SELECT p.id, p.reference AS reference, p.payment_date, p.method AS method, p.amount AS amount, CONCAT(COALESCE(pn.first_name,''),' ',COALESCE(pn.last_name,'')) as student_name FROM " . ReadReplicaService::qualifiedRef("payments") . " p JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = p.student_id LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " pn ON s.person_id = pn.id WHERE p.status = 'confirmed'";
             $params = [];
             if (!empty($filters['date_from'])) {
                 $sql .= " AND DATE(p.payment_date) >= ?";
@@ -505,9 +530,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                         WHEN COALESCE(SUM(e.amount), 0) = bli.allocated_amount THEN 'On Budget'
                         ELSE 'Under Budget'
                     END as status
-                FROM budget_line_items bli
+                FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " bli
                 LEFT JOIN expense_categories ec ON bli.category_id = ec.id
-                LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("expenses") . " e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
                 GROUP BY bli.id, ec.name, bli.allocated_amount
@@ -553,9 +578,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                         AVG(e.amount) as average_amount,
                         MIN(e.amount) as min_amount,
                         MAX(e.amount) as max_amount
-                    FROM expenses e
+                    FROM " . ReadReplicaService::qualifiedRef("expenses") . " e
                     LEFT JOIN expense_categories ec ON e.category_id = ec.id
-                    LEFT JOIN departments d ON e.department_id = d.id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("departments") . " d ON e.department_id = d.id
                     WHERE e.status = 'approved' AND e.deleted_at IS NULL";
 
             $params = [];
@@ -756,11 +781,11 @@ return formatResponse(false, null, 'An internal error occurred.');
                         COALESCE(SUM(f.amount_paid), 0) as total_paid,
                         COALESCE(SUM(f.balance), 0) as balance,
                         ROUND(COALESCE(SUM(f.amount_paid), 0) / NULLIF(COALESCE(SUM(f.amount_due), 0), 0) * 100, 1) as collection_rate
-                    FROM students s
-                    JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
-                    JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                    JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                    JOIN classes c ON ayc.class_id = c.id
+                    FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                    JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON sae.academic_year_class_stream_id = aycs.id
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON aycs.academic_year_class_id = ayc.id
+                    JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                     JOIN school_levels sl ON c.level_id = sl.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f ON f.student_academic_enrollment_id = sae.id AND f.academic_year = ?";
 
@@ -804,8 +829,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                         ROUND(AVG(p.amount), 2) as avg_amount,
                         MIN(p.amount) as min_amount,
                         MAX(p.amount) as max_amount
-                    FROM payments p
-                    JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
+                    FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                     WHERE p.status = 'confirmed'
                       AND ay.year_code = ?";
 
@@ -848,7 +873,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                         COALESCE(SUM(f.amount_paid), 0) as total_paid,
                         COALESCE(SUM(f.balance), 0) as balance,
                         ROUND(COALESCE(SUM(f.amount_paid), 0) / NULLIF(COALESCE(SUM(f.amount_due), 0), 0) * 100, 1) as collection_rate
-                    FROM students s
+                    FROM " . ReadReplicaService::masterRef("students") . " s
                     JOIN student_types st ON s.student_type_id = st.id
                     LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " f ON f.student_id = s.id AND f.academic_year = ?";
 
@@ -919,8 +944,8 @@ $sql = "SELECT
                         'School Fees' as fee_type,
                         COUNT(DISTINCT sfo.student_academic_enrollment_id) as student_count,
                         COALESCE(SUM(sfo.amount_due), 0) as total_due
-                    FROM student_fee_obligations sfo
-                    JOIN academic_year_fee_schedules fsd ON sfo.academic_year_fee_schedule_id = fsd.id
+                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " fsd ON sfo.academic_year_fee_schedule_id = fsd.id
                     WHERE sfo.academic_year_id = ?";
 
             $params = [$academicYear];
@@ -970,7 +995,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     s.id as student_id,
                     s.admission_no,
                     CONCAT(p.first_name, ' ', p.last_name) as student_name,
-                    c.name as class_name,
+                    csd.class_name,
                     st.name as student_type,
                     SUM(sfo.amount_due) as total_due,
                     COALESCE(SUM(v.amount_paid), 0) as total_paid,
@@ -984,22 +1009,20 @@ return formatResponse(false, null, 'An internal error occurred.');
                     par.email as parent_email,
                     sp.relationship as parent_relationship,
                     sp.is_primary_contact
-                FROM students s
-                JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.academic_year_id = ?
-                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
-                JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
-                JOIN classes c ON ayc.class_id = c.id
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON s.id = sae.student_id AND sae.academic_year_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("class_stream_directory") . " csd ON csd.id = sae.academic_year_class_stream_id
                 JOIN student_types st ON s.student_type_id = st.id
-                JOIN student_fee_obligations sfo ON sae.id = sfo.student_academic_enrollment_id
+                JOIN " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo ON sae.id = sfo.student_academic_enrollment_id
                 JOIN persons p ON s.person_id = p.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
                     ON v.student_academic_enrollment_id = sae.id AND v.academic_year_term_id = sfo.academic_year_term_id
-                LEFT JOIN student_parents sp ON s.id = sp.student_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_parents") . " sp ON s.id = sp.student_id
                 LEFT JOIN parents pn ON sp.parent_id = pn.id AND pn.status = 'active'
                 LEFT JOIN persons par ON pn.person_id = par.id
                 WHERE s.status = 'active'
                   AND sfo.academic_year_id = ?
-                GROUP BY s.id, s.admission_no, p.first_name, p.last_name, c.name, st.name,
+                GROUP BY s.id, s.admission_no, p.first_name, p.last_name, csd.class_name, st.name,
                          pn.id, par.first_name, par.last_name, par.phone, par.email,
                          sp.relationship, sp.is_primary_contact
                 HAVING (COALESCE(SUM(sfo.amount_due), 0) - COALESCE(SUM(v.amount_paid), 0)) > 0
@@ -1024,10 +1047,10 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->query(
                 "SELECT
-                    (SELECT COALESCE(SUM(amount),0) FROM payments WHERE YEAR(payment_date)=YEAR(CURDATE()) AND status='confirmed') AS total_collected_ytd,
+                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("payments") . " WHERE YEAR(payment_date)=YEAR(CURDATE()) AND status='confirmed') AS total_collected_ytd,
                     (SELECT COALESCE(SUM(balance),0) FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . " WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
-                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
-                    (SELECT COUNT(*) FROM payments WHERE DATE(payment_date)=CURDATE() AND status='confirmed') AS payments_today"
+                    (SELECT COALESCE(SUM(amount),0) FROM " . ReadReplicaService::qualifiedRef("expenses") . " WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
+                    (SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("payments") . " WHERE DATE(payment_date)=CURDATE() AND status='confirmed') AS payments_today"
             );
             $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (Exception $e) {

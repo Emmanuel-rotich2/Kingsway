@@ -7,6 +7,7 @@ use App\API\Services\NotificationService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Examination Management Workflow Handler
@@ -63,13 +64,12 @@ class ExaminationWorkflow extends WorkflowHandler {
             return 0;
         }
         $stmt = $this->db->prepare(
-            "SELECT aycs.id
-             FROM academic_year_class_streams aycs
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             WHERE (aycs.id = ? OR ayc.class_id = ?)
-               AND ayc.academic_year_id = ?
-               AND aycs.status = 'active'
-             ORDER BY aycs.id LIMIT 1"
+            "SELECT class_stream_id
+             FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
+             WHERE (class_stream_id = ? OR class_id = ?)
+               AND academic_year_id = ?
+               AND class_stream_status = 'active'
+             ORDER BY class_stream_id LIMIT 1"
         );
         $stmt->execute([$cid, $cid, $academicYearId]);
         return (int) ($stmt->fetchColumn() ?: 0);
@@ -915,14 +915,14 @@ class ExaminationWorkflow extends WorkflowHandler {
         $in = implode(',', $assessmentIds);
         $studentsStmt = $this->db->query(
             "SELECT DISTINCT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name
-               FROM assessment_results ar
-               JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
-               JOIN students s ON s.id = sae.student_id
-               JOIN persons p ON p.id = s.person_id
+               FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+               JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ar.student_academic_enrollment_id
+               JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
+               JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
               WHERE ar.assessment_id IN ($in) AND ar.is_submitted = 1 AND ar.is_approved = 1"
         );
         $termId = (int) ($data['term_id'] ?? 0);
-        $termStmt = $this->db->prepare("SELECT t.name FROM academic_year_terms ayt JOIN terms t ON t.id = ayt.term_id WHERE ayt.id = ? LIMIT 1");
+        $termStmt = $this->db->prepare("SELECT term_name FROM " . ReadReplicaService::qualifiedRef('academic_term') . " WHERE academic_year_term_id = ? LIMIT 1");
         $termStmt->execute([$termId]);
         $termName = (string) ($termStmt->fetchColumn() ?: 'the current term');
         $platform = new \App\API\Services\CommunicationPlatformService($this->db);
@@ -930,7 +930,7 @@ class ExaminationWorkflow extends WorkflowHandler {
         foreach ($studentsStmt->fetchAll(PDO::FETCH_ASSOC) as $student) {
             $scoreStmt = $this->db->prepare(
                 "SELECT la.name, tss.overall_percentage, tss.overall_grade
-                   FROM term_subject_scores tss JOIN learning_areas la ON la.id = tss.subject_id
+                   FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
                   WHERE tss.student_id = ? AND tss.term_id = ? ORDER BY la.name"
             );
             $scoreStmt->execute([(int) $student['id'], $this->resolveTssTermId($termId)]);
@@ -995,10 +995,10 @@ class ExaminationWorkflow extends WorkflowHandler {
 
         $resStmt = $this->db->prepare(
             "SELECT ar.assessment_id, a.learning_area_id AS subject_id, s.id AS student_id, ar.marks_obtained, a.max_marks
-             FROM assessment_results ar
-             JOIN assessments a ON a.id = ar.assessment_id
-             JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
-             JOIN students s ON s.id = sae.student_id
+             FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+             JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ar.student_academic_enrollment_id
+             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sae.student_id
              WHERE ar.is_submitted = 1 AND ar.is_approved = 1 AND ar.assessment_id = :aid"
         );
         $resStmt->execute(['aid' => $assessmentId]);
@@ -1252,8 +1252,8 @@ class ExaminationWorkflow extends WorkflowHandler {
                     MAX(lc.assessed_date) as latest_assessment,
                     GROUP_CONCAT(DISTINCT lc.evidence ORDER BY lc.assessed_date DESC SEPARATOR ' | ') as evidence_summary,
                     GROUP_CONCAT(DISTINCT lc.teacher_notes ORDER BY lc.assessed_date DESC SEPARATOR ' | ') as teacher_notes
-                FROM core_competencies cc
-                LEFT JOIN learner_competencies lc ON lc.competency_id = cc.id AND lc.student_id = :student_id
+                FROM " . ReadReplicaService::qualifiedRef("core_competencies") . " cc
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc ON lc.competency_id = cc.id AND lc.student_id = :student_id
                 LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
                 WHERE cc.status = 'active'
             ";

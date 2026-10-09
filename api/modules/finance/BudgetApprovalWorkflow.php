@@ -7,6 +7,7 @@ use App\API\Modules\finance\BudgetManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Budget Approval Workflow
@@ -75,8 +76,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             // Get budget line items count
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as item_count, SUM(allocated_amount) as total_amount
-                FROM budget_line_items
-                WHERE budget_id = ?
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . " budget_id = ?
             ");
             $stmt->execute([$budgetId]);
             $lineItems = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -358,8 +358,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                 SELECT wi.*, 
                        b.name as budget_name,
                        b.status as budget_status
-                FROM workflow_instances wi
-                INNER JOIN budgets b ON JSON_EXTRACT(wi.data_json, '$.budget_id') = b.id
+                FROM " . ReadReplicaService::qualifiedRef("workflow_instances") . "
+                INNER JOIN " . ReadReplicaService::qualifiedRef("budgets") . " b ON JSON_EXTRACT(wi.data_json, '$.budget_id') = b.id
                 WHERE wi.workflow_id = ?
                 AND JSON_EXTRACT(wi.data_json, '$.budget_id') = ?
                 ORDER BY wi.started_at DESC

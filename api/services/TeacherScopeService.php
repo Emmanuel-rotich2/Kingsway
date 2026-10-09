@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Services;
 
+use App\API\Services\ReadReplicaService;
 use PDO;
 
 /**
@@ -47,10 +48,9 @@ final class TeacherScopeService
         $scope = $empty;
         $scope['is_teacher'] = true;
         $class = $this->db->prepare(
-            "SELECT aycs.id FROM academic_year_class_streams aycs
-             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             WHERE ayc.academic_year_id = ? AND aycs.class_teacher_id = ?
-               AND aycs.status IN ('planning','active')"
+            "SELECT class_stream_id FROM " . ReadReplicaService::masterSourceRef('academic_calendar') . "
+             WHERE academic_year_id = ? AND class_teacher_id = ?
+               AND class_stream_status IN ('planning','active')"
         );
         $class->execute([$yearId, $staffId]);
         $scope['class_teacher_stream_ids'] = array_map('intval', $class->fetchAll(PDO::FETCH_COLUMN));
@@ -58,10 +58,10 @@ final class TeacherScopeService
 
         $legacy = $this->db->prepare(
             "SELECT DISTINCT aycs.id AS stream_id, aycla.learning_area_id, t.role
-             FROM academic_year_class_learning_area_teachers t
-             JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
-             JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-             JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+             FROM " . ReadReplicaService::masterSourceRef("academic_year_class_learning_area_teachers") . " t
+             JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_learning_areas") . " aycla ON aycla.id = t.academic_year_class_learning_area_id
+             JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycla.academic_year_class_id
+             JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.academic_year_class_id = ayc.id
              WHERE t.staff_id = ? AND t.academic_year_term_id = ?
                AND ayc.academic_year_id = ? AND aycs.status IN ('planning','active')
                AND t.role IN ('subject_teacher','assistant','hod')"
@@ -76,11 +76,11 @@ final class TeacherScopeService
             $specific = $this->db->prepare(
                 "SELECT x.academic_year_class_stream_id AS stream_id,
                         cla.learning_area_id, x.role
-                 FROM academic_year_class_stream_learning_area_teachers x
-                 JOIN academic_year_class_streams aycs ON aycs.id = x.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN academic_year_class_stream_learning_areas sla ON sla.id = x.academic_year_class_stream_learning_area_id
-                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                 FROM " . ReadReplicaService::masterSourceRef("academic_year_class_stream_learning_area_teachers") . " x
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.id = x.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_stream_learning_areas") . " sla ON sla.id = x.academic_year_class_stream_learning_area_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                  WHERE x.staff_id = ? AND x.academic_year_term_id = ?
                    AND ayc.academic_year_id = ? AND x.status = 'active'
                    AND aycs.status IN ('planning','active')"
@@ -89,11 +89,11 @@ final class TeacherScopeService
             $specificRows = $specific->fetchAll(PDO::FETCH_ASSOC);
             $overrides = $this->db->prepare(
                 "SELECT DISTINCT x.academic_year_class_stream_id AS stream_id, cla.learning_area_id
-                 FROM academic_year_class_stream_learning_area_teachers x
-                 JOIN academic_year_class_streams aycs ON aycs.id = x.academic_year_class_stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 JOIN academic_year_class_stream_learning_areas sla ON sla.id = x.academic_year_class_stream_learning_area_id
-                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                 FROM " . ReadReplicaService::masterSourceRef("academic_year_class_stream_learning_area_teachers") . " x
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_streams") . " aycs ON aycs.id = x.academic_year_class_stream_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_stream_learning_areas") . " sla ON sla.id = x.academic_year_class_stream_learning_area_id
+                 JOIN " . ReadReplicaService::masterSourceRef("academic_year_class_learning_areas") . " cla ON cla.id = sla.academic_year_class_learning_area_id
                  WHERE x.academic_year_term_id = ? AND ayc.academic_year_id = ? AND x.status = 'active'"
             );
             $overrides->execute([$termId, $yearId]);
@@ -131,10 +131,9 @@ final class TeacherScopeService
         if ($scope['visible_stream_ids']) {
             $marks = implode(',', array_fill(0, count($scope['visible_stream_ids']), '?'));
             $pair = $this->db->prepare(
-                "SELECT aycs.id, ayc.class_id, aycs.stream_id
-                 FROM academic_year_class_streams aycs
-                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 WHERE aycs.id IN ($marks)"
+                "SELECT class_stream_id, class_id, stream_id
+                 FROM " . ReadReplicaService::masterSourceRef('academic_calendar') . "
+                 WHERE class_stream_id IN ($marks)"
             );
             $pair->execute($scope['visible_stream_ids']);
             foreach ($pair->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -156,13 +155,27 @@ final class TeacherScopeService
 
     private function staffId(array $user): ?int
     {
-        if (!empty($user['staff_id'])) return (int)$user['staff_id'];
         $userId = $user['user_id'] ?? $user['id'] ?? null;
         if (!$userId) return null;
-        $stmt = $this->db->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? AND s.status = 'active' LIMIT 1");
-        $stmt->execute([(int)$userId]);
-        $id = $stmt->fetchColumn();
-        return $id ? (int)$id : null;
+        $roles = (array) ($user['roles'] ?? []);
+        foreach ($roles as $role) {
+            if (is_array($role)
+                && strtolower(trim((string) ($role['scope'] ?? $role['domain'] ?? ''))) === 'system'
+            ) {
+                $hasSchoolRole = false;
+                foreach ($roles as $candidate) {
+                    if (is_array($candidate)
+                        && strtolower(trim((string) ($candidate['scope'] ?? $candidate['domain'] ?? ''))) === 'school'
+                    ) {
+                        $hasSchoolRole = true;
+                        break;
+                    }
+                }
+                if (!$hasSchoolRole) return null;
+            }
+        }
+        $id = StaffRecordsService::staffIdForUserId($this->db, (int) $userId, true);
+        return $id > 0 ? $id : null;
     }
 
     private function currentYearId(): ?int

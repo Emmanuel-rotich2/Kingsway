@@ -6,6 +6,7 @@ namespace App\API\Modules\transport;
 use PDO;
 use RuntimeException;
 use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Transport access is based on date-bounded entitlements, not on a monthly
@@ -199,7 +200,7 @@ class StudentTransportEntitlementManager
             if (in_array($method, ['mpesa', 'daraja_mpesa', 'buni_mpesa'], true) && empty($data['verified_provider_callback'])) {
                 throw new RuntimeException('Mobile-money transport payments must be allocated from a verified provider confirmation');
             }
-            $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM transport_entitlement_payment_allocations a JOIN transport_entitlement_payments p ON p.id=a.payment_id AND p.payment_status='confirmed' WHERE a.entitlement_id=?");
+            $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " JOIN transport_entitlement_payments p ON p.id=a.payment_id AND p.payment_status='confirmed' WHERE a.entitlement_id=?");
             $paidStmt->execute([$entitlementId]);
             $remaining = max(0, (float)$e['amount_due'] - (float)$paidStmt->fetchColumn());
             if ($amount > $remaining && $remaining > 0 && empty($data['allow_credit'])) throw new RuntimeException('Payment exceeds this entitlement balance');
@@ -237,9 +238,9 @@ class StudentTransportEntitlementManager
                     (SELECT COUNT(*) FROM student_transport_day_usage u WHERE u.entitlement_id=e.id) AS used_school_days,
                     EXISTS(SELECT 1 FROM student_transport_day_usage u WHERE u.entitlement_id=e.id AND u.usage_date=?) AS used_today,
                     COALESCE(SUM(CASE WHEN tp.payment_status='confirmed' THEN a.amount ELSE 0 END),0) paid
-             FROM student_transport_entitlements e
+             FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e
              JOIN transport_entitlement_periods p ON p.id=e.period_id
-             LEFT JOIN transport_entitlement_payment_allocations a ON a.entitlement_id=e.id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " a ON a.entitlement_id=e.id
              LEFT JOIN transport_entitlement_payments tp ON tp.id=a.payment_id
              WHERE e.student_id=? AND e.route_id=? AND e.entitlement_status='active'
                AND p.status='open' AND p.period_start<=? AND p.period_end>=?
@@ -280,14 +281,14 @@ class StudentTransportEntitlementManager
 
     private function isSchoolDay(string $date): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM academic_year_calendar_days d JOIN calendar_day_types t ON t.id=d.calendar_day_type_id WHERE d.date=? AND t.code='school_day' LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " WHERE date=? AND type='school_day' LIMIT 1");
         $stmt->execute([$date]);
         return (bool)$stmt->fetchColumn();
     }
 
     private function countSchoolDays(string $start, string $end): int
     {
-        $stmt = $this->db->prepare("SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar_days d JOIN calendar_day_types t ON t.id=d.calendar_day_type_id WHERE d.date BETWEEN ? AND ? AND t.code='school_day'");
+        $stmt = $this->db->prepare("SELECT COUNT(DISTINCT date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " WHERE date BETWEEN ? AND ? AND type='school_day'");
         $stmt->execute([$start, $end]);
         return (int)$stmt->fetchColumn();
     }
@@ -320,13 +321,13 @@ class StudentTransportEntitlementManager
         if ($unit === 'terms' || $unit === 'academic_year') {
             $yearId = $this->db->query("SELECT id FROM academic_years WHERE is_current=1 ORDER BY id DESC LIMIT 1")->fetchColumn();
             if (!$yearId) throw new RuntimeException('The school has no current academic year calendar.');
-            $termsStmt = $this->db->prepare(
-                "SELECT ayt.id, t.name, t.id AS term_number,
-                        COALESCE((SELECT MIN(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.opening_date) AS period_start,
-                        COALESCE((SELECT MAX(d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.closing_date) AS period_end,
-                        (SELECT COUNT(DISTINCT d.date) FROM academic_year_calendar ac JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id WHERE ac.academic_year_term_id=ayt.id AND cdt.code='school_day') AS school_days
-                   FROM academic_year_terms ayt JOIN terms t ON t.id=ayt.term_id
-                  WHERE ayt.academic_year_id=? ORDER BY t.id"
+$termsStmt = $this->db->prepare(
+                "SELECT ayt.id, ayt.name AS term_name, ayt.term_id AS term_number,
+                        COALESCE((SELECT MIN(d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.opening_date) AS period_start,
+                        COALESCE((SELECT MAX(d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id), ayt.closing_date) AS period_end,
+                        (SELECT COUNT(DISTINCT d.date) FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days_typed") . " d ON d.academic_year_calendar_id=ac.id WHERE ac.academic_year_term_id=ayt.id AND d.type='school_day') AS school_days
+                   FROM " . ReadReplicaService::qualifiedRef("academic_term_terms") . " ayt
+                   WHERE ayt.academic_year_id=? ORDER BY ayt.term_id"
             );
             $termsStmt->execute([(int) $yearId]);
             $terms = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -352,11 +353,11 @@ class StudentTransportEntitlementManager
         } else {
             $needed = $unit === 'weeks' ? (int) $quantity * 5 : (int) $quantity;
             $datesStmt = $this->db->prepare(
-                "SELECT DISTINCT d.date FROM academic_year_calendar ac
-                 JOIN academic_year_calendar_days d ON d.academic_year_calendar_id=ac.id
+                "SELECT DISTINCT d.date FROM " . ReadReplicaService::qualifiedRef("academic_year_calendar") . " ac
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_calendar_days") . " d ON d.academic_year_calendar_id=ac.id
                  JOIN calendar_day_types cdt ON cdt.id=d.calendar_day_type_id
-                 JOIN academic_year_terms ayt ON ayt.id=ac.academic_year_term_id
-                 JOIN academic_years ay ON ay.id=ayt.academic_year_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id=ac.academic_year_term_id
+                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id=ayt.academic_year_id
                  WHERE ay.is_current=1 AND cdt.code='school_day' AND d.date>=CURDATE()
                  ORDER BY d.date LIMIT " . ($unit === 'months' ? '1' : (int) $needed)
             );
@@ -397,7 +398,7 @@ class StudentTransportEntitlementManager
 
     public function getEntitlement(int $id): array
     {
-        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM student_transport_entitlements e JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
     private function ensurePeriod(string $type, string $start, string $end, ?int $termId, ?string $label, ?int $userId): int

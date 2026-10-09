@@ -1,6 +1,7 @@
 <?php
 
 namespace App\API\Services\payments;
+use App\API\Services\ReadReplicaService;
 
 use App\Database\Database;
 use PDO;
@@ -248,9 +249,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 $admissionCol = $this->resolveAdmissionColumn();
             $sql = "SELECT s.id, p.first_name, p.last_name, s." . $admissionCol . " AS admission_number, 
                            COALESCE(sp.parent_id, 0) AS parent_id
-                    FROM students s
-                    LEFT JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN student_parents sp ON s.id = sp.student_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                     WHERE s." . $admissionCol . " = ?
                     LIMIT 1";
             $stmt = $this->db->prepare($sql);
@@ -267,13 +266,12 @@ $admissionCol = $this->resolveAdmissionColumn();
         $stmt = $this->db->prepare(
             "SELECT aa.id AS application_id, aa.application_no, aa.parent_id,
                     CASE WHEN EXISTS (
-                        SELECT 1 FROM student_academic_enrollments sae
+                        SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                         WHERE sae.student_id = aa.enrolled_student_id
                           AND sae.enrollment_status = 'active'
                     ) THEN aa.enrolled_student_id ELSE NULL END AS student_id
-             FROM admission_applications aa
-             LEFT JOIN students s ON s.id = aa.enrolled_student_id
-             WHERE (aa.application_no = :reference OR s.admission_no = :reference)
+             FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+             WHERE (aa.application_no = :reference OR (SELECT s.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " s WHERE s.student_id = aa.enrolled_student_id LIMIT 1) = :reference)
                AND aa.status NOT IN ('cancelled', 'rejected')
              LIMIT 1"
         );
@@ -536,10 +534,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             $stmt = $this->db->prepare("
                 SELECT COALESCE(pp.phone, '') as parent_phone, 
                        COALESCE(pp.email, '') as parent_email
-                FROM students s
-                LEFT JOIN student_parents sp ON s.id = sp.student_id
-                LEFT JOIN parents p ON sp.parent_id = p.id
-                LEFT JOIN persons pp ON pp.id = p.person_id
+                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
                 WHERE s.id = ?
                 LIMIT 1
             ");

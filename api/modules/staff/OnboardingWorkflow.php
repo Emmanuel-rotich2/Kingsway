@@ -5,6 +5,7 @@ use App\API\Includes\WorkflowHandler;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\ReadReplicaService;
 
 /**
  * Staff Onboarding Workflow
@@ -66,7 +67,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
             // Check for existing active onboarding workflow
             $stmt = $this->db->prepare("
-                SELECT wi.* FROM workflow_instances wi
+                SELECT wi.* FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
                 WHERE wi.reference_type = 'staff_onboarding'
                 AND wi.reference_id = ?
                 AND wi.status IN ('in_progress', 'pending')
@@ -103,7 +104,7 @@ class OnboardingWorkflow extends WorkflowHandler
             // In the 4NF model the workflow_instances row IS the onboarding header —
             // mentor_id and expected_completion_date are persisted inside its
             // workflow_data JSON (see $workflowData above). Onboarding progress is
-            // DERIVED from onboarding_tasks via vw_staff_onboarding_progress, never
+            // DERIVED FROM " . ReadReplicaService::qualifiedRef("users") . " vw_staff_onboarding_progress, never
             // stored on a parent row. So the onboarding id is the workflow instance id.
             $onboardingId = $workflowId;
 
@@ -304,7 +305,7 @@ class OnboardingWorkflow extends WorkflowHandler
             // Check for an existing account via staff.person_id = users.person_id.
             $stmt = $this->db->prepare("
                 SELECT u.id
-                FROM users u
+                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                 JOIN staff s ON s.person_id = u.person_id
                 WHERE s.id = ?
             ");

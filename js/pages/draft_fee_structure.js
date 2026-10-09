@@ -797,7 +797,7 @@ const draftFeeStructureController = {
             } else {
                 const resp = await this.API('POST', '/print/fee-structure-simple', printPayload);
                 if (resp?.success && resp?.data?.pdf_url) {
-                    window.open(resp.data.pdf_url, '_blank');
+                    window.PrintManager?.openDocument(resp.data.pdf_url, { title: 'Fee structure preview' });
                 } else {
                     showNotification?.('Failed to generate print preview', 'error');
                 }

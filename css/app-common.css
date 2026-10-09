@@ -752,11 +752,34 @@ table.table thead th[scope="col"] {
 }
 
 /* Staff assistant (AI co-worker) panel: wider than the default offcanvas so
-   workspace scans, findings and suggested actions stay readable. */
+   workspace scans, findings and suggested actions stay readable. The width was
+   raised from 500px after trimming the panel's explanatory chrome, so the
+   briefing data area gets the reclaimed horizontal room instead of the prose. */
 .offcanvas.ai-assistant-panel {
-  --bs-offcanvas-width: 500px;
-  width: 500px;
+  --bs-offcanvas-width: 580px;
+  width: 580px;
   max-width: 94vw;
+}
+/* Collapsed governance scope note: keeps the boundary visible in one line and
+   the detail one click away, instead of an always-open paragraph. */
+.ai-assistant-scope-note summary {
+  cursor: pointer;
+  list-style: none;
+}
+.ai-assistant-scope-note summary::-webkit-details-marker {
+  display: none;
+}
+.ai-assistant-scope-note summary:hover {
+  color: var(--bs-secondary-color, #475467);
+}
+/* The briefing widget renders alerts and metrics as two halves. On the
+   full-width dashboard that is correct, but inside the narrow assistant
+   offcanvas each half is ~270px and forces horizontal cramping, so give each
+   one the full panel width. Scoped to the panel's briefing container so the
+   dashboard layout is untouched. */
+.offcanvas.ai-assistant-panel #global-ai-assistant-briefing .row > [class*="col-"] {
+  flex: 0 0 100%;
+  max-width: 100%;
 }
 .ai-briefing-finding {
   border-left: 3px solid var(--bs-info);
@@ -771,4 +794,106 @@ table.table thead th[scope="col"] {
   .offcanvas.ai-assistant-panel {
     display: none !important;
   }
+}
+/* Compact, keyboard friendly navigation for the student register. */
+.students-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-light, #e5e7eb);
+  border-radius: 0.75rem;
+  background: var(--bg-card, #fff);
+}
+
+.students-table-range {
+  font-size: 0.9rem;
+}
+
+.students-table-range strong {
+  color: var(--text-primary, #1f2937);
+  font-weight: 600;
+}
+
+.students-table-controls,
+.students-page-size,
+.students-page-navigation {
+  display: flex;
+  align-items: center;
+}
+
+.students-table-controls {
+  gap: 1.25rem;
+}
+
+.students-page-size {
+  gap: 0.55rem;
+  margin: 0;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.students-page-size select {
+  width: 5rem;
+}
+
+.students-page-navigation {
+  gap: 0.6rem;
+}
+
+.students-page-navigation .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+}
+
+.students-page-indicator {
+  min-width: 5.5rem;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.875rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .students-table-footer,
+  .students-table-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .students-page-navigation {
+    justify-content: space-between;
+  }
+}
+
+/* ===== Summative results pivot table (Results workspace) ===== */
+.vrp-scroll { max-height: 65vh; overflow: auto; border: 1px solid var(--bs-border-color); border-radius: .375rem; }
+.vrp-table { margin-bottom: 0; }
+.vrp-table .vrp-head th { position: sticky; top: 0; z-index: 3; background: var(--bs-body-bg); box-shadow: 0 1px 0 var(--bs-border-color); }
+.vrp-table td, .vrp-table th { white-space: nowrap; }
+.vrp-sticky { position: sticky; z-index: 2; background: var(--bs-body-bg); }
+.vrp-sticky-1 { left: 0; min-width: 12rem; }
+.vrp-sticky-2 { left: 12rem; min-width: 9rem; }
+.vrp-sticky-3 { left: 21rem; min-width: 10rem; }
+.vrp-sticky-actions { left: 31rem; min-width: 7rem; z-index: 2; box-shadow: -4px 0 8px -4px rgba(0,0,0,.12); }
+.vrp-sortable { cursor: pointer; }
+.vrp-sortable:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+.vrp-table td.vrp-dirty { background: #fff7d6 !important; box-shadow: inset 0 0 0 1px #d9b900; }
+.vrp-table td.vrp-invalid { background: #fde8e8 !important; }
+.vrp-table td.vrp-dirty input { background: transparent; border-color: #d9b900; }
+.vrp-err { color: var(--bs-danger); font-size: .7rem; margin-top: .15rem; white-space: normal; }
+.vrp-editing input.vrp-input { width: 5.5rem; text-align: center; }
+.vrp-grade { font-size: .7rem; margin-left: .25rem; padding: 0 .3rem; border-radius: .25rem; background: var(--bs-tertiary-bg); }
+.vrp-menu { z-index: 1050; }
+.vrp-status { font-size: .8rem; }
+@media print {
+  @page { size: A4 landscape; }
+  .vrp-scroll { max-height: none; overflow: visible; border: none; }
+  .vrp-table .vrp-sticky { position: static; }
+  .vrp-toolbar, .vrp-kebab, .vrp-status { display: none !important; }
 }

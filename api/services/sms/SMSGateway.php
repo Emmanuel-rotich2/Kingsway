@@ -47,6 +47,8 @@ class SMSGateway
                 return new AfricasTalkingProvider($this->config);
             case 'twilio':
                 return new TwilioProvider($this->config);
+            case 'talksasa':
+                return new TalksasaProvider($this->config);
             default:
                 throw new \Exception('Unsupported SMS provider');
         }
@@ -58,6 +60,60 @@ interface SMSProvider
     public function sendMessage($to, $message);
 }
 
+
+class TalksasaProvider implements SMSProvider
+{
+    private $config;
+    private $baseUrl;
+    private $apiKey;
+    private $senderId;
+
+    public function __construct($config)
+    {
+        $this->config = $config;
+        $this->baseUrl = rtrim((string) ($this->config['api_url'] ?? 'https://bulksms.talksasa.com/api/v3/'), '/');
+        $this->apiKey = $this->config['api_key'] ?? '';
+        $this->senderId = $this->config['sender_id'] ?? 'TALK-SASA';
+    }
+
+    public function sendMessage($to, $message)
+    {
+        $url = $this->baseUrl . '/sms/send';
+
+        $body = [
+            'phone' => $to,
+            'message' => $message,
+            'sender_id' => $this->senderId
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json'
+        ]);
+
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error) {
+            throw new \Exception("Talksasa SMS send failed: $error");
+        }
+
+        $data = json_decode($response, true);
+        if ($data['status'] ?? $data['result'] ?? null !== 'success') {
+            return true;
+        }
+
+        $msg = $data['message'] ?? $data['error'] ?? 'Unknown error';
+        throw new \Exception("Talksasa SMS send failed: $msg");
+    }
+}
 
 class AfricasTalkingProvider implements SMSProvider
 {

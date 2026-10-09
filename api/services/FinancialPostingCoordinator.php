@@ -69,7 +69,7 @@ final class FinancialPostingCoordinator
 
     private function sourceAccount(int $id): array
     {
-        $s = $this->db->prepare("SELECT a.id,a.account_name,c.account_code AS ledger_code FROM school_financial_accounts a JOIN chart_of_accounts c ON c.id=a.ledger_account_id WHERE a.id=? AND a.status='active' LIMIT 1");
+        $s = $this->db->prepare("SELECT a.id,a.account_name,c.account_code AS ledger_code FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN " . ReadReplicaService::qualifiedRef("chart_of_accounts") . " c ON c.id=a.ledger_account_id WHERE a.id=? AND a.status='active' LIMIT 1");
         $s->execute([$id]);
         $account = $s->fetch(PDO::FETCH_ASSOC);
         if (!$account || !$account['ledger_code']) throw new RuntimeException('Financial account is not active or has no ledger mapping.');

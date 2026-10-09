@@ -377,9 +377,11 @@ const libraryController = {
     if (!sel) return;
     sel.innerHTML = '<option value="">Loading…</option>';
     try {
-      const endpoint = type === 'student' ? '/students/list' : '/staff/list';
+      const endpoint = type === 'student' ? '/students/student?page=1&limit=200' : '/staff';
       const r = await callAPI(endpoint, 'GET').catch(() => null);
-      const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const list = type === 'student'
+        ? (r?.data?.students ?? (Array.isArray(r?.data) ? r.data : []))
+        : (r?.data?.staff ?? (Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : [])));
       sel.innerHTML = '<option value="">— Select borrower —</option>';
       list.forEach(p => {
         const o = document.createElement('option');

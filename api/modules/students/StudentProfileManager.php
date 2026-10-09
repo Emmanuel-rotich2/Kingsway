@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use PDO;
 use PDOStatement;
 use Exception;
+use App\API\Services\ReadReplicaService;
 
 /**
  * StudentProfileManager - owns all student enrichment SQL (counseling, health,
@@ -168,8 +169,7 @@ class StudentProfileManager extends BaseAPI
         }
 
         $sql = "SELECT DISTINCT p.id
-                FROM parents p
-                INNER JOIN persons pg ON pg.id = p.person_id
+                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                 WHERE " . implode(' OR ', array_map(static fn($condition) => "({$condition})", $conditions)) . "
                 ORDER BY p.id ASC";
 
@@ -181,8 +181,7 @@ class StudentProfileManager extends BaseAPI
     {
         $stmt = $this->db->query(
             "SELECT u.id, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
-             FROM users u
-             INNER JOIN persons p ON p.id = u.person_id
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
              WHERE u.status = 'active'
              ORDER BY full_name ASC"
         );
@@ -193,8 +192,7 @@ class StudentProfileManager extends BaseAPI
     {
         $stmt = $this->db->query(
             "SELECT s.id, s.admission_no, CONCAT_WS(' ', p.first_name, p.last_name) AS full_name
-             FROM students s
-             INNER JOIN persons p ON p.id = s.person_id
+             FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
              WHERE s.status = 'active'
              ORDER BY full_name ASC"
         );
@@ -205,10 +203,10 @@ class StudentProfileManager extends BaseAPI
     {
         $stmt = $this->db->query(
             "SELECT aycs.id, ayc.class_id, st.name AS stream_name
-             FROM academic_year_class_streams aycs
-             INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             INNER JOIN streams st ON st.id = aycs.stream_id
-             INNER JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+             FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs
+             INNER JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+             INNER JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
+             INNER JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
              ORDER BY st.name ASC"
         );
         return $this->allRows($stmt);
@@ -287,8 +285,8 @@ class StudentProfileManager extends BaseAPI
                         st_c.name AS stream_name,
                         CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
                     FROM counseling_cases c
-                    INNER JOIN students s ON s.id = c.student_id
-                    INNER JOIN persons p ON p.id = s.person_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     " . $this->classStreamJoins('c') . "
                     LEFT JOIN users u ON u.id = c.assigned_to
                     LEFT JOIN persons up ON up.id = u.person_id
@@ -378,8 +376,8 @@ class StudentProfileManager extends BaseAPI
                     st_c.name AS stream_name,
                     CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
                  FROM counseling_cases c
-                 INNER JOIN students s ON s.id = c.student_id
-                 INNER JOIN persons p ON p.id = s.person_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = c.student_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  " . $this->classStreamJoins('c') . "
                  LEFT JOIN users u ON u.id = c.assigned_to
                  LEFT JOIN persons up ON up.id = u.person_id
@@ -395,8 +393,7 @@ class StudentProfileManager extends BaseAPI
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, s.status, s.blood_group,
                         p.first_name, p.middle_name, p.last_name, p.gender
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$case['student_id']]);
@@ -480,9 +477,9 @@ class StudentProfileManager extends BaseAPI
                         ayc_h.class_id AS class_id,
                         cls_h.name AS class_name,
                         st_h.name AS stream_name
-                    FROM student_health_records h
-                    INNER JOIN students s ON s.id = h.student_id
-                    INNER JOIN persons p ON p.id = s.person_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_health_records") . " h
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = h.student_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                     " . $this->classStreamJoins('h') . "
                     WHERE 1=1";
 
@@ -567,9 +564,9 @@ class StudentProfileManager extends BaseAPI
                     ayc_h.class_id AS class_id,
                     cls_h.name AS class_name,
                     st_h.name AS stream_name
-                 FROM student_health_records h
-                 INNER JOIN students s ON s.id = h.student_id
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_health_records") . " h
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = h.student_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  " . $this->classStreamJoins('h') . "
                  WHERE h.id = ?"
             );
@@ -584,9 +581,9 @@ class StudentProfileManager extends BaseAPI
                 "SELECT s.id, s.admission_no, s.status, s.blood_group,
                         p.first_name, p.middle_name, p.last_name, p.gender,
                         h.allergies, h.chronic_conditions
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
-                 LEFT JOIN student_health_records h ON h.student_id = s.id AND h.id = ?
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_health_records") . " h ON h.student_id = s.id AND h.id = ?
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$recordId, $record['student_id']]);
@@ -780,8 +777,8 @@ class StudentProfileManager extends BaseAPI
 
             $totalBoarders = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS total
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -790,8 +787,8 @@ class StudentProfileManager extends BaseAPI
 
             $notEatingStmt = $this->db->prepare(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -805,8 +802,8 @@ class StudentProfileManager extends BaseAPI
 
             $specialDiet = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -816,8 +813,8 @@ class StudentProfileManager extends BaseAPI
 
             $sickBayStmt = $this->db->prepare(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -829,23 +826,23 @@ class StudentProfileManager extends BaseAPI
 
             $breakdownByClass = $this->allRows($this->db->query(
                 "SELECT cls.name AS class_name, COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
                       AND (da.end_date IS NULL OR da.end_date >= CURDATE())
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cls ON cls.id = ayc.class_id
                  GROUP BY cls.id, cls.name
                  ORDER BY cls.name"
             ));
 
             $breakdownByDiet = $this->allRows($this->db->query(
                 "SELECT smp.diet_type, COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -878,8 +875,7 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$studentId]);
@@ -892,8 +888,8 @@ class StudentProfileManager extends BaseAPI
             $boardingStmt = $this->db->prepare(
                 "SELECT da.*, d.name AS dormitory_name, d.gender AS dormitory_gender
                  FROM dormitory_assignments da
-                 INNER JOIN student_academic_enrollments sae ON sae.id = da.student_academic_enrollment_id
-                 INNER JOIN dormitories d ON d.id = da.dormitory_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = da.student_academic_enrollment_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("dormitories") . " d ON d.id = da.dormitory_id
                  WHERE sae.student_id = ? AND da.status = 'active'
                  ORDER BY da.assigned_date DESC
                  LIMIT 1"
@@ -903,12 +899,12 @@ class StudentProfileManager extends BaseAPI
 
             $classInfoStmt = $this->db->prepare(
                 "SELECT cls.name AS class_name, st.name AS stream_name
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
-                 LEFT JOIN streams st ON st.id = aycs.stream_id
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cls ON cls.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                  WHERE s.id = ?"
             );
             $classInfoStmt->execute([$studentId]);
@@ -1182,8 +1178,8 @@ class StudentProfileManager extends BaseAPI
         try {
             $totalBoarders = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS total
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -1192,9 +1188,9 @@ class StudentProfileManager extends BaseAPI
 
             $boys = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -1204,9 +1200,9 @@ class StudentProfileManager extends BaseAPI
 
             $girls = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -1218,13 +1214,13 @@ class StudentProfileManager extends BaseAPI
 
             $onExeatStmt = $this->db->prepare(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
                       AND (da.end_date IS NULL OR da.end_date >= CURDATE())
-                 INNER JOIN student_permissions sp ON sp.student_id = s.id AND sp.permission_type_id = 1
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_permissions") . " sp ON sp.student_id = s.id AND sp.permission_type_id = 1
                  WHERE sp.status = 'approved'
                  AND sp.start_date <= ? AND (sp.end_date >= ? OR sp.end_date IS NULL)"
             );
@@ -1233,8 +1229,8 @@ class StudentProfileManager extends BaseAPI
 
             $absentStmt = $this->db->prepare(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -1247,8 +1243,8 @@ class StudentProfileManager extends BaseAPI
 
             $specialAlerts = $this->fetchColumnInt($this->db->query(
                 "SELECT COUNT(DISTINCT s.id) AS count
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
                  INNER JOIN dormitory_assignments da
                       ON da.student_academic_enrollment_id = sae.id
                       AND da.status = 'active'
@@ -1276,8 +1272,7 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$studentId]);
@@ -1290,8 +1285,8 @@ class StudentProfileManager extends BaseAPI
             $boardingStmt = $this->db->prepare(
                 "SELECT da.*, d.name AS dormitory_name, d.gender AS dormitory_gender
                  FROM dormitory_assignments da
-                 INNER JOIN student_academic_enrollments sae ON sae.id = da.student_academic_enrollment_id
-                 INNER JOIN dormitories d ON d.id = da.dormitory_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = da.student_academic_enrollment_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("dormitories") . " d ON d.id = da.dormitory_id
                  WHERE sae.student_id = ? AND da.status = 'active'
                  ORDER BY da.assigned_date DESC
                  LIMIT 1"
@@ -1301,12 +1296,12 @@ class StudentProfileManager extends BaseAPI
 
             $classInfoStmt = $this->db->prepare(
                 "SELECT cls.name AS class_name, st.name AS stream_name
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
-                 LEFT JOIN streams st ON st.id = aycs.stream_id
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cls ON cls.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                  WHERE s.id = ?"
             );
             $classInfoStmt->execute([$studentId]);
@@ -1324,7 +1319,7 @@ class StudentProfileManager extends BaseAPI
 
             $exeatStmt = $this->db->prepare(
                 "SELECT pt.name AS exeat_type, sp.start_date AS leave_at, sp.end_date AS expected_return_at, sp.status
-                 FROM student_permissions sp
+                 FROM " . ReadReplicaService::qualifiedRef("student_permissions") . "
                  LEFT JOIN student_permission_types pt ON pt.id = sp.permission_type_id
                  WHERE sp.student_id = ? AND sp.permission_type_id = 1
                  ORDER BY sp.start_date DESC
@@ -1438,85 +1433,73 @@ class StudentProfileManager extends BaseAPI
             $transportStatus = !empty($filters['transport_status']) ? trim($filters['transport_status']) : null;
             $search = !empty($filters['search']) ? trim($filters['search']) : '';
 
-            $sql = "SELECT
-                        s.id AS student_id,
-                        s.admission_no,
-                        CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
-                        p.gender,
-                        ayc.class_id,
-                        cls.name AS class_name,
-                        st.name AS stream_name,
-                        tr.id AS route_id,
-                        tr.name AS route_name,
-                        tv.id AS vehicle_id,
-                        tv.registration_number AS vehicle_name,
-                        ts.name AS pickup_point,
-                        ts_drop.name AS dropoff_point,
-                        pg.phone AS guardian_phone
-                    FROM students s
-                    INNER JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                    LEFT JOIN classes cls ON cls.id = ayc.class_id
-                    LEFT JOIN streams st ON st.id = aycs.stream_id
-                    LEFT JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
-                    LEFT JOIN transport_routes tr ON tr.id = sta.route_id
-                    LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
-                    LEFT JOIN transport_vehicles tv ON tv.id = tvr.vehicle_id
-                    LEFT JOIN transport_stops ts ON ts.id = sta.pickup_stop_id
-                    LEFT JOIN transport_stops ts_drop ON ts_drop.id = sta.dropoff_stop_id
-                    LEFT JOIN student_parents sp ON sp.student_id = s.id AND sp.is_primary_contact = 1
-                    LEFT JOIN parents pp ON pp.id = sp.parent_id
-                    LEFT JOIN persons pg ON pg.id = pp.person_id
-                    WHERE sta.id IS NOT NULL";
+            $tac = ReadReplicaService::qualifiedRef('transport_assignment_context');
+            $sql = "
+                SELECT
+                    tac.student_id,
+                    tac.admission_no,
+                    tac.student_full_name AS full_name,
+                    tac.student_gender AS gender,
+                    tac.class_id,
+                    tac.class_name,
+                    tac.stream_name,
+                    tac.route_id,
+                    tac.route_name,
+                    tac.vehicle_id,
+                    tac.vehicle_registration_number AS vehicle_name,
+                    tac.pickup_stop_name AS pickup_point,
+                    tac.dropoff_stop_name AS dropoff_point,
+                    tac.driver_full_name AS driver_name,
+                    tac.parent_phone AS guardian_phone
+                FROM {$tac} tac
+                WHERE tac.assignment_status = 'active'
+            ";
 
             $bindings = [];
 
             if (($user['role'] ?? '') === 'driver' && !empty($user['id'])) {
-                $sql .= " AND tv.driver_id = (SELECT st.id FROM staff st
-                             INNER JOIN users u ON u.person_id = st.person_id WHERE u.id = ?)";
+                $sql .= " AND tac.driver_staff_id = (SELECT st.id FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " WHERE u.id = ?)";
                 $bindings[] = (int) $user['id'];
             }
 
             if ($routeId) {
-                $sql .= " AND tr.id = ?";
+                $sql .= " AND tac.route_id = ?";
                 $bindings[] = $routeId;
             }
 
             if ($vehicleId) {
-                $sql .= " AND tv.id = ?";
+                $sql .= " AND tac.vehicle_id = ?";
                 $bindings[] = $vehicleId;
             }
 
-            if ($classId) {
-                $sql .= " AND ayc.class_id = ?";
+if ($classId) {
+                $sql .= " AND lp.class_id = ?";
                 $bindings[] = $classId;
             }
 
             if ($streamId) {
-                $sql .= " AND aycs.stream_id = ?";
+                $sql .= " AND lp.stream_id = ?";
                 $bindings[] = $streamId;
             }
 
             if ($gender) {
-                $sql .= " AND p.gender = ?";
+                $sql .= " AND tac.student_gender = ?";
                 $bindings[] = $gender;
             }
 
             if ($transportStatus) {
-                $sql .= " AND sta.status = ?";
+                $sql .= " AND tac.assignment_status = ?";
                 $bindings[] = $transportStatus;
             }
 
             if ($search) {
-                $sql .= " AND (s.admission_no LIKE ? OR p.first_name LIKE ? OR p.last_name LIKE ?
-                             OR ts.name LIKE ? OR pg.phone LIKE ?)";
+                $sql .= " AND (tac.admission_no LIKE ? OR tac.student_first_name LIKE ? OR tac.student_last_name LIKE ?
+                             OR tac.pickup_stop_name LIKE ? OR tac.parent_phone LIKE ?)";
                 $term = '%' . $search . '%';
                 array_push($bindings, $term, $term, $term, $term, $term);
             }
 
-            $sql .= " ORDER BY p.first_name, p.last_name";
+            $sql .= " ORDER BY tac.student_first_name, tac.student_last_name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
@@ -1569,10 +1552,10 @@ class StudentProfileManager extends BaseAPI
             $vehicleId = !empty($filters['vehicle_id']) ? (int) $filters['vehicle_id'] : null;
 
             $sql = "SELECT COUNT(DISTINCT s.id) AS total
-                    FROM students s
-                    INNER JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
-                    LEFT JOIN transport_routes tr ON tr.id = sta.route_id
-                    LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
+                    FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta ON sta.student_id = s.id AND sta.status = 'active'
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = sta.route_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
                     LEFT JOIN transport_vehicles tv ON tv.id = tvr.vehicle_id
                     WHERE 1=1";
 
@@ -1596,8 +1579,8 @@ class StudentProfileManager extends BaseAPI
                         COUNT(DISTINCT CASE WHEN status = 'absent' THEN s.id END) AS absent,
                         COUNT(DISTINCT CASE WHEN status = 'not_riding' THEN s.id END) AS not_riding,
                         COUNT(DISTINCT CASE WHEN status = 'pending' THEN s.id END) AS pending
-                    FROM student_transport_attendance sta
-                    INNER JOIN students s ON s.id = sta.student_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_transport_attendance") . "
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = sta.student_id
                     WHERE sta.attendance_date = ?";
 
             $attendanceBindings = [$date];
@@ -1616,9 +1599,9 @@ class StudentProfileManager extends BaseAPI
 
             $alertSql = "SELECT COUNT(DISTINCT s.id) AS count
                     FROM student_transport_notes stn
-                    INNER JOIN students s ON s.id = stn.student_id
-                    LEFT JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
-                    LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = stn.student_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta ON sta.student_id = s.id AND sta.status = 'active'
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
                     WHERE stn.visibility = 'public' AND stn.resolved = 0";
 
             $alertBindings = [];
@@ -1671,8 +1654,7 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$studentId]);
@@ -1686,16 +1668,16 @@ class StudentProfileManager extends BaseAPI
                 "SELECT sta.*, tr.name AS route_name,
                         tv.registration_number AS vehicle_name,
                         ts.name AS pickup_point, ts_drop.name AS dropoff_point,
-                        (SELECT e.allocated_school_days FROM student_transport_entitlements e
+                        (SELECT e.allocated_school_days FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e
                           JOIN transport_entitlement_periods ep ON ep.id=e.period_id
                          WHERE e.student_id=sta.student_id AND e.route_id=sta.route_id AND e.entitlement_status='active'
                          ORDER BY ep.period_end DESC, e.id DESC LIMIT 1) AS paid_school_days,
                         (SELECT COUNT(*) FROM student_transport_day_usage u
-                          JOIN student_transport_entitlements e ON e.id=u.entitlement_id
+                          JOIN " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e ON e.id=u.entitlement_id
                          WHERE e.student_id=sta.student_id AND e.route_id=sta.route_id AND e.entitlement_status='active') AS used_school_days
-                 FROM student_transport_assignments sta
-                 INNER JOIN transport_routes tr ON tr.id = sta.route_id
-                 LEFT JOIN transport_vehicle_routes tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
+                 FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " sta
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr ON tr.id = sta.route_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr ON tvr.route_id = sta.route_id AND tvr.status = 'active'
                  LEFT JOIN transport_vehicles tv ON tv.id = tvr.vehicle_id
                  LEFT JOIN transport_stops ts ON ts.id = sta.pickup_stop_id
                  LEFT JOIN transport_stops ts_drop ON ts_drop.id = sta.dropoff_stop_id
@@ -1711,21 +1693,21 @@ class StudentProfileManager extends BaseAPI
 
             $classInfoStmt = $this->db->prepare(
                 "SELECT cls.name AS class_name, st.name AS stream_name
-                 FROM students s
-                 INNER JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
-                 LEFT JOIN streams st ON st.id = aycs.stream_id
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " cls ON cls.id = ayc.class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
                  WHERE s.id = ?"
             );
             $classInfoStmt->execute([$studentId]);
             $classInfo = $this->fetch($classInfoStmt);
 
             $guardianStmt = $this->db->prepare(
-                "SELECT pg.phone AS phone_1 FROM student_parents sp
-                 INNER JOIN parents p ON p.id = sp.parent_id
-                 INNER JOIN persons pg ON pg.id = p.person_id
+                "SELECT pg.phone AS phone_1 FROM " . ReadReplicaService::qualifiedRef("student_parents") . " sp
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("parents") . " p ON p.id = sp.parent_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " pg ON pg.id = p.person_id
                  WHERE sp.student_id = ? AND sp.is_primary_contact = 1 LIMIT 1"
             );
             $guardianStmt->execute([$studentId]);
@@ -1885,6 +1867,7 @@ class StudentProfileManager extends BaseAPI
             $assignedTo = !empty($filters['assigned_to']) ? (int) $filters['assigned_to'] : null;
             $search = !empty($filters['search']) ? trim($filters['search']) : '';
 
+            $lp = ReadReplicaService::qualifiedRef('learner_placement');
             $sql = "SELECT
                         swc.id,
                         swc.case_code,
@@ -1899,20 +1882,16 @@ class StudentProfileManager extends BaseAPI
                         s.admission_no,
                         CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
                         p.gender,
-                        cls.name AS class_name,
-                        st.name AS stream_name,
+                        lp.class_name,
+                        lp.stream_name,
                         CONCAT_WS(' ', up.first_name, up.last_name) AS assigned_to_name,
                         MAX(swn.created_at) AS last_interaction
                     FROM student_welfare_cases swc
-                    INNER JOIN students s ON s.id = swc.student_id
-                    INNER JOIN persons p ON p.id = s.person_id
-                    LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                    LEFT JOIN classes cls ON cls.id = ayc.class_id
-                    LEFT JOIN streams st ON st.id = aycs.stream_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = swc.student_id
+                    INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    LEFT JOIN {$lp} lp ON lp.student_id = s.id
                     LEFT JOIN users u ON u.id = swc.assigned_to
-                    LEFT JOIN persons up ON up.id = u.person_id
+                    LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " up ON up.id = u.person_id
                     LEFT JOIN student_welfare_notes swn ON swn.welfare_case_id = swc.id
                     WHERE s.status = 'active'";
 
@@ -1990,19 +1969,15 @@ class StudentProfileManager extends BaseAPI
                 "SELECT swc.*,
                         CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                         s.admission_no,
-                        cls.name AS class_name,
-                        st.name AS stream_name,
+                        lp.class_name,
+                        lp.stream_name,
                         CONCAT_WS(' ', up.first_name, up.last_name) AS assigned_to_name,
                         CONCAT_WS(' ', ob.first_name, ob.last_name) AS opened_by_name,
                         CONCAT_WS(' ', rb.first_name, rb.last_name) AS resolved_by_name
                  FROM student_welfare_cases swc
-                 INNER JOIN students s ON s.id = swc.student_id
-                 INNER JOIN persons p ON p.id = s.person_id
-                 LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
-                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 LEFT JOIN classes cls ON cls.id = ayc.class_id
-                 LEFT JOIN streams st ON st.id = aycs.stream_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = swc.student_id
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
                  LEFT JOIN users u ON u.id = swc.assigned_to
                  LEFT JOIN persons up ON up.id = u.person_id
                  LEFT JOIN users uo ON uo.id = swc.opened_by
@@ -2021,8 +1996,7 @@ class StudentProfileManager extends BaseAPI
 
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM students s
-                 INNER JOIN persons p ON p.id = s.person_id
+                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
                  WHERE s.id = ?"
             );
             $studentStmt->execute([$case['student_id']]);

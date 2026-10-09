@@ -1,6 +1,8 @@
 <?php
 namespace App\API\Modules\attendance;
 
+use App\API\Services\ReadReplicaService;
+
 use App\Database\Database;
 use PDO;
 
@@ -66,8 +68,8 @@ class StaffAttendanceManager
         $sql = "SELECT sa.*,
                        CONCAT(p.first_name, ' ', p.last_name) as staff_name
                 FROM staff_attendance sa
-                JOIN staff st ON sa.staff_id = st.id
-                JOIN persons p ON p.id = st.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " st ON sa.staff_id = st.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = st.person_id
                 WHERE sa.staff_id = ?
                 ORDER BY sa.date DESC";
         $stmt = $this->db->prepare($sql);
@@ -108,9 +110,9 @@ class StaffAttendanceManager
         $sql = "SELECT sa.*,
                        CONCAT(p.first_name, ' ', p.last_name) as staff_name
                 FROM staff_attendance sa
-                JOIN staff s ON sa.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
-                JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.department_id = ?
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sa.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.staff_id = s.id AND sda.department_id = ?
                 ORDER BY sa.date DESC, p.first_name, p.last_name
                 LIMIT 500";
         $stmt = $this->db->prepare($sql);
@@ -157,8 +159,8 @@ class StaffAttendanceManager
                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                        (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM staff_attendance sa
-                JOIN staff s ON sa.staff_id = s.id
-                JOIN persons p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON sa.staff_id = s.id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 WHERE 1=1";
         $params = [];
         if ($departmentId) {

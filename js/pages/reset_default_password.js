@@ -1,5 +1,43 @@
 const resetDefaultPasswordController = {
     async init() {
+        // Load onboarding flags from the public endpoint (no server-side DB):
+        // parent vs staff copy + whether to resume straight to the OTP step.
+        try {
+            const token = document.getElementById('rdpToken')?.value || new URLSearchParams(location.search).get('token') || '';
+            // Public page — no JWT exists yet, so use a plain fetch (same
+            // convention as js/core/public_site.js) rather than apiCall().
+            const base = String(window.APP_BASE || '').replace(/\/+$/, '');
+            const http = await fetch(base + '/api/public/setup-invitation?token=' + encodeURIComponent(token), {
+                headers: { Accept: 'application/json' }, credentials: 'same-origin',
+            });
+            const body = await http.json().catch(() => null);
+            const flags = body?.data || body || {};
+            const isParent = !!flags.is_parent_invitation;
+            const resumeOtp = !!flags.resume_staff_invitation_otp;
+            window.KINGSWAY_SETUP_ACCOUNT_TYPE = isParent ? 'parent' : 'staff';
+            window.KINGSWAY_SETUP_RESUME_OTP = resumeOtp;
+            const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+            set('rdpBadge', isParent ? 'PARENT PORTAL SETUP' : 'STAFF ONBOARDING');
+            set('rdpWelcome', isParent ? 'Welcome to the Kingsway parent community' : 'Welcome to the Kingsway team');
+            set('rdpIntro', isParent
+                ? 'Secure your account, sign in to the Parent Portal, and access information for your linked child.'
+                : 'Secure your account, complete your staff information, and then begin from your role dashboard.');
+            set('rdpStep2Title', isParent ? 'Sign in to the portal' : 'Verify your email');
+            set('rdpStep2Hint', isParent ? 'Use your registered parent email' : 'Enter the six-digit code we send you');
+            set('rdpStep3Title', isParent ? 'View your child' : 'Complete profile');
+            set('rdpStep3Hint', isParent ? 'Access fees, attendance, results and notices' : 'Confirm your personal and contact details');
+            set('rdpPasswordHint', isParent
+                ? 'Choose a password only you know. You will use it with your registered email on the Parent Portal.'
+                : 'Choose a password only you know. The temporary password from your invitation will stop working.');
+            if (resumeOtp) {
+                set('rdpState', 'Your password is already saved. Verify your email to continue to your staff profile.');
+                document.getElementById('rdpState')?.classList.replace('alert-light', 'alert-info');
+                document.getElementById('rdpForm')?.classList.add('d-none');
+                document.getElementById('rdpOtpForm')?.classList.remove('d-none');
+                document.getElementById('rdpOtpCode')?.focus();
+            }
+        } catch (e) { /* keep staff-default rendering; the form still works */ }
+
         const password = document.getElementById('rdpPassword');
         const rules = {
             length: value => value.length >= 10,
