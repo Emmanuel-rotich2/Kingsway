@@ -16,6 +16,10 @@
  *     auto-dismisses;
  *   - a success toast on PAYMENT_ALERT ("fees received & posted").
  *
+ * IMPORTANT: Only shows toasts for jobs explicitly initiated by the current
+ * session (via window.API.nodeJobs.enqueue). Background/cron jobs that the
+ * user did not trigger do NOT produce popups.
+ *
  * Descriptors are identifiers and enums only, so there is nothing to escape,
  * but every value is still written via textContent — never innerHTML.
  *
@@ -32,6 +36,7 @@
   const DISMISS_AFTER = { complete: 4500, failed: 9000, alert: 6000 };
 
   const jobs = new Map();
+  const trackedJobs = new Set(); // job IDs explicitly enqueued by this session
   let container = null;
 
   function css() {
@@ -110,12 +115,27 @@
     return { el, titleEl, subEl, fillEl };
   }
 
+  function isTracked(jobId) {
+    return trackedJobs.has(jobId);
+  }
+
+  function trackJob(jobId) {
+    trackedJobs.add(jobId);
+  }
+
+  function untrackJob(jobId) {
+    trackedJobs.delete(jobId);
+  }
+
   function onJobEvent(detail) {
     const payload = detail?.payload || {};
     const jobId = Number(payload.job_id);
     if (!Number.isInteger(jobId) || jobId < 1) return;
     const jobKey = `job:${jobId}`;
     const progress = Math.max(0, Math.min(100, Number(payload.progress) || 0));
+
+    // Only show toasts for jobs this session explicitly enqueued
+    if (!isTracked(jobId)) return;
 
     if (payload.status === 'completed' || detail?.type === 'JOB_COMPLETE') {
       const record = jobs.get(jobKey) || buildToast({ kind: 'complete', title: `Job #${jobId}` });
@@ -124,6 +144,7 @@
       if (!jobs.has(jobKey)) { mount().appendChild(record.el); jobs.set(jobKey, record); }
       prune();
       dismiss(jobKey, DISMISS_AFTER.complete);
+      untrackJob(jobId);
       return;
     }
 
@@ -134,6 +155,7 @@
       if (!jobs.has(jobKey)) { mount().appendChild(record.el); jobs.set(jobKey, record); }
       prune();
       dismiss(jobKey, DISMISS_AFTER.failed);
+      untrackJob(jobId);
       return;
     }
 
@@ -185,5 +207,5 @@
     init();
   }
 
-  window.RealtimeJobs = Object.freeze({ onJobEvent, onPaymentAlert });
+  window.RealtimeJobs = Object.freeze({ onJobEvent, onPaymentAlert, trackJob, untrackJob, isTracked });
 })(window, document);

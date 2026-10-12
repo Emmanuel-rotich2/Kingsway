@@ -67,7 +67,10 @@ final class JobQueue
     ];
 
     /** Job-type prefixes that always run on the BATCH lane. */
-    private const BATCH_JOB_PREFIXES = ['export.', 'exports.', 'report.', 'print.'];
+    private const BATCH_JOB_PREFIXES = [
+        'export.', 'export:', 'exports.', 'exports:', 'report.', 'report:',
+        'print.', 'print:',
+    ];
 
     private const MAX_ATTEMPTS = 20;
     private const MAX_BACKOFF = 3600;
@@ -92,7 +95,7 @@ final class JobQueue
         int $backoffSeconds = 60,
         ?int $priority = null
     ): int {
-        if (!preg_match('/^[a-z][a-z0-9_.-]{2,99}$/', $jobType)) {
+        if (!preg_match('/^[a-z][a-z0-9_.:-]{2,127}$/', $jobType)) {
             throw new \InvalidArgumentException('Invalid background job type.');
         }
         $maxAttempts = self::clampAttempts($maxAttempts);

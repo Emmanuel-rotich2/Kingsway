@@ -78,7 +78,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small mb-1 text-muted">Status</label>
-                    <select class="form-select form-select-sm" id="statusFilter">
+                    <select class="form-select form-select-sm" id="statusFilter" data-filter="status">
                         <option value="">All Status</option>
                         <option value="published">Published</option>
                         <option value="draft">Draft</option>

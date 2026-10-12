@@ -155,7 +155,7 @@ if ($appBase === '.')
         <div class="row g-3 mb-4">
             <div class="col-md-3">
                 <label class="form-label small fw-semibold">Academic Year</label>
-                <select id="filterAcademicYear" class="form-select">
+                <select id="filterAcademicYear" class="form-select" data-filter="year">
                     <option value="">All Years</option>
                     <option value="2024">2024</option>
                     <option value="2025">2025</option>

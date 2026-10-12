@@ -274,6 +274,20 @@ final class InterServiceClient
      */
     private function send(string $url, string $method, array $headers, ?string $body, int $timeout, string $base): array
     {
+        // PHP's curl refuses associative header arrays: a string key would only
+        // contribute its bare value, so "Content-Type" => "application/json"
+        // quietly becomes a bogus "application/json" line and curl falls back to
+        // application/x-www-form-urlencoded (the gateway then answers 415).
+        // Normalize every caller's headers into "Name: value" lines first so the
+        // secret and content type are actually transmitted.
+        $normalized = [];
+        foreach ($headers as $key => $value) {
+            $normalized[] = is_string($key)
+                ? $key . ': ' . $value
+                : (string) $value;
+        }
+        $headers = $normalized;
+
         if ($this->transport !== null) {
             $result = call_user_func($this->transport, $url, $method, $headers, $body, $timeout);
             return [

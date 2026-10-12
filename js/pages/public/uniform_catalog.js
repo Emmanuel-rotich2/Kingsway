@@ -63,12 +63,7 @@
       if (this.initialized) return;
       this.initialized = true;
       try {
-        var resp = await fetch(base + '/api/public/uniform-catalog', {
-          method: 'GET', credentials: 'same-origin',
-          headers: { Accept: 'application/json' },
-        });
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        var payload = await resp.json();
+        var payload = await window.API.callAPI('/public/uniform-catalog', 'GET', null, {}, { checkPermission: false });
         this.products = (payload.data && payload.data.products) || payload.products || [];
         this.render();
         this.renderCategories();

@@ -66,6 +66,10 @@ class AuthMiddleware
             'payments/kcb-account-notification',
             'payments/kcb-till-notification',
             'payments/bank-webhook',
+            // Public, read-only entry points: invitation flags are token-scoped;
+            // learner card verification applies its own public/staff view policy.
+            'public/setup-invitation',
+            'public/student-verification',
             'public/uniform-catalog',
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',
@@ -149,6 +153,11 @@ class AuthMiddleware
             'realtime/python-job-heartbeat',
             'realtime/python-job-complete',
             'realtime/python-job-fail',
+            // Node.js gateway internal surface: durable queue claim/complete and
+            // the RBAC read proxy. Authenticated by the shared worker secret
+            // (X-Kingsway-Worker-Secret) inside NodeController, never by a JWT.
+            'node/internal-queue',
+            'node/internal-read',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'dashboard/agent-digest-worker',
             // Governed data-tool execution for the Python AI platform's
@@ -179,6 +188,16 @@ class AuthMiddleware
                 // they share the same controller/resource URL.
                 if (
                     str_starts_with($endpoint, 'website/') &&
+                    strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
+                ) {
+                    continue;
+                }
+                if (
+                    in_array($endpoint, [
+                        'public/setup-invitation',
+                        'public/student-verification',
+                        'public/uniform-catalog',
+                    ], true) &&
                     strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
                 ) {
                     continue;
@@ -486,6 +505,16 @@ class AuthMiddleware
         }
 
         return null;
+    }
+
+    /**
+     * Expose the canonical request header to authenticated bridge controllers.
+     * Authentication middleware and downstream private relays must inspect
+     * the same SAPI/proxy-normalized header value.
+     */
+    public static function getAuthorizationHeader(): ?string
+    {
+        return self::resolveBearerHeader();
     }
 
     /**

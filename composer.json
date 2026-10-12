@@ -50,6 +50,10 @@
     },
     "scripts": {
         "test": "phpunit",
+        "test:unit": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration",
+        "test:all": "phpunit --testsuite all",
+        "test:coverage": "phpunit --coverage-html coverage",
         "ai:smoke": "php .github/scripts/ai_provider_smoke.php --live",
         "ai:resilience": "php .github/scripts/ai_resilience_smoke.php",
         "check:assets": "php scripts/check_asset_versioning.php",

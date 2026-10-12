@@ -20,7 +20,7 @@ const PortfolioController = {
     async loadReferences() {
         try {
             const [students, competencies, values] = await Promise.all([
-                this.loadAllEnrolledStudents(),
+                this.loadRosterWithNode(),
                 window.API.apiCall('/academic/core-competencies-list', 'GET'),
                 window.API.apiCall('/academic/core-values-list', 'GET'),
             ]);
@@ -48,6 +48,23 @@ const PortfolioController = {
             console.error('Error loading references:', err);
             const list = document.getElementById('pfStudentList');
             if (list) list.innerHTML = '<div class="text-danger py-2">Learners could not be loaded. Please refresh and try again.</div>';
+        }
+    },
+
+    async loadRosterWithNode() {
+        try {
+            const response = await window.API.nodeViews.resolve(
+                'students',
+                'portfolio-roster',
+                { filters: { enrolled_only: 'true', limit: '100' } },
+            );
+            const roster = response?.data?.sources?.roster;
+            const students = roster?.students || roster?.data?.students;
+            if (!Array.isArray(students)) throw new Error('Node returned an invalid student roster.');
+            return students;
+        } catch (error) {
+            console.warn('Composed portfolio roster unavailable; using PHP pagination:', error);
+            return this.loadAllEnrolledStudents();
         }
     },
 

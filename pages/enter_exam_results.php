@@ -21,7 +21,7 @@
                 </div>
                 <div class="col-md-4 col-lg-3">
                     <label class="form-label" for="classFilter">Class / stream</label>
-                    <select id="classFilter" class="form-select"><option value="">All assigned classes</option></select>
+                    <select id="classFilter" class="form-select" data-filter="class_id"><option value="">All assigned classes</option></select>
                 </div>
                 <div class="col-md-4 col-lg-3">
                     <label class="form-label" for="subjectFilter">Learning area</label>

@@ -69,6 +69,22 @@ class Config:
             "NODE_REALTIME_PUBLISH_SECRET", _env("KINGSWAY_WORKER_SECRET")
         )
 
+        # Storage ownership: each platform owns a PRIVATE storage root and the
+        # three apps never share one directory — cross-app artifacts flow over
+        # internal HTTP, never the filesystem. A relative value anchors to the
+        # platform app root so the service CWD can never redirect writes; the
+        # deployed value must stay outside any docroot.
+        raw_storage = _env("AI_STORAGE_DIR", str(APP_ROOT / "storage"))
+        storage = Path(raw_storage)
+        self.storage_dir = storage if storage.is_absolute() else (APP_ROOT / storage)
+
+        # The PHP application root (this platform ships nested beside it).
+        # Used only to locate repo files (config snapshots); never writable
+        # through this platform.
+        raw_repo = _env("KINGSWAY_REPO_ROOT", str(APP_ROOT.parent))
+        repo = Path(raw_repo)
+        self.repo_root = repo if repo.is_absolute() else (APP_ROOT / repo)
+
         # Primary LLM provider (same semantics as the PHP client).
         self.provider_name = _env("AI_PROVIDER_NAME", "primary")
         self.provider_base_url = _env("AI_PROVIDER_BASE_URL")

@@ -129,9 +129,12 @@
 
     if (!studentId) { fail('No learner identifier in the link. Scan a valid ID card.'); return; }
 
-    var url = '/public/student-verification/' + studentId + (params.get('scope') ? '?scope=' + encodeURIComponent(params.get('scope')) : '');
-    var request = (window.API && window.API.call) ? window.API.call(url, 'GET') : null;
-    (request || fetch('api' + url /* public endpoint; session cookie widens sections server-side */, { credentials: 'include' }).then(function (r) { return r.json(); }))
+    var url = '/public/student-verification/' + studentId;
+    var query = params.get('scope') ? { scope: params.get('scope') } : {};
+    var request = window.API?.callAPI
+        ? window.API.callAPI(url, 'GET', null, query, { checkPermission: false })
+        : Promise.reject(new Error('Application API is unavailable.'));
+    request
         .then(function (res) {
             var payload = res && (res.data || res);
             if (!payload || !payload.student) { fail('Learner not found.'); return; }

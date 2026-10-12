@@ -426,6 +426,36 @@ define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SI
 
 /*
 |--------------------------------------------------------------------------
+| Node.js Gateway (Realtime & Async Jobs)
+|--------------------------------------------------------------------------
+*/
+define(
+    'NODE_REALTIME_INTERNAL_BASE_URL',
+    $_ENV['NODE_REALTIME_INTERNAL_BASE_URL'] ?? 'http://127.0.0.1'
+);
+
+define(
+    'NODE_REALTIME_INTERNAL_HOST',
+    $_ENV['NODE_REALTIME_INTERNAL_HOST'] ?? 'localhost'
+);
+
+define(
+    'NODE_REALTIME_PUBLISH_SECRET',
+    $_ENV['KINGSWAY_WORKER_SECRET'] ?? 'dev-worker-secret-change-in-production'
+);
+
+define(
+    'NODE_REALTIME_PUBLIC_URL',
+    $_ENV['NODE_REALTIME_URL'] ?? 'http://localhost:3000'
+);
+
+define(
+    'NODE_JWT_CAPABILITY_TTL',
+    (int) ($_ENV['NODE_JWT_CAPABILITY_TTL'] ?? 240)
+);
+
+/*
+|--------------------------------------------------------------------------
 | Application defaults
 |--------------------------------------------------------------------------
 */

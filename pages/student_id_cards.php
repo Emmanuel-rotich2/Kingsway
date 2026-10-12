@@ -492,25 +492,25 @@ if ($appBase === '.')
         <div class="row g-3 mb-4">
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Academic Year</label>
-                <select id="filterAcademicYear" class="form-select">
+                <select id="filterAcademicYear" class="form-select" data-filter="academic_year">
                     <option value="">All Years</option>
                 </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Class</label>
-                <select id="filterClass" class="form-select">
+                <select id="filterClass" class="form-select" data-filter="class_id">
                     <option value="">All Classes</option>
                 </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Stream</label>
-                <select id="filterStream" class="form-select">
+                <select id="filterStream" class="form-select" data-filter="stream_id">
                     <option value="">All Streams</option>
                 </select>
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Gender</label>
-                <select id="filterGender" class="form-select">
+                <select id="filterGender" class="form-select" data-filter="gender">
                     <option value="">All</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -518,7 +518,7 @@ if ($appBase === '.')
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">Student Status</label>
-                <select id="filterStudentStatus" class="form-select">
+                <select id="filterStudentStatus" class="form-select" data-filter="student_status">
                     <option value="">All</option>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
@@ -528,7 +528,7 @@ if ($appBase === '.')
             </div>
             <div class="col-md-2">
                 <label class="form-label small fw-semibold">ID Status</label>
-                <select id="filterCardStatus" class="form-select">
+                <select id="filterCardStatus" class="form-select" data-filter="card_status">
                     <option value="">All Status</option>
                     <option value="not_generated">No ID</option>
                     <option value="generated">Generated</option>
@@ -543,13 +543,10 @@ if ($appBase === '.')
             </div>
             <div class="col-md-3">
                 <label class="form-label small fw-semibold">Search</label>
-                <input type="text" id="searchStudents" class="form-control" placeholder="Name, admission no, UPI, card no...">
+                <input type="text" id="searchStudents" class="form-control" placeholder="Name, admission no, UPI, card no..." data-filter="search">
             </div>
             <div class="col-md-3 d-flex align-items-end">
-                <div class="d-flex gap-2 w-100">
-                    <button class="btn btn-primary flex-grow-1" id="applyFiltersBtn">Apply</button>
-                    <button class="btn btn-outline-secondary flex-grow-1" id="resetFiltersBtn">Reset</button>
-                </div>
+                <button class="btn btn-outline-secondary" id="resetFiltersBtn">Reset filters</button>
             </div>
         </div>
 

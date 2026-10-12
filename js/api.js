@@ -3138,7 +3138,14 @@ async function apiCallDirect(
       // still validates input, provider output, and source citations.
       "/public/ai-faq",
     ]);
-    isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
+    const publicApiPatterns = [
+      /^\/public\/(?:setup-invitation|student-verification|uniform-catalog)(?:\/|$)/,
+    ];
+    const parentCatalogPattern = /^\/parent-portal\/(?:dashboard|uniform-cart|uniform-wishlist|uniform-orders|uniform-checkout-payment|uniform-order-payment-retry|uniform-payment-options|uniform-reviews)(?:\/|$)/;
+    const isPublicApi = publicApiPatterns.some((pattern) => pattern.test(normalizedEndpoint));
+    const isParentCatalogApi = parentCatalogPattern.test(normalizedEndpoint);
+    const isAuthFreeEndpoint = authFreeEndpoints.has(normalizedEndpoint) || isPublicApi || isParentCatalogApi;
+    isProtectedRequest = !isAuthFreeEndpoint;
 
     if (isProtectedRequest && AuthContext.hasSession?.()) {
       if (isSessionIdleExpired()) {
@@ -3247,7 +3254,7 @@ async function apiCallDirect(
           Authorization: "Bearer " + token,
         }),
         ...(_csrfToken &&
-          !authFreeEndpoints.has(normalizedEndpoint) && {
+          (!isAuthFreeEndpoint || isParentCatalogApi) && {
           "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
@@ -8403,6 +8410,152 @@ window.API = {
     onboarding: async () => apiCall("/staff-migration/onboarding", "GET"),
     completeProfile: async (payload) =>
       apiCall("/staff-migration/profile", "PUT", payload),
+  },
+
+  // ── Node.js Gateway (registered data operations and realtime jobs) ───────
+  // PHP remains the browser API and durable job authority. Node coordinates
+  // registered data work and scoped progress events; page controllers own UI.
+  // Document generation uses the PHP bulk-print workflow and its configured
+  // Python renderer rather than a Node placeholder handler.
+  nodeViews: {
+    /** Resolve a registered Node data operation. The response contains data,
+     * never a page-render descriptor; the page controller owns presentation. */
+    resolve: async (entity, view, input = {}) =>
+      apiCall("/node/view", "POST", {
+        entity,
+        view,
+        contract: "data",
+        input,
+      }),
+  },
+
+  nodeJobs: {
+    /**
+     * Enqueue a job on the Node.js gateway
+     * @param {string} job - Server-registered job name (e.g., 'students:id-cards:load', 'report:aggregate')
+     * @param {object} payload - Job payload data
+     * @param {object} options - { priority: 'critical'|'normal'|'batch', channels: string[] }
+     * @returns {Promise<{jobId: string, status: string, sseChannel: string}>}
+     */
+    enqueue: async (job, payload, options = {}) => {
+      const response = await apiCall('/node/jobs/enqueue', 'POST', {
+        job,
+        payload,
+        priority: options.priority || 'normal',
+        channels: options.channels || ['user']
+      });
+      const data = response?.data ?? response ?? {};
+      const jobId = data.jobId || data.job_id;
+      if (!jobId) throw new Error(data.message || 'Failed to enqueue job');
+      // Track this job so the realtime jobs widget only shows toasts for
+      // jobs explicitly enqueued by this session (not background/cron jobs)
+      if (window.RealtimeJobs && typeof window.RealtimeJobs.trackJob === 'function') {
+        window.RealtimeJobs.trackJob(jobId);
+      }
+      return {
+        jobId,
+        status: data.status || 'queued',
+        sseChannel: `job:${jobId}`
+      };
+    },
+
+    /**
+     * Get job status (polling fallback if SSE not available)
+     */
+    status: async (jobId) => {
+      const response = await apiCall(`/node/jobs/${jobId}/status`, 'GET');
+      return response?.data ?? response ?? {};
+    },
+
+    /**
+     * Subscribe to job completion via SSE
+     * Works with existing realtime_sse.js infrastructure
+     */
+    on: (event, handler) => {
+      if (typeof window.addEventListener === 'function') {
+        // Remove the wrapper, not the caller's handler, or unsubscribe is a no-op.
+        const listener = (e) => handler(e.detail);
+        window.addEventListener(`kingsway:${event}`, listener);
+        return () => window.removeEventListener(`kingsway:${event}`, listener);
+      }
+      return () => {};
+    },
+
+    /**
+     * Subscribe to job progress (for long-running jobs)
+     */
+    onProgress: (jobId, handler) => {
+      return window.API.nodeJobs.on(`job:${jobId}:progress`, handler);
+    },
+
+    /**
+     * Wait for job completion (combines SSE + polling fallback)
+     */
+    waitForCompletion: async (jobId, options = {}) => {
+      const { intervalMs = 2500, maxAttempts = 600, onProgress } = options;
+      let attempts = 0;
+      let settled = false;
+      let timer = null;
+      let wakePoll = null;
+      let unsubDone = () => {};
+      let unsubFail = () => {};
+
+      const waitForNextPoll = () => new Promise((resolve) => {
+        wakePoll = () => {
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+          wakePoll = null;
+          resolve();
+        };
+        timer = setTimeout(wakePoll, intervalMs);
+      });
+
+      // Try SSE first
+      const ssePromise = new Promise((resolve, reject) => {
+        unsubDone = window.API.nodeJobs.on(`job:${jobId}:done`, resolve);
+        unsubFail = window.API.nodeJobs.on(`job:${jobId}:failed`, (err) => {
+          reject(new Error(err?.message || 'Job failed'));
+        });
+      });
+
+      // Fallback polling
+      const pollPromise = (async () => {
+        while (!settled && attempts < maxAttempts) {
+          attempts++;
+          try {
+            const status = await window.API.nodeJobs.status(jobId);
+            if (settled) return undefined;
+            if (onProgress) onProgress(status);
+
+            if (status.status === 'done') return status;
+            if (status.status === 'failed' || status.status === 'cancelled') {
+              const error = new Error(status.error || `Job ${status.status}`);
+              error.code = 'JOB_TERMINAL';
+              throw error;
+            }
+          } catch (error) {
+            if (settled) return undefined;
+            if (error?.code === 'JOB_TERMINAL') throw error;
+            // A transient status request failure should not defeat an active
+            // SSE subscription; the next interval retries PHP status.
+          }
+
+          await waitForNextPoll();
+        }
+        if (!settled) throw new Error('Job timeout');
+        return undefined;
+      })();
+
+      // Race: SSE wins if it arrives first, otherwise polling
+      try {
+        return await Promise.race([ssePromise, pollPromise]);
+      } finally {
+        settled = true;
+        unsubDone();
+        unsubFail();
+        if (wakePoll) wakePoll();
+      }
+    }
   },
 };
 

@@ -53,25 +53,18 @@
   /* ── API helpers ─────────────────────────────────────────────────────── */
 
   async function apiGet(path) {
-    var resp = await fetch(base + path, {
-      method: 'GET', credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    return (await resp.json()).data || {};
+    return window.API.callAPI(path, 'GET', null, {}, { checkPermission: false });
   }
 
   async function apiPost(path, body) {
     var token = parentToken();
-    var headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    var headers = {};
     if (token) headers['Authorization'] = 'Bearer ' + token;
-    var resp = await fetch(base + path, {
-      method: 'POST', credentials: 'same-origin', headers: headers,
-      body: JSON.stringify(body),
-    });
-    var json = await resp.json();
-    if (!resp.ok || json.success === false) throw new Error(json.message || 'Request failed');
-    return json.data || json;
+    try {
+      var csrf = sessionStorage.getItem('pp_csrf');
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+    } catch (_) { /* Parent session storage may be unavailable. */ }
+    return window.API.callAPI(path, 'POST', body, {}, { checkPermission: false, headers: headers });
   }
 
   /* ── Page controller ─────────────────────────────────────────────────── */
