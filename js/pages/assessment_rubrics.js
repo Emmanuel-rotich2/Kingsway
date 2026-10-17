@@ -30,9 +30,13 @@ const RubricsController = {
         this.canManage = !teacher || window.AuthContext?.hasPermission?.('assessments_rubric_manage');
         document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
-        await this.loadToolReferences();
-        await this.loadTools();
+        await this.loadToolReferencesComposed();
         await this.loadRubrics();
+        window.APIRealtime?.register?.(
+            "assessment_rubrics",
+            { refresh: async () => { await this.loadToolReferencesComposed(); await this.loadRubrics(); } },
+            ["academic"],
+        );
         this.initialized = true;
     },
 
@@ -69,6 +73,28 @@ const RubricsController = {
                 areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
         } catch (e) {
             console.error('Failed to load assessment tool references', e);
+        }
+    },
+
+    // Composed startup read: one authorized Node view supplies assessment
+    // classifications, learning areas and tools; rubric rows stay a direct read.
+    async loadToolReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("academic", "assessment-rubrics-reference");
+            const sources = response?.data?.sources || response?.sources || {};
+            const pick = (value) => (Array.isArray(value) ? value : (value?.data || []));
+            const typeRows = pick(sources.classifications);
+            const areaRows = pick(sources.learningAreas);
+            this.state.tools = pick(sources.tools);
+            document.getElementById('toolType').innerHTML = '<option value="">Select type</option>' +
+                typeRows.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+            document.getElementById('toolArea').innerHTML = '<option value="">Select learning area</option>' +
+                areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
+            this.populateToolSelects();
+        } catch (e) {
+            console.error('Assessment rubric reference Node view failed; falling back to direct reads:', e);
+            await this.loadToolReferences();
+            await this.loadTools();
         }
     },
 

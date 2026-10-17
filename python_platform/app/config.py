@@ -32,6 +32,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_list(name: str, default: tuple[str, ...]) -> list[str]:
+    raw = os.environ.get(name)
+    if not raw:
+        return list(default)
+    items = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    return items or list(default)
+
+
 class Config:
     """Runtime settings, mirrored from the PHP deployment environment."""
 
@@ -69,6 +77,35 @@ class Config:
             "NODE_REALTIME_PUBLISH_SECRET", _env("KINGSWAY_WORKER_SECRET")
         )
 
+        # All three runtimes share STORAGE_ROOT, but keep private subsystem
+        # namespaces beneath it to avoid filename/database collisions. Python
+        # continues to own its AI, automation, import, document and worker data.
+        # AI_STORAGE_DIR remains an explicit compatibility override. PHP is the
+        # runtime provisioning authority: it creates the shared root and each
+        # namespace at runtime, so an unset STORAGE_ROOT falls back to the same
+        # default location PHP uses instead of failing the worker.
+        configured_shared_root = _env("STORAGE_ROOT")
+        shared_root = Path(configured_shared_root or str(APP_ROOT.parent / "storage"))
+        if not shared_root.is_absolute():
+            raise ValueError("STORAGE_ROOT must be an absolute path")
+        self.shared_storage_root = shared_root
+        # A configured shared root is authoritative. The legacy AI_STORAGE_DIR
+        # remains available only when STORAGE_ROOT is absent during migration.
+        raw_storage = (
+            str(shared_root / "python")
+            if configured_shared_root
+            else _env("AI_STORAGE_DIR", str(shared_root / "python"))
+        )
+        storage = Path(raw_storage)
+        self.storage_dir = storage if storage.is_absolute() else (APP_ROOT / storage)
+
+        # The PHP application root (this platform ships nested beside it).
+        # Used only to locate repo files (config snapshots); never writable
+        # through this platform.
+        raw_repo = _env("KINGSWAY_REPO_ROOT", str(APP_ROOT.parent))
+        repo = Path(raw_repo)
+        self.repo_root = repo if repo.is_absolute() else (APP_ROOT / repo)
+
         # Primary LLM provider (same semantics as the PHP client).
         self.provider_name = _env("AI_PROVIDER_NAME", "primary")
         self.provider_base_url = _env("AI_PROVIDER_BASE_URL")
@@ -102,8 +139,13 @@ class Config:
         self.max_tool_parallel = min(4, _env_int("AI_MAX_TOOL_PARALLEL", 3))
         self.briefing_specialists = min(3, _env_int("AI_BRIEFING_SPECIALISTS", 2))
 
-        # Storage (behavior study + journals) under the app root by default.
-        self.data_dir = Path(_env("KINGSWAY_AI_DATA_DIR", str(APP_ROOT / "data")))
+        # Behavior/conversation stores use Python's namespace under the shared root.
+        raw_data_dir = (
+            str(self.storage_dir / "data")
+            if configured_shared_root
+            else _env("KINGSWAY_AI_DATA_DIR", str(self.storage_dir / "data"))
+        )
+        self.data_dir = Path(raw_data_dir)
         self.log_dir = Path(_env("KINGSWAY_AI_LOG_DIR", str(APP_ROOT / "logs")))
         for directory in (self.data_dir, self.log_dir):
             directory.mkdir(parents=True, exist_ok=True)
@@ -113,6 +155,23 @@ class Config:
                 pass
 
         self.production = _env_bool("KINGSWAY_AI_PRODUCTION", True)
+
+        # Payment gateway hosts the platform may execute HTTP transport for.
+        # PHP remains the orchestration authority; the endpoint is
+        # bearer-authenticated and HTTPS-only, and this allowlist stops the
+        # relay from ever becoming a general-purpose proxy. Extend via
+        # PAYMENT_GATEWAY_HOSTS when a deployment overrides a provider host.
+        self.payment_gateway_hosts = _env_list(
+            "PAYMENT_GATEWAY_HOSTS",
+            (
+                "backend.payhero.co.ke",
+                "api.safaricom.co.ke",
+                "sandbox.safaricom.co.ke",
+                "api.buni.kcbgroup.com",
+                "uat.buni.kcbgroup.com",
+                "accounts.buni.kcbgroup.com",
+            ),
+        )
 
         # TLS verification for calls back into the PHP edge. Default ON.
         # Set to false ONLY for local development with a self-signed cert.

@@ -19,6 +19,20 @@ const SubjectSchemesOfWorkController = {
     }
   },
 
+  referenceCache: null,
+
+  // Aggregate the context-free reference rows through one authorized Node
+  // view; the teacher-scoped scheme list stays direct.
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "subject-schemes-references");
+      this.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Subject schemes reference Node view failed; using direct reads:", error);
+      this.referenceCache = null;
+    }
+  },
+
   async init() {
     await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
@@ -45,10 +59,12 @@ const SubjectSchemesOfWorkController = {
       this.state.currentTerm = window.AcademicContext.getTermId();
     }
     
+    await this.loadReferencesComposed();
     this.bindEvents();
     await this.loadAcademicYears();
     await this.loadSubjects();
     await this.loadSchemes();
+    window.APIRealtime?.register?.("subject_schemes_of_work", { refresh: async () => { await this.loadReferencesComposed(); await this.loadAcademicYears(); await this.loadSubjects(); await this.loadSchemes(); } }, ["academic"]);
   },
 
   bindEvents() {
@@ -85,7 +101,7 @@ const SubjectSchemesOfWorkController = {
 
   async loadAcademicYears() {
     try {
-      const years = await window.API.academic.listYears() || [];
+      const years = (this.referenceCache?.years ?? (await window.API.academic.listYears())) || [];
       const yearSelect = document.getElementById('academicYearSelect');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
@@ -106,7 +122,7 @@ const SubjectSchemesOfWorkController = {
       const user = window.AuthContext?.getUser();
       if (!user || !user.id) return;
 
-      this.state.subjects = await window.API.apiCall('/academic/subjects', 'GET') || [];
+      this.state.subjects = (this.referenceCache?.subjects ?? (await window.API.apiCall('/academic/subjects', 'GET'))) || [];
       const subjectSelect = document.getElementById('subjectSelect');
       if (subjectSelect) {
         subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 

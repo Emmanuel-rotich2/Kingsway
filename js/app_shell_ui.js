@@ -281,6 +281,40 @@
   let notificationsFetchInFlight = false;
   let notificationsLastFetchedAt = 0;
 
+  // Realtime event targets that change what the header bell shows: internal
+  // messages (conversations) and module notifications/announcements. Kept in
+  // sync with RealtimeMutationPublisher's DOMAIN_TARGETS for 'communications'.
+  const REALTIME_NOTIFICATION_TARGETS = new Set([
+    "notifications",
+    "conversations",
+    "communications",
+  ]);
+  let notificationsRealtimeTimer = 0;
+
+  /**
+   * Refresh the header bell in response to a realtime change. Debounced so a
+   * burst of mutations (e.g. a bulk announcement fan-out) collapses into a
+   * single forced fetch; `force` deliberately bypasses the 30s boot rate limit
+   * because this is an event-driven refresh, not a polling tick.
+   */
+  function onRealtimeNotificationChange(event) {
+    const targets = Array.isArray(event?.detail?.targets)
+      ? event.detail.targets
+      : [];
+
+    if (!targets.some((target) => REALTIME_NOTIFICATION_TARGETS.has(target))) {
+      return;
+    }
+
+    if (notificationsRealtimeTimer) {
+      window.clearTimeout(notificationsRealtimeTimer);
+    }
+    notificationsRealtimeTimer = window.setTimeout(() => {
+      notificationsRealtimeTimer = 0;
+      void fetchNotifications({ force: true });
+    }, 1200);
+  }
+
   async function fetchNotifications({ force = false } = {}) {
     // Notification loading is a protected operation. Every caller (initial
     // shell boot, authchanged, kingsway:ready, and manual refresh) must wait
@@ -1453,6 +1487,15 @@
         markActiveRoute();
         void fetchNotifications();
       }
+    );
+
+    // Keep the header bell live: the real-time dispatcher emits
+    // kingsway:data-mutated for every change (from either the Node SSE stream
+    // or the static-buffer fallback), so the badge updates without a manual
+    // reload or a polling interval.
+    window.addEventListener(
+      "kingsway:data-mutated",
+      onRealtimeNotificationChange
     );
 
     window.addEventListener("resize", () => {

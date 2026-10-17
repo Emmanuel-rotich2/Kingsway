@@ -726,7 +726,7 @@ const assessExamsCtrl = (() => {
           const fullName = [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(" ");
           const highlight = preferredStudentId && Number(preferredStudentId) === Number(s.id) ? "table-warning" : "";
           return `
-            <tr class="${highlight}">
+            <tr class="${highlight}" data-student-id="${s.id}" data-realtime-activity="assessment_result:${state.currentAssessment?.id}:${s.id}">
               <td>${idx + 1}</td>
               <td>${esc(fullName)}</td>
               <td><code>${esc(s.admission_no || "—")}</code></td>
@@ -771,6 +771,54 @@ const assessExamsCtrl = (() => {
     if (gradeCell) gradeCell.innerHTML = gradeBadge(grade);
   }
 
+
+    /**
+     * Realtime collaboration: focusing a mark input declares row presence so
+     * a peer's save on that row arrives as a CONFLICT_HINT instead of
+     * overwriting in-progress typing; a peer's save on a row this teacher is
+     * NOT editing patches just that row in place instead of reloading the
+     * grid and wiping other half-typed marks.
+     */
+    const presenceKeyFor = (input) => `assessment_result:${state.currentAssessment?.id}:${input.dataset.studentId}`;
+
+    function bindRealtimeCollaboration() {
+        const tbody = document.getElementById('resultsEntryTbody');
+        if (!tbody) return;
+
+        tbody.addEventListener('focusin', (e) => {
+            const input = e.target.closest('.student-marks');
+            if (input && state.currentAssessment?.id) window.RealtimePresence?.begin(presenceKeyFor(input));
+        });
+        tbody.addEventListener('focusout', (e) => {
+            const input = e.target.closest('.student-marks');
+            if (!input) return;
+            if (e.relatedTarget && e.relatedTarget.closest?.('tr') === input.closest('tr')) return;
+            if (state.currentAssessment?.id) window.RealtimePresence?.end(presenceKeyFor(input));
+        });
+
+        window.APIRealtime?.registerPatch?.({
+            id: 'assessments_exams_rows',
+            targets: ['assessment_result', 'academic'],
+            apply: (descriptor) => {
+                if (descriptor.domain !== 'assessment_result' || !state.currentAssessment?.id) return false;
+                const studentId = Number(descriptor.id || 0);
+                const row = studentId && document.querySelector(`#resultsEntryTbody tr[data-student-id="${studentId}"]`);
+                if (!row) return false;
+                row.classList.remove('rt-conflict-row');
+                void row.offsetWidth;
+                row.classList.add('rt-conflict-row');
+                const stamp = row.querySelector('.rt-row-updated');
+                if (stamp) stamp.remove();
+                const el = document.createElement('span');
+                el.className = 'rt-row-updated text-primary small d-block';
+                const responder = Number(descriptor.responder_id) ? ` by staff #${descriptor.responder_id}` : '';
+                el.textContent = `updated${responder}`;
+                row.lastElementChild.appendChild(el);
+                return true;
+            },
+        });
+    }
+
   async function persistResults(isFinal) {
     if (!state.currentAssessment?.id) {
       toast("No assessment selected for grading", "error");
@@ -799,6 +847,14 @@ const assessExamsCtrl = (() => {
 
     try {
       const assessmentId = Number(state.currentAssessment.id);
+
+      // Editing is over: release row presence BEFORE the save so the server's
+      // own ROW_UPDATED echoes are not withheld from this connection as
+      // self-targeted CONFLICT_HINTs.
+      if (window.RealtimePresence) {
+        markInputs.forEach((input) => window.RealtimePresence.end(presenceKeyFor(input)));
+      }
+
       await api("academic/assessments-mark-and-grade", "POST", {
         assessment_id: assessmentId,
         // Tokens come from the loaded sheet: the server refuses the whole save
@@ -1024,6 +1080,7 @@ const assessExamsCtrl = (() => {
       await loadReferenceData();
       bindTabListeners();
       bindFilterEvents();
+      bindRealtimeCollaboration();
       await Promise.all([loadAssessments(1), loadExamsList()]);
     } catch (error) {
       console.error("[assessExamsCtrl:init]", error);
@@ -1054,4 +1111,9 @@ const assessExamsCtrl = (() => {
 })();
 
 window.assessExamsCtrl = assessExamsCtrl;
-window.APIRealtime?.register?.(assessExamsCtrl, assessExamsCtrl);
+window.APIRealtime?.register?.('assessments_exams', { refresh: () => {
+    // Reload whichever list tab is on screen; the modal entry surface is
+    // protected by presence + CONFLICT_HINT instead of a blind reload.
+    if (document.querySelector('#resultsEntryModal.show')) return Promise.resolve();
+    return Promise.all([loadAssessments(1), loadExamsList()]);
+} }, ['academic', 'assessment_result']);

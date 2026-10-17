@@ -24,19 +24,12 @@
         scopeId: 'talentDevDashboardScope',
         lastUpdatedId: 'talentDevDashboardLastUpdated',
         defaultPeriod: 'week',
+        viewSpec: { entity: 'dashboards', view: 'hod-talent-development-references', input: (filters) => filters },
 
-        async apiMethod(filters = {}) {
-            const [summaryResponse, activitiesResponse, schedulesResponse] = await Promise.all([
-                window.API.activities.getSummary(filters),
-                window.API.activities.list({ ...filters, limit: 20 }),
-                window.API.activities.listSchedules(filters)
-            ]);
-
-            const stats = unwrap(summaryResponse) || {};
-            const schedulesValue = unwrap(schedulesResponse);
-            const activities = Array.isArray(unwrap(activitiesResponse))
-                ? unwrap(activitiesResponse)
-                : [];
+        composeFromSources(sources = {}) {
+            const stats = sources.summary || {};
+            const schedulesValue = sources.schedule;
+            const activities = Array.isArray(sources.activities) ? sources.activities : [];
             const schedules = Array.isArray(schedulesValue) ? schedulesValue : [];
 
             const categories = activities.reduce((totals, row) => {
@@ -73,6 +66,21 @@
                 activities: activeActivities,
                 schedule: schedules.slice(0, 20)
             };
+        },
+
+        async apiMethod(filters = {}) {
+            const [summaryResponse, activitiesResponse, schedulesResponse] = await Promise.all([
+                window.API.activities.getSummary(filters),
+                window.API.activities.list({ ...filters, limit: 20 }),
+                window.API.activities.listSchedules(filters)
+            ]);
+
+            const activities = unwrap(activitiesResponse);
+            return this.composeFromSources({
+                summary: unwrap(summaryResponse) || {},
+                activities: Array.isArray(activities) ? activities : [],
+                schedule: unwrap(schedulesResponse)
+            }, this, filters);
         },
 
         cards: [

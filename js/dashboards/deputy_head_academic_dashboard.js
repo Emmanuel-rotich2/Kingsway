@@ -7,6 +7,7 @@
         scopeId: 'deputyAcademicDashboardScope',
         lastUpdatedId: 'deputyAcademicDashboardLastUpdated',
         defaultPeriod: 'today',
+        viewSpec: { entity: 'dashboards', view: 'deputy-head-academic-references', sourceKey: 'stats', input: (filters) => filters },
         apiMethod: ({ period }) => window.API.dashboard.getDeputyAcademicFull({ period }),
         cards: [
             {

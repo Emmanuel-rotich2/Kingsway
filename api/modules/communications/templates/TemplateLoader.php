@@ -1,17 +1,21 @@
 <?php
 namespace App\API\Modules\Communications\Templates;
 
+use App\API\Services\CommunicationTemplateRenderer;
+
 class TemplateLoader
 {
     private $smsTemplates;
     private $whatsappTemplates;
     private $emailTemplates;
+    private CommunicationTemplateRenderer $renderer;
 
-    public function __construct()
+    public function __construct(?CommunicationTemplateRenderer $renderer = null)
     {
         $this->smsTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_sms.json');
         $this->whatsappTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_whatsapp.json');
         $this->emailTemplates = $this->loadTemplates(__DIR__ . '/communication_templates_email.json');
+        $this->renderer = $renderer ?? new CommunicationTemplateRenderer();
     }
 
     private function loadTemplates($file)
@@ -38,13 +42,10 @@ class TemplateLoader
         return null;
     }
 
-    public function renderTemplate($template, $variables)
+    public function renderTemplate($template, $variables, string $channel = 'sms')
     {
         $body = $template['template_body'];
-        foreach ($variables as $key => $value) {
-            $body = str_replace('{{' . $key . '}}', $value, $body);
-        }
-        return $body;
+        return $this->renderer->render($body, $variables, $channel);
     }
 
     public function getMedia($template)

@@ -62,21 +62,21 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4">
                     <label class="form-label fw-semibold">Class</label>
-                    <select class="form-select" id="classFilter">
+                    <select class="form-select" id="classFilter" data-filter="class_id">
                         <option value="">All Classes</option>
                     </select>
                 </div>
 
                 <div class="col-xl-2 col-md-4">
                     <label class="form-label fw-semibold">Stream</label>
-                    <select class="form-select" id="streamFilter">
+                    <select class="form-select" id="streamFilter" data-filter="stream_id">
                         <option value="">All Streams</option>
                     </select>
                 </div>
 
                 <div class="col-xl-2 col-md-4">
                     <label class="form-label fw-semibold">Gender</label>
-                    <select class="form-select" id="genderFilter">
+                    <select class="form-select" id="genderFilter" data-filter="gender">
                         <option value="">All</option>
                         <option value="male">Male</option>
                         <option value="female">Female</option>

@@ -14,6 +14,7 @@ const classConductGradesController = {
     }
     document.getElementById('cgApplyBtn')?.addEventListener('click', () => this._load());
     await this._load();
+    window.APIRealtime?.register?.('class_conduct_grades', { refresh: () => this._load() }, ['academic']);
   },
 
   _load: async function () {

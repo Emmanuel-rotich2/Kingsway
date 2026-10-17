@@ -113,7 +113,7 @@ class StaffController extends BaseController
 
     private function schoolAdminInvitations(): \App\API\Services\SchoolAdminInvitationService
     {
-        return new \App\API\Services\SchoolAdminInvitationService($this->db->getConnection());
+        return $this->contract(\App\API\Services\SchoolAdminInvitationService::class, $this->db->getConnection());
     }
 
     private function migrationService(): \App\API\Services\StaffMigrationService
@@ -2709,7 +2709,7 @@ return $this->badRequest('An internal error occurred.');
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         try {
             $year = (int) ($_GET['year'] ?? date('Y'));
-            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+            return $this->success(($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))
                 ->remittances($year, $_GET['agency'] ?? null, $_GET['status'] ?? null));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] getStatutoryRemittances: ' . $e->getMessage());
@@ -2726,7 +2726,7 @@ return $this->badRequest('An internal error occurred.');
             $month = (int) ($data['period_month'] ?? 0);
             $year = (int) ($data['period_year'] ?? 0);
             if (empty($data['agency']) || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
-            $newId = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+            $newId = ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))
                 ->saveRemittance($data, (int) $this->access->staffId());
             return $this->success(['id' => $newId], 'Remittance saved');
         } catch (\Throwable $e) {
@@ -2743,7 +2743,7 @@ return $this->badRequest('An internal error occurred.');
         $remId = (int) ($id ?? $data['id'] ?? 0);
         if (!$remId) return $this->badRequest('Remittance ID required');
         try {
-            (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->updateRemittance($remId, $data);
+            ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))->updateRemittance($remId, $data);
             return $this->success(null, 'Remittance updated');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] updateStatutoryRemittance: ' . $e->getMessage());
@@ -2775,7 +2775,7 @@ return $this->badRequest('An internal error occurred.');
         $agency = $_GET['agency'] ?? $data['agency'] ?? null;
         if (!$agency) return $this->badRequest('Agency is required');
         try {
-            return $this->success(['accounts' => (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->agencyAccounts((string) $agency)]);
+            return $this->success(['accounts' => ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))->agencyAccounts((string) $agency)]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] statutory agency accounts: ' . $e->getMessage());
             return $this->badRequest('Failed to load agency accounts.');
@@ -2791,7 +2791,7 @@ return $this->badRequest('An internal error occurred.');
             $month = (int) ($_GET['month'] ?? 0);
             $year = (int) ($_GET['year'] ?? 0);
             if ($agency === '' || !$month || !$year) return $this->badRequest('agency, month, year required');
-            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->calcDeductions($agency, $month, $year));
+            return $this->success(($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))->calcDeductions($agency, $month, $year));
         } catch (\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
@@ -2806,7 +2806,7 @@ return $this->badRequest('An internal error occurred.');
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         try {
             $year = (int)($_GET['year'] ?? $data['year'] ?? date('Y'));
-            return $this->success((new \App\API\Services\StaffStatutoryService($this->db->getConnection()))->complianceBundle($year));
+            return $this->success(($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))->complianceBundle($year));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] statutory compliance: ' . $e->getMessage());
             return $this->badRequest('Failed to load statutory compliance records.');
@@ -2829,7 +2829,7 @@ return $this->badRequest('An internal error occurred.');
             return $this->badRequest('Agency, rule code, version, effective date and rule values are required.');
         }
         try {
-            $id = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+            $id = ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))
                 ->addRuleVersion($data, (int) ($this->getUserId() ?? 0));
             return $this->success(['id' => $id], 'Statutory rule version added.');
         } catch (\Throwable $e) {
@@ -2848,7 +2848,7 @@ return $this->badRequest('An internal error occurred.');
         $year = (int) ($data['year'] ?? 0);
         if ($month < 1 || $month > 12 || $year < 2000) return $this->badRequest('A valid payroll month and year are required.');
         try {
-            $result = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+            $result = ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))
                 ->generatePayrollRegister($month, $year, (int) ($this->getUserId() ?? 0));
             return $this->success($result, 'Statutory payroll register generated.');
         } catch (\RuntimeException $e) {
@@ -2867,7 +2867,7 @@ return $this->badRequest('An internal error occurred.');
         $staffId = (int) ($data['staff_id'] ?? 0);
         if (!$staffId || empty($data['employment_start_date']) || empty($data['employment_end_date'])) return $this->badRequest('Staff member and employment dates are required.');
         try {
-            $result = (new \App\API\Services\StaffStatutoryService($this->db->getConnection()))
+            $result = ($this->contract(\App\API\Services\StaffStatutoryService::class, $this->db->getConnection()))
                 ->recordServiceCertificate($staffId, $data, (int) ($this->getUserId() ?? 0));
             return $this->success($result, 'Certificate of service recorded.');
         } catch (\RuntimeException $e) {

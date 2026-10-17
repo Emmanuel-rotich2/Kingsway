@@ -31,14 +31,40 @@ const assessmentOverviewCtrl = {
     this._createModal = new bootstrap.Modal(document.getElementById('aoCreateModal'));
     this._marksModal  = new bootstrap.Modal(document.getElementById('aoMarksModal'));
     await Promise.all([
-      this._loadTerms(),
+      this._loadReferencesComposed(),
       this._loadClasses(),
-      this._loadAssessmentTypes(),
     ]);
     await this.reload();
+    window.APIRealtime?.register?.("assessment_overview", { refresh: async () => { await this._loadReferencesComposed(); await this.reload(); } }, ["academic"]);
   },
 
   // ── Loaders ───────────────────────────────────────────────────────────────
+  // Composed startup read: one authorized Node view supplies the term and
+  // assessment-type options; classes stay the offline-first read.
+  _loadReferencesComposed: async function () {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "assessment-overview-reference");
+      const sources = response?.data?.sources || response?.sources || {};
+      const pick = (v) => (Array.isArray(v?.data) ? v.data : (Array.isArray(v) ? v : []));
+      this._terms = pick(sources.terms);
+      const current = this._terms.find(t => (t.status || '') === 'current');
+      if (current) this._currentTermId = current.id;
+      const termOpts = this._terms.map(t => `<option value="${t.id}" ${t.id==this._currentTermId?'selected':''}>${t.name} ${t.year||''}</option>`).join('');
+      ['aoTermFilter','aoTermModal'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<option value="">Current Term</option>' + termOpts;
+      });
+      this._types = pick(sources.types);
+      const fmEl  = document.getElementById('aoTypeFormative');
+      const smEl  = document.getElementById('aoTypeSummative');
+      if (fmEl) fmEl.innerHTML = this._types.filter(t => t.is_formative).map(t => `<option value="${t.id}">${this._esc(t.name)}</option>`).join('');
+      if (smEl) smEl.innerHTML = this._types.filter(t => t.is_summative).map(t => `<option value="${t.id}">${this._esc(t.name)}</option>`).join('');
+    } catch (e) {
+      console.warn('Assessment overview reference Node view failed; falling back to direct reads:', e);
+      await Promise.all([this._loadTerms(), this._loadAssessmentTypes()]);
+    }
+  },
+
   _loadTerms: async function () {
     try {
       const r = await callAPI('/academic/terms-list', 'GET');

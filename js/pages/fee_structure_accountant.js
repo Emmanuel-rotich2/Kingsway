@@ -13,6 +13,7 @@ class FeeStructureAccountantController {
   constructor() {
     this.currentPage = 1;
     this.itemsPerPage = 20;
+    this.referenceCache = null;
     this.currentFilters = {};
     this.editingGroup = null;
     this.duplicateSourceYear = null;
@@ -50,9 +51,28 @@ class FeeStructureAccountantController {
     const controller = new FeeStructureAccountantController();
     window.accountantController = controller;
     controller.setupEventListeners();
+    await controller.loadReferencesComposed();
     controller.loadDropdowns();
     controller.loadFeeStructures();
     controller.initializeCharts();
+    window.APIRealtime?.register?.("fee_structure_accountant", {
+      refresh: async () => {
+        controller.referenceCache = null;
+        await controller.loadReferencesComposed();
+        await controller.loadDropdowns();
+        await controller.loadFeeStructures();
+      },
+    }, ["academic", "finance"]);
+  }
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "fee-structure-accountant-references");
+      this.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Fee structure accountant Node view failed; using direct reads:", error);
+      this.referenceCache = null;
+    }
   }
 
   /**
@@ -97,6 +117,7 @@ class FeeStructureAccountantController {
    */
   async loadDropdowns() {
     try {
+      const cache = this.referenceCache;
       const [
         yearsResponse,
         levelsResponse,
@@ -104,11 +125,11 @@ class FeeStructureAccountantController {
         termsResponse,
         classesResponse,
       ] = await Promise.all([
-        API.academic.getAllAcademicYears().catch(() => []),
-        API.academic.listLevels().catch(() => []),
-        API.finance.listStudentTypes().catch(() => []),
-        API.academic.listTerms().catch(() => []),
-        API.academic.listClasses({ limit: 200 }).catch(() => []),
+        cache?.years !== undefined ? cache.years : API.academic.getAllAcademicYears().catch(() => []),
+        cache?.levels !== undefined ? cache.levels : API.academic.listLevels().catch(() => []),
+        cache?.studentTypes !== undefined ? cache.studentTypes : API.finance.listStudentTypes().catch(() => []),
+        cache?.terms !== undefined ? cache.terms : API.academic.listTerms().catch(() => []),
+        cache?.classes !== undefined ? cache.classes : API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
 
       this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];

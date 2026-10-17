@@ -639,6 +639,9 @@ class StudentsController extends BaseController
         }
 
         $result = $this->studentService->getIdCardMeta($this->user);
+        if (empty($result['success'])) {
+            return $this->serverError('ID card metadata is temporarily unavailable');
+        }
         return $this->success($result, 'ID card metadata loaded');
     }
 
@@ -658,7 +661,33 @@ class StudentsController extends BaseController
 
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         $result = $this->studentService->getIdCards($this->user, $filters);
+        if (empty($result['success'])) {
+            return $this->serverError('Student ID card data is temporarily unavailable');
+        }
         return $this->success($result, 'ID cards loaded');
+    }
+
+    /**
+     * GET /api/students/card-status
+     * Returns card status map for students (student_id -> status)
+     * Used by Node.js gateway for aggregation
+     */
+    // TODO: Delegate to StudentIDCardService
+    public function getCardStatus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(
+            self::STUDENT_ID_CARD_VIEW_PERMS,
+            'Insufficient permission to view ID card status'
+        )) {
+            return $auth;
+        }
+
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        $result = $this->studentService->getCardStatus($this->user, $filters);
+        if (empty($result['success'])) {
+            return $this->serverError('Student ID card status is temporarily unavailable');
+        }
+        return $this->success($result, 'Card status loaded');
     }
 
     /**

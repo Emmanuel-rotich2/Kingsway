@@ -312,12 +312,18 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             try {
                 RealtimeGatewayPublisher::publish('ROW_UPDATED', 'all', [
                     'entity_id' => (int) $row['enrollment_id'],
+                    'id' => (int) $row['student_id'],
                     'domain' => 'assessment_result',
                     'action' => 'marked',
                     'targets' => ['academic/grading-results', 'academic/assessments-mark-and-grade'],
                     'changed_fields' => ['marks_obtained', 'grade', 'points', 'remarks'],
                     'version' => $assessmentId,
                     'responder_id' => (int) $row['responder_id'],
+                    // Matches what the editing browser declares via
+                    // RealtimePresence.begin(): the gateway withholds this row's
+                    // patch from that connection and sends a CONFLICT_HINT
+                    // instead, so a peer's save never overwrites in-progress input.
+                    'activity_key' => 'assessment_result:' . $assessmentId . ':' . (int) $row['student_id'],
                 ]);
             } catch (\Throwable $e) {
                 \App\API\Services\Logger::legacyError(

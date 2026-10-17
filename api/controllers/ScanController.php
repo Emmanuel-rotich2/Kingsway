@@ -24,7 +24,7 @@ class ScanController extends BaseController {
         parent::__construct();
         $this->pdo = $this->db;
         $this->transportEntitlements = $this->contract('App\API\Modules\transport\StudentTransportEntitlementManager', Database::getInstance()->getConnection());
-        $this->scanService = new \App\API\Services\GateScanService($this->pdo, $this->transportEntitlements);
+        $this->scanService = $this->contract(\App\API\Services\GateScanService::class, $this->pdo, $this->transportEntitlements);
     }
 
     /* =========================================================

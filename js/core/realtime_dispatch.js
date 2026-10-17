@@ -85,6 +85,16 @@
 
     if (JOB_TYPES.has(type)) {
       emit('kingsway:job', { ...detail });
+      // Job widgets subscribe per job; emit the generic event plus a per-job
+      // event (any state) and a per-job-per-status event. `kingsway:job:<id>`
+      // lets a widget learn about a long-lived job whatever it becomes next;
+      // `kingsway:job:<id>:progress|done|failed` lets it react to one state.
+      const jobId = payload?.job_id;
+      if (jobId !== undefined && jobId !== null && jobId !== '') {
+        emit(`kingsway:job:${jobId}`, { ...detail });
+        const status = type === 'JOB_PROGRESS' ? 'progress' : (type === 'JOB_FAILED' ? 'failed' : 'done');
+        emit(`kingsway:job:${jobId}:${status}`, { ...detail });
+      }
       // Job events do not by themselves change cached school data, so they do
       // not refresh anything.
       return { refreshed: false, patched: false, targets };

@@ -120,7 +120,7 @@ class RequisitionsManager extends BaseAPI
                     r.*,
                     CONCAT(p.first_name, ' ', p.last_name) as requested_by_name,
                     p.email as requester_email
-                FROM " . ReadReplicaService::qualifiedRef("requisition_items") . "
+                FROM " . ReadReplicaService::qualifiedRef("requisitions") . " r
                 LEFT JOIN users u ON r.requested_by = u.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
                 WHERE r.id = ?

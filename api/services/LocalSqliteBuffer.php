@@ -26,7 +26,7 @@ final class LocalSqliteBuffer
 
     public function __construct(?string $directory = null)
     {
-        $this->directory = $directory ?: (sys_get_temp_dir() . '/kingsway_local_buffers');
+        $this->directory = $directory ?: StorageRoot::path('php/buffers');
         if (!is_dir($this->directory) && !mkdir($this->directory, 0700, true) && !is_dir($this->directory)) {
             throw new RuntimeException('Unable to create local buffer directory.');
         }

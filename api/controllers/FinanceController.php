@@ -67,7 +67,7 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->compensationAdminDenied()) return $denied;
         try {
-            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $service = $this->contract(StaffCompensationService::class, Database::getInstance()->getConnection());
             return $this->success($service->setup());
         } catch (\Throwable $e) { return $this->serverError('Unable to load salary setup.'); }
     }
@@ -77,7 +77,7 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->compensationAdminDenied()) return $denied;
         try {
-            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $service = $this->contract(StaffCompensationService::class, Database::getInstance()->getConnection());
             $saved = $service->saveRoleRate($data, $this->staffAccess->userId());
             \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'role_salary_rate_created','entity'=>'role_salary_rate','entity_id'=>(string)$saved['id'],'user_id'=>$this->staffAccess->userId(),'details'=>['role_id'=>(int)$data['role_id'],'gross_salary'=>(float)$data['gross_salary'],'effective_from'=>$data['effective_from']??null],'status'=>'success']);
             return $this->created($saved, 'Role salary rate saved.');
@@ -90,7 +90,7 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->compensationAdminDenied()) return $denied;
         try {
-            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $service = $this->contract(StaffCompensationService::class, Database::getInstance()->getConnection());
             $service->saveIndividualSalary($data, $this->staffAccess->userId());
             \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>empty($data['clear_override'])?'staff_salary_override_set':'staff_salary_override_cleared','entity'=>'staff','entity_id'=>(string)(int)($data['staff_id']??0),'user_id'=>$this->staffAccess->userId(),'details'=>['gross_salary'=>empty($data['clear_override'])?(float)($data['gross_salary']??0):null],'status'=>'success']);
             return $this->success(null, empty($data['clear_override'])?'Individual salary override saved.':'Individual override cleared; payroll will use the primary role rate.');
@@ -103,7 +103,7 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->compensationAdminDenied()) return $denied;
         try {
-            $service = new StaffCompensationService(Database::getInstance()->getConnection());
+            $service = $this->contract(StaffCompensationService::class, Database::getInstance()->getConnection());
             $result = $service->createAward($data, $this->staffAccess->userId());
             \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'staff_payroll_award_created','entity'=>'staff_payroll_award_batch','entity_id'=>(string)$result['batch_id'],'user_id'=>$this->staffAccess->userId(),'details'=>['kind'=>$data['award_kind']??null,'recipient_count'=>$result['recipient_count'],'period_count'=>$result['period_count']],'status'=>'success']);
             return $this->created($result, 'Payroll award scheduled for the selected staff and months.');
@@ -117,7 +117,7 @@ class FinanceController extends BaseController
         if ($denied = $this->compensationAdminDenied()) return $denied;
         try {
             $batchId = (int)($id ?? $data['batch_id'] ?? 0);
-            (new StaffCompensationService(Database::getInstance()->getConnection()))->cancelAward($batchId);
+            ($this->contract(StaffCompensationService::class, Database::getInstance()->getConnection()))->cancelAward($batchId);
             \App\API\Includes\FileLogger::write('audit', ['type'=>'audit','action'=>'staff_payroll_award_cancelled','entity'=>'staff_payroll_award_batch','entity_id'=>(string)$batchId,'user_id'=>$this->staffAccess->userId(),'status'=>'success']);
             return $this->success(null, 'Award batch cancelled.');
         } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }

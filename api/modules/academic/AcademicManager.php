@@ -5671,7 +5671,7 @@ if ($classId) {
                 $row = $this->dbQuery(
                     "SELECT s.id, s.code AS strand_code, s.grade_level,
                             la.id AS learning_area_id, la.name AS learning_area,
-                            la.learning_area_family_id, laf.name AS learning_area_family,
+la.learning_area_family_id, la.name AS learning_area_family,
                             s.name AS strand,
                             (SELECT GROUP_CONCAT(ssx.name ORDER BY ssx.sort_order, ssx.id SEPARATOR '; ')
                                FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ssx WHERE ssx.strand_id = s.id) AS sub_strands,
@@ -5766,7 +5766,7 @@ if ($classId) {
             $rows = $this->dbQuery(
                 "SELECT s.id, s.code AS strand_code, s.grade_level,
                         la.name AS learning_area, la.id AS learning_area_id,
-                        la.learning_area_family_id, laf.name AS learning_area_family,
+                        la.learning_area_family_id, la.name AS learning_area_family,
                         s.name AS strand,
                         (SELECT GROUP_CONCAT(ssx.name ORDER BY ssx.sort_order, ssx.id SEPARATOR '; ')
                            FROM " . ReadReplicaService::qualifiedRef("sub_strands") . " ssx WHERE ssx.strand_id = s.id) AS sub_strands,

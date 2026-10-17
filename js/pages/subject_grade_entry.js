@@ -223,7 +223,7 @@ const subjectGradeEntryCtrl = (() => {
             const lastUpdated = existingMark?.updated_at || '—';
 
             return `
-                <tr data-student-id="${student.id}">
+                <tr data-student-id="${student.id}" data-realtime-activity="assessment_result:${state.currentAssessment?.id}:${student.id}">
                     <td>${index + 1}</td>
                     <td>${student.admission_no || '—'}</td>
                     <td>
@@ -295,6 +295,54 @@ const subjectGradeEntryCtrl = (() => {
         document.getElementById('pendingStudents').textContent = pending;
     }
 
+
+    /**
+     * Realtime collaboration: focusing a mark input declares row presence so
+     * a peer's save on that row arrives as a CONFLICT_HINT instead of
+     * overwriting in-progress typing; a peer's save on a row this teacher is
+     * NOT editing patches just that row in place instead of reloading the
+     * grid and wiping other half-typed marks.
+     */
+    const presenceKeyFor = (input) => `assessment_result:${state.currentAssessment?.id}:${input.dataset.studentId}`;
+
+    function bindRealtimeCollaboration() {
+        const tbody = document.getElementById('marksTableBody');
+        if (!tbody) return;
+
+        tbody.addEventListener('focusin', (e) => {
+            const input = e.target.closest('.marks-input');
+            if (input && state.currentAssessment?.id) window.RealtimePresence?.begin(presenceKeyFor(input));
+        });
+        tbody.addEventListener('focusout', (e) => {
+            const input = e.target.closest('.marks-input');
+            if (!input) return;
+            if (e.relatedTarget && e.relatedTarget.closest?.('tr') === input.closest('tr')) return;
+            if (state.currentAssessment?.id) window.RealtimePresence?.end(presenceKeyFor(input));
+        });
+
+        window.APIRealtime?.registerPatch?.({
+            id: 'subject_grade_entry_rows',
+            targets: ['assessment_result', 'academic'],
+            apply: (descriptor) => {
+                if (descriptor.domain !== 'assessment_result' || !state.currentAssessment?.id) return false;
+                const studentId = Number(descriptor.id || 0);
+                const row = studentId && document.querySelector(`#marksTableBody tr[data-student-id="${studentId}"]`);
+                if (!row) return false;
+                row.classList.remove('rt-conflict-row');
+                void row.offsetWidth;
+                row.classList.add('rt-conflict-row');
+                const stamp = row.querySelector('.rt-row-updated');
+                if (stamp) stamp.remove();
+                const el = document.createElement('span');
+                el.className = 'rt-row-updated text-primary small d-block';
+                const responder = Number(descriptor.responder_id) ? ` by staff #${descriptor.responder_id}` : '';
+                el.textContent = `updated${responder}`;
+                row.lastElementChild.appendChild(el);
+                return true;
+            },
+        });
+    }
+
     async function saveAllMarks() {
         const assessmentId = state.currentAssessment?.id;
         if (!assessmentId) {
@@ -329,6 +377,13 @@ const subjectGradeEntryCtrl = (() => {
             const saveBtn = document.getElementById('saveAllBtn');
             saveBtn.disabled = true;
             saveBtn.textContent = 'Saving...';
+
+            // Editing is over: release row presence BEFORE the save so the
+            // server's own ROW_UPDATED echoes are not withheld from this
+            // connection as self-targeted CONFLICT_HINTs.
+            if (window.RealtimePresence) {
+                inputs.forEach((input) => window.RealtimePresence.end(presenceKeyFor(input)));
+            }
 
             await apiCall('academic/formative-assessment-marks', 'POST', {
                 assessment_id: assessmentId,
@@ -421,6 +476,7 @@ const subjectGradeEntryCtrl = (() => {
             }
         });
         document.getElementById('saveAllBtn')?.addEventListener('click', saveAllMarks);
+        bindRealtimeCollaboration();
         document.getElementById('autoCalculateBtn')?.addEventListener('click', autoCalculate);
         document.getElementById('exportBtn')?.addEventListener('click', exportMarks);
     }
@@ -469,4 +525,8 @@ const subjectGradeEntryCtrl = (() => {
 document.addEventListener('DOMContentLoaded', subjectGradeEntryCtrl.init);
 
 window.subjectGradeEntryCtrl = subjectGradeEntryCtrl;
-window.APIRealtime?.register?.(subjectGradeEntryCtrl, subjectGradeEntryCtrl);
+window.APIRealtime?.register?.('subject_grade_entry', { refresh: () => {
+    const assessmentId = state.currentAssessment?.id;
+    if (assessmentId) return loadStudentsForAssessment(assessmentId);
+    return loadAssessments();
+} }, ['academic', 'assessment_result']);

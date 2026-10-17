@@ -1,226 +1,78 @@
 /**
- * Lesson Plans by Class Page Controller
- * Displays lesson plan coverage per class with drill-down capability
- * Integrates with AcademicContext for academic year awareness
+ * Lesson Plans by Class Controller
+ * Manages lesson plans organized by class.
  */
-const LessonPlansByClassController = (() => {
-  let classData = [];
-  let pagination = { page: 1, limit: 15, total: 0 };
-  let currentAcademicYear = null;
-  let currentTerm = null;
+const lessonPlansByClassController = {
+  state: { referenceCache: null, lessonPlans: [], classes: [], subjects: [] },
 
-  async function loadData(page = 1) {
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
     try {
-      pagination.page = page;
-      const params = { page, limit: pagination.limit };
-
-      const cls = document.getElementById("classFilterLPC")?.value;
-      if (cls) params.class_id = cls;
-      const coverage = document.getElementById("coverageFilter")?.value;
-      if (coverage) params.coverage = coverage;
-      const search = document.getElementById("searchByClass")?.value;
-      if (search) params.search = search;
-
-      const response = await window.API.academic.getLessonPlansByClass(params);
-      const data = response?.data || response || [];
-      classData = Array.isArray(data) ? data : data.classes || data.data || [];
-      if (data.pagination) pagination = { ...pagination, ...data.pagination };
-      pagination.total = data.total || classData.length;
-
-      renderStats(classData);
-      renderTable(classData);
-      renderPagination();
-    } catch (e) {
-      console.error("Load class coverage failed:", e);
-      renderTable([]);
+      const response = await window.API.nodeViews.read("academic", "manage-timetable-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Lesson Plans by Class Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
-  }
+  },
 
-  function renderStats(data) {
-    const withPlans = data.filter(
-      (d) => (d.with_plans || d.plans_count || 0) > 0,
-    ).length;
-    const full = data.filter(
-      (d) => parseFloat(d.coverage_percentage || d.coverage || 0) >= 100,
-    ).length;
-    const partial = data.filter((d) => {
-      const cov = parseFloat(d.coverage_percentage || d.coverage || 0);
-      return cov > 0 && cov < 100;
-    }).length;
-    const none = data.filter(
-      (d) => (d.with_plans || d.plans_count || 0) === 0,
-    ).length;
-
-    document.getElementById("classesWithPlans").textContent = withPlans;
-    document.getElementById("fullCoverage").textContent = full;
-    document.getElementById("partialCoverage").textContent = partial;
-    document.getElementById("noPlans").textContent = none;
-  }
-
-  function renderTable(items) {
-    const tbody = document.getElementById("byClassTableBody");
-    if (!tbody) return;
-
-    if (!items.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="7" class="text-center py-4 text-muted">No class data found</td></tr>';
-      return;
-    }
-
-    tbody.innerHTML = items
-      .map((c, i) => {
-        const coverage = parseFloat(c.coverage_percentage || c.coverage || 0);
-        const coverageColor =
-          coverage >= 100 ? "success" : coverage >= 50 ? "warning" : "danger";
-        const totalSubjects = c.total_subjects || 0;
-        const withPlans = c.with_plans || c.plans_count || 0;
-        const withoutPlans = totalSubjects - withPlans;
-
-        return `
-                <tr>
-                    <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                    <td><strong>${c.class_name || c.name || "-"}</strong> ${c.stream_name ? "(" + c.stream_name + ")" : ""}</td>
-                    <td>${totalSubjects}</td>
-                    <td><span class="badge bg-success">${withPlans}</span></td>
-                    <td><span class="badge bg-danger">${withoutPlans > 0 ? withoutPlans : 0}</span></td>
-                    <td>
-                        <div class="progress" style="height:20px;">
-                            <div class="progress-bar bg-${coverageColor}" style="width:${coverage}%">${coverage.toFixed(0)}%</div>
-                        </div>
-                    </td>
-                    <td>
-                        <button class="btn btn-info btn-sm" onclick="LessonPlansByClassController.viewDetail(${c.id || c.class_id})" title="View Details">
-                            <i class="bi bi-eye"></i> Details
-                        </button>
-                    </td>
-                </tr>
-            `;
-      })
-      .join("");
-  }
-
-  function renderPagination() {
-    const container = document.getElementById("pagination");
-    if (!container) return;
-    const totalPages = Math.ceil(pagination.total / pagination.limit);
-
-    const fromEl = document.getElementById("showingFrom");
-    const toEl = document.getElementById("showingTo");
-    const totalEl = document.getElementById("totalRecords");
-    if (fromEl)
-      fromEl.textContent =
-        pagination.total > 0 ? (pagination.page - 1) * pagination.limit + 1 : 0;
-    if (toEl)
-      toEl.textContent = Math.min(
-        pagination.page * pagination.limit,
-        pagination.total,
-      );
-    if (totalEl) totalEl.textContent = pagination.total;
-
-    let html = "";
-    for (let i = 1; i <= totalPages; i++) {
-      html += `<li class="page-item ${i === pagination.page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="LessonPlansByClassController.loadPage(${i}); return false;">${i}</a>
-            </li>`;
-    }
-    container.innerHTML = html;
-  }
-
-  async function viewDetail(classId) {
+  async load() {
     try {
-      const resp = await window.API.academic.getLessonPlansByClassDetail(
-        classId,
-      );
-      const detail = resp?.data || resp;
-      const subjects = detail?.subjects || detail?.data || [];
-      const content = document.getElementById("classDetailContent");
+      const cache = this.state.referenceCache;
+      const [lessonPlans, classes, subjects] = await Promise.all([
+        cache?.lessonPlans !== undefined ? cache.lessonPlans : this.API('GET', '/api/academic/lesson-plans-by-class'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas/list'),
+      ]);
+      this.state.lessonPlans = Array.isArray(lessonPlans?.data) ? lessonPlans.data : (Array.isArray(lessonPlans) ? lessonPlans : []);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.renderLessonPlans();
+      this.renderFilters();
+    } catch (e) { console.error(e); }
+  },
 
-      let tableRows = subjects
-        .map(
-          (s) => `
-                <tr>
-                    <td>${s.subject_name || "-"}</td>
-                    <td>${s.teacher_name || "-"}</td>
-                    <td><span class="badge bg-${s.has_plan ? "success" : "danger"}">${s.has_plan ? "Yes" : "No"}</span></td>
-                    <td>${s.plan_status || "-"}</td>
-                    <td>${s.last_submitted || "-"}</td>
-                </tr>
-            `,
-        )
-        .join("");
+  getCache(key) { return this.state.referenceCache?.[key]; },
 
-      content.innerHTML = `
-                <h6>${detail.class_name || "Class"} - Subject Coverage</h6>
-                <div class="table-responsive">
-                    <table class="table table-bordered table-sm">
-                        <thead class="table-light">
-                            <tr><th>Subject</th><th>Teacher</th><th>Has Plan</th><th>Status</th><th>Last Submitted</th></tr>
-                        </thead>
-                        <tbody>${tableRows || '<tr><td colspan="5" class="text-center text-muted">No data</td></tr>'}</tbody>
-                    </table>
-                </div>
-            `;
-      document.getElementById("classDetailLabel").textContent =
-        `Lesson Plans: ${detail.class_name || "Class"}`;
-      new bootstrap.Modal(document.getElementById("classDetailModal")).show();
-    } catch (e) {
-      showNotification("Failed to load class details", "error");
-    }
-  }
+  renderLessonPlans() {
+    const plans = this.state.lessonPlans;
+    const body = document.getElementById('lpbcPlansBody');
+    if (!plans.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No lesson plans.</td></tr>'; return; }
+    body.innerHTML = plans.map(p => `<tr>
+      <td class="small">${this.esc(p.class_name || '—')}</td>
+      <td class="small">${this.esc(p.subject || '—')}</td>
+      <td class="small">${this.esc(p.topic || '—')}</td>
+      <td class="small">${this.fmtDate(p.week_start)} - ${this.fmtDate(p.week_end)}</td>
+      <td class="small"><span class="badge bg-${p.status === 'approved' ? 'success' : p.status === 'draft' ? 'warning' : 'secondary'}">${this.esc(p.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="lessonPlansByClassController.viewPlan(${p.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
 
-  function showNotification(message, type) { window.showNotification(message, type); }
+  renderFilters() {
+    const classes = this.state.classes;
+    const subjects = this.state.subjects;
+    const classSelect = document.getElementById('lpbcClassFilter');
+    const subjectSelect = document.getElementById('lpbcSubjectFilter');
+    if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+    if (subjectSelect) subjectSelect.innerHTML = '<option value="">All Subjects</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+  },
 
-  function attachListeners() {
-    document
-      .getElementById("classFilterLPC")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("coverageFilter")
-      ?.addEventListener("change", () => loadData(1));
-    document.getElementById("searchByClass")?.addEventListener("keyup", () => {
-      clearTimeout(window._lpcSearchTimeout);
-      window._lpcSearchTimeout = setTimeout(() => loadData(1), 300);
-    });
-    document
-      .getElementById("exportByClassBtn")
-      ?.addEventListener("click", () => {
-        window.open(
-          (window.APP_BASE || "") + "/api/?route=academic/lesson-plans/by-class/export&format=csv",
-          "_blank",
-        );
-      });
-  }
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
 
-  async function init() {
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload data when academic year or term changes
-          loadData();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      currentTerm = window.AcademicContext.getTermId();
-    }
-    
-    attachListeners();
-    await loadData();
-  }
+  async viewPlan(id) { /* open plan detail modal */ },
 
-  return { init, refresh: loadData, loadPage: loadData, viewDetail };
-})();
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("lesson_plans_by_class", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
+  },
+};
 
-document.addEventListener("DOMContentLoaded", () =>
-  LessonPlansByClassController.init(),
-);
-
-window.LessonPlansByClassController = LessonPlansByClassController;
+window.lessonPlansByClassController = lessonPlansByClassController;
+document.addEventListener('DOMContentLoaded', () => lessonPlansByClassController.init().catch(() => {}));

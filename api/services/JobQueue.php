@@ -3,6 +3,7 @@
 namespace App\API\Services;
 
 use App\Database\ConnectionManager;
+use InvalidArgumentException;
 use PDO;
 use RuntimeException;
 
@@ -30,6 +31,9 @@ final class JobQueue
     public const PYTHON_JOB_TYPES = [
         'reads.projection.refresh',
         'automation.run',
+        // Bulk messaging transport (TALKSASA) executed in Python; PHP owns the
+        // stage/input/result boundary and applies per-recipient outcomes.
+        'communications.sms_batch',
         // Batch families are registered here for the shared queue contract.
         // RealtimeController activates them only after its PHP-owned
         // authorization/input/result boundary has been implemented.
@@ -59,6 +63,7 @@ final class JobQueue
         'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
         'curriculum.policy_interpret', 'rpc.async.dispatch',
         'rebake_realtime_buffer', 'purge_old_realtime_events',
+        'communications.sms_batch',
     ];
 
     /** Job-type prefixes that always run on the CRITICAL lane. */
@@ -67,7 +72,10 @@ final class JobQueue
     ];
 
     /** Job-type prefixes that always run on the BATCH lane. */
-    private const BATCH_JOB_PREFIXES = ['export.', 'exports.', 'report.', 'print.'];
+    private const BATCH_JOB_PREFIXES = [
+        'export.', 'export:', 'exports.', 'exports:', 'report.', 'report:',
+        'print.', 'print:',
+    ];
 
     private const MAX_ATTEMPTS = 20;
     private const MAX_BACKOFF = 3600;
@@ -92,7 +100,7 @@ final class JobQueue
         int $backoffSeconds = 60,
         ?int $priority = null
     ): int {
-        if (!preg_match('/^[a-z][a-z0-9_.-]{2,99}$/', $jobType)) {
+        if (!preg_match('/^[a-z][a-z0-9_.:-]{2,127}$/', $jobType)) {
             throw new \InvalidArgumentException('Invalid background job type.');
         }
         $maxAttempts = self::clampAttempts($maxAttempts);
@@ -345,8 +353,22 @@ final class JobQueue
         }, ConnectionManager::NS_BUFFERS);
     }
 
+/**
+     * Update a job's payload with additional metadata (e.g., artifact info).
+     * Merges the provided array into the existing JSON payload.
+     */
+    public static function updateMeta(int $id, array $meta): void
+    {
+        ConnectionManager::run(static function (PDO $pdo) use ($id, $meta): void {
+            $stmt = $pdo->prepare(
+                "UPDATE jobs_queue SET payload = JSON_MERGE_PATCH(payload, ?), updated_at = NOW() WHERE id = ?"
+            );
+            $stmt->execute([json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $id]);
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
     /**
-     * Fetch one queued job for dispatch.
+     * Fetch a job by ID.
      *
      * @return array{id:int, job_type:string, priority:int, payload:array, status:string,
      *               attempts:int, max_attempts:int, backoff_seconds:int,
@@ -393,14 +415,40 @@ final class JobQueue
     }
 
     /** Complete only the exact processing attempt returned to a Python worker. */
-    public static function markDoneForAttempt(int $id, int $attempts): bool
+    public static function markDoneForAttempt(int $id, int $attempts, ?array $result = null): bool
     {
-        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts): bool {
-            $stmt = $pdo->prepare(
-                'UPDATE jobs_queue SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
-                . 'WHERE id = ? AND status = ? AND attempts = ?'
+        $resultJson = null;
+        if ($result !== null) {
+            $resultJson = json_encode(
+                ['result' => $result],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             );
-            $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            if (strlen($resultJson) > 16384) {
+                throw new InvalidArgumentException('Job result descriptor exceeds the 16 KB limit.');
+            }
+        }
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts, $resultJson): bool {
+            if ($resultJson === null) {
+                $stmt = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
+                    . 'WHERE id = ? AND status = ? AND attempts = ?'
+                );
+                $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            } else {
+                $stmt = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, payload = JSON_MERGE_PATCH(payload, ?), '
+                    . 'failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
+                    . 'WHERE id = ? AND status = ? AND attempts = ?'
+                );
+                $stmt->execute([
+                    self::STATUS_DONE,
+                    $resultJson,
+                    $id,
+                    self::STATUS_PROCESSING,
+                    max(0, $attempts),
+                ]);
+            }
             return $stmt->rowCount() === 1;
         }, ConnectionManager::NS_BUFFERS);
     }

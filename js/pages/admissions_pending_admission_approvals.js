@@ -6,6 +6,17 @@ const pendingApprovalsController = {
     applications: [],
     filteredApplications: [],
     initialized: false,
+    state: { referenceCache: null },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.read("admissions", "pending-approvals-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Pending Approvals Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
+        }
+    },
 
     init: async function() {
         if (this.initialized) return;
@@ -25,8 +36,17 @@ const pendingApprovalsController = {
             }
 
             this.setupEventListeners();
+            await this.loadReferencesComposed();
             await this.loadClasses();
             await this.loadApplications();
+            window.APIRealtime?.register?.("pending_approvals", {
+                refresh: async () => {
+                    this.state.referenceCache = null;
+                    await this.loadReferencesComposed();
+                    await this.loadClasses();
+                    await this.loadApplications();
+                }
+            }, ["admissions", "students", "finance"]);
 
         } catch (error) {
             console.error("Failed to initialize Pending Admission Approvals Controller:", error);
@@ -36,8 +56,11 @@ const pendingApprovalsController = {
 
     loadClasses: async function() {
         try {
+            const cache = this.state.referenceCache;
             let classes = [];
-            if (API?.admission?.getPlacementClasses) {
+            if (cache?.classes !== undefined) {
+                classes = cache.classes?.classes || (Array.isArray(cache.classes) ? cache.classes : []);
+            } else if (API?.admission?.getPlacementClasses) {
                 const response = await API.admission.getPlacementClasses();
                 const payload = response?.data || response || {};
                 classes = payload.classes || (Array.isArray(payload) ? payload : []);

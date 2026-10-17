@@ -121,7 +121,7 @@
         const style = PS.categoryStyle(n.category);
         const color = style[0];
         const icon = style[1];
-        const img = n.image_url ? S(n.image_url) : PS.categoryImage(n.category, 600);
+        const img = n.image_url ? S(PS.mediaUrl(n.image_url)) : PS.categoryImage(n.category, 600);
         const excerpt = String(n.excerpt || n.content || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         const trimmed = excerpt.length > 120 ? excerpt.slice(0, 120).trim() + '…' : excerpt;
         return '<div class="col-md-' + (i === 0 ? '12' : '6') + '">' +
@@ -190,7 +190,7 @@
       if (!list.length) { el.innerHTML = PS.emptyHTML('Gallery images are being added. Check back soon.'); return; }
       el.innerHTML = list.map((g) =>
         '<div class="gallery-item">' +
-        '<img src="' + S(g.image_url) + '" alt="' + S(g.caption || 'Kingsway School') + '" loading="lazy" onerror="this.src=\'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70\'">' +
+        '<img src="' + S(PS.mediaUrl(g.image_url)) + '" alt="' + S(g.caption || 'Kingsway School') + '" loading="lazy" onerror="this.src=\'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70\'">' +
         '<div class="overlay"><i class="bi bi-zoom-in"></i></div>' +
         '</div>'
       ).join('');

@@ -1,60 +1,127 @@
-/* Transport administration workspace. All mutations use the central API/RBAC layer. */
-(() => {
-  const state = { routes: [], vehicles: [], drivers: [], stops: [], routeStops: [], edit: null, type: null };
-  const $ = (id) => document.getElementById(id);
-  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const rows = (r) => Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-  const data = (r) => r?.data ?? r;
-  const money = (n) => `KES ${Number(n || 0).toLocaleString('en-KE',{minimumFractionDigits:2})}`;
-  const badge = (s) => `<span class="badge rounded-pill text-bg-${s === 'active' ? 'success' : s === 'maintenance' ? 'warning' : 'secondary'}">${esc(s || 'unknown')}</span>`;
-  const empty = (col, text='No records found.') => `<tr><td colspan="${col}" class="transport-empty">${esc(text)}</td></tr>`;
+/**
+ * Transport Admin Controller
+ * Administrative interface for transport management.
+ */
+const transportAdminController = {
+  state: { referenceCache: null, routes: [], vehicles: [], drivers: [], stops: [] },
 
-  async function load() {
-    const [routes, vehicles, drivers, stops] = await Promise.all([
-      API.transport.getAllRoutes(), API.transport.getAllVehicles(), API.transport.getAllDrivers(), API.transport.getAllStops()
-    ]);
-    state.routes=rows(routes); state.vehicles=rows(vehicles); state.drivers=rows(drivers); state.stops=rows(stops);
-    render();
-  }
-  function render() {
-    const q=($('transportSearch')?.value||'').toLowerCase(); const status=$('transportStatus')?.value||'';
-    const match=x=>!status||x.status===status; const text=x=>JSON.stringify(x).toLowerCase();
-    const routes=state.routes.filter(x=>match(x)&&(!q||text(x).includes(q)));
-    const vehicles=state.vehicles.filter(x=>match(x)&&(!q||text(x).includes(q)));
-    const drivers=state.drivers.filter(x=>!status||x.status===status).filter(x=>!q||text(x).includes(q));
-    const stops=state.stops.filter(x=>!status||x.status===status).filter(x=>!q||text(x).includes(q));
-    $('transportRoutesBody').innerHTML=routes.length?routes.map(r=>`<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.description||'Add the roads and areas covered')}</td><td><div>${esc((r.morning_departure||'').slice(0,5)||'—')} / ${esc((r.afternoon_departure||'').slice(0,5)||'—')}</div></td><td>${esc(r.vehicle_registration||'Unassigned')}<small class="d-block text-muted">${esc(r.driver_name||'No driver')}</small></td><td><strong>${r.stop_count||0}</strong> pickup/drop-off points</td><td>${badge(r.status)}</td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" data-action="edit-route" data-id="${r.id}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete-route" data-id="${r.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):empty(7,'No routes match the current filters.');
-    $('transportVehiclesBody').innerHTML=vehicles.length?vehicles.map(v=>`<tr><td><strong>${esc(v.registration_number)}</strong></td><td>${esc(v.type||'')}<small class="d-block text-muted">${esc([v.make,v.model,v.year].filter(Boolean).join(' '))}</small></td><td>${esc(v.capacity)}</td><td>${dateStatus(v.insurance_expiry)}</td><td>${dateStatus(v.service_due_date)}</td><td>${badge(v.status)}</td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" data-action="edit-vehicle" data-id="${v.id}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete-vehicle" data-id="${v.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):empty(7); 
-    $('transportDriversBody').innerHTML=drivers.length?drivers.map(d=>`<tr><td><strong>${esc(`${d.first_name||''} ${d.last_name||''}`.trim())}</strong><small class="d-block text-muted">${esc(d.route_names||'No routes scheduled')}</small></td><td>${esc(d.staff_no)}</td><td>${esc(d.phone||'—')}</td><td>${esc(d.license_number||'Not recorded')}</td><td>${badge(d.status)}</td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" data-action="edit-driver" data-id="${d.id}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete-driver" data-id="${d.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):empty(6);
-    $('transportStopsBody').innerHTML=stops.length?stops.map(s=>`<tr><td><strong>${esc(s.name)}</strong></td><td>${esc(state.routes.find(r=>Number(r.id)===Number(s.route_id))?.name||s.route_id)}</td><td>${esc(s.sequence)}</td><td>${esc(s.location||'—')}</td><td>${badge(s.status)}</td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" data-action="edit-stop" data-id="${s.id}"><i class="bi bi-pencil"></i></button><button class="btn btn-sm btn-outline-danger" data-action="delete-stop" data-id="${s.id}"><i class="bi bi-trash"></i></button></td></tr>`).join(''):empty(6);
-    $('transportKpis').querySelector('[data-kpi="routes"]').textContent=state.routes.filter(x=>x.status==='active').length;
-    $('transportKpis').querySelector('[data-kpi="vehicles"]').textContent=state.vehicles.filter(x=>x.status==='active').length;
-    $('transportKpis').querySelector('[data-kpi="learners"]').textContent=state.routes.reduce((n,r)=>n+Number(r.student_count||0),0);
-    $('transportKpis').querySelector('[data-kpi="attention"]').textContent=state.vehicles.filter(x=>x.status!=='active'||(x.insurance_expiry&&x.insurance_expiry<new Date().toISOString().slice(0,10))).length;
-  }
-  function dateStatus(v){if(!v)return '—';const overdue=v<new Date().toISOString().slice(0,10);return `<span class="${overdue?'text-danger fw-semibold':''}">${esc(v)}${overdue?' · overdue':''}</span>`;}
-  function select(name, list, value, label){return `<select class="form-select" name="${name}"><option value="">Select</option>${list.map(x=>`<option value="${x.id}" ${String(x.id)===String(value||'')?'selected':''}>${esc(label(x))}</option>`).join('')}</select>`;}
-  function open(type, item={}){
-    state.type=type; state.edit=item.id?item:null; const title={route:item.id?'Edit route':'Add route',vehicle:item.id?'Edit vehicle':'Add vehicle',driver:item.id?'Edit driver':'Add driver',stop:item.id?'Edit stop':'Add stop'}[type]; $('transportEditorTitle').textContent=title; $('transportEditorSubtitle').textContent='Changes are validated against the transport register.';
-    let html='';
-    if(type==='route'){state.routeStops=state.stops.filter(s=>Number(s.route_id)===Number(item.id)&&s.status!=='inactive').sort((a,b)=>Number(a.sequence)-Number(b.sequence)).map(s=>({...s}));html=`<div class="row g-3"><div class="col-md-8"><label class="form-label">Route name *</label><input class="form-control" name="name" value="${esc(item.name)}" placeholder="e.g. School – Londiani Junction – Londiani Centre – School" required></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" name="status"><option value="active" ${item.status!=='inactive'?'selected':''}>Active</option><option value="inactive" ${item.status==='inactive'?'selected':''}>Inactive</option></select></div><div class="col-12"><label class="form-label">Roads and areas covered *</label><textarea class="form-control" name="description" rows="2" required>${esc(item.description)}</textarea></div><div class="col-md-6"><label class="form-label">Morning pickup begins</label><input class="form-control" type="time" name="morning_departure" value="${esc((item.morning_departure||'06:30').slice(0,5))}"></div><div class="col-md-6"><label class="form-label">Evening trip leaves school</label><input class="form-control" type="time" name="afternoon_departure" value="${esc((item.afternoon_departure||'16:30').slice(0,5))}"></div><div class="col-12"><div class="d-flex justify-content-between align-items-center mb-2"><div><label class="form-label mb-0">Pickup/drop-off points</label><div class="form-text">Add as many ordered gates, junctions and centres as this route covers.</div></div><button type="button" class="btn btn-sm btn-outline-success" id="transportAddRouteStop"><i class="bi bi-plus-lg"></i> Add point</button></div><div id="transportRouteStops"></div></div></div>`;}
-    if(type==='vehicle'){const assigned=String(item.route_ids||'').split(',');html=`<div class="row g-3"><div class="col-md-6"><label class="form-label">Registration number *</label><input class="form-control" name="registration_number" value="${esc(item.registration_number)}" required></div><div class="col-md-6"><label class="form-label">Vehicle type</label><input class="form-control" name="type" value="${esc(item.type||'School Bus')}"></div><div class="col-md-4"><label class="form-label">Make</label><input class="form-control" name="make" value="${esc(item.make)}"></div><div class="col-md-4"><label class="form-label">Model</label><input class="form-control" name="model" value="${esc(item.model)}"></div><div class="col-md-4"><label class="form-label">Seat capacity *</label><input class="form-control" type="number" min="1" name="capacity" value="${esc(item.capacity||1)}" required></div><div class="col-md-4"><label class="form-label">Year</label><input class="form-control" type="number" name="year" value="${esc(item.year)}"></div><div class="col-md-4"><label class="form-label">Insurance expiry</label><input class="form-control" type="date" name="insurance_expiry" value="${esc(item.insurance_expiry)}"></div><div class="col-md-4"><label class="form-label">Service due</label><input class="form-control" type="date" name="service_due_date" value="${esc(item.service_due_date)}"></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" name="status"><option value="active" ${item.status==='active'?'selected':''}>Active</option><option value="maintenance" ${item.status==='maintenance'?'selected':''}>Maintenance</option><option value="inactive" ${item.status==='inactive'?'selected':''}>Inactive</option></select></div><div class="col-md-8"><label class="form-label">Routes this vehicle covers</label><select class="form-select" name="route_ids" multiple size="${Math.min(6,Math.max(3,state.routes.length))}">${state.routes.map(r=>`<option value="${r.id}" ${assigned.includes(String(r.id))?'selected':''}>${esc(r.name)} · ${r.student_count||0} learners</option>`).join('')}</select><div class="form-text">Select one or more routes according to learner numbers and available vehicles.</div></div></div>`;}
-    if(type==='driver'){const assigned=String(item.route_ids||'').split(',');html=`<div class="row g-3"><div class="col-md-6"><label class="form-label">First name *</label><input class="form-control" name="first_name" value="${esc(item.first_name)}" required></div><div class="col-md-6"><label class="form-label">Last name</label><input class="form-control" name="last_name" value="${esc(item.last_name)}"></div><div class="col-md-6"><label class="form-label">Phone</label><input class="form-control" name="phone" value="${esc(item.phone)}"></div><div class="col-md-6"><label class="form-label">Driving licence</label><input class="form-control" name="license_number" value="${esc(item.license_number)}"></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" name="status"><option value="active" ${item.status!=='inactive'?'selected':''}>Active</option><option value="inactive" ${item.status==='inactive'?'selected':''}>Inactive</option></select></div><div class="col-md-8"><label class="form-label">Routes this driver covers</label><select class="form-select" name="route_ids" multiple size="${Math.min(6,Math.max(3,state.routes.length))}">${state.routes.map(r=>`<option value="${r.id}" ${assigned.includes(String(r.id))?'selected':''}>${esc(r.name)} · ${r.student_count||0} learners</option>`).join('')}</select><div class="form-text">Hold Ctrl/Cmd to select more than one route.</div></div></div>`;}
-    if(type==='stop') html=`<div class="row g-3"><div class="col-md-7"><label class="form-label">Pickup/drop-off point *</label><input class="form-control" name="name" value="${esc(item.name)}" placeholder="e.g. Chebet family gate" required></div><div class="col-md-5"><label class="form-label">Route *</label>${select('route_id',state.routes,item.route_id,r=>r.name)}</div><div class="col-md-4"><label class="form-label">Order on route *</label><input class="form-control" type="number" min="1" name="sequence" value="${esc(item.sequence||1)}" required></div><div class="col-md-8"><label class="form-label">Location / landmark</label><input class="form-control" name="location" value="${esc(item.location)}" placeholder="Road, estate, village or nearby landmark"></div><div class="col-md-6"><label class="form-label">Expected morning pickup</label><input class="form-control" type="time" name="arrival_time" value="${esc((item.arrival_time||'').slice(0,5))}"></div><div class="col-md-6"><label class="form-label">Expected evening drop-off</label><input class="form-control" type="time" name="departure_time" value="${esc((item.departure_time||'').slice(0,5))}"></div></div>`;
-    $('transportEditorBody').innerHTML=`<form id="transportEditorForm">${html}</form>`;if(type==='route'){renderRouteStopEditor();$('transportAddRouteStop').onclick=()=>{state.routeStops.push({name:'',location:'',arrival_time:'',departure_time:''});renderRouteStopEditor();};} bootstrap.Modal.getOrCreateInstance($('transportEditorModal')).show();
-  }
-  function renderRouteStopEditor(){const host=$('transportRouteStops');if(!host)return;host.innerHTML=state.routeStops.length?state.routeStops.map((s,i)=>`<div class="border rounded p-2 mb-2" data-route-stop="${i}"><div class="d-flex justify-content-between mb-2"><strong>Point ${i+1}</strong><button type="button" class="btn btn-sm btn-outline-danger" data-remove-route-stop="${i}"><i class="bi bi-x-lg"></i></button></div><div class="row g-2"><div class="col-md-5"><input class="form-control form-control-sm" data-stop-field="name" value="${esc(s.name)}" placeholder="Gate, junction or centre" required></div><div class="col-md-3"><input class="form-control form-control-sm" data-stop-field="location" value="${esc(s.location)}" placeholder="Road / landmark"></div><div class="col-md-2"><input type="time" class="form-control form-control-sm" data-stop-field="arrival_time" value="${esc((s.arrival_time||'').slice(0,5))}" title="Morning pickup"></div><div class="col-md-2"><input type="time" class="form-control form-control-sm" data-stop-field="departure_time" value="${esc((s.departure_time||'').slice(0,5))}" title="Evening drop-off"></div></div></div>`).join(''):'<div class="alert alert-light border">No points yet. Add the first pickup/drop-off point.</div>';host.querySelectorAll('[data-stop-field]').forEach(input=>input.oninput=()=>{const row=Number(input.closest('[data-route-stop]').dataset.routeStop);state.routeStops[row][input.dataset.stopField]=input.value;});host.querySelectorAll('[data-remove-route-stop]').forEach(button=>button.onclick=()=>{state.routeStops.splice(Number(button.dataset.removeRouteStop),1);renderRouteStopEditor();});}
-  async function save(){const form=$('transportEditorForm');if(!form.checkValidity()){form.reportValidity();return;}const formData=new FormData(form);const payload=Object.fromEntries(formData.entries());try{if(state.type==='route'){if(!state.routeStops.length)throw new Error('Add at least one pickup/drop-off point to this route');const r=state.edit?await API.transport.updateRoute(state.edit.id,payload):await API.transport.createRoute(payload);const routeId=state.edit?.id||Number(data(r)?.id||data(r));if(!routeId)throw new Error('Route was saved but its ID was not returned');await API.transport.syncRouteStops(routeId,state.routeStops);}if(state.type==='vehicle'){const routeIds=formData.getAll('route_ids').map(Number);delete payload.route_ids;const r=state.edit?await API.transport.updateVehicle(state.edit.id,payload):await API.transport.createVehicle(payload);const vehicleId=state.edit?.id||Number(data(r)?.id||data(r));if(!vehicleId)throw new Error('Vehicle was saved but its ID was not returned');await API.transport.syncVehicleRoutes(vehicleId,routeIds);}if(state.type==='driver'){const routeIds=formData.getAll('route_ids').map(Number);delete payload.route_ids;const r=state.edit?await API.transport.updateDriver(state.edit.id,payload):await API.transport.createDriver(payload);const driverId=state.edit?.id||Number(data(r)?.id||data(r));if(!driverId)throw new Error('Driver was saved but its ID was not returned');await API.transport.syncDriverRoutes(driverId,routeIds);}if(state.type==='stop')state.edit?await API.transport.updateStop(state.edit.id,payload):await API.transport.createStop(payload);bootstrap.Modal.getInstance($('transportEditorModal')).hide();showNotification('Transport record saved','success');await load();}catch(e){showNotification(e.message||'Unable to save transport record','danger');}}
-  async function remove(type,id){if(!confirm('Deactivate/delete this transport record?'))return;try{if(type==='route')await API.transport.deleteRoute(id);if(type==='vehicle')await API.transport.deleteVehicle(id);if(type==='driver')await API.transport.deleteDriver(id);if(type==='stop')await API.transport.deleteStop(id);showNotification('Transport record removed','success');await load();}catch(e){showNotification(e.message||'Unable to remove record','danger');}}
-  function exportCsv(){const csv=[['Route','Roads and areas','Morning pickup begins','Evening leaves school','Stops','Vehicle','Driver','Status'],...state.routes.map(r=>[r.name,r.description,r.morning_departure,r.afternoon_departure,r.stop_count,r.vehicle_registration,r.driver_name,r.status])].map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');KingswayFileLifecycle.exportText(csv,'transport_routes.csv','text/csv');}
-  async function billing(){const m=$('transportBillingMonth').value;if(!m)return;try{const params={billing_month:`${m}-01`,limit:200};const [r,s]=await Promise.all([API.transport.getBills(params),API.transport.getBillsSummary({billing_month:params.billing_month})]);const list=rows(r);const summary=data(s)?.summary||data(s)||{};$('transportBillingSummary').innerHTML=`<div class="transport-summary-chip"><strong>${money(summary.total_due)}</strong><small>Due</small></div><div class="transport-summary-chip"><strong>${money(summary.total_paid)}</strong><small>Paid</small></div><div class="transport-summary-chip"><strong>${money(summary.total_outstanding)}</strong><small>Outstanding</small></div><div class="transport-summary-chip"><strong>${Number(summary.total_bills||0).toLocaleString()}</strong><small>Bills</small></div>`;$('transportBillingBody').innerHTML=list.length?list.map(b=>`<tr><td>${esc(`${b.first_name||''} ${b.last_name||''}`)}</td><td>${esc(b.route_name)}</td><td>${money(b.amount_due)}</td><td>${money(b.amount_paid)}</td><td>${money(b.balance)}</td><td>${badge(b.payment_status)}</td></tr>`).join(''):empty(6,'No transport bills for this month.');}catch(e){showNotification(e.message||'Unable to load collections','danger');}}
-  function bind(){document.querySelectorAll('.transport-tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.transport-tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.transport-panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.panel).classList.add('active');});$('transportSearch').oninput=render;$('transportStatus').onchange=render;$('transportRefresh').onclick=()=>load().catch(e=>showNotification(e.message,'danger'));$('transportAddRoute').onclick=()=>open('route');$('transportAddVehicle').onclick=()=>open('vehicle');$('transportAddDriver').onclick=()=>open('driver');$('transportAddStop').onclick=()=>open('stop');$('transportEditorSave').onclick=save;$('transportExport').onclick=exportCsv;$('transportLoadBilling').onclick=billing;document.body.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const type=b.dataset.action.replace('edit-','').replace('delete-','');const collection=type==='route'?state.routes:type==='vehicle'?state.vehicles:type==='driver'?state.drivers:state.stops;const item=collection.find(x=>Number(x.id)===Number(b.dataset.id));if(b.dataset.action.startsWith('edit-'))open(type,item);else remove(type,b.dataset.id);});}
-  async function init(){if(!document.querySelector('.transport-workspace'))return;bind();const month=$('transportBillingMonth');if(month&&!month.value)month.value=new Date().toISOString().slice(0,7);try{await load();}catch(e){showNotification(e.message||'Unable to load transport management','danger');}}
-  window.transportAdmin={init,load};
-  window.APIRealtime?.register?.('transportAdmin',window.transportAdmin,['transport']);
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded',init,{once:true});
-  } else {
-    init();
-  }
-})();
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("transport", "transport-admin-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Transport Admin Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [routes, vehicles, drivers, stops] = await Promise.all([
+        cache?.routes !== undefined ? cache.routes : this.API('GET', '/api/transport/all-routes'),
+        cache?.vehicles !== undefined ? cache.vehicles : this.API('GET', '/api/transport/all-vehicles'),
+        cache?.drivers !== undefined ? cache.drivers : this.API('GET', '/api/transport/all-drivers'),
+        cache?.stops !== undefined ? cache.stops : this.API('GET', '/api/transport/all-stops'),
+      ]);
+      this.state.routes = Array.isArray(routes?.data) ? routes.data : (Array.isArray(routes) ? routes : []);
+      this.state.vehicles = Array.isArray(vehicles?.data) ? vehicles.data : (Array.isArray(vehicles) ? vehicles : []);
+      this.state.drivers = Array.isArray(drivers?.data) ? drivers.data : (Array.isArray(drivers) ? drivers : []);
+      this.state.stops = Array.isArray(stops?.data) ? stops.data : (Array.isArray(stops) ? stops : []);
+      this.renderRoutes();
+      this.renderVehicles();
+      this.renderDrivers();
+      this.renderStops();
+      this.renderFormOptions();
+    } catch (e) { console.error(e); }
+  },
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderRoutes() {
+    const routes = this.state.routes;
+    const body = document.getElementById('traRoutesBody');
+    if (!routes.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No routes defined.</td></tr>'; return; }
+    body.innerHTML = routes.map(r => `<tr>
+      <td class="small">${this.esc(r.name || '—')}</td>
+      <td class="small">${this.esc(r.vehicle_reg || '—')}</td>
+      <td class="small">${this.esc(r.driver_name || '—')}</td>
+      <td class="small">${r.stops_count || 0} stops</td>
+      <td class="small"><span class="badge bg-${r.is_active ? 'success' : 'secondary'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editRoute(${r.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderVehicles() {
+    const vehicles = this.state.vehicles;
+    const body = document.getElementById('traVehiclesBody');
+    if (!vehicles.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No vehicles registered.</td></tr>'; return; }
+    body.innerHTML = vehicles.map(v => `<tr>
+      <td class="small">${this.esc(v.registration || '—')}</td>
+      <td class="small">${this.esc(v.type || '—')}</td>
+      <td class="small">${v.capacity || 0} seats</td>
+      <td class="small">${this.fmtDate(v.last_service)}</td>
+      <td class="small"><span class="badge bg-${v.status === 'active' ? 'success' : v.status === 'maintenance' ? 'warning' : 'secondary'}">${this.esc(v.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editVehicle(${v.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderDrivers() {
+    const drivers = this.state.drivers;
+    const body = document.getElementById('traDriversBody');
+    if (!drivers.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No drivers registered.</td></tr>'; return; }
+    body.innerHTML = drivers.map(d => `<tr>
+      <td class="small">${this.esc(d.name || '—')}</td>
+      <td class="small">${this.esc(d.license_number || '—')}</td>
+      <td class="small">${this.esc(d.phone || '—')}</td>
+      <td class="small"><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${this.esc(d.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editDriver(${d.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderStops() {
+    const stops = this.state.stops;
+    const body = document.getElementById('traStopsBody');
+    if (!stops.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No stops defined.</td></tr>'; return; }
+    body.innerHTML = stops.map(s => `<tr>
+      <td class="small">${this.esc(s.name || '—')}</td>
+      <td class="small">${this.esc(s.location || '—')}</td>
+      <td class="small">${this.fmtTime(s.pickup_time)}</td>
+      <td class="small"><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editStop(${s.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderFormOptions() {
+    const vehicles = this.state.vehicles;
+    const drivers = this.state.drivers;
+    const vehicleSelect = document.getElementById('traRouteVehicleSelect');
+    const driverSelect = document.getElementById('traRouteDriverSelect');
+    if (vehicleSelect) vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>' + vehicles.map(v => `<option value="${v.id}">${this.esc(v.registration)}</option>`).join('');
+    if (driverSelect) driverSelect.innerHTML = '<option value="">Select Driver</option>' + drivers.map(d => `<option value="${d.id}">${this.esc(d.name)}</option>`).join('');
+  },
+
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
+  fmtTime(v) { if (!v) return '—'; return v.length > 5 ? v.substring(0, 5) : v; },
+
+  async editRoute(id) { /* open edit modal */ },
+  async editVehicle(id) { /* open edit modal */ },
+  async editDriver(id) { /* open edit modal */ },
+  async editStop(id) { /* open edit modal */ },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("transport_admin", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["transport"]);
+  },
+};
+
+window.transportAdminController = transportAdminController;
+document.addEventListener('DOMContentLoaded', () => transportAdminController.init().catch(() => {}));

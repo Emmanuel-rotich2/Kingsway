@@ -1,64 +1,13 @@
 <?php
 namespace App\API\Services\whatsapp;
 
-class TalksasaWhAppProvider implements WhatsAppProvider
-{
-    private $config;
-    private $apiKey;
-    private $username;
-    private $waNumber;
-
-    public function __construct($config)
-    {
-        $this->config = $config;
-        $this->apiKey = $config['api_key'] ?? '';
-        $this->username = $config['username'] ?? 'TALK-SASA';
-        $this->waNumber = $config['wa_number'] ?? '';
-
-        if (empty($this->apiKey)) {
-            throw new Exception("Talksaa WhatsApp API Key is not configured");
-        }
-    }
-
-    public function sendMessage($to, $message)
-    {
-        $url = rtrim((string) ($this->config['api_url'] ?? 'https://bulksms.talksaa.com/api/v3/'), '/') . '/sms/send';
-
-        $body = [
-            'recipient' => $to,
-            'message' => $message,
-            'sender_id' => $this->username,
-            'type' => 'whatsapp'
-        ];
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $this->apiKey,
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ]);
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($error) {
-            throw new Exception("Talksaa WhatsApp send failed: $error");
-        }
-
-        $data = json_decode($response, true);
-        if (($data['status'] ?? $data['result'] ?? null) !== 'success' && ($data['status'] ?? null) !== 'accepted') {
-            $msg = $data['message'] ?? $data['error'] ?? 'Unknown error';
-            throw new Exception("Talksaa WhatsApp send failed: $msg");
-        }
-
-        return true;
-    }
-}
-
+/**
+ * WhatsAppGateway — provider-agnostic WhatsApp transport facade.
+ *
+ * WhatsApp delivery is a messaging-provider capability. The endpoint, payload
+ * and response mapping for the configured provider live in HttpWhatsAppProvider
+ * so switching provider only touches this file plus configuration.
+ */
 class WhatsAppGateway
 {
     private $config;
@@ -66,245 +15,161 @@ class WhatsAppGateway
 
     public function __construct($config = [])
     {
-        // Load from config.php if not provided
         $defaults = [
-            'provider' => defined('SMS_PROVIDER') ? SMS_PROVIDER : 'africastalking',
-            'api_key' => defined('SMS_API_KEY') ? SMS_API_KEY : '',
-            'username' => defined('SMS_USERNAME') ? SMS_USERNAME : '',
+            'provider'  => defined('SMS_PROVIDER') ? constant('SMS_PROVIDER') : 'talksasa',
+            'api_key'   => defined('SMS_API_KEY') ? constant('SMS_API_KEY') : '',
+            'username'  => defined('SMS_USERNAME') ? constant('SMS_USERNAME') : '',
+            'sender_id' => defined('SMS_SENDER_ID') ? constant('SMS_SENDER_ID') : '',
             'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
-            'api_url' => defined('SMS_WHATSAPP_API_URL') ? SMS_WHATSAPP_API_URL : 'https://chat.africastalking.com',
+            'api_url'   => defined('SMS_API_URL') ? constant('SMS_API_URL') : 'https://bulksms.talksasa.com/api/v3/',
         ];
         $this->config = array_merge($defaults, $config);
-        $this->provider = $this->initializeProvider();
+        $this->provider = new HttpWhatsAppProvider($this->config);
     }
 
     public function sendMessage($to, $message)
     {
-        return $this->provider->sendMessage($to, $message);
+        return $this->provider->sendMessage($to, (string) $message);
     }
 
     public function sendMedia($to, $message, $mediaType, $url, $caption = null)
     {
-        if (method_exists($this->provider, 'sendMedia')) {
-            return $this->provider->sendMedia($to, $message, $mediaType, $url, $caption);
-        }
-        throw new \Exception('WhatsApp media sending not supported by this provider');
+        return $this->provider->sendMedia($to, (string) $message, $mediaType, $url, $caption);
     }
 
     public function sendTemplate($to, $templateId, $variables = [])
     {
-        if (method_exists($this->provider, 'sendTemplate')) {
-            return $this->provider->sendTemplate($to, $templateId, $variables);
-        }
-        throw new \Exception('Template sending not supported by this provider');
+        return $this->provider->sendTemplate($to, $templateId, $variables);
     }
 
     public function createTemplate($templateConfig)
     {
-        if (method_exists($this->provider, 'createTemplate')) {
-            return $this->provider->createTemplate($templateConfig);
-        }
-        throw new \Exception('Template creation not supported by this provider');
-    }
-
-    private function initializeProvider()
-    {
-        switch ($this->config['provider']) {
-            case 'africastalking':
-                return new AfricasTalkingWhatsAppProvider($this->config);
-            case 'talksasa':
-                return new TalksasaWhAppProvider($this->config);
-            default:
-                throw new \Exception('Unsupported WhatsApp provider');
-        }
+        return $this->provider->createTemplate($templateConfig);
     }
 }
 
 interface WhatsAppProvider
 {
     public function sendMessage($to, $message);
+
+    public function sendMedia($to, $message, $mediaType, $url, $caption = null);
+
+    public function sendTemplate($to, $templateId, $variables = []);
+
+    public function createTemplate($templateConfig);
 }
 
-class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
+/**
+ * HTTP WhatsApp provider — sends through the messaging provider's WhatsApp
+ * channel (a `type: whatsapp` message on the shared send endpoint).
+ */
+class HttpWhatsAppProvider implements WhatsAppProvider
 {
+    use \App\API\Services\sms\SmsProviderTransport;
+
     private $config;
+    private $baseUrl;
     private $apiKey;
-    private $username;
-    private $waNumber;
-    private $isSandbox;
+    private $senderId;
 
     public function __construct($config)
     {
         $this->config = $config;
-        $this->apiKey = $config['api_key'] ?? '';
-        $this->username = $config['username'] ?? 'sandbox';
-        $this->waNumber = $config['wa_number'] ?? '';
-        $this->isSandbox = ($this->username === 'sandbox');
-
-        if (empty($this->apiKey)) {
-            throw new Exception("WhatsApp API Key is not configured");
+        $this->baseUrl = rtrim((string) ($config['api_url'] ?? 'https://bulksms.talksasa.com/api/v3/'), '/');
+        $this->apiKey = (string) ($config['api_key'] ?? '');
+        $sender = trim((string) ($config['sender_id'] ?? ''));
+        if ($sender === '') {
+            $sender = trim((string) ($config['wa_number'] ?? ''));
         }
-        if (empty($this->waNumber)) {
-            throw new Exception("WhatsApp Number is not configured");
+        if ($sender === '') {
+            $sender = trim((string) ($config['username'] ?? ''));
         }
+        $this->senderId = $sender;
     }
 
     public function sendMessage($to, $message)
     {
-        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
-
-        $body = [
-            'username' => $this->username,
-            'waNumber' => $this->waNumber,
-            'phoneNumber' => $to,
-            // Africa's Talking expects the message content as a JSON object.
-            'body' => ['message' => $message]
-        ];
-
-        return $this->sendRequest($url, $body, "Send Message");
+        return $this->wrapSend($this->request('POST', '/sms/send', [
+            'recipient' => $to,
+            'sender_id' => $this->senderId,
+            'type' => 'whatsapp',
+            'message' => (string) $message,
+        ]));
     }
 
     public function sendMedia($to, $message, $mediaType, $url, $caption = null)
     {
-        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
-        $type = ucfirst(strtolower(trim((string) $mediaType)));
-        $allowed = ['Image', 'Video', 'Audio', 'Sticker', 'Document', 'Voice'];
-        if (!in_array($type, $allowed, true)) {
-            throw new \InvalidArgumentException('Unsupported WhatsApp media type');
-        }
-        if (!filter_var($url = trim((string) $url), FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
+        $url = trim((string) $url);
+        if (!filter_var($url, FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
             throw new \InvalidArgumentException('WhatsApp media URL must be a public HTTPS URL');
         }
-        $body = [
-            'username' => $this->username,
-            'waNumber' => $this->waNumber,
-            'phoneNumber' => $to,
-            'body' => [
-                'mediaType' => $type,
-                'url' => $url,
-            ],
-        ];
-        if ($caption !== null && $caption !== '') $body['body']['caption'] = (string) $caption;
-        return $this->sendRequest(
-            rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send',
-            $body,
-            'Send WhatsApp media'
+        return $this->wrapSend($this->request('POST', '/sms/send', [
+            'recipient' => $to,
+            'sender_id' => $this->senderId,
+            'type' => 'whatsapp',
+            'message' => (string) ($caption ?? $message),
+            'media_url' => $url,
+        ]));
+    }
+
+    /**
+     * The configured provider (TALKSASA) has no provider-side template
+     * surface: templates are a local rendering concept here. When the caller
+     * supplies an already-rendered body the message is sent as a normal
+     * WhatsApp message; otherwise the failure is explicit instead of a
+     * silent no-op, so callers can fall back (see OTPDeliveryService) or
+     * fail the endpoint with an actionable last_error.
+     */
+    public function sendTemplate($to, $templateId, $variables = [])
+    {
+        foreach (['body', 'message', 'text'] as $key) {
+            $rendered = trim((string) (is_array($variables) ? ($variables[$key] ?? '') : ''));
+            if ($rendered !== '') {
+                return $this->wrapSend($this->request('POST', '/sms/send', [
+                    'recipient' => $to,
+                    'sender_id' => $this->senderId,
+                    'type' => 'whatsapp',
+                    'message' => $rendered,
+                ]));
+            }
+        }
+        throw new \RuntimeException(
+            'The configured messaging provider does not support provider-side WhatsApp templates; send a rendered message instead.'
         );
     }
 
-    public function sendTemplate($to, $templateId, $variables = [])
-    {
-        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/template/send';
-
-        $body = [
-            'username' => $this->username,
-            'waNumber' => $this->waNumber,
-            'phoneNumber' => $to,
-            'templateId' => $templateId
-        ];
-
-        // Africa's Talking expects template substitutions as bodyValues,
-        // with an optional headerValue for a templated header.
-        if (isset($variables['bodyValues']) || isset($variables['body_values'])) {
-            $body['bodyValues'] = $variables['bodyValues'] ?? $variables['body_values'];
-            if (isset($variables['headerValue']) || isset($variables['header_value'])) {
-                $body['headerValue'] = $variables['headerValue'] ?? $variables['header_value'];
-            }
-        } elseif (!empty($variables)) {
-            $body['bodyValues'] = array_values($variables);
-        }
-
-        return $this->sendRequest($url, $body, "Send Template");
-    }
-
+    /**
+     * Provider-side template creation is not available. Returns a structured
+     * error (instead of throwing) so the management endpoint reports the
+     * limitation to the operator without an unhandled failure.
+     */
     public function createTemplate($templateConfig)
     {
-        // Templates can only be created in production, not sandbox
-        if ($this->isSandbox) {
-            throw new \Exception("Template creation is only available in production environment");
-        }
-
-        $url = 'https://chat.africastalking.com/whatsapp/template/send';
-
-        $body = [
-            'username' => $this->username,
-            'waNumber' => $this->waNumber,
-            'name' => $templateConfig['name'] ?? '',
-            'language' => $templateConfig['language'] ?? 'en',
-            'category' => $templateConfig['category'] ?? 'UTILITY',
-            'components' => $templateConfig['components'] ?? []
+        return [
+            'status' => 'error',
+            'message' => 'The configured messaging provider does not support creating WhatsApp templates.',
+            'data' => null,
         ];
-
-        return $this->sendRequest($url, $body, "Create Template");
     }
 
-    private function sendRequest($url, $body, $action = "Request")
+    private function wrapSend(array $response): array
     {
-        try {
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Accept: application/json',
-                'Content-Type: application/json',
-                'apiKey: ' . $this->apiKey
-            ]);
-            curl_setopt($ch, CURLOPT_POST, 1);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $error = curl_error($ch);
-            curl_close($ch);
-
-            if ($error) {
-                $this->logWhatsAppRequest($action, $body, "CURL ERROR: $error");
-                return [
-                    'status' => 'error',
-                    'message' => "cURL error: $error",
-                    'data' => null
-                ];
-            }
-
-            $result = json_decode($response, true);
-            $this->logWhatsAppRequest($action, $body, $response, $httpCode);
-
-            if ($httpCode !== 200) {
-                return [
-                    'status' => 'error',
-                    'message' => $result['error'] ?? "HTTP $httpCode",
-                    'data' => $result
-                ];
-            }
-
-            return [
-                'status' => 'success',
-                'message' => $result['message'] ?? 'Request processed',
-                'data' => $result
-            ];
-        } catch (\Exception $e) {
-            $this->logWhatsAppRequest($action, $body, "EXCEPTION: " . $e->getMessage());
-            return [
-                'status' => 'error',
-                'message' => $e->getMessage(),
-                'data' => null
-            ];
+        if (!($response['ok'] ?? false)) {
+            throw new \Exception('WhatsApp send failed: ' . ($response['message'] ?? 'unknown provider error'));
         }
+        return [
+            'status' => $response['status'] !== '' ? $response['status'] : 'success',
+            'data' => $response['data'],
+        ];
     }
 
-    private function logWhatsAppRequest($action, $body, $response = "", $httpCode = null)
+    /**
+     * Everything executes through the Python platform relay first, with the
+     * shared stream transport as the resilience path (never curl — this host
+     * does not load the curl extension). See SmsProviderTransport.
+     */
+    private function request(string $method, string $path, ?array $body = null): array
     {
-        $logFile = __DIR__ . '/../../../logs/whatsapp_requests.log';
-        $timestamp = date('Y-m-d H:i:s');
-        
-        $bodyStr = isset($body['phoneNumber']) ? $body['phoneNumber'] : 'N/A';
-        $httpStr = $httpCode ? " | HTTP: $httpCode" : "";
-        
-        $logMessage = "[$timestamp] $action - To: $bodyStr$httpStr\n";
-        $logMessage .= "Request Body: " . json_encode($body) . "\n";
-        $logMessage .= "Response: " . substr($response, 0, 500) . "\n";
-        $logMessage .= "---\n";
-
-        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
+        return $this->providerTransport($this->config, strtoupper($method), $path, $body);
     }
 }

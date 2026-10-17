@@ -13,14 +13,20 @@ const PortfolioController = {
     async init() {
         await window.AuthContext?.ready?.();
         if (!window.AuthContext?.isAuthenticated()) return;
+        window.APIRealtime?.register?.('studentPortfolio', this, ['students']);
         await this.loadReferences();
         this.bindEvents();
+    },
+
+    async refreshData() {
+        await this.loadReferences();
+        if (this.state.selectedStudentId) await this.refreshPortfolios();
     },
 
     async loadReferences() {
         try {
             const [students, competencies, values] = await Promise.all([
-                this.loadAllEnrolledStudents(),
+                this.loadRosterWithNode(),
                 window.API.apiCall('/academic/core-competencies-list', 'GET'),
                 window.API.apiCall('/academic/core-values-list', 'GET'),
             ]);
@@ -51,6 +57,19 @@ const PortfolioController = {
         }
     },
 
+    async loadRosterWithNode() {
+        try {
+            const response = await window.API.nodeViews.resolve('students', 'portfolio-roster');
+            const roster = response?.data?.sources?.roster;
+            const students = roster?.students || roster?.data?.students;
+            if (!Array.isArray(students)) throw new Error('Node returned an invalid student roster.');
+            return students.filter(student => student?.enrollment_id != null);
+        } catch (error) {
+            console.warn('Composed portfolio roster unavailable; using PHP pagination:', error);
+            return this.loadAllEnrolledStudents();
+        }
+    },
+
     async loadAllEnrolledStudents() {
         const limit = 100;
         const students = [];
@@ -59,9 +78,7 @@ const PortfolioController = {
         do {
             // Let the API choose this staff member's authorized default scope:
             // management sees its school scope, teachers see their assignments.
-            const response = await window.API.apiCall('/students/context-list', 'GET', null, {
-                page, limit, enrolled_only: 'true',
-            });
+            const response = await window.API.apiCall('/students/context-list', 'GET', null, { page, limit });
             const result = response?.data?.students
                 ? response.data
                 : (response?.data?.data?.students ? response.data.data : (response?.data ?? response ?? {}));
@@ -69,7 +86,7 @@ const PortfolioController = {
             totalPages = Math.max(1, Number(result?.pagination?.total_pages || 1));
             page += 1;
         } while (page <= totalPages);
-        return students;
+        return students.filter(student => student?.enrollment_id != null);
     },
 
     bindEvents() {

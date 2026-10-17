@@ -163,7 +163,7 @@ if ($appBase === '.')
             </div>
             <div class="col-md-4">
                 <label class="form-label small fw-semibold">Class Applied For</label>
-                <select id="filterClass" class="form-select grade-select-dynamic">
+                <select id="filterClass" class="form-select grade-select-dynamic" data-filter="class_id">
                     <option value="">All Classes</option>
                 </select>
             </div>

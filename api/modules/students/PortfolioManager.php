@@ -64,14 +64,22 @@ class PortfolioManager
         ];
     }
 
-    private function fetchStudent($studentId)
+private function fetchStudent($studentId)
     {
         $stmt = $this->db->prepare(
             "SELECT s.id, p.first_name, p.last_name, s.admission_no, p.photo_url AS photo,
                     c.name AS class_name, st.name AS stream_name
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                               WHERE e2.student_id = s.id
-                               ORDER BY e2.academic_year_id DESC, e2.id DESC LIMIT 1)
+             FROM " . ReadReplicaService::qualifiedRef("students") . " s
+             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e
+               ON e.student_id = s.id
+               AND e.enrollment_status IN ('active','pending','completed')
+               AND e.id = (
+                   SELECT MAX(e2.id)
+                   FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e2
+                   WHERE e2.student_id = s.id
+                     AND e2.enrollment_status IN ('active','pending','completed')
+               )
              LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = e.academic_year_class_stream_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id

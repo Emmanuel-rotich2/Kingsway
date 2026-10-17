@@ -205,6 +205,24 @@ $ppAdminGradeOptions = $ppAdminGradeOptions ?? ($ppGrades ?: ['PP1','PP2','Grade
 <?php asset_script($appBase, 'js/utils/file_lifecycle.js'); ?>
 <?php asset_script($appBase, 'js/utils/print_manager.js'); ?>
 <?php asset_script($appBase, 'js/utils/form-validation.js'); ?>
+<?php asset_script($appBase, 'js/core/realtime_dispatch.js'); ?>
+<?php asset_script($appBase, 'js/core/realtime_sse.js'); ?>
+<?php
+// Parent realtime: the server mints ONLY family:<studentId> channels for a
+// parent's linked learners (RealtimeScopeResolver::scopesForUser), so the
+// stream can never carry staff traffic to a guardian. A parent with no
+// linked learners gets a 403 capability refusal and the stream stays off.
+$parentRealtimeBase = '';
+try {
+    $parentRealtimeBase = \App\API\Services\RealtimeGatewayPublisher::browserStreamBase();
+} catch (\Throwable $parentRealtimeError) {
+    $parentRealtimeBase = '';
+}
+if ($parentRealtimeBase !== '') {
+    echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = true;</script>';
+    echo '<script>document.addEventListener("DOMContentLoaded", function () { window.RealtimeSSE?.initialize?.(); });</script>';
+}
+?>
 <?php asset_script($appBase, 'js/core/parent_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/' . ltrim($parentPageScript, '/') . '.js'); ?>
 <script>

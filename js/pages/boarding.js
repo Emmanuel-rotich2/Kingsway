@@ -21,27 +21,52 @@ const boardingController = {
       return;
     }
     role = role || 'viewer';
+    this._role = role;
+    window.APIRealtime?.register?.('boarding', this, ['boarding']);
     if      (role === 'admin')    this._initAdmin();
     else if (role === 'manager')  this._initManager();
     else if (role === 'operator') this._initOperator();
     else                          this._initViewer();
   },
 
+  refreshData: function () {
+    if (this._role === 'admin') return this._initAdmin();
+    if (this._role === 'manager') return this._initManager();
+    if (this._role === 'operator') return this._initOperator();
+    return this._initViewer();
+  },
+
   // ── ADMIN ──────────────────────────────────────────────────────────
 
   _initAdmin: async function () {
-    await Promise.all([
-      this._loadStats(),
-      this._loadDormitories(),
-      this._loadRecentActivity(),
-    ]);
+    try {
+      const response = await window.API.nodeViews.resolve('boarding', 'admin-overview');
+      const sources = response?.data?.sources || {};
+      await Promise.all([
+        this._loadStats(sources.stats),
+        this._loadDormitories(sources.dormitories),
+        this._loadRecentActivity(sources.activity),
+      ]);
+    } catch (error) {
+      // Preserve the existing PHP API path if the private Node composition is
+      // temporarily unavailable; PHP remains the authorization authority.
+      console.warn('Boarding overview composition failed; using PHP endpoints:', error);
+      await Promise.all([
+        this._loadStats(),
+        this._loadDormitories(),
+        this._loadRecentActivity(),
+      ]);
+    }
     this._bindAdminButtons();
   },
 
-  _loadStats: async function () {
+  _loadStats: async function (composedData) {
     try {
-      const r = await callAPI('/boarding/stats', 'GET');
-      const d = r?.data ?? r ?? {};
+      let d = composedData;
+      if (d === undefined) {
+        const r = await callAPI('/boarding/stats', 'GET');
+        d = r?.data ?? r ?? {};
+      }
       this._set('totalCapacity',     d.total_capacity     ?? '0');
       this._set('occupiedBeds',      d.assigned_beds      ?? '0');
       this._set('availableBeds',     d.available_beds     ?? '0');
@@ -60,10 +85,14 @@ const boardingController = {
     } catch (e) { console.warn('Boarding stats failed:', e); }
   },
 
-  _loadDormitories: async function () {
+  _loadDormitories: async function (composedData) {
     try {
-      const r = await callAPI('/boarding/dormitories', 'GET');
-      this._dormitories = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      let rows = composedData;
+      if (rows === undefined) {
+        const r = await callAPI('/boarding/dormitories', 'GET');
+        rows = Array.isArray(r?.data) ? r.data : r;
+      }
+      this._dormitories = Array.isArray(rows) ? rows : [];
       this._renderDormitoriesTable();
       this._renderOccupancyChart();
     } catch (e) { console.warn('Dormitories load failed:', e); }
@@ -78,23 +107,23 @@ const boardingController = {
     }
     const search = (document.getElementById('searchDormitory')?.value || '').toLowerCase();
     const list   = search
-      ? this._dormitories.filter(d => d.name.toLowerCase().includes(search))
+      ? this._dormitories.filter(d => String(d.name || '').toLowerCase().includes(search))
       : this._dormitories;
 
     tbody.innerHTML = list.map(d => `
       <tr>
         <td><strong>${this._esc(d.name)}</strong>${d.location ? '<br><small class="text-muted">' + this._esc(d.location) + '</small>' : ''}</td>
         <td><span class="badge bg-${d.gender === 'male' ? 'primary' : d.gender === 'female' ? 'danger' : 'secondary'}">${this._esc(d.gender)}</span></td>
-        <td>${d.capacity}</td>
-        <td><span class="fw-semibold">${d.occupied ?? 0}</span></td>
-        <td><span class="text-${(d.available ?? 0) > 0 ? 'success' : 'danger'}">${d.available ?? 0}</span></td>
+        <td>${this._esc(d.capacity)}</td>
+        <td><span class="fw-semibold">${this._esc(d.occupied ?? 0)}</span></td>
+        <td><span class="text-${(Number(d.available) || 0) > 0 ? 'success' : 'danger'}">${this._esc(d.available ?? 0)}</span></td>
         <td>${this._esc(d.patron_name || '—')}</td>
-        <td><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${d.status}</span></td>
+        <td><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${this._esc(d.status)}</span></td>
         <td>
-          <button class="btn btn-sm btn-outline-primary me-1" onclick="boardingController._editDormitory(${d.id})">
+          <button type="button" class="btn btn-sm btn-outline-primary me-1" data-dormitory-action="edit" data-id="${Number(d.id) || 0}">
             <i class="bi bi-pencil"></i>
           </button>
-          <button class="btn btn-sm btn-outline-danger" onclick="boardingController._deleteDormitory(${d.id},'${this._esc(d.name).replace(/'/g,"\\'")}')">
+          <button type="button" class="btn btn-sm btn-outline-danger" data-dormitory-action="delete" data-id="${Number(d.id) || 0}">
             <i class="bi bi-trash"></i>
           </button>
         </td>
@@ -123,12 +152,16 @@ const boardingController = {
     });
   },
 
-  _loadRecentActivity: async function () {
+  _loadRecentActivity: async function (composedData) {
     const el = document.getElementById('recentActivity');
     if (!el) return;
     try {
-      const r = await callAPI('/boarding/activity', 'GET');
-      const items = Array.isArray(r?.data) ? r.data : [];
+      let items = composedData;
+      if (items === undefined) {
+        const r = await callAPI('/boarding/activity', 'GET');
+        items = Array.isArray(r?.data) ? r.data : [];
+      }
+      if (!Array.isArray(items)) items = [];
       if (!items.length) {
         el.innerHTML = '<div class="text-center text-muted py-3">No recent activity.</div>';
         return;
@@ -141,7 +174,7 @@ const boardingController = {
             <span class="badge bg-${color} rounded-pill"><i class="bi ${icon}"></i></span>
             <div class="flex-grow-1">
               <span class="fw-semibold">${this._esc(item.name)}</span>
-              <span class="text-muted ms-2 small">${item.detail}</span>
+              <span class="text-muted ms-2 small">${this._esc(item.detail)}</span>
             </div>
             <small class="text-muted">${this._relTime(item.ts)}</small>
           </div>`;
@@ -163,6 +196,33 @@ const boardingController = {
     if (leaveBtn)  leaveBtn.addEventListener('click',() => this._loadLeaveRequests());
     if (exportBtn) exportBtn.addEventListener('click',() => this._exportReport());
     if (search)    search.addEventListener('input',  () => this._renderDormitoriesTable());
+
+    const dormitoriesBody = document.querySelector('#dormitoriesTable tbody');
+    if (dormitoriesBody && !dormitoriesBody.dataset.actionsBound) {
+      dormitoriesBody.dataset.actionsBound = 'true';
+      dormitoriesBody.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-dormitory-action]');
+      if (!button || !dormitoriesBody.contains(button)) return;
+      const id = Number(button.dataset.id);
+      if (!Number.isSafeInteger(id) || id < 1) return;
+      if (button.dataset.dormitoryAction === 'edit') this._editDormitory(id);
+      if (button.dataset.dormitoryAction === 'delete') this._deleteDormitory(id);
+      });
+    }
+
+    const leaveBody = document.querySelector('#leaveRequestsTable tbody');
+    if (leaveBody && !leaveBody.dataset.actionsBound) {
+      leaveBody.dataset.actionsBound = 'true';
+      leaveBody.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-exeat-action]');
+      if (!button || !leaveBody.contains(button)) return;
+      const id = Number(button.dataset.id);
+      const action = button.dataset.exeatAction;
+      if (Number.isSafeInteger(id) && id > 0 && ['approve', 'reject'].includes(action)) {
+        this._actLeave(id, action);
+      }
+      });
+    }
 
     this._loadStaffDropdown();
   },
@@ -217,7 +277,11 @@ const boardingController = {
     }
   },
 
-  _deleteDormitory: async function (id, name) {
+  _deleteDormitory: async function (id) {
+    id = Number(id);
+    const dormitory = this._dormitories.find(item => Number(item.id) === id);
+    if (!Number.isSafeInteger(id) || id < 1 || !dormitory) return;
+    const name = String(dormitory.name || 'this dormitory');
     if (!(await window.confirmAction('Confirm Deletion', 'Delete dormitory "' + name + '"? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/boarding/dormitories/' + id, 'DELETE');
@@ -242,15 +306,15 @@ const boardingController = {
       tbody.innerHTML = this._exeats.length
         ? this._exeats.map(e => `
           <tr>
-            <td>${this._esc(e.student_name)}<br><small class="text-muted">${e.admission_no}</small></td>
+            <td>${this._esc(e.student_name)}<br><small class="text-muted">${this._esc(e.admission_no)}</small></td>
             <td>${this._esc(e.dormitory_name || '—')}</td>
             <td>${this._esc(e.permission_type_name || 'Leave')}</td>
-            <td>${e.start_date || e.departure_date || '—'}</td>
-            <td>${e.end_date   || e.return_date    || '—'}</td>
+            <td>${this._esc(e.start_date || e.departure_date || '—')}</td>
+            <td>${this._esc(e.end_date   || e.return_date    || '—')}</td>
             <td>${this._esc(e.reason || '—')}</td>
             <td>
-              <button class="btn btn-sm btn-success me-1" onclick="boardingController._actLeave(${e.id},'approve')"><i class="bi bi-check"></i> Approve</button>
-              <button class="btn btn-sm btn-danger"        onclick="boardingController._actLeave(${e.id},'reject')"><i class="bi bi-x"></i> Reject</button>
+              <button type="button" class="btn btn-sm btn-success me-1" data-exeat-action="approve" data-id="${Number(e.id) || 0}"><i class="bi bi-check"></i> Approve</button>
+              <button type="button" class="btn btn-sm btn-danger" data-exeat-action="reject" data-id="${Number(e.id) || 0}"><i class="bi bi-x"></i> Reject</button>
             </td>
           </tr>`).join('')
         : '<tr><td colspan="7" class="text-center text-muted py-3">No pending leave requests.</td></tr>';
@@ -260,6 +324,8 @@ const boardingController = {
   },
 
   _actLeave: async function (id, action) {
+    id = Number(id);
+    if (!Number.isSafeInteger(id) || id < 1 || !['approve', 'reject'].includes(action)) return;
     try {
       await callAPI('/boarding/exeats/' + id, 'PUT', { action });
       showNotification('Leave request ' + action + 'd', 'success');
@@ -286,7 +352,7 @@ const boardingController = {
       const r = await callAPI('/staff?status=active&limit=200', 'GET');
       const staff = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       sel.innerHTML = '<option value="">Select Staff</option>' +
-        staff.map(s => `<option value="${s.id}">${this._esc(s.first_name + ' ' + s.last_name)}</option>`).join('');
+        staff.map(s => `<option value="${Number(s.id) || 0}">${this._esc(s.first_name + ' ' + s.last_name)}</option>`).join('');
     } catch (e) { /* staff dropdown is optional */ }
   },
 
@@ -316,7 +382,7 @@ const boardingController = {
     if (!tbody) return;
     const q = (document.getElementById('searchStudent')?.value || '').toLowerCase();
     const list = q
-      ? this._students.filter(s => (s.student_name||'').toLowerCase().includes(q) || (s.admission_no||'').toLowerCase().includes(q))
+      ? this._students.filter(s => String(s.student_name || '').toLowerCase().includes(q) || String(s.admission_no || '').toLowerCase().includes(q))
       : this._students;
 
     tbody.innerHTML = list.length
@@ -327,7 +393,7 @@ const boardingController = {
           <td>${this._esc(s.class_name || '—')}</td>
           <td>${this._esc(s.dormitory_name)}</td>
           <td>${this._esc(s.bed_number || '—')}</td>
-          <td><span class="badge bg-${s.tonight_status === 'present' ? 'success' : s.tonight_status === 'absent' ? 'danger' : 'secondary'}">${s.tonight_status || 'not marked'}</span></td>
+          <td><span class="badge bg-${s.tonight_status === 'present' ? 'success' : s.tonight_status === 'absent' ? 'danger' : 'secondary'}">${this._esc(s.tonight_status || 'not marked')}</span></td>
         </tr>`).join('')
       : '<tr><td colspan="6" class="text-center text-muted py-3">No students found.</td></tr>';
   },
@@ -342,10 +408,10 @@ const boardingController = {
         ? items.map(e => `
           <tr>
             <td>${this._esc(e.student_name)}</td>
-            <td>${e.start_date || '—'}</td>
-            <td>${e.end_date   || '—'}</td>
+            <td>${this._esc(e.start_date || '—')}</td>
+            <td>${this._esc(e.end_date   || '—')}</td>
             <td>${this._esc(e.reason || '—')}</td>
-            <td><span class="badge bg-warning">${e.status}</span></td>
+            <td><span class="badge bg-warning">${this._esc(e.status)}</span></td>
           </tr>`).join('')
         : '<tr><td colspan="5" class="text-center text-muted py-3">No pending requests.</td></tr>';
     } catch (e) { console.warn('Exeats load failed:', e); }
@@ -472,15 +538,15 @@ const boardingController = {
       grid.innerHTML = dorms.length
         ? dorms.map(d => `
           <div class="col-md-4 mb-3">
-            <div class="card h-100 border-${(d.available ?? 0) > 0 ? 'success' : 'danger'}">
+            <div class="card h-100 border-${(Number(d.available) || 0) > 0 ? 'success' : 'danger'}">
               <div class="card-body">
                 <h6 class="card-title">${this._esc(d.name)}</h6>
                 <p class="text-muted mb-1 small">${this._esc(d.gender)} · ${this._esc(d.location || '')}</p>
                 <div class="progress mb-2" style="height:8px">
-                  <div class="progress-bar bg-${d.capacity > 0 && d.occupied/d.capacity > 0.9 ? 'danger' : 'success'}"
-                       style="width:${d.capacity > 0 ? Math.round((d.occupied/d.capacity)*100) : 0}%"></div>
+                  <div class="progress-bar bg-${Number(d.capacity) > 0 && Number(d.occupied)/Number(d.capacity) > 0.9 ? 'danger' : 'success'}"
+                       style="width:${Number(d.capacity) > 0 ? Math.max(0, Math.min(100, Math.round((Number(d.occupied) || 0)/Number(d.capacity)*100))) : 0}%"></div>
                 </div>
-                <small>${d.occupied ?? 0} / ${d.capacity} · <span class="${(d.available??0)>0?'text-success':'text-danger'}">${d.available??0} available</span></small>
+                <small>${this._esc(d.occupied ?? 0)} / ${this._esc(d.capacity)} · <span class="${(Number(d.available) || 0)>0?'text-success':'text-danger'}">${this._esc(d.available ?? 0)} available</span></small>
               </div>
             </div>
           </div>`).join('')
@@ -517,7 +583,7 @@ const boardingController = {
       const d = r?.data ?? r ?? {};
       const children = Array.isArray(d.children) ? d.children : [];
       sel.innerHTML = children.length
-        ? children.map(c => `<option value="${c.id}">${this._esc(c.first_name + ' ' + c.last_name)} (${c.admission_no || ''})</option>`).join('')
+        ? children.map(c => `<option value="${Number(c.id) || 0}">${this._esc(c.first_name + ' ' + c.last_name)} (${this._esc(c.admission_no || '')})</option>`).join('')
         : '<option value="">No children found</option>';
       if (children.length) this._loadChildInfo(children[0].id);
     } catch (e) {
@@ -556,10 +622,10 @@ const boardingController = {
         ? mine.map(e => `
           <tr>
             <td>${this._esc(e.permission_type_name || 'Leave')}</td>
-            <td>${e.start_date || '—'}</td>
-            <td>${e.end_date   || '—'}</td>
+            <td>${this._esc(e.start_date || '—')}</td>
+            <td>${this._esc(e.end_date   || '—')}</td>
             <td>${this._esc(e.reason || '—')}</td>
-            <td><span class="badge bg-${e.status==='approved'?'success':e.status==='rejected'?'danger':'warning'}">${e.status}</span></td>
+            <td><span class="badge bg-${e.status==='approved'?'success':e.status==='rejected'?'danger':'warning'}">${this._esc(e.status)}</span></td>
           </tr>`).join('')
         : '<tr><td colspan="5" class="text-muted text-center py-3">No leave history.</td></tr>';
     } catch (e) { console.warn('Leave history failed:', e); }

@@ -22,7 +22,7 @@ final class IncidentController extends BaseController
     private function service(): \App\API\Services\IncidentService
     {
         if ($this->service === null) {
-            $this->service = new \App\API\Services\IncidentService($this->db->getConnection());
+            $this->service = $this->contract(\App\API\Services\IncidentService::class, $this->db->getConnection());
         }
         return $this->service;
     }

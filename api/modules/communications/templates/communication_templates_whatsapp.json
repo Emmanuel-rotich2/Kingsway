@@ -1,42 +1,42 @@
 [
-  {
-    "name": "Student Results WhatsApp",
-    "template_type": "whatsapp",
-    "category": "results",
-    "subject": "Kingsway Preparatory School Results",
-    "template_body": "<b>Kingsway Preparatory School Results</b><br>{{student_name}}, {{term_name}}<br><br><b>Summative</b><br>{{summative_lines}}<br>Mean: GPA {{summative_gpa}}, GRADE {{summative_grade}}<br><br><b>Formative Summary</b><br>{{formative_lines}}<br>Mean: GPA {{formative_gpa}}, GRADE {{formative_grade}}<br><br><b>Average</b><br>{{average_lines}}<br>Mean: GPA {{average_gpa}}, GRADE {{average_grade}}",
-    "media_urls": [],
-    "variables_json": "{\"student_name\":\"string\",\"term_name\":\"string\",\"summative_lines\":\"string\",\"summative_gpa\":\"string\",\"summative_grade\":\"string\",\"formative_lines\":\"string\",\"formative_gpa\":\"string\",\"formative_grade\":\"string\",\"average_lines\":\"string\",\"average_gpa\":\"string\",\"average_grade\":\"string\"}",
-    "example_output": "<b>Kingsway Preparatory School Results</b><br>John Doe, Term 2<br><br><b>Summative</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1<br><br><b>Formative Summary</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1<br><br><b>Average</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1"
-  },
-  {
-    "name": "Fees Payment Reminder WhatsApp",
-    "template_type": "whatsapp",
-    "category": "fees",
-    "subject": "Kingsway Preparatory School Fees Reminder",
-    "template_body": "<b>Kingsway Preparatory School Fees Reminder</b><br>Dear {{parent_name}},<br>Outstanding Fees: KES {{amount_due}} for {{student_name}} (Class {{class_name}}).<br>Due Date: {{due_date}}.<br>Please pay promptly to avoid interruption.",
-    "media_urls": [],
-    "variables_json": "{\"parent_name\":\"string\",\"amount_due\":\"string\",\"student_name\":\"string\",\"class_name\":\"string\",\"due_date\":\"string\"}",
-    "example_output": "<b>Kingsway Preparatory School Fees Reminder</b><br>Dear Jane Doe,<br>Outstanding Fees: KES 12,000 for John Doe (Class 6B).<br>Due Date: 2025-11-30.<br>Please pay promptly to avoid interruption."
-  },
-  {
-    "name": "Announcement to Parents WhatsApp",
-    "template_type": "whatsapp",
-    "category": "announcement",
-    "subject": "Kingsway Preparatory School Announcement",
-    "template_body": "<b>Kingsway Preparatory School Announcement</b><br>{{announcement_body}}<br>- {{school_name}}",
-    "media_urls": [],
-    "variables_json": "{\"announcement_body\":\"string\",\"school_name\":\"string\"}",
-    "example_output": "<b>Kingsway Preparatory School Announcement</b><br>School will close on Friday at 1pm.<br>- Kingsway Preparatory School"
-  },
-  {
-    "name": "Notification to Parents WhatsApp",
-    "template_type": "whatsapp",
-    "category": "notification",
-    "subject": "Kingsway Preparatory School Notification",
-    "template_body": "<b>Kingsway Preparatory School Notification</b><br>{{notification_body}}<br>- {{school_name}}",
-    "media_urls": [],
-    "variables_json": "{\"notification_body\":\"string\",\"school_name\":\"string\"}",
-    "example_output": "<b>Kingsway Preparatory School Notification</b><br>Your child John Doe was absent today.<br>- Kingsway Preparatory School"
-  }
+    {
+        "name": "Student Results WhatsApp",
+        "template_type": "whatsapp",
+        "category": "results",
+        "subject": "Kingsway Preparatory School Results",
+        "template_body": "Kingsway Preparatory School Results\n{{student_name}}, {{term_name}}\n\nSummative\n{{summative_lines}}\nMean: GPA {{summative_gpa}}, GRADE {{summative_grade}}\n\nFormative Summary\n{{formative_lines}}\nMean: GPA {{formative_gpa}}, GRADE {{formative_grade}}\n\nAverage\n{{average_lines}}\nMean: GPA {{average_gpa}}, GRADE {{average_grade}}",
+        "media_urls": [],
+        "variables_json": "{\"student_name\":\"string\",\"term_name\":\"string\",\"summative_lines\":\"string\",\"summative_gpa\":\"string\",\"summative_grade\":\"string\",\"formative_lines\":\"string\",\"formative_gpa\":\"string\",\"formative_grade\":\"string\",\"average_lines\":\"string\",\"average_gpa\":\"string\",\"average_grade\":\"string\"}",
+        "example_output": "<b>Kingsway Preparatory School Results</b><br>John Doe, Term 2<br><br><b>Summative</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1<br><br><b>Formative Summary</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1<br><br><b>Average</b><br>Math: SCORE 85 POINTS 3.5,<br>English: SCORE 78 POINTS 3.0,<br>...<br>Mean: GPA 4.0, GRADE EE1"
+    },
+    {
+        "name": "Fees Payment Reminder WhatsApp",
+        "template_type": "whatsapp",
+        "category": "fees",
+        "subject": "Kingsway Preparatory School Fees Reminder",
+        "template_body": "Kingsway Preparatory School Fees Reminder\nDear {{parent_name}},\nOutstanding Fees: KES {{amount_due}} for {{student_name}} (Class {{class_name}}).\nDue Date: {{due_date}}.\nPlease pay promptly to avoid interruption.",
+        "media_urls": [],
+        "variables_json": "{\"parent_name\":\"string\",\"amount_due\":\"string\",\"student_name\":\"string\",\"class_name\":\"string\",\"due_date\":\"string\"}",
+        "example_output": "<b>Kingsway Preparatory School Fees Reminder</b><br>Dear Jane Doe,<br>Outstanding Fees: KES 12,000 for John Doe (Class 6B).<br>Due Date: 2025-11-30.<br>Please pay promptly to avoid interruption."
+    },
+    {
+        "name": "Announcement to Parents WhatsApp",
+        "template_type": "whatsapp",
+        "category": "announcement",
+        "subject": "Kingsway Preparatory School Announcement",
+        "template_body": "Kingsway Preparatory School Announcement\n{{announcement_body}}\n- {{school_name}}",
+        "media_urls": [],
+        "variables_json": "{\"announcement_body\":\"string\",\"school_name\":\"string\"}",
+        "example_output": "<b>Kingsway Preparatory School Announcement</b><br>School will close on Friday at 1pm.<br>- Kingsway Preparatory School"
+    },
+    {
+        "name": "Notification to Parents WhatsApp",
+        "template_type": "whatsapp",
+        "category": "notification",
+        "subject": "Kingsway Preparatory School Notification",
+        "template_body": "Kingsway Preparatory School Notification\n{{notification_body}}\n- {{school_name}}",
+        "media_urls": [],
+        "variables_json": "{\"notification_body\":\"string\",\"school_name\":\"string\"}",
+        "example_output": "<b>Kingsway Preparatory School Notification</b><br>Your child John Doe was absent today.<br>- Kingsway Preparatory School"
+    }
 ]

@@ -1,237 +1,108 @@
-const ComparativeReportsController = (() => {
-    let allData = [];
-    let charts = {};
-    async function init() {
-        await window.AuthContext?.ready();
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
-        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('finance_view') && !AuthContext.hasPermission('academics_view')) {
-            const main = document.querySelector('.main-content') || document.body;
-            main.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: finance_view or academics_view permission required</div>');
-            return;
-        }
-        await loadData(); setupEventListeners();
-    }
-    function setupEventListeners() {
-        document.getElementById('searchInput')?.addEventListener('input', filterData);
-        document.getElementById('filterSelect')?.addEventListener('change', filterData);
-        document
-          .getElementById("dateFilter")
-          ?.addEventListener("change", loadData);
-    }
-    async function loadData() {
-        try {
-            // Try finance yearly collections first (director view), then academic comparison
-            const r =
-              (await window.API.finance?.compareYearlyCollections?.({}).catch(() => null)) ||
-              (await window.API.reports?.getAcademicYearReports?.({}).catch(() => null));
-            allData = r?.data || r || [];
-            renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);
-            renderCharts(allData);
-        } catch (e) { console.error('Load failed:', e); renderTable([]); }
-    }
-    function renderStats(data) {
-        const items = Array.isArray(data) ? data : [];
-        const el = (id, val) => {
-          const e = document.getElementById(id);
-          if (e) e.textContent = val;
-        };
+/**
+ * Comparative Reports Controller
+ * Cross-class, cross-stream, cross-subject performance comparisons.
+ */
+const comparativeReportsController = {
+  state: { classes: [], streams: [], terms: [], subjects: [], report: null, referenceCache: null },
 
-        const means = items.map(
-          (d) => parseFloat(d.mean || d.annual_mean || d.average) || 0,
-        );
-        const overallMean =
-          means.length > 0
-            ? (means.reduce((s, v) => s + v, 0) / means.length).toFixed(1)
-            : "0.0";
-        const bestClass = items.reduce(
-          (best, d) => {
-            const m = parseFloat(d.mean || d.annual_mean || d.average) || 0;
-            return m > best.score
-              ? { name: d.class_name || d.name || "--", score: m }
-              : best;
-          },
-          { name: "--", score: 0 },
-        );
-        const improved = items.filter((d) => {
-          const t1 = parseFloat(d.term1_mean || d.term_1) || 0;
-          const t3 = parseFloat(d.term3_mean || d.term_3 || d.mean) || 0;
-          return t3 > t1 && t1 > 0;
-        }).length;
-        const leaders = items.filter(
-          (d) => (parseFloat(d.mean || d.annual_mean || d.average) || 0) >= 70,
-        ).length;
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-        el("statBestClass", bestClass.name);
-        el("statImproved", improved);
-        el("statLeaders", leaders);
-        el("statMean", overallMean + "%");
-    }
-    function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
-        if (!tbody) return;
-        if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="7" class="text-center text-muted py-4">No comparative data found</td></tr>';
-          return;
-        }
-        tbody.innerHTML = items
-          .map((d, i) => {
-            const t1 = parseFloat(d.term1_mean || d.term_1) || 0;
-            const t2 = parseFloat(d.term2_mean || d.term_2) || 0;
-            const t3 = parseFloat(d.term3_mean || d.term_3) || 0;
-            const annual =
-              parseFloat(d.annual_mean || d.mean || d.average) ||
-              (
-                (t1 + t2 + t3) /
-                (t1 > 0 ? 1 : 0 + t2 > 0 ? 1 : 0 + t3 > 0 ? 1 : 0 || 1)
-              ).toFixed(1);
-            const trendUp = t3 > t1 && t1 > 0;
-            const trendDown = t3 < t1 && t1 > 0;
-            return `<tr>
-                <td>${i + 1}</td>
-                <td><strong>${escapeHtml(d.class_name || d.name || "--")}</strong></td>
-                <td>${t1 > 0 ? t1.toFixed(1) + "%" : "--"}</td>
-                <td>${t2 > 0 ? t2.toFixed(1) + "%" : "--"}</td>
-                <td>${t3 > 0 ? t3.toFixed(1) + "%" : "--"}</td>
-                <td><span class="badge bg-${parseFloat(annual) >= 70 ? "success" : parseFloat(annual) >= 50 ? "warning" : "danger"}">${parseFloat(annual).toFixed(1)}%</span></td>
-                <td>${trendUp ? '<i class="fas fa-arrow-up text-success"></i> Improving' : trendDown ? '<i class="fas fa-arrow-down text-danger"></i> Declining' : '<i class="fas fa-minus text-muted"></i> Stable'}</td>
-            </tr>`;
-          })
-          .join("");
-    }
-    function filterData() {
-        const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
-        const f = document.getElementById("filterSelect")?.value;
-        let filtered = allData;
-        if (s)
-          filtered = filtered.filter((item) =>
-            JSON.stringify(item).toLowerCase().includes(s),
-          );
-        if (f)
-          filtered = filtered.filter((item) => {
-            const t1 = parseFloat(item.term1_mean || item.term_1) || 0;
-            const t3 =
-              parseFloat(item.term3_mean || item.term_3 || item.mean) || 0;
-            if (f === "improving") return t3 > t1 && t1 > 0;
-            if (f === "declining") return t3 < t1 && t1 > 0;
-            if (f === "stable") return Math.abs(t3 - t1) < 5;
-            return true;
-          });
-        renderTable(filtered);
-    }
-    function renderCharts(data) {
-        const items = Array.isArray(data) ? data : [];
-        if (typeof Chart === "undefined") return;
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-        const ctx1 = document.getElementById('trendChart')?.getContext('2d');
-        if (ctx1) {
-          if (charts.trend) charts.trend.destroy();
-          charts.trend = new Chart(ctx1, {
-            type: "line",
-            data: {
-              labels: items.map((d) => d.class_name || d.name || ""),
-              datasets: [
-                {
-                  label: "Term 1",
-                  data: items.map(
-                    (d) => parseFloat(d.term1_mean || d.term_1) || 0,
-                  ),
-                  borderColor: "#6c757d",
-                  tension: 0.3,
-                  borderDash: [5, 5],
-                },
-                {
-                  label: "Term 2",
-                  data: items.map(
-                    (d) => parseFloat(d.term2_mean || d.term_2) || 0,
-                  ),
-                  borderColor: "#ffc107",
-                  tension: 0.3,
-                },
-                {
-                  label: "Term 3",
-                  data: items.map(
-                    (d) => parseFloat(d.term3_mean || d.term_3) || 0,
-                  ),
-                  borderColor: "#0d6efd",
-                  tension: 0.3,
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              scales: { y: { beginAtZero: false, min: 0, max: 100 } },
-            },
-          });
-        }
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
 
-        const ctx2 = document.getElementById('comparisonChart')?.getContext('2d');
-        if (ctx2) {
-          if (charts.comparison) charts.comparison.destroy();
-          charts.comparison = new Chart(ctx2, {
-            type: "bar",
-            data: {
-              labels: items.map((d) => d.class_name || d.name || ""),
-              datasets: [
-                {
-                  label: "Annual Mean",
-                  data: items.map(
-                    (d) =>
-                      parseFloat(d.annual_mean || d.mean || d.average) || 0,
-                  ),
-                  backgroundColor: items.map((d) => {
-                    const m =
-                      parseFloat(d.annual_mean || d.mean || d.average) || 0;
-                    return m >= 70
-                      ? "rgba(25,135,84,0.7)"
-                      : m >= 50
-                        ? "rgba(255,193,7,0.7)"
-                        : "rgba(220,53,69,0.7)";
-                  }),
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              scales: { y: { beginAtZero: true, max: 100 } },
-            },
-          });
-        }
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "comparative-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Comparative Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
-    function exportCSV() {
-        if (!allData.length) return;
-        const headers = ['#', 'Class', 'Term 1 Mean', 'Term 2 Mean', 'Term 3 Mean', 'Annual Mean', 'Trend'];
-        const rows = allData.map((d, i) => {
-          const t1 = parseFloat(d.term1_mean || d.term_1) || 0;
-          const t3 = parseFloat(d.term3_mean || d.term_3 || d.mean) || 0;
-          return [
-            i + 1,
-            d.class_name || d.name,
-            (parseFloat(d.term1_mean || d.term_1) || 0).toFixed(1),
-            (parseFloat(d.term2_mean || d.term_2) || 0).toFixed(1),
-            t3.toFixed(1),
-            (parseFloat(d.annual_mean || d.mean || d.average) || 0).toFixed(1),
-            t3 > t1 ? "Improving" : t3 < t1 ? "Declining" : "Stable",
-          ];
-        });
-        let csv =
-          headers.join(",") +
-          "\n" +
-          rows
-            .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
-            .join("\n");
-        KingswayFileLifecycle.exportText(csv, "comparative_reports.csv", "text/csv");
-    }
-    function escapeHtml(s) {
-      return String(s || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
-    function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV };
-})();
-document.addEventListener('DOMContentLoaded', () => ComparativeReportsController.init());
+  },
 
-window.ComparativeReportsController = ComparativeReportsController;
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [cls, strms, terms, subs] = await Promise.all([
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
+        cache?.terms !== undefined ? cache.terms : this.API('GET', '/api/academic/terms-list'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/subjects-list'),
+      ]);
+      this.state.classes = this.norm(cls);
+      this.state.streams = this.norm(strms);
+      this.state.terms = this.norm(terms);
+      this.state.subjects = this.norm(subs);
+      this.populateFilters();
+      await this.loadReport();
+    } catch (e) { console.error(e); }
+  },
+
+  populateFilters() {
+    const c = document.getElementById('crClass');
+    const s = document.getElementById('crStream');
+    const t = document.getElementById('crTerm');
+    const sb = document.getElementById('crSubject');
+    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
+    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
+    t.innerHTML = '<option value="">All Terms</option>' + this.state.terms.map(x => `<option value="${x.id}">${this.esc(x.name || x.term_name)}</option>`).join('');
+    sb.innerHTML = '<option value="">All Subjects</option>' + this.state.subjects.map(x => `<option value="${x.id}">${this.esc(x.name || x.subject_name)}</option>`).join('');
+  },
+
+  async loadReport() {
+    const params = new URLSearchParams();
+    if (document.getElementById('crClass')?.value) params.set('class_id', document.getElementById('crClass').value);
+    if (document.getElementById('crStream')?.value) params.set('stream_id', document.getElementById('crStream').value);
+    if (document.getElementById('crTerm')?.value) params.set('term_id', document.getElementById('crTerm').value);
+    if (document.getElementById('crSubject')?.value) params.set('subject_id', document.getElementById('crSubject').value);
+
+    try {
+      const response = await this.API('GET', '/api/reports/comparative', null, params);
+      this.state.report = response?.data || response || {};
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  render() {
+    const r = this.state.report;
+    const body = document.getElementById('crBody');
+    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No comparative data.</td></tr>'; return; }
+    body.innerHTML = r.map(x => `<tr>
+      <td class="small">${this.esc(x.class_name || '—')}</td>
+      <td class="small">${this.esc(x.stream_name || '—')}</td>
+      <td class="small">${this.esc(x.subject_name || '—')}</td>
+      <td class="small text-center">${this.esc(x.student_count || 0)}</td>
+      <td class="small text-center">${this.esc(x.avg_score || '—')}</td>
+      <td class="small text-center">${this.esc(x.highest || '—')}</td>
+      <td class="small text-center">${this.esc(x.lowest || '—')}</td>
+      <td class="small text-center">${this.esc(x.pass_rate || '—')}%</td>
+    </tr>`).join('');
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "comparative-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Comparative Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("comparative_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "academic"]);
+  },
+};
+
+window.comparativeReportsController = comparativeReportsController;
+document.addEventListener('DOMContentLoaded', () => comparativeReportsController.init().catch(() => {}));

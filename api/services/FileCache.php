@@ -198,7 +198,7 @@ class FileCache
         if (self::$dir !== null) {
             return;
         }
-        $dir = dirname(__DIR__, 2) . '/storage/cache';
+        $dir = StorageRoot::path('php/file_cache');
         if (!is_dir($dir)) {
             @mkdir($dir, 0775, true);
             @chmod($dir, 0775);

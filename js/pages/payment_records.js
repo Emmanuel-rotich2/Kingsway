@@ -91,6 +91,7 @@ const paymentRecordsController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
     await this.load();
+    window.APIRealtime?.register?.("payment_records", { refresh: () => this.load(this.state.page) }, ["finance", "payments"]);
   },
 };
 

@@ -264,7 +264,7 @@ const gradeEntryCtrl = (() => {
             const lastUpdated = existingGrade?.updated_at || '—';
 
             return `
-                <tr data-student-id="${student.id}">
+                <tr data-student-id="${student.id}" data-realtime-activity="assessment_result:${state.currentAssessmentId}:${student.id}">
                     <td>${index + 1}</td>
                     <td>${student.admission_no || '—'}</td>
                     <td>
@@ -375,6 +375,15 @@ const gradeEntryCtrl = (() => {
             saveBtn.disabled = true;
             saveBtn.textContent = 'Saving...';
 
+            // The user is done editing: release row presence BEFORE the save
+            // so the gateway does not treat this connection as still editing
+            // those rows when the server echoes the ROW_UPDATED descriptors
+            // back — otherwise every saved row would come back as a
+            // self-targeted CONFLICT_HINT.
+            if (window.RealtimePresence) {
+                inputs.forEach((input) => window.RealtimePresence.end(keyFor(input)));
+            }
+
             await apiCall('academic/assessments-mark-and-grade', 'POST', {
                 assessment_id: state.currentAssessmentId,
                 // Tokens let the server refuse a stale save instead of silently
@@ -483,6 +492,62 @@ const gradeEntryCtrl = (() => {
         document.getElementById('saveAllBtn')?.addEventListener('click', saveAllGrades);
         document.getElementById('autoCalculateBtn')?.addEventListener('click', autoCalculate);
         document.getElementById('exportBtn')?.addEventListener('click', exportGrades);
+        bindRealtimeCollaboration();
+    }
+
+    /**
+     * Realtime collaboration for the mark sheet:
+     *  - FOCUSING a mark input declares row-level presence, so a peer's save
+     *    is withheld from this row and arrives as a CONFLICT_HINT instead of
+     *    overwriting what the teacher is typing.
+     *  - A peer's save on a row this teacher is NOT editing patches just that
+     *    row in place (flash + "saved by" stamp) instead of reloading the
+     *    whole grid and wiping every other half-typed mark.
+     */
+    const keyFor = (input) => `assessment_result:${state.currentAssessmentId}:${input.dataset.studentId}`;
+
+    function bindRealtimeCollaboration() {
+        const tbody = document.getElementById('gradesTableBody');
+        if (!tbody) return;
+
+        tbody.addEventListener('focusin', (e) => {
+            const input = e.target.closest('.grades-input');
+            if (input && state.currentAssessmentId) window.RealtimePresence?.begin(keyFor(input));
+        });
+        tbody.addEventListener('focusout', (e) => {
+            const input = e.target.closest('.grades-input');
+            if (!input) return;
+            // Staying inside the same row (marks -> remarks) keeps the edit open.
+            if (e.relatedTarget && e.relatedTarget.closest?.('tr') === input.closest('tr')) return;
+            if (state.currentAssessmentId) window.RealtimePresence?.end(keyFor(input));
+        });
+
+        window.APIRealtime?.registerPatch?.({
+            id: 'grade_entry_assessment_rows',
+            targets: ['assessment_result', 'academic'],
+            apply: (descriptor) => {
+                if (descriptor.domain !== 'assessment_result' || !state.currentAssessmentId) return false;
+                const studentId = Number(descriptor.id || 0);
+                const row = studentId && document.querySelector(`#gradesTableBody tr[data-student-id="${studentId}"]`);
+                if (!row) return false;
+
+                row.classList.remove('rt-conflict-row');
+                void row.offsetWidth;
+                row.classList.add('rt-conflict-row');
+                const stamp = row.querySelector('.rt-row-updated');
+                if (stamp) stamp.remove();
+                const el = document.createElement('span');
+                el.className = 'rt-row-updated text-primary small d-block';
+                const responder = Number(descriptor.responder_id) ? ` by staff #${descriptor.responder_id}` : '';
+                el.textContent = `updated${responder}`;
+                row.lastElementChild.appendChild(el);
+                return true;
+            },
+        });
+
+        window.APIRealtime?.register?.('grade_entry', { refresh: () => {
+            if (state.currentExam?.id) return loadStudentsForExam(state.currentExam.id);
+        } }, ['academic', 'assessment_result']);
     }
 
     async function init() {

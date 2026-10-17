@@ -13,7 +13,6 @@
         "symfony/polyfill-intl-idn": "^1.29",
         "dompdf/dompdf": "^3.1",
         "phpoffice/phpword": "^1.4",
-        "africastalking/africastalking": "^3.0",
         "lbuchs/webauthn": "1.1.3",
         "webklex/php-imap": "*",
         "ext-zip": "*"
@@ -50,6 +49,10 @@
     },
     "scripts": {
         "test": "phpunit",
+        "test:unit": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration",
+        "test:all": "phpunit --testsuite all",
+        "test:coverage": "phpunit --coverage-html coverage",
         "ai:smoke": "php .github/scripts/ai_provider_smoke.php --live",
         "ai:resilience": "php .github/scripts/ai_resilience_smoke.php",
         "check:assets": "php scripts/check_asset_versioning.php",

@@ -1,11 +1,21 @@
 /* Accountant-only admission payment desk. Amounts come from the admission queue. */
 const manageAdmissionsPaymentsController = {
-  state: { rows: [], filtered: [], selected: null, paid: [] },
+  state: { rows: [], filtered: [], selected: null, paid: [], referenceCache: null },
 
   esc(value) { return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); },
   money(value) { return Number(value || 0).toLocaleString('en-KE', { maximumFractionDigits: 2 }); },
   unwrap(value) { return value?.data ?? value ?? {}; },
   notify(message, type = 'success') { if (window.showNotification) return window.showNotification(message, type); alert(message); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "manage-admissions-payments-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Manage admissions payments Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   async load() {
     const body = document.getElementById('mapBody');
@@ -27,7 +37,8 @@ const manageAdmissionsPaymentsController = {
   async loadYears() {
     const select = document.getElementById('mapYear');
     try {
-      const response = await window.API.academic.listYears();
+      const cache = this.state.referenceCache;
+      const response = cache?.years !== undefined ? cache.years : await window.API.academic.listYears();
       const payload = this.unwrap(response);
       const years = Array.isArray(payload.years) ? payload.years : (Array.isArray(payload) ? payload : []);
       const current = years.find(year => year.is_current == 1 || year.is_current === true || year.status === 'current');
@@ -155,7 +166,8 @@ const manageAdmissionsPaymentsController = {
     document.getElementById('mapSearch')?.addEventListener('input', () => this.applySearch());
     document.getElementById('mapYear')?.addEventListener('change', () => this.loadPaidPayments());
     document.getElementById('mapPromptForm')?.addEventListener('submit', event => this.sendPrompt(event));
-    return Promise.all([this.load(), this.loadYears()]);
+    window.APIRealtime?.register?.("manage_admissions_payments", { refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await Promise.all([this.load(), this.loadYears()]); } }, ["academic", "admission", "finance"]);
+    return Promise.all([this.loadReferencesComposed(), this.load(), this.loadYears()]);
   }
 };
 

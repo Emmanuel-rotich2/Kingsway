@@ -114,7 +114,7 @@ class StaffAPI extends BaseAPI {
                 'position' => 'display_position',
                 'status' => 'sc.staff_status',
             ];
-            $sort = $sortMap[$sort] ?? 'sc.staff_id';
+            $sort = $sortMap[$sort] ?? 'sc.staff_no';
 
             // The query below reads staff_context as `sc`; scope the projection
             // column instead of an unrelated `s` alias (which does not exist).

@@ -11,6 +11,22 @@ const ClassMarkAttendanceController = {
     document.getElementById('classAttendanceSession')?.addEventListener('change', () => this.loadStudents());
     document.getElementById('saveClassAttendance')?.addEventListener('click', () => this.save());
     await this.loadClasses();
+    this.bindRealtime();
+  },
+
+  /**
+   * Realtime collaboration: changing any learner's status declares this
+   * register as actively marked, so a peer (or leadership viewing the same
+   * register) sees the editing badge before saving over in-progress marks;
+   * a peer's saved register arrives as a DATA_CHANGED refresh.
+   */
+  bindRealtime() {
+    const presenceKey = () => `attendance_register:${document.getElementById('classAttendanceStream')?.value || 0}:${document.getElementById('classAttendanceSession')?.value || 0}:${document.getElementById('classAttendanceDate')?.value || ''}`;
+    const body = document.getElementById('classAttendanceBody');
+    body?.addEventListener('change', () => window.RealtimePresence?.begin(presenceKey()));
+    body?.addEventListener('input', () => window.RealtimePresence?.begin(presenceKey()));
+    window.addEventListener('pagehide', () => window.RealtimePresence?.end(presenceKey()), { once: true });
+    window.APIRealtime?.register?.('class_mark_attendance', { refresh: () => this.loadStudents() }, ['attendance']);
   },
   unwrap(response) {
     const value = response?.data?.data || response?.data || response || [];
@@ -100,7 +116,7 @@ const ClassMarkAttendanceController = {
     const pending = rows.length - attendance.length;
     if (!stream_id || !session_id || !rows.length) return this.message('Select an applicable attendance session before saving.', 'warning');
     if (!attendance.length) return this.message('No learner has been marked. Every learner remains Not marked.', 'warning');
-    try { await window.API.apiCall('/attendance/mark-bulk', 'POST', { stream_id, date, session_id, register_type: 'class', attendance }); await this.loadStudents(); this.message(`Attendance saved for ${attendance.length} learner${attendance.length === 1 ? '' : 's'}. ${pending ? `${pending} remain Not marked.` : 'The register is complete.'}`, pending ? 'warning' : 'success'); } catch (e) { this.message(e.message || 'Attendance could not be saved.', 'danger'); }
+    try { await window.API.apiCall('/attendance/mark-bulk', 'POST', { stream_id, date, session_id, register_type: 'class', attendance }); window.RealtimePresence?.end(`attendance_register:${stream_id}:${session_id}:${date}`); await this.loadStudents(); this.message(`Attendance saved for ${attendance.length} learner${attendance.length === 1 ? '' : 's'}. ${pending ? `${pending} remain Not marked.` : 'The register is complete.'}`, pending ? 'warning' : 'success'); } catch (e) { this.message(e.message || 'Attendance could not be saved.', 'danger'); }
   },
   localDate() { const now = new Date(); const offset = now.getTimezoneOffset() * 60000; return new Date(now.getTime() - offset).toISOString().slice(0, 10); },
   message(text, type) { const el = document.getElementById('classAttendanceMessage'); el.textContent = text; el.className = `alert alert-${type}`; },

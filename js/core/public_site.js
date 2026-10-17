@@ -100,6 +100,17 @@
       .replace(/'/g, '&#039;');
   }
 
+  // Resolve a stored media path against the app base so site-relative
+  // paths such as "/uploads/..." load when the app is mounted under a
+  // sub-path (e.g. "/Kingsway"). Absolute and data URLs pass through.
+  function mediaUrl(path) {
+    if (path === null || path === undefined) return '';
+    const value = String(path).trim();
+    if (!value) return '';
+    if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) || value.startsWith('data:')) return value;
+    return BASE + '/' + value.replace(/^\/+/, '');
+  }
+
   function categoryStyle(category) {
     return CATEGORY_STYLE[category] || ['#198754', 'bi-circle-fill'];
   }
@@ -186,6 +197,7 @@
     get,
     bumpView,
     escapeHtml,
+    mediaUrl,
     categoryStyle,
     categoryImage,
     formatDate,

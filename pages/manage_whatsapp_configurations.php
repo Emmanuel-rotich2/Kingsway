@@ -14,7 +14,7 @@ if (!isset($appBase)) {
         <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-outline-secondary btn-sm" id="whatsappExportCsv"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
             <button class="btn btn-outline-secondary btn-sm" id="whatsappPrint"><i class="bi bi-printer me-1"></i>Print/PDF</button>
-            <button class="btn btn-info btn-sm" id="whatsappRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+            <button class="btn btn-success btn-sm" id="whatsappRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
         </div>
     </div>
     <div id="whatsappState" class="alert alert-info" role="status"><i class="bi bi-hourglass-split me-1"></i>Loading WhatsApp configuration...</div>
@@ -34,10 +34,10 @@ if (!isset($appBase)) {
             </div>
         </div>
     </div>
-    <div class="mt-3"><button class="btn btn-info" id="whatsappSaveBtn"><i class="bi bi-check-lg me-1"></i>Save WhatsApp Settings</button></div>
+    <div class="mt-3"><button class="btn btn-success" id="whatsappSaveBtn"><i class="bi bi-check-lg me-1"></i>Save WhatsApp Settings</button></div>
     <hr class="my-4">
     <div class="card border-0 shadow-sm">
-        <div class="card-header bg-info text-white"><h6 class="mb-0"><i class="bi bi-activity me-1"></i>Test WhatsApp Connection</h6></div>
+        <div class="card-header text-white" style="background:#008069;"><h6 class="mb-0"><i class="bi bi-activity me-1"></i>Test WhatsApp Connection</h6></div>
         <div class="card-body">
             <div class="row g-3 align-items-end">
                 <div class="col-md-3"><button class="btn btn-outline-info" id="whatsappTestBtn"><i class="bi bi-lightning me-1"></i>Test Connection</button></div>

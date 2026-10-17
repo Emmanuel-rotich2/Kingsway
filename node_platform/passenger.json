@@ -1,0 +1,16 @@
+{
+  "app_type": "node",
+  "startup_file": "app.js",
+  "environment": "production",
+  "max_pool_size": 4,
+  "min_instances": 1,
+  "process_instances": 1,
+  "log_level": 2,
+  "envvars": {
+    "NODE_ENV": "production",
+    "NODE_REALTIME_PORT": "3000",
+    "NODE_REALTIME_WEB_ORIGIN": "https://kingswaypreparatoryschool.sc.ke",
+    "KINGSWAY_WORKER_SECRET": "{{from_panel}}",
+    "JWT_SECRET": "{{from_panel}}"
+  }
+}

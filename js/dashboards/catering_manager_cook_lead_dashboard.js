@@ -22,6 +22,61 @@
         scopeId: 'cateringDashboardScope',
         lastUpdatedId: 'cateringDashboardLastUpdated',
         defaultPeriod: 'today',
+        viewSpec: { entity: 'dashboards', view: 'catering-manager-cook-lead-references', input: (filters) => filters },
+
+        composeFromSources(sources = {}, ctrl, filters = {}) {
+            const date = filters.date_to || today();
+            const stats = sources.stats || {};
+            const stockRows = Array.isArray(sources.low_stock) ? sources.low_stock : [];
+            const menuRows = Array.isArray(sources.menu) ? sources.menu : [];
+
+            const statusCounts = menuRows.reduce((counts, row) => {
+                const status = String(row.status || 'planned').toLowerCase();
+                counts[status] = (counts[status] || 0) + 1;
+                return counts;
+            }, {});
+
+            const plannedServings = Number(stats.planned_servings || 0);
+            const costPerMeal = plannedServings > 0
+                ? Number(stats.daily_cost || 0) / plannedServings
+                : 0;
+            const quantityUsed = Number(stats.quantity_used || 0);
+            const wastePercent = quantityUsed > 0
+                ? (Number(stats.waste_quantity || 0) / quantityUsed) * 100
+                : 0;
+
+            return {
+                meta: { scope_label: date, period: filters.period },
+                cards: {
+                    students_to_feed: Number(stats.students_to_feed || plannedServings || 0),
+                    meals_served: Number(stats.prepared_meals || stats.meals_served || 0),
+                    low_food_stock: Number(stats.low_stock || stockRows.length || 0),
+                    cost_per_meal: costPerMeal,
+                    waste_percent: wastePercent
+                },
+                charts: {
+                    meal_readiness: {
+                        labels: ['Planned', 'Prepared', 'Served', 'Cancelled'],
+                        data: [
+                            Number(statusCounts.planned || 0),
+                            Number(statusCounts.prepared || 0),
+                            Number(statusCounts.served || 0),
+                            Number(statusCounts.cancelled || 0)
+                        ]
+                    },
+                    consumption_trend: {
+                        labels: menuRows.map(row => row.meal_type || row.menu_item || 'Meal'),
+                        datasets: [
+                            { label: 'Planned', data: menuRows.map(row => Number(row.planned_servings || 0)), borderWidth: 2 },
+                            { label: 'Prepared', data: menuRows.map(row => Number(row.prepared_quantity || 0)), borderWidth: 2 },
+                            { label: 'Served', data: menuRows.map(row => Number(row.actual_servings || 0)), borderWidth: 2 }
+                        ]
+                    }
+                },
+                menu: menuRows,
+                low_stock: stockRows
+            };
+        },
 
         async apiMethod(filters = {}) {
             try {
@@ -32,64 +87,15 @@
                     window.API.catering.getFoodStock({ low_stock: 1, limit: 10 })
                 ]);
 
-                const stats = unwrap(statsResponse) || {};
-                const stockRows = Array.isArray(unwrap(stockResponse)) ? unwrap(stockResponse) : [];
-                const menuRows = Array.isArray(unwrap(menuResponse)) ? unwrap(menuResponse) : [];
-
-                const statusCounts = menuRows.reduce((counts, row) => {
-                    const status = String(row.status || 'planned').toLowerCase();
-                    counts[status] = (counts[status] || 0) + 1;
-                    return counts;
-                }, {});
-
-                const plannedServings = Number(stats.planned_servings || 0);
-                const costPerMeal = plannedServings > 0
-                    ? Number(stats.daily_cost || 0) / plannedServings
-                    : 0;
-                const quantityUsed = Number(stats.quantity_used || 0);
-                const wastePercent = quantityUsed > 0
-                    ? (Number(stats.waste_quantity || 0) / quantityUsed) * 100
-                    : 0;
-
-                return {
-                    meta: { scope_label: date, period: filters.period },
-                    cards: {
-                        students_to_feed: Number(stats.students_to_feed || plannedServings || 0),
-                        meals_served: Number(stats.prepared_meals || stats.meals_served || 0),
-                        low_food_stock: Number(stats.low_stock || stockRows.length || 0),
-                        cost_per_meal: costPerMeal,
-                        waste_percent: wastePercent
-                    },
-                    charts: {
-                        meal_readiness: {
-                            labels: ['Planned', 'Prepared', 'Served', 'Cancelled'],
-                            data: [
-                                Number(statusCounts.planned || 0),
-                                Number(statusCounts.prepared || 0),
-                                Number(statusCounts.served || 0),
-                                Number(statusCounts.cancelled || 0)
-                            ]
-                        },
-                        consumption_trend: {
-                            labels: menuRows.map(row => row.meal_type || row.menu_item || 'Meal'),
-                            datasets: [
-                                { label: 'Planned', data: menuRows.map(row => Number(row.planned_servings || 0)), borderWidth: 2 },
-                                { label: 'Prepared', data: menuRows.map(row => Number(row.prepared_quantity || 0)), borderWidth: 2 },
-                                { label: 'Served', data: menuRows.map(row => Number(row.actual_servings || 0)), borderWidth: 2 }
-                            ]
-                        }
-                    },
-                    menu: menuRows,
-                    low_stock: stockRows
-                };
+                const stock = unwrap(stockResponse);
+                const menu = unwrap(menuResponse);
+                return this.composeFromSources({
+                    stats: unwrap(statsResponse) || {},
+                    low_stock: Array.isArray(stock) ? stock : [],
+                    menu: Array.isArray(menu) ? menu : []
+                }, this, filters);
             } catch (e) {
-                return {
-                    meta: { scope_label: 'Catering', period: filters.period },
-                    cards: { students_to_feed: 0, meals_served: 0, low_food_stock: 0, cost_per_meal: 0, waste_percent: 0 },
-                    charts: { meal_readiness: { labels: [], data: [] }, consumption_trend: { labels: [], datasets: [] } },
-                    menu: [],
-                    low_stock: []
-                };
+                return this.composeFromSources({}, this, filters);
             }
         },
 

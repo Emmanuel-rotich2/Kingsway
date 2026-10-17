@@ -113,13 +113,5 @@
         <?php endforeach; ?>
     </nav>
 
-    <div class="app-sidebar-footer">
-        <span class="app-sidebar-footer-icon">
-            <i class="bi bi-shield-check"></i>
-        </span>
-        <div class="sidebar-text">
-            <strong>Secure session</strong>
-            <small>JWT authenticated</small>
-        </div>
-    </div>
+    
 </div>

@@ -21,7 +21,7 @@ final class StaffDisciplineController extends BaseController
     private function service(): \App\API\Services\StaffDisciplineService
     {
         if ($this->service === null) {
-            $this->service = new \App\API\Services\StaffDisciplineService($this->db->getConnection());
+            $this->service = $this->contract(\App\API\Services\StaffDisciplineService::class, $this->db->getConnection());
         }
         return $this->service;
     }

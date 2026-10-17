@@ -216,7 +216,14 @@
   }
 
   window.StudentProfileContextController = state;
-  window.APIRealtime?.register?.('StudentProfileContextController', state, ['students']);
+  // The old registration handed the bare state object, whose only loaders take
+  // arguments, so peer changes never refreshed this page. Register an explicit
+  // zero-arg refresh for the profile currently on screen.
+  window.APIRealtime?.register?.(
+    'StudentProfileContextController',
+    { refresh: () => { if (state.studentId) return state.loadProfile(state.studentId); } },
+    ['students'],
+  );
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => state.init());

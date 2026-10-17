@@ -103,6 +103,16 @@ final class InterServiceClient
     }
 
     /**
+     * Test hook: forget the cached per-service link winners. The winner cache
+     * is request-scoped in production but process-wide under PHPUnit, where
+     * one test's resolved address would otherwise leak into the next.
+     */
+    public static function resetResolvedForTests(): void
+    {
+        self::$resolved = [];
+    }
+
+    /**
      * Which link carried the last successful call, for journalling only.
      * Never throws, because it is called from logging paths.
      */
@@ -136,6 +146,47 @@ final class InterServiceClient
                 : array_merge($headers, ['Host: ' . $candidate['host']]);
 
             $last = $this->send($url, 'POST', $sent, $body, $timeout, $candidate['base']);
+
+            if ($last[1] > 0) {
+                self::$resolved[$service] = $candidate;
+                return $last;
+            }
+
+            // Nothing answered on this address. Try the next candidate rather
+            // than reporting a transport failure the caller cannot act on.
+            unset(self::$resolved[$service]);
+        }
+
+        return $last;
+    }
+
+    /**
+     * GET a service endpoint, with the same candidate order, "a real status is
+     * an answer" rule and winner caching as post(). Used by internal
+     * observability readers (the realtime gateway stats scrape), never by a
+     * browser-facing path.
+     *
+     * @return array{0:string|false,1:int,2:string} [body, httpStatus, transportError]
+     */
+    public function get(string $service, string $path, array $headers = [], int $timeout = 5): array
+    {
+        $service = $this->normalise($service);
+        $candidates = isset(self::$resolved[$service])
+            ? array_values($this->reorder($service))
+            : $this->candidates($service);
+
+        if ($candidates === []) {
+            throw new \RuntimeException(sprintf('No address is configured for the "%s" service.', $service));
+        }
+
+        $last = [false, 0, 'no address configured'];
+        foreach ($candidates as $candidate) {
+            $url = rtrim($candidate['base'], '/') . $path;
+            $sent = $candidate['host'] === null
+                ? $headers
+                : array_merge($headers, ['Host: ' . $candidate['host']]);
+
+            $last = $this->send($url, 'GET', $sent, null, $timeout, $candidate['base']);
 
             if ($last[1] > 0) {
                 self::$resolved[$service] = $candidate;
@@ -217,10 +268,26 @@ final class InterServiceClient
     }
 
     /**
+     * @param string|null $body null performs a bodyless request (GET) without
+     *                          the POSTFIELDS option, so the method stays GET.
      * @return array{0:string|false,1:int,2:string}
      */
-    private function send(string $url, string $method, array $headers, string $body, int $timeout, string $base): array
+    private function send(string $url, string $method, array $headers, ?string $body, int $timeout, string $base): array
     {
+        // PHP's curl refuses associative header arrays: a string key would only
+        // contribute its bare value, so "Content-Type" => "application/json"
+        // quietly becomes a bogus "application/json" line and curl falls back to
+        // application/x-www-form-urlencoded (the gateway then answers 415).
+        // Normalize every caller's headers into "Name: value" lines first so the
+        // secret and content type are actually transmitted.
+        $normalized = [];
+        foreach ($headers as $key => $value) {
+            $normalized[] = is_string($key)
+                ? $key . ': ' . $value
+                : (string) $value;
+        }
+        $headers = $normalized;
+
         if ($this->transport !== null) {
             $result = call_user_func($this->transport, $url, $method, $headers, $body, $timeout);
             return [
@@ -237,7 +304,7 @@ final class InterServiceClient
                 'http' => [
                     'method' => $method,
                     'header' => implode("\r\n", $headers),
-                    'content' => $body,
+                    'content' => $body ?? '',
                     'timeout' => $timeout,
                     'ignore_errors' => true,
                     'protocol_version' => 1.1,
@@ -266,9 +333,8 @@ final class InterServiceClient
         if ($ch === false) {
             return [false, 0, 'curl unavailable'];
         }
-        curl_setopt_array($ch, [
+        $options = [
             CURLOPT_CUSTOMREQUEST => $method,
-            CURLOPT_POSTFIELDS => $body,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 10,
@@ -276,7 +342,13 @@ final class InterServiceClient
             CURLOPT_NOSIGNAL => true,
             CURLOPT_SSL_VERIFYPEER => $isSecure,
             CURLOPT_SSL_VERIFYHOST => $isSecure ? 2 : 0,
-        ]);
+        ];
+        // POSTFIELDS flips the request toward POST semantics; a GET must stay
+        // bodyless or cURL sends a Content-Type/Content-Length anyway.
+        if ($body !== null && $body !== '') {
+            $options[CURLOPT_POSTFIELDS] = $body;
+        }
+        curl_setopt_array($ch, $options);
         $raw = curl_exec($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);

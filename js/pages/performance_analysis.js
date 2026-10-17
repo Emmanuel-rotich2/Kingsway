@@ -1,268 +1,90 @@
-const PerformanceAnalysisController = (() => {
-    let allData = [];
-    let charts = {};
-    let currentAcademicYear = null;
-    let currentTerm = null;
-    
-    async function init() {
-        await window.AuthContext?.ready();
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
-        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
-            const el = document.querySelector('.main-content, main, body');
-            if (el) el.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: insufficient permissions to view performance analysis.</div>');
-            return;
-        }
-        
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            // Subscribe to context changes
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    // Reload data when academic year or term changes
-                    loadData();
-                }
-            });
-            
-            // Ensure context is loaded
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-            
-            // Get current academic context
-            currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            currentTerm = window.AcademicContext.getTermId();
-        }
-        
-        await loadData(); setupEventListeners();
-    }
-    function setupEventListeners() {
-        document.getElementById('searchInput')?.addEventListener('input', filterData);
-        document.getElementById('filterSelect')?.addEventListener('change', filterData);
-        document
-          .getElementById("dateFilter")
-          ?.addEventListener("change", loadData);
-    }
-    async function loadData() {
-        try {
-            const dateFilter = document.getElementById('dateFilter')?.value || '';
-            let r = null;
-            // Try dedicated academic performance-analysis endpoint first
-            if (window.API?.academic?.analyzeResults) {
-                r = await window.API.academic.analyzeResults({ date: dateFilter }).catch(() => null);
-            }
-            if (!r && window.API?.academic?.compileData) {
-                r = await window.API.academic.compileData({ date: dateFilter }).catch(() => null);
-            }
-            if (!r && window.API?.apiCall) {
-                r = await window.API.apiCall('/academic/performance-overview', 'GET', null, { date: dateFilter }, { checkPermission: false }).catch(() => null);
-            }
-            allData = r?.data ?? r ?? [];
-            renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);
-            renderCharts(allData);
-        } catch (e) { console.error('Load failed:', e); renderTable([]); }
-    }
-    function renderStats(data) {
-        const items = Array.isArray(data) ? data : [];
-        const el = (id, val) => {
-          const e = document.getElementById(id);
-          if (e) e.textContent = val;
-        };
+/**
+ * Performance Analysis Controller
+ * Analyzes academic performance trends and patterns.
+ */
+const performanceAnalysisController = {
+  state: { referenceCache: null, analysis: null, trends: [], years: [], classes: [], subjects: [] },
 
-        const means = items
-          .map((d) => parseFloat(d.mean || d.mean_score || d.average) || 0)
-          .filter((v) => v > 0);
-        const overallMean =
-          means.length > 0
-            ? (means.reduce((s, v) => s + v, 0) / means.length).toFixed(1)
-            : "0.0";
-        const bestSubject = items.reduce(
-          (best, d) => {
-            const m = parseFloat(d.mean || d.mean_score || d.average) || 0;
-            return m > best.score
-              ? {
-                  name: d.subject_name || d.name || d.subject || "--",
-                  score: m,
-                }
-              : best;
-          },
-          { name: "--", score: 0 },
-        );
-        const aboveAvg = items.filter(
-          (d) =>
-            (parseFloat(d.mean || d.mean_score || d.average) || 0) >=
-            parseFloat(overallMean),
-        ).length;
-        const belowAvg = items.length - aboveAvg;
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-        el("statMean", overallMean + "%");
-        el("statBestSubject", bestSubject.name);
-        el("statAboveAvg", aboveAvg);
-        el("statBelowAvg", belowAvg);
-    }
-    function renderTable(items) {
-        const tbody = document.querySelector('#dataTable tbody');
-        if (!tbody) return;
-        if (!items.length) {
-          tbody.innerHTML =
-            '<tr><td colspan="7" class="text-center text-muted py-4">No performance data found</td></tr>';
-          return;
-        }
-        tbody.innerHTML = items
-          .map((d, i) => {
-            const mean = parseFloat(d.mean || d.mean_score || d.average) || 0;
-            const highest =
-              parseFloat(d.highest || d.max_score || d.top_score) || 0;
-            const lowest = parseFloat(d.lowest || d.min_score) || 0;
-            const passRate = parseFloat(d.pass_rate || d.percentage_pass) || 0;
-            const gradeColor =
-              mean >= 70 ? "success" : mean >= 50 ? "warning" : "danger";
-            return `<tr>
-                <td>${i + 1}</td>
-                <td>${escapeHtml(d.subject_name || d.name || d.subject || "--")}</td>
-                <td>${d.students || d.student_count || d.total_students || "--"}</td>
-                <td><span class="badge bg-${gradeColor}">${mean.toFixed(1)}%</span></td>
-                <td>${highest.toFixed(1)}%</td>
-                <td>${lowest.toFixed(1)}%</td>
-                <td>
-                    <div class="progress" style="height:18px;">
-                        <div class="progress-bar bg-${gradeColor}" style="width:${passRate}%">${passRate.toFixed(0)}%</div>
-                    </div>
-                </td>
-            </tr>`;
-          })
-          .join("");
-    }
-    function filterData() {
-        const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
-        const f = document.getElementById("filterSelect")?.value;
-        let filtered = allData;
-        if (s)
-          filtered = filtered.filter((item) =>
-            JSON.stringify(item).toLowerCase().includes(s),
-          );
-        if (f)
-          filtered = filtered.filter((item) => {
-            const mean =
-              parseFloat(item.mean || item.mean_score || item.average) || 0;
-            if (f === "excellent") return mean >= 70;
-            if (f === "average") return mean >= 50 && mean < 70;
-            if (f === "below") return mean < 50;
-            return true;
-          });
-        renderTable(filtered);
-    }
-    function renderCharts(data) {
-        const items = Array.isArray(data) ? data : [];
-        if (typeof Chart === "undefined") return;
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-        const ctx1 = document.getElementById('trendChart')?.getContext('2d');
-        if (ctx1) {
-          if (charts.trend) charts.trend.destroy();
-          charts.trend = new Chart(ctx1, {
-            type: "line",
-            data: {
-              labels: items.map(
-                (d) => d.subject_name || d.name || d.subject || "",
-              ),
-              datasets: [
-                {
-                  label: "Mean Score (%)",
-                  data: items.map(
-                    (d) => parseFloat(d.mean || d.mean_score || d.average) || 0,
-                  ),
-                  borderColor: "#0d6efd",
-                  tension: 0.3,
-                  fill: true,
-                  backgroundColor: "rgba(13,110,253,0.1)",
-                  pointBackgroundColor: items.map((d) => {
-                    const m =
-                      parseFloat(d.mean || d.mean_score || d.average) || 0;
-                    return m >= 70
-                      ? "#198754"
-                      : m >= 50
-                        ? "#ffc107"
-                        : "#dc3545";
-                  }),
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              scales: { y: { beginAtZero: false, min: 0, max: 100 } },
-            },
-          });
-        }
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "performance-trends-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Performance Analysis Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
-        const ctx2 = document.getElementById('comparisonChart')?.getContext('2d');
-        if (ctx2) {
-          if (charts.comparison) charts.comparison.destroy();
-          charts.comparison = new Chart(ctx2, {
-            type: "bar",
-            data: {
-              labels: items.map(
-                (d) => d.subject_name || d.name || d.subject || "",
-              ),
-              datasets: [
-                {
-                  label: "Highest",
-                  data: items.map(
-                    (d) => parseFloat(d.highest || d.max_score) || 0,
-                  ),
-                  backgroundColor: "rgba(25,135,84,0.7)",
-                },
-                {
-                  label: "Mean",
-                  data: items.map(
-                    (d) => parseFloat(d.mean || d.mean_score || d.average) || 0,
-                  ),
-                  backgroundColor: "rgba(13,110,253,0.7)",
-                },
-                {
-                  label: "Lowest",
-                  data: items.map(
-                    (d) => parseFloat(d.lowest || d.min_score) || 0,
-                  ),
-                  backgroundColor: "rgba(220,53,69,0.7)",
-                },
-              ],
-            },
-            options: {
-              responsive: true,
-              scales: { y: { beginAtZero: true, max: 100 } },
-            },
-          });
-        }
-    }
-    function exportCSV() {
-        if (!allData.length) return;
-        const headers = ['#', 'Subject', 'Students', 'Mean Score', 'Highest', 'Lowest', 'Pass Rate'];
-        const rows = allData.map((d, i) => [
-          i + 1,
-          d.subject_name || d.name || d.subject,
-          d.students || d.student_count,
-          (parseFloat(d.mean || d.mean_score || d.average) || 0).toFixed(1),
-          (parseFloat(d.highest || d.max_score) || 0).toFixed(1),
-          (parseFloat(d.lowest || d.min_score) || 0).toFixed(1),
-          (parseFloat(d.pass_rate || d.percentage_pass) || 0).toFixed(1),
-        ]);
-        let csv =
-          headers.join(",") +
-          "\n" +
-          rows
-            .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
-            .join("\n");
-        KingswayFileLifecycle.exportText(csv, "performance_analysis.csv", "text/csv");
-    }
-    function escapeHtml(s) {
-      return String(s || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
-    function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV };
-})();
-document.addEventListener('DOMContentLoaded', () => PerformanceAnalysisController.init());
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [analysis, trends, years, classes, subjects] = await Promise.all([
+        cache?.analysis !== undefined ? cache.analysis : this.API('GET', '/api/academic/performance-analysis'),
+        cache?.trends !== undefined ? cache.trends : this.API('GET', '/api/academic/performance-trends'),
+        cache?.years !== undefined ? cache.years : this.API('GET', '/api/academic/years/list'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas/list'),
+      ]);
+      this.state.analysis = analysis?.data || analysis || {};
+      this.state.trends = Array.isArray(trends?.data) ? trends.data : (Array.isArray(trends) ? trends : []);
+      this.state.years = Array.isArray(years?.data) ? years.data : (Array.isArray(years) ? years : []);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.renderAnalysis();
+      this.renderTrends();
+      this.renderFilters();
+    } catch (e) { console.error(e); }
+  },
 
-window.PerformanceAnalysisController = PerformanceAnalysisController;
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderAnalysis() {
+    const a = this.state.analysis;
+    document.getElementById('paOverallMean')?.textContent = a?.overall_mean ?? '—';
+    document.getElementById('paImprovementRate')?.textContent = `${a?.improvement_rate ?? '—'}%`;
+    document.getElementById('paTopSubject')?.textContent = a?.top_subject || '—';
+    document.getElementById('paBottomSubject')?.textContent = a?.bottom_subject || '—';
+    document.getElementById('paTopClass')?.textContent = a?.top_class || '—';
+  },
+
+  renderTrends() {
+    const trends = this.state.trends;
+    const body = document.getElementById('paTrendsBody');
+    if (!trends.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No trend data.</td></tr>'; return; }
+    body.innerHTML = trends.map(t => `<tr>
+      <td class="small">${this.esc(t.period || '—')}</td>
+      <td class="small">${this.esc(t.subject || 'Overall')}</td>
+      <td class="small text-center">${this.esc(t.mean_score || '—')}</td>
+      <td class="small text-center">${t.change >= 0 ? '+' : ''}${this.esc(t.change || '—')}%</td>
+      <td class="small"><span class="badge bg-${t.change >= 0 ? 'success' : 'danger'}">${t.change >= 0 ? 'Improving' : 'Declining'}</span></td>
+    </tr>`).join('');
+  },
+
+  renderFilters() {
+    const years = this.state.years;
+    const classes = this.state.classes;
+    const subjects = this.state.subjects;
+    const yearSelect = document.getElementById('paYearFilter');
+    const classSelect = document.getElementById('paClassFilter');
+    const subjectSelect = document.getElementById('paSubjectFilter');
+    if (yearSelect) yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y.id}">${this.esc(y.name)}</option>`).join('');
+    if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+    if (subjectSelect) subjectSelect.innerHTML = '<option value="">All Subjects</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+  },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("performance_analysis", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic", "reports"]);
+  },
+};
+
+window.performanceAnalysisController = performanceAnalysisController;
+document.addEventListener('DOMContentLoaded', () => performanceAnalysisController.init().catch(() => {}));

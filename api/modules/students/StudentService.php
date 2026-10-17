@@ -128,7 +128,7 @@ class StudentService
             $db = $this->repository->getDb();
 
             // Get academic years
-            $stmt = $db->prepare("SELECT id, year_code, year_name, status FROM academic_years ORDER BY year_code DESC");
+            $stmt = $db->prepare("SELECT id, year_code, year_name, status, is_current FROM academic_years ORDER BY year_code DESC");
             $stmt->execute();
             $academicYears = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -138,10 +138,10 @@ class StudentService
             $classes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Get streams
-            $stmt = $db->prepare("SELECT class_stream_id AS id, stream_name, class_id
+            $stmt = $db->prepare("SELECT DISTINCT class_stream_id AS id, stream_name, class_id, academic_year_id
                                   FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('academic_calendar') . "
                                   WHERE class_stream_status = 'active'
-                                  ORDER BY stream_name");
+                                  ORDER BY academic_year_id DESC, stream_name");
             $stmt->execute();
             $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -235,12 +235,20 @@ class StudentService
                 'stream_id' => 'lp.stream_id',
                 'gender' => 'per.gender',
                 'student_status' => 's.status',
-                'card_status' => 'sic.status',
                 'expiry_year' => 'sic.expiry_year',
             ] as $filter => $column) {
                 if (isset($filters[$filter]) && $filters[$filter] !== '') {
                     $conditions[] = "{$column} = ?";
                     $bindings[] = $filters[$filter];
+                }
+            }
+
+            if (isset($filters['card_status']) && $filters['card_status'] !== '') {
+                if ($filters['card_status'] === 'not_generated') {
+                    $conditions[] = 'sic.id IS NULL';
+                } else {
+                    $conditions[] = 'sic.status = ?';
+                    $bindings[] = $filters['card_status'];
                 }
             }
 
@@ -263,10 +271,6 @@ class StudentService
             }
 
             $whereClause = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
-            $page = max(1, (int)($filters['page'] ?? 1));
-            $limit = min(100, max(1, (int)($filters['limit'] ?? 50)));
-            $offset = ($page - 1) * $limit;
-
             $from = "
                 FROM " . ReadReplicaService::qualifiedRef('students') . " s
                 JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
@@ -308,8 +312,7 @@ class StudentService
                         sic.issued_at
                     {$from}
                     {$whereClause}
-                    ORDER BY per.last_name, per.first_name
-                    LIMIT {$limit} OFFSET {$offset}";
+                    ORDER BY lp.class_id, lp.stream_id, s.admission_no";
             $stmt = $db->prepare($sql);
             $stmt->execute($bindings);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -317,12 +320,6 @@ class StudentService
             return [
                 'success' => true,
                 'data' => $students,
-                'pagination' => [
-                    'page' => $page,
-                    'limit' => $limit,
-                    'total' => $total,
-                    'pages' => (int)ceil($total / $limit),
-                ],
             ];
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("StudentService::getIdCards error: " . $e->getMessage());
@@ -330,6 +327,121 @@ class StudentService
                 'success' => false,
                 'data' => [],
                 'pagination' => ['page' => 1, 'limit' => 50, 'total' => 0, 'pages' => 0],
+            ];
+        }
+    }
+
+    /**
+     * Get card status for students (lightweight map: student_id -> status)
+     * Used by Node.js gateway for aggregation
+     */
+    public function getCardStatus(array $user, array $filters = []): array
+    {
+        try {
+            $db = $this->repository->getDb();
+            $conditions = [];
+            $bindings = [];
+
+            $scope = $this->scopeService->buildScope('full_management', $user);
+            [$scopeConditions, $scopeBindings] = $this->scopeService->whereClause($scope);
+            if ($scopeConditions) {
+                $conditions = array_merge($conditions, $scopeConditions);
+            }
+            $placementView = ReadReplicaService::qualifiedRef('learner_placement');
+            $academicYear = trim((string)($filters['academic_year'] ?? ''));
+            $placementYear = $academicYear !== ''
+                ? '?'
+                : '(SELECT ay.id FROM ' . ReadReplicaService::qualifiedRef('academic_years') . ' ay WHERE ay.is_current = 1 ORDER BY ay.id DESC LIMIT 1)';
+            if ($academicYear !== '') {
+                $bindings[] = $academicYear;
+            }
+            // The academic-year placeholder appears in the JOIN before scope
+            // placeholders in the WHERE clause, so keep binding order aligned
+            // with the SQL statement.
+            $bindings = array_merge($bindings, $scopeBindings);
+            $placementJoin = "
+                LEFT JOIN (
+                    SELECT lp_latest.student_id, MAX(lp_latest.enrollment_id) AS enrollment_id
+                    FROM {$placementView} lp_latest
+                    WHERE lp_latest.academic_year_id = {$placementYear}
+                    GROUP BY lp_latest.student_id
+                ) latest_lp ON latest_lp.student_id = s.id
+                LEFT JOIN {$placementView} lp ON lp.enrollment_id = latest_lp.enrollment_id";
+
+            foreach ([
+                'class_id' => 'lp.class_id',
+                'stream_id' => 'lp.stream_id',
+                'gender' => 'per.gender',
+                'student_status' => 's.status',
+                'expiry_year' => 'sic.expiry_year',
+            ] as $filter => $column) {
+                if (isset($filters[$filter]) && $filters[$filter] !== '') {
+                    $conditions[] = "{$column} = ?";
+                    $bindings[] = $filters[$filter];
+                }
+            }
+
+            if (isset($filters['card_status']) && $filters['card_status'] !== '') {
+                if ($filters['card_status'] === 'not_generated') {
+                    $conditions[] = 'sic.id IS NULL';
+                } else {
+                    $conditions[] = 'sic.status = ?';
+                    $bindings[] = $filters['card_status'];
+                }
+            }
+
+            if (!empty($filters['issue_year'])) {
+                $conditions[] = 'YEAR(sic.issue_date) = ?';
+                $bindings[] = (int)$filters['issue_year'];
+            }
+            if (!empty($filters['new_students_only'])) {
+                $conditions[] = 'sic.id IS NULL';
+            }
+            if (array_key_exists('has_photo', $filters) && $filters['has_photo'] !== '') {
+                $conditions[] = $filters['has_photo'] === 'true'
+                    ? "per.photo_url IS NOT NULL AND per.photo_url <> ''"
+                    : "(per.photo_url IS NULL OR per.photo_url = '')";
+            }
+            if (!empty($filters['search'])) {
+                $term = '%' . trim((string)$filters['search']) . '%';
+                $conditions[] = '(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ?)';
+                array_push($bindings, $term, $term, $term);
+            }
+
+            $whereClause = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+
+            $from = "
+                FROM " . ReadReplicaService::qualifiedRef('students') . " s
+                JOIN " . ReadReplicaService::qualifiedRef('persons') . " per ON per.id = s.person_id
+                {$placementJoin}
+                LEFT JOIN student_types st ON st.id = s.student_type_id
+                LEFT JOIN (
+                    SELECT student_id, MAX(id) AS card_id
+                    FROM student_id_cards
+                    GROUP BY student_id
+                ) latest_card ON latest_card.student_id = s.id
+                LEFT JOIN student_id_cards sic ON sic.id = latest_card.card_id";
+
+            $sql = "SELECT
+                        s.id AS student_id,
+                        COALESCE(sic.status, 'not_generated') AS status
+                    {$from}
+                    {$whereClause}
+                    ORDER BY per.last_name, per.first_name";
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute($bindings);
+            $statuses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return [
+                'success' => true,
+                'data' => $statuses,
+            ];
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError("StudentService::getCardStatus error: " . $e->getMessage());
+            return [
+                'success' => false,
+                'data' => [],
             ];
         }
     }

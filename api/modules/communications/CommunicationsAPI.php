@@ -233,37 +233,31 @@ class CommunicationsAPI extends BaseAPI
             $recipients = [$recipients];
         }
 
-        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
-        $sent = 0;
-        $failed = [];
-        $sent_ids = [];
-        $failed_ids = [];
+        // The canonical SMSService path owns recipient records, the durable
+        // batch job for bulk sends, and the synchronous single-send delivery.
+        $service = new \App\API\Services\sms\SMSService($this->db);
+        $result = $service->send([
+            'mode' => $type === 'whatsapp' ? 'whatsapp' : 'sms',
+            'message' => (string) $message,
+            'recipients' => $recipients,
+            'sender_id' => $this->user_id ?: 1,
+        ]);
 
-        foreach ($recipients as $phone) {
-            try {
-                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type === 'whatsapp' ? 'whatsapp' : 'sms', substr($message, 0, 100), $message, [
-                    'purpose' => 'transactional',
-                    'sender_id' => $this->user_id ?: 1,
-                ]);
-                if (($queued['recipient_count'] ?? 0) > 0) {
-                    $sent++;
-                    $sent_ids[] = $queued['communication_id'];
-                } else {
-                    $failed[] = $phone;
-                }
-            } catch (\Exception $e) {
-                $failed[] = $phone;
-                \App\API\Services\Logger::legacyError("SMS Send Error: " . $e->getMessage());
-            }
-        }
+        $sent = (int) ($result['sent'] ?? 0);
+        $queued = !empty($result['batch']) ? (int) ($result['total'] ?? 0) : 0;
+        $failed = (int) ($result['failed'] ?? 0);
+        $ok = in_array((string) ($result['status'] ?? ''), ['sent', 'queued', 'scheduled'], true);
 
         return [
-            'status' => $sent > 0 ? 'success' : 'error',
-            'message' => $sent > 0 ? "Sent $sent SMS" : 'Failed to send SMS',
+            'status' => $ok ? 'success' : 'error',
+            'message' => $queued > 0
+                ? "Queued $queued recipient(s) for delivery"
+                : ($ok ? "Sent $sent SMS" : 'Failed to send SMS'),
             'sent_count' => $sent,
-            'failed_count' => count($failed),
-            'failed' => $failed,
-            'communication_ids' => $sent_ids
+            'queued_count' => $queued,
+            'failed_count' => $failed,
+            'job_id' => $result['job_id'] ?? null,
+            'communication_ids' => !empty($result['communication_id']) ? [(int) $result['communication_id']] : [],
         ];
     }
 
@@ -1048,18 +1042,274 @@ class CommunicationsAPI extends BaseAPI
 
     public function getAudienceOptions(): array
     {
-        $fetch = static function (\PDO $db, string $sql): array { $stmt = $db->query($sql); return $stmt->fetchAll(\PDO::FETCH_ASSOC); };
-        $staffDirectory = ReadReplicaService::qualifiedRef('staff_directory');
+        $fetch = fn(string $sql): array => $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
         $personDirectory = ReadReplicaService::qualifiedRef('person_directory');
+        $classesRef = ReadReplicaService::qualifiedRef('classes');
+        $staffDirectory = ReadReplicaService::qualifiedRef('staff_directory');
         return [
-            'parents' => $fetch($this->db, "SELECT DISTINCT pr.parent_id AS id, CONCAT_WS(' ', pr.first_name, pr.last_name) AS name, pr.phone FROM " . $personDirectory . " pr WHERE pr.parent_status = 'active' AND pr.phone IS NOT NULL ORDER BY name"),
-            'students' => $fetch($this->db, "SELECT s.student_id AS id, CONCAT_WS(' ', s.first_name, s.last_name) AS name, s.admission_no FROM " . $personDirectory . " s WHERE s.student_status = 'active' ORDER BY name"),
-            'classes' => $fetch($this->db, "SELECT c.id, c.name, sl.name AS school_level FROM " . ReadReplicaService::qualifiedRef("classes") . " c JOIN school_levels sl ON sl.id = c.level_id ORDER BY sl.id, c.name"),
-            'student_types' => $fetch($this->db, "SELECT id, code, name FROM student_types WHERE status = 'active' ORDER BY name"),
-            'school_levels' => $fetch($this->db, "SELECT id, code, name FROM school_levels WHERE status = 'active' ORDER BY name"),
-            'vendors' => $fetch($this->db, "SELECT id, name, phone FROM suppliers WHERE status = 'active' ORDER BY name"),
-            'staff' => $fetch($this->db, "SELECT staff_id AS id, CONCAT_WS(' ', first_name, last_name) AS name, phone FROM {$staffDirectory} WHERE staff_status = 'active' ORDER BY name"),
+            'parents' => $fetch("SELECT pr.parent_id AS id, MAX(CONCAT_WS(' ', pr.first_name, pr.last_name)) AS name, MAX(pr.phone) AS phone FROM {$personDirectory} pr WHERE pr.parent_status = 'active' AND pr.phone IS NOT NULL GROUP BY pr.parent_id ORDER BY name"),
+            'students' => $fetch("SELECT s.student_id AS id, MAX(CONCAT_WS(' ', s.first_name, s.last_name)) AS name, MAX(s.admission_no) AS admission_no FROM {$personDirectory} s WHERE s.student_status = 'active' GROUP BY s.student_id ORDER BY name"),
+            'classes' => $fetch("SELECT c.id, c.name, c.level_id, sl.name AS school_level FROM {$classesRef} c JOIN school_levels sl ON sl.id = c.level_id ORDER BY sl.id, c.name"),
+            'student_types' => $fetch("SELECT id, code, name FROM student_types WHERE status = 'active' ORDER BY name"),
+            'school_levels' => $fetch("SELECT id, code, name FROM school_levels WHERE status = 'active' ORDER BY name"),
+            'streams' => $fetch("SELECT id, name, code FROM streams ORDER BY name"),
+            'roles' => $fetch("SELECT id, name FROM roles WHERE is_active = 1 ORDER BY name"),
+            'groups' => $fetch("SELECT id, name, description, type, contact_count FROM communication_groups ORDER BY name"),
+            'vendors' => $fetch("SELECT id, name, phone FROM suppliers WHERE status = 'active' ORDER BY name"),
+            'staff' => $fetch("SELECT staff_id AS id, MAX(CONCAT_WS(' ', first_name, last_name)) AS name, MAX(phone) AS phone FROM {$staffDirectory} WHERE staff_status = 'active' GROUP BY staff_id ORDER BY name"),
         ];
+    }
+
+    /**
+     * Unified recipient search/browse for the shared recipient picker.
+     *
+     * Nothing is required to see a suggestion list: with an empty query and no
+     * filters the picker receives a balanced mix of learners, guardians, staff,
+     * classes and groups so a user who knows nobody can still choose
+     * recipients. Passing a `type` browses that single category; passing a
+     * query searches every category. Filters narrow the candidate pool.
+     *
+     * Each row is tagged with a `type` and `id` so callers emit `type:id`
+     * tokens. Supported types: student|parent|staff|class|vendor|group.
+     *
+     * @param array<string,mixed> $filters type, class_id, stream_id, student_type_id, school_level_id, role_id, group_id
+     * @return array<int,array<string,mixed>>
+     */
+    public function searchAudienceRecipients(string $query = '', int $limit = 30, array $filters = []): array
+    {
+        $query = trim($query);
+        $limit = max(1, min(100, $limit));
+        $type = strtolower(trim((string) ($filters['type'] ?? '')));
+        $narrow = [
+            'class_id' => (int) ($filters['class_id'] ?? 0),
+            'stream_id' => (int) ($filters['stream_id'] ?? 0),
+            'student_type_id' => (int) ($filters['student_type_id'] ?? 0),
+            'school_level_id' => (int) ($filters['school_level_id'] ?? 0),
+            'role_id' => (int) ($filters['role_id'] ?? 0),
+            'group_id' => (int) ($filters['group_id'] ?? 0),
+        ];
+        $categories = ['student', 'parent', 'staff', 'class', 'group', 'vendor'];
+
+        if (in_array($type, $categories, true)) {
+            return $this->fetchAudienceCategory($type, $query, $limit, $narrow);
+        }
+
+        $rows = [];
+        if ($query !== '') {
+            foreach ($categories as $category) {
+                $rows = array_merge($rows, $this->fetchAudienceCategory($category, $query, $limit, $narrow));
+            }
+            return $rows;
+        }
+
+        // Empty query, no category: balanced suggestion mix.
+        $each = max(1, (int) floor($limit / count($categories)));
+        foreach ($categories as $category) {
+            $rows = array_merge($rows, $this->fetchAudienceCategory($category, '', $each, $narrow));
+        }
+        return $rows;
+    }
+
+    /**
+     * Fetch one audience category, applying the optional search term and the
+     * picker's narrowing filters.
+     *
+     * @param array<string,int> $filters
+     * @return array<int,array<string,mixed>>
+     */
+    private function fetchAudienceCategory(string $type, string $query, int $limit, array $filters): array
+    {
+        $like = '%' . $query . '%';
+        $hasQuery = $query !== '';
+        $classesRef = ReadReplicaService::qualifiedRef('classes');
+        $rows = [];
+
+        if ($type === 'student' || $type === 'parent') {
+            $guardianRef = ReadReplicaService::qualifiedRef('learner_guardian');
+            $where = [];
+            $params = [];
+            if ($hasQuery) {
+                $where[] = '(lg.student_full_name LIKE ? OR lg.admission_no LIKE ? OR lg.parent_full_name LIKE ? OR lg.parent_phone LIKE ? OR lg.parent_email LIKE ?)';
+                array_push($params, $like, $like, $like, $like, $like);
+            }
+            if ($filters['class_id']) {
+                $where[] = 'lg.class_id = ?';
+                $params[] = $filters['class_id'];
+            }
+            if ($filters['stream_id']) {
+                $where[] = 'lg.stream_id = ?';
+                $params[] = $filters['stream_id'];
+            }
+            if ($filters['student_type_id']) {
+                $where[] = 'lg.student_type_id = ?';
+                $params[] = $filters['student_type_id'];
+            }
+            if ($filters['school_level_id']) {
+                $where[] = "lg.class_id IN (SELECT id FROM {$classesRef} WHERE level_id = ?)";
+                $params[] = $filters['school_level_id'];
+            }
+            $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+            if ($type === 'student') {
+                $stmt = $this->db->prepare(
+                    "SELECT lg.student_id AS id, lg.student_full_name AS label, lg.admission_no,
+                            lg.class_name, lg.stream_name,
+                            MAX(lg.parent_full_name) AS contact_name,
+                            MAX(lg.parent_phone) AS phone, MAX(lg.parent_email) AS email
+                       FROM {$guardianRef} lg
+                       {$whereSql}
+                      GROUP BY lg.student_id, lg.student_full_name, lg.admission_no, lg.class_name, lg.stream_name
+                      HAVING label IS NOT NULL AND label <> ''
+                      ORDER BY lg.student_full_name LIMIT {$limit}"
+                );
+                $stmt->execute($params);
+                foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                    $rows[] = [
+                        'type' => 'student',
+                        'id' => (int) $row['id'],
+                        'label' => (string) $row['label'],
+                        'sublabel' => trim((string) ($row['admission_no'] ?? '') . ' ' . (string) ($row['class_name'] ?? '') . ' ' . (string) ($row['stream_name'] ?? '')),
+                        'contact_name' => $row['contact_name'] ?? null,
+                        'phone' => $row['phone'] ?? null,
+                        'email' => $row['email'] ?? null,
+                    ];
+                }
+            } else {
+                $stmt = $this->db->prepare(
+                    "SELECT lg.parent_id AS id, MAX(lg.parent_full_name) AS label,
+                            MAX(lg.parent_phone) AS phone, MAX(lg.parent_email) AS email,
+                            GROUP_CONCAT(DISTINCT lg.student_full_name ORDER BY lg.student_full_name SEPARATOR ', ') AS children
+                       FROM {$guardianRef} lg
+                       {$whereSql}
+                      GROUP BY lg.parent_id
+                      HAVING label IS NOT NULL AND label <> ''
+                      ORDER BY label LIMIT {$limit}"
+                );
+                $stmt->execute($params);
+                foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                    $rows[] = [
+                        'type' => 'parent',
+                        'id' => (int) $row['id'],
+                        'label' => (string) $row['label'],
+                        'sublabel' => !empty($row['children']) ? 'Parent of ' . $row['children'] : 'Parent/Guardian',
+                        'phone' => $row['phone'] ?? null,
+                        'email' => $row['email'] ?? null,
+                    ];
+                }
+            }
+        } elseif ($type === 'staff') {
+            $staffRef = ReadReplicaService::qualifiedRef('staff_directory');
+            $where = ["sd.staff_status = 'active'"];
+            $params = [];
+            if ($hasQuery) {
+                $where[] = '(sd.full_name LIKE ? OR sd.staff_no LIKE ? OR sd.phone LIKE ? OR sd.email LIKE ?)';
+                array_push($params, $like, $like, $like, $like);
+            }
+            if ($filters['role_id']) {
+                $where[] = 'EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = sd.user_id AND ur.role_id = ?)';
+                $params[] = $filters['role_id'];
+            }
+            $stmt = $this->db->prepare(
+                "SELECT sd.staff_id AS id, MAX(sd.full_name) AS label, MAX(sd.staff_no) AS staff_no,
+                        MAX(sd.position) AS position, MAX(sd.phone) AS phone, MAX(sd.email) AS email
+                   FROM {$staffRef} sd
+                  WHERE " . implode(' AND ', $where) . "
+                  GROUP BY sd.staff_id
+                  ORDER BY label LIMIT {$limit}"
+            );
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $rows[] = [
+                    'type' => 'staff',
+                    'id' => (int) $row['id'],
+                    'label' => (string) $row['label'],
+                    'sublabel' => trim((string) ($row['position'] ?? '')) ?: 'Staff',
+                    'phone' => $row['phone'] ?? null,
+                    'email' => $row['email'] ?? null,
+                ];
+            }
+        } elseif ($type === 'class') {
+            $where = [];
+            $params = [];
+            if ($hasQuery) {
+                $where[] = 'c.name LIKE ?';
+                $params[] = $like;
+            }
+            if ($filters['school_level_id']) {
+                $where[] = 'c.level_id = ?';
+                $params[] = $filters['school_level_id'];
+            }
+            $stmt = $this->db->prepare(
+                "SELECT c.id, c.name AS label, sl.name AS school_level
+                   FROM {$classesRef} c JOIN school_levels sl ON sl.id = c.level_id"
+                . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
+                . " ORDER BY sl.id, c.name LIMIT {$limit}"
+            );
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $rows[] = [
+                    'type' => 'class',
+                    'id' => (int) $row['id'],
+                    'label' => (string) $row['label'],
+                    'sublabel' => $row['school_level'] ?? 'Class',
+                    'phone' => null,
+                    'email' => null,
+                ];
+            }
+        } elseif ($type === 'group') {
+            $where = ['EXISTS (SELECT 1 FROM contact_directory cd WHERE cd.group_id = g.id)'];
+            $params = [];
+            if ($hasQuery) {
+                $where[] = '(g.name LIKE ? OR g.description LIKE ?)';
+                array_push($params, $like, $like);
+            }
+            if ($filters['group_id']) {
+                $where[] = 'g.id = ?';
+                $params[] = $filters['group_id'];
+            }
+            $stmt = $this->db->prepare(
+                "SELECT g.id, g.name AS label, g.description, g.contact_count,
+                        (SELECT COUNT(*) FROM contact_directory cd WHERE cd.group_id = g.id) AS members
+                   FROM communication_groups g
+                  WHERE " . implode(' AND ', $where) . "
+                  ORDER BY g.name LIMIT {$limit}"
+            );
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $count = (int) ($row['members'] ?? 0) ?: (int) ($row['contact_count'] ?? 0);
+                $rows[] = [
+                    'type' => 'group',
+                    'id' => (int) $row['id'],
+                    'label' => (string) $row['label'],
+                    'sublabel' => ($count > 0 ? $count . ' contacts' : 'Group') . (trim((string) ($row['description'] ?? '')) !== '' ? ' · ' . trim((string) $row['description']) : ''),
+                    'phone' => null,
+                    'email' => null,
+                ];
+            }
+        } elseif ($type === 'vendor') {
+            $where = ["status = 'active'"];
+            $params = [];
+            if ($hasQuery) {
+                $where[] = '(name LIKE ? OR phone LIKE ? OR email LIKE ?)';
+                array_push($params, $like, $like, $like);
+            }
+            $stmt = $this->db->prepare(
+                "SELECT id, name AS label, phone, email FROM suppliers WHERE " . implode(' AND ', $where) . " ORDER BY name LIMIT {$limit}"
+            );
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $rows[] = [
+                    'type' => 'vendor',
+                    'id' => (int) $row['id'],
+                    'label' => (string) $row['label'],
+                    'sublabel' => 'Vendor',
+                    'phone' => $row['phone'] ?? null,
+                    'email' => $row['email'] ?? null,
+                ];
+            }
+        }
+
+        return $rows;
     }
 
     /** Dispatch an immediate outbox record; scheduled records remain queued. */

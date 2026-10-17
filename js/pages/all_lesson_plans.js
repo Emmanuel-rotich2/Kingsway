@@ -1,367 +1,84 @@
 /**
- * All Lesson Plans Page Controller
- * Manages lesson plan listing, CRUD, and submission workflow
+ * All Lesson Plans Controller
+ * Comprehensive view of all lesson plans.
  */
-const AllLessonPlansController = (() => {
-  let lessonPlans = [];
-  let teachers = [];
-  let subjects = [];
-  let classes = [];
-  let pagination = { page: 1, limit: 15, total: 0 };
+const allLessonPlansController = {
+  state: { referenceCache: null, lessonPlans: [], teachers: [], classes: [], subjects: [] },
 
-  async function loadData(page = 1) {
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
     try {
-      pagination.page = page;
-      const params = { page, limit: pagination.limit };
-
-      const teacher = document.getElementById("teacherFilterLP")?.value;
-      if (teacher) params.teacher_id = teacher;
-      const subject = document.getElementById("subjectFilterLP")?.value;
-      if (subject) params.learning_area_id = subject;
-      const cls = document.getElementById("classFilterLP")?.value;
-      if (cls) params.class_id = cls;
-      const status = document.getElementById("statusFilterLP")?.value;
-      if (status) params.status = status;
-      const search = document.getElementById("searchLessonPlans")?.value;
-      if (search) params.search = search;
-
-      const response = await window.API.academic.listLessonPlans(params);
-      const data = response?.data || response || [];
-      lessonPlans = Array.isArray(data)
-        ? data
-        : data.lesson_plans || data.data || [];
-      if (data.pagination) pagination = { ...pagination, ...data.pagination };
-      pagination.total = data.total || lessonPlans.length;
-
-      renderStats(lessonPlans);
-      renderTable(lessonPlans);
-      renderPagination();
-    } catch (e) {
-      console.error("Load lesson plans failed:", e);
-      renderTable([]);
+      const response = await window.API.nodeViews.read("academic", "manage-timetable-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("All Lesson Plans Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
-  }
+  },
 
-  async function loadReferenceData() {
+  async load() {
     try {
-      const [teacherResp, subjectResp, classResp] = await Promise.all([
-        // Reference data: network-first with a 1 h offline fallback (freshness wins).
-        DataStore.fetchPage('teachers', {
-          endpoint: '/staff/teachers', storeName: 'reference_teachers',
-          ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
-        }).catch(() => []),
-        // Reference data: network-first with a 5 min offline fallback (freshness wins).
-        DataStore.fetchPage('subjects', {
-          endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
-          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
-        }).catch(() => []),
-        DataStore.fetchPage('classes', {
-          endpoint: '/academic/classes-list', storeName: 'reference_classes',
-          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
-        }).catch(() => []),
+      const cache = this.state.referenceCache;
+      const [lessonPlans, teachers, classes, subjects] = await Promise.all([
+        cache?.lessonPlans !== undefined ? cache.lessonPlans : this.API('GET', '/api/academic/all-lesson-plans'),
+        cache?.teachers !== undefined ? cache.teachers : this.API('GET', '/api/academic/teachers-list'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas/list'),
       ]);
-      teachers = Array.isArray(teacherResp?.data || teacherResp)
-        ? teacherResp?.data || teacherResp
-        : [];
-      subjects = Array.isArray(subjectResp?.data || subjectResp)
-        ? subjectResp?.data || subjectResp
-        : [];
-      classes = Array.isArray(classResp?.data || classResp)
-        ? classResp?.data || classResp
-        : [];
-      populateDropdowns();
-    } catch (e) {
-      console.warn("Failed to load reference data:", e);
-    }
-  }
+      this.state.lessonPlans = Array.isArray(lessonPlans?.data) ? lessonPlans.data : (Array.isArray(lessonPlans) ? lessonPlans : []);
+      this.state.teachers = Array.isArray(teachers?.data) ? teachers.data : (Array.isArray(teachers) ? teachers : []);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.renderLessonPlans();
+      this.renderFilters();
+    } catch (e) { console.error(e); }
+  },
 
-  function populateDropdowns() {
-    const populate = (ids, items, labelFn) => {
-      ids.forEach((selectId) => {
-        const el = document.getElementById(selectId);
-        if (!el) return;
-        const first = el.options[0];
-        el.innerHTML = "";
-        el.appendChild(first);
-        items.forEach((item) => {
-          const opt = document.createElement("option");
-          opt.value = item.id;
-          opt.textContent = labelFn(item);
-          el.appendChild(opt);
-        });
-      });
-    };
+  getCache(key) { return this.state.referenceCache?.[key]; },
 
-    populate(["teacherFilterLP"], teachers, (t) =>
-      `${t.first_name || ""} ${t.last_name || ""}`.trim(),
-    );
-    populate(
-      ["subjectFilterLP", "lpSubject"],
-      subjects,
-      (s) => s.name || s.subject_name || "",
-    );
-    populate(
-      ["classFilterLP", "lpClass"],
-      classes,
-      (c) => c.name || c.class_name || "",
-    );
-  }
+  renderLessonPlans() {
+    const plans = this.state.lessonPlans;
+    const body = document.getElementById('alpPlansBody');
+    if (!plans.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No lesson plans.</td></tr>'; return; }
+    body.innerHTML = plans.map(p => `<tr>
+      <td class="small">${this.esc(p.teacher_name || '—')}</td>
+      <td class="small">${this.esc(p.class_name || '—')}</td>
+      <td class="small">${this.esc(p.subject || '—')}</td>
+      <td class="small">${this.esc(p.topic || '—')}</td>
+      <td class="small">${this.fmtDate(p.week_start)} - ${this.fmtDate(p.week_end)}</td>
+      <td class="small"><span class="badge bg-${p.status === 'approved' ? 'success' : p.status === 'draft' ? 'warning' : 'secondary'}">${this.esc(p.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="allLessonPlansController.viewPlan(${p.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
 
-  function renderStats(data) {
-    const total = pagination.total || data.length;
-    const approved = data.filter(
-      (p) => (p.status || "").toLowerCase() === "approved",
-    ).length;
-    const pending = data.filter(
-      (p) => (p.status || "").toLowerCase() === "pending",
-    ).length;
-    const rejected = data.filter(
-      (p) => (p.status || "").toLowerCase() === "rejected",
-    ).length;
+  renderFilters() {
+    const teachers = this.state.teachers;
+    const classes = this.state.classes;
+    const subjects = this.state.subjects;
+    const teacherSelect = document.getElementById('alpTeacherFilter');
+    const classSelect = document.getElementById('alpClassFilter');
+    const subjectSelect = document.getElementById('alpSubjectFilter');
+    if (teacherSelect) teacherSelect.innerHTML = '<option value="">All Teachers</option>' + teachers.map(t => `<option value="${t.id}">${this.esc(t.name)}</option>`).join('');
+    if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+    if (subjectSelect) subjectSelect.innerHTML = '<option value="">All Subjects</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+  },
 
-    document.getElementById("totalPlans").textContent = total;
-    document.getElementById("approvedPlans").textContent = approved;
-    document.getElementById("pendingPlans").textContent = pending;
-    document.getElementById("rejectedPlans").textContent = rejected;
-  }
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
 
-  function renderTable(items) {
-    const tbody = document.getElementById("lessonPlansTableBody");
-    if (!tbody) return;
+  async viewPlan(id) { /* open plan detail modal */ },
 
-    if (!items.length) {
-      tbody.innerHTML =
-        '<tr><td colspan="8" class="text-center py-4 text-muted">No lesson plans found</td></tr>';
-      return;
-    }
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("all_lesson_plans", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
+  },
+};
 
-    const statusColors = {
-      approved: "success",
-      pending: "warning",
-      rejected: "danger",
-      draft: "secondary",
-    };
-
-    tbody.innerHTML = items
-      .map((lp, i) => {
-        const statusColor =
-          statusColors[(lp.status || "").toLowerCase()] || "secondary";
-        return `
-                <tr>
-                    <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                    <td><strong>${lp.title || "-"}</strong></td>
-                    <td>${lp.teacher_name || ((lp.first_name || "") + " " + (lp.last_name || "")).trim() || "-"}</td>
-                    <td>${lp.subject_name || "-"}</td>
-                    <td>${lp.class_name || "-"}</td>
-                    <td>${lp.date || lp.lesson_date || "-"}</td>
-                    <td><span class="badge bg-${statusColor}">${lp.status || "draft"}</span></td>
-                    <td>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-info btn-sm" onclick="AllLessonPlansController.view(${lp.id})" title="View"><i class="bi bi-eye"></i></button>
-                            <button class="btn btn-warning btn-sm" onclick="AllLessonPlansController.edit(${lp.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-danger btn-sm" onclick="AllLessonPlansController.remove(${lp.id})" title="Delete"><i class="bi bi-trash"></i></button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-      })
-      .join("");
-  }
-
-  function renderPagination() {
-    const container = document.getElementById("pagination");
-    if (!container) return;
-    const totalPages = Math.ceil(pagination.total / pagination.limit);
-
-    const fromEl = document.getElementById("showingFrom");
-    const toEl = document.getElementById("showingTo");
-    const totalEl = document.getElementById("totalRecords");
-    if (fromEl)
-      fromEl.textContent =
-        pagination.total > 0 ? (pagination.page - 1) * pagination.limit + 1 : 0;
-    if (toEl)
-      toEl.textContent = Math.min(
-        pagination.page * pagination.limit,
-        pagination.total,
-      );
-    if (totalEl) totalEl.textContent = pagination.total;
-
-    let html = "";
-    for (let i = 1; i <= totalPages; i++) {
-      html += `<li class="page-item ${i === pagination.page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="AllLessonPlansController.loadPage(${i}); return false;">${i}</a>
-            </li>`;
-    }
-    container.innerHTML = html;
-  }
-
-  function openModal(plan = null) {
-    document.getElementById("lessonPlanId").value = plan?.id || "";
-    document.getElementById("lpTitle").value = plan?.title || "";
-    document.getElementById("lpSubject").value = plan?.subject_id || "";
-    document.getElementById("lpClass").value = plan?.class_id || "";
-    document.getElementById("lpDate").value =
-      plan?.date || plan?.lesson_date || "";
-    document.getElementById("lpObjectives").value =
-      plan?.objectives || plan?.learning_objectives || "";
-    document.getElementById("lpContent").value =
-      plan?.content || plan?.activities || "";
-    document.getElementById("lpResources").value =
-      plan?.resources || plan?.materials || "";
-    document.getElementById("lpAssessment").value = plan?.assessment || "";
-    document.getElementById("lessonPlanModalLabel").textContent = plan
-      ? "Edit Lesson Plan"
-      : "New Lesson Plan";
-    new bootstrap.Modal(document.getElementById("lessonPlanModal")).show();
-  }
-
-  async function save(status = "pending") {
-    const id = document.getElementById("lessonPlanId").value;
-    const payload = {
-      title: document.getElementById("lpTitle").value,
-      subject_id: document.getElementById("lpSubject").value,
-      class_id: document.getElementById("lpClass").value,
-      date: document.getElementById("lpDate").value,
-      objectives: document.getElementById("lpObjectives").value || null,
-      content: document.getElementById("lpContent").value || null,
-      resources: document.getElementById("lpResources").value || null,
-      assessment: document.getElementById("lpAssessment").value || null,
-      status,
-    };
-    if (
-      !payload.title ||
-      !payload.subject_id ||
-      !payload.class_id ||
-      !payload.date
-    ) {
-      showNotification("Please fill all required fields", "error");
-      return;
-    }
-    try {
-      if (id) {
-        await window.API.academic.updateLessonPlan(id, payload);
-      } else {
-        await window.API.academic.createLessonPlan(payload);
-      }
-      bootstrap.Modal.getInstance(
-        document.getElementById("lessonPlanModal"),
-      ).hide();
-      showNotification(
-        id ? "Lesson plan updated" : "Lesson plan created",
-        "success",
-      );
-      await loadData();
-    } catch (e) {
-      showNotification(e.message || "Failed to save lesson plan", "error");
-    }
-  }
-
-  async function view(id) {
-    try {
-      const resp = await window.API.academic.getLessonPlan(id);
-      const lp = resp?.data || resp;
-      const statusColors = {
-        approved: "success",
-        pending: "warning",
-        rejected: "danger",
-        draft: "secondary",
-      };
-      const content = document.getElementById("viewLessonPlanContent");
-      content.innerHTML = `
-                <div class="row mb-3">
-                    <div class="col-md-8"><h5>${lp.title || "-"}</h5></div>
-                    <div class="col-md-4 text-end"><span class="badge bg-${statusColors[(lp.status || "").toLowerCase()] || "secondary"}">${lp.status || "draft"}</span></div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-4"><p><strong>Teacher:</strong> ${lp.teacher_name || "-"}</p></div>
-                    <div class="col-md-4"><p><strong>Subject:</strong> ${lp.subject_name || "-"}</p></div>
-                    <div class="col-md-4"><p><strong>Date:</strong> ${lp.date || lp.lesson_date || "-"}</p></div>
-                </div>
-                <div class="mb-3"><h6>Learning Objectives</h6><p>${lp.objectives || lp.learning_objectives || "Not specified"}</p></div>
-                <div class="mb-3"><h6>Content / Activities</h6><p>${lp.content || lp.activities || "Not specified"}</p></div>
-                <div class="mb-3"><h6>Resources</h6><p>${lp.resources || lp.materials || "Not specified"}</p></div>
-                <div class="mb-3"><h6>Assessment</h6><p>${lp.assessment || "Not specified"}</p></div>
-                ${lp.feedback ? `<div class="mb-3"><h6>Reviewer Feedback</h6><div class="alert alert-info">${lp.feedback}</div></div>` : ""}
-            `;
-      new bootstrap.Modal(
-        document.getElementById("viewLessonPlanModal"),
-      ).show();
-    } catch (e) {
-      showNotification("Failed to load lesson plan", "error");
-    }
-  }
-
-  async function edit(id) {
-    try {
-      const resp = await window.API.academic.getLessonPlan(id);
-      openModal(resp?.data || resp);
-    } catch (e) {
-      showNotification("Failed to load lesson plan", "error");
-    }
-  }
-
-  async function remove(id) {
-    if (!(await window.confirmAction('Confirm Deletion', "Delete this lesson plan?", { confirmText: 'Delete', danger: true }))) return;
-    try {
-      await window.API.academic.deleteLessonPlan(id);
-      showNotification("Lesson plan deleted", "success");
-      await loadData();
-    } catch (e) {
-      showNotification("Failed to delete", "error");
-    }
-  }
-
-  function showNotification(message, type) { window.showNotification(message, type); }
-
-  function attachListeners() {
-    document
-      .getElementById("addLessonPlanBtn")
-      ?.addEventListener("click", () => openModal());
-    document
-      .getElementById("submitLessonPlanBtn")
-      ?.addEventListener("click", () => save("pending"));
-    document
-      .getElementById("saveDraftBtn")
-      ?.addEventListener("click", () => save("draft"));
-    document
-      .getElementById("teacherFilterLP")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("subjectFilterLP")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("classFilterLP")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("statusFilterLP")
-      ?.addEventListener("change", () => loadData(1));
-    document
-      .getElementById("searchLessonPlans")
-      ?.addEventListener("keyup", () => {
-        clearTimeout(window._lpSearchTimeout);
-        window._lpSearchTimeout = setTimeout(() => loadData(1), 300);
-      });
-    document
-      .getElementById("exportLessonPlansBtn")
-      ?.addEventListener("click", () => {
-        window.open(
-          (window.APP_BASE || "") + "/api/?route=academic/lesson-plans/export&format=csv",
-          "_blank",
-        );
-      });
-  }
-
-  async function init() {
-    attachListeners();
-    await loadReferenceData();
-    await loadData();
-  }
-
-  return { init, refresh: loadData, loadPage: loadData, view, edit, remove };
-})();
-
-document.addEventListener("DOMContentLoaded", () =>
-  AllLessonPlansController.init(),
-);
-
-window.AllLessonPlansController = AllLessonPlansController;
+window.allLessonPlansController = allLessonPlansController;
+document.addEventListener('DOMContentLoaded', () => allLessonPlansController.init().catch(() => {}));

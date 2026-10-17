@@ -12,6 +12,7 @@
     currentPage: 1,
     perPage: 9,
     announcementModal: null,
+    audiences: { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] },
 
     init: async function () {
       if (!this.pageExists()) return;
@@ -36,7 +37,22 @@
 
       this.announcementModal = new bootstrap.Modal(document.getElementById("announcementModal"));
       this.bindEvents();
-      await this.loadData();
+      this.applyPermissionGates();
+      await Promise.all([this.loadData(), this.loadAudienceOptions()]);
+      this.setupVariableMenu();
+    },
+
+    setupVariableMenu: function () {
+      const menu = document.getElementById("messageVariableMenu");
+      if (!menu || !window.RecipientPicker) return;
+      menu.innerHTML = window.RecipientPicker.variables()
+        .map((v) => `<li><button type="button" class="dropdown-item" data-var="${v.token}">${v.token} <span class="text-muted small">${v.label}</span></button></li>`)
+        .join("");
+      menu.querySelectorAll("[data-var]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          window.RecipientPicker.insertVariable("content", this.getAttribute("data-var"));
+        });
+      });
     },
 
     pageExists: function () {
@@ -67,6 +83,14 @@
         self.exportCSV();
       });
 
+      this.on("printAnnouncementsBtn", "click", function () {
+        self.printAnnouncements();
+      });
+
+      this.on("audience", "change", function () {
+        self.toggleAudiencePicker(this.value);
+      });
+
       ["announcementSearch", "statusFilter", "categoryFilter", "audienceFilter"].forEach(function (id) {
         self.on(id, "input", function () {
           self.currentPage = 1;
@@ -77,6 +101,35 @@
           self.applyFilters();
         });
       });
+    },
+
+    applyPermissionGates: function () {
+      const canExport = window.AuthContext?.canExport ? AuthContext.canExport("communications") : true;
+      const canPrint = window.AuthContext?.canPrint ? AuthContext.canPrint("communications") : true;
+      const ex = document.getElementById("exportAnnouncementsBtn");
+      const pr = document.getElementById("printAnnouncementsBtn");
+      if (ex && !canExport) ex.style.display = "none";
+      if (pr && !canPrint) pr.style.display = "none";
+    },
+
+    loadAudienceOptions: async function () {
+      try {
+        const response = await window.API.communications.getAudienceOptions();
+        this.audiences = response?.data || response || this.audiences;
+      } catch (error) {
+        console.error("Failed to load audience options:", error);
+      }
+    },
+
+    toggleAudiencePicker: function (value) {
+      const div = document.getElementById("audienceSpecificDiv");
+      if (div) div.classList.toggle("d-none", value !== "specific");
+      if (!this.audiencePicker && window.RecipientPicker) {
+        this.audiencePicker = window.RecipientPicker.create("audiencePicker", {
+          mode: "multi",
+          placeholder: "Search learner, parent, staff, class or vendor…",
+        });
+      }
     },
 
     loadData: async function () {
@@ -117,6 +170,8 @@
         status,
         category: parsedMeta.category || item.category || "general",
         audience: parsedMeta.audience || item.audience || "all",
+        audience_ids: parsedMeta.audience_ids || [],
+        audience_labels: parsedMeta.audience_labels || [],
         priority: item.priority || parsedMeta.priority || "normal",
         publish_date: item.scheduled_at || parsedMeta.publish_date || item.created_at,
         expiry_date: parsedMeta.expiry_date || item.expiry_date || "",
@@ -271,6 +326,18 @@
       const sendToggle = document.getElementById("send_notification");
       if (sendToggle) sendToggle.checked = !!(item && item.send_notification);
 
+      const audience = item ? item.audience : "all";
+      this.toggleAudiencePicker(audience);
+      if (this.audiencePicker) {
+        const selected = item && item.audience === "specific" && Array.isArray(item.audience_ids)
+          ? item.audience_ids.map((token, i) => {
+              const [type, id] = String(token).split(":");
+              return { type, id, label: (item.audience_labels || [])[i] || token };
+            })
+          : [];
+        this.audiencePicker.setSelection(selected);
+      }
+
       this.announcementModal.show();
     },
 
@@ -295,15 +362,31 @@
       };
 
       const publishDate = metadata.publish_date;
-      const status = publishDate ? "scheduled" : requestedStatus;
+      let status = requestedStatus;
+      if (publishDate) {
+        const when = new Date(publishDate);
+        const isFuture = !Number.isNaN(when.getTime()) && when.getTime() > Date.now() + 60000;
+        status = isFuture ? "scheduled" : requestedStatus;
+      }
+
+      const audience = metadata.audience;
+      if (audience === "specific") {
+        const picked = this.audiencePicker ? this.audiencePicker.getSelection() : [];
+        metadata.audience_ids = picked.map((r) => r.type + ":" + r.id);
+        metadata.audience_labels = picked.map((r) => r.label);
+        if (!picked.length) {
+          this.notify("Select at least one specific audience entry", "warning");
+          return;
+        }
+      }
 
       const payload = {
         type: "notification",
         subject: title,
         content: JSON.stringify(metadata),
-        status: status === "published" ? "sent" : status,
+        status,
         priority: metadata.priority,
-        scheduled_at: publishDate || null,
+        scheduled_at: status === "scheduled" ? publishDate : null,
       };
 
       try {
@@ -358,6 +441,10 @@
     },
 
     exportCSV: function () {
+      if (window.AuthContext && typeof window.AuthContext.canExport === "function" && !window.AuthContext.canExport("communications")) {
+        this.notify("You do not have permission to export announcements", "warning");
+        return;
+      }
       if (!this.data.length) {
         this.notify("Nothing to export", "info");
         return;
@@ -378,6 +465,18 @@
         .join("\n");
 
       KingswayFileLifecycle.exportText(csv, "announcements.csv", "text/csv;charset=utf-8;");
+    },
+
+    printAnnouncements: function () {
+      if (window.AuthContext && typeof window.AuthContext.canPrint === "function" && !window.AuthContext.canPrint("communications")) {
+        this.notify("You do not have permission to print announcements", "warning");
+        return;
+      }
+      if (window.PrintManager && typeof window.PrintManager.printPage === "function") {
+        window.PrintManager.printPage({ title: "Announcements", orientation: "landscape" });
+      } else {
+        window.print();
+      }
     },
 
     priorityBorder: function (priority) {

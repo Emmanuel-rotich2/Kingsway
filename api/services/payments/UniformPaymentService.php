@@ -20,23 +20,51 @@ class UniformPaymentService
     public function initiate(array $data, int $userId): array
     {
         $saleId=(int)($data['sale_id']??0); $channel=(string)($data['channel']??''); $amount=(float)($data['amount']??0);
-        if (!$saleId || !$amount || !in_array($channel,['daraja_mpesa','buni_mpesa','c2b_mpesa','bank_transfer','cash','cheque'],true)) throw new RuntimeException('sale_id, valid channel and amount are required');
+        if (!$saleId || !$amount || !in_array($channel,['auto','daraja_mpesa','buni_mpesa','payhero_mpesa','c2b_mpesa','bank_transfer','cash','cheque'],true)) throw new RuntimeException('sale_id, valid channel and amount are required');
         $sale=$this->sale($saleId); if (!$sale) throw new RuntimeException('Uniform sale not found'); $this->ensureWithinBalance($sale,$amount);
-        $account=$this->accounts->requireFor((int)($data['financial_account_id']??0),'uniforms',$this->channelCode($channel));
+        $financialAccountId=(int)($data['financial_account_id']??0);
+        if ($channel==='auto') {
+            $candidates=(new CollectionRailResolver($this->db))->candidates('uniforms',$financialAccountId);
+            if ($candidates===[]) throw new RuntimeException('No active online collection rail is configured for uniforms.');
+            $accountId=(int)$candidates[0]['financial_account_id']; $intentChannel=$this->intentChannel((string)$candidates[0]['provider_code']);
+        } else {
+            $account=$this->accounts->requireFor($financialAccountId,'uniforms',$this->channelCode($channel));
+            $accountId=(int)$account['id']; $intentChannel=$channel;
+        }
         $ref='U-'.$sale['admission_no'].'-'.$saleId.'-'.strtoupper(bin2hex(random_bytes(3))); $status=in_array($channel,['cash','bank_transfer','cheque'],true)?'manual_review':'pending';
-        $i=$this->db->prepare("INSERT INTO uniform_payment_intents (sale_id,student_id,financial_account_id,channel,amount,idempotency_reference,status,request_payload,created_by) VALUES (?,?,?,?,?,?,?,?,?)"); $i->execute([$saleId,$sale['student_id'],(int)$account['id'],$channel,$amount,$ref,$status,json_encode($data),$userId]); $id=(int)$this->db->lastInsertId();
+        $i=$this->db->prepare("INSERT INTO uniform_payment_intents (sale_id,student_id,financial_account_id,channel,amount,idempotency_reference,status,request_payload,created_by) VALUES (?,?,?,?,?,?,?,?,?)"); $i->execute([$saleId,$sale['student_id'],$accountId,$intentChannel,$amount,$ref,$status,json_encode($data),$userId]); $id=(int)$this->db->lastInsertId();
         $this->db->prepare("INSERT INTO payment_routing_references (reference,normalized_reference,purpose,student_id,uniform_sale_id,expires_at) VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 30 DAY))")->execute([$ref,(new ReferenceNormalizer())->reference($ref),'uniforms',$sale['student_id'],$saleId]);
-        if ($channel==='daraja_mpesa') { $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??$data['phone_number']??'',$amount,'Uniform purchase',(int)$account['id']); $this->updateProvider($id,$result,$result['data']['checkout_request_id']??null); }
+        if ($channel==='auto') {
+            $result=(new CollectionFallbackService($this->db))->initiate('uniforms',['amount'=>$amount,'phone'=>$data['phone']??$data['phone_number']??'','reference'=>$ref,'customer_name'=>$sale['student_name']??'','financial_account_id'=>$financialAccountId]);
+            $this->updateProvider($id,$result,$result['request_id']);
+            if (empty($result['accepted'])) throw new RuntimeException($result['message']?:'No configured collection rail accepted the uniform payment.');
+            $this->db->prepare('UPDATE uniform_payment_intents SET channel=?, financial_account_id=? WHERE id=?')->execute([$this->intentChannel((string)$result['provider_code']),(int)$result['financial_account_id'],$id]);
+        }
+        elseif ($channel==='daraja_mpesa') { $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??$data['phone_number']??'',$amount,'Uniform purchase',$accountId); $this->updateProvider($id,$result,$result['data']['checkout_request_id']??null); }
         elseif ($channel==='buni_mpesa') { $base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:''); $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??$data['phone_number']??'','amount'=>$amount,'invoice_number'=>$ref,'org_short_code'=>(string)$account['account_identifier'],'description'=>'Uniform purchase','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']); $this->updateProvider($id,$result,$result['checkout_request_id']??$result['message_id']??null); }
+        elseif ($channel==='payhero_mpesa') { $result=(new PayheroPaymentService($this->db))->initiate(['phone_number'=>$data['phone']??$data['phone_number']??'','amount'=>$amount,'external_reference'=>$ref,'purpose'=>'uniforms','customer_name'=>$sale['student_name']??'']); $this->updateProvider($id,$result,$result['checkout_request_id']??$result['reference']??null); }
         return $this->get($id);
+    }
+
+    private function intentChannel(string $providerCode): string
+    {
+        return ['kcb_buni'=>'buni_mpesa','payhero'=>'payhero_mpesa','mpesa_daraja'=>'daraja_mpesa'][$providerCode]??$providerCode;
     }
 
     /** Create one STK/Buni request for all outstanding uniform sales of a learner. */
     public function initiateAccumulated(array $data, int $userId): array
     {
-        $studentId=(int)($data['student_id']??0); $amount=(float)($data['amount']??0); $channel=(string)($data['channel']??'daraja_mpesa');
-        if(!$studentId||$amount<=0||!in_array($channel,['daraja_mpesa','buni_mpesa'],true))throw new RuntimeException('student_id, amount and an online channel are required');
-        $account=$this->accounts->requireFor((int)($data['financial_account_id']??0),'uniforms',$this->channelCode($channel));
+        $studentId=(int)($data['student_id']??0); $amount=(float)($data['amount']??0); $channel=(string)($data['channel']??'auto');
+        if(!$studentId||$amount<=0||!in_array($channel,['auto','daraja_mpesa','buni_mpesa','payhero_mpesa'],true))throw new RuntimeException('student_id, amount and an online channel are required');
+        $financialAccountId=(int)($data['financial_account_id']??0);
+        if ($channel==='auto') {
+            $candidates=(new CollectionRailResolver($this->db))->candidates('uniforms',$financialAccountId);
+            if ($candidates===[]) throw new RuntimeException('No active online collection rail is configured for uniforms.');
+            $accountId=(int)$candidates[0]['financial_account_id']; $intentChannel=$this->intentChannel((string)$candidates[0]['provider_code']);
+        } else {
+            $account=$this->accounts->requireFor($financialAccountId,'uniforms',$this->channelCode($channel));
+            $accountId=(int)$account['id']; $intentChannel=$channel;
+        }
         $s=$this->db->prepare("SELECT us.*,us.quantity*us.unit_price AS total_amount,COALESCE((SELECT SUM(amount) FROM uniform_payment_records upr WHERE upr.sale_id=us.id),0) paid_amount FROM uniform_sales us WHERE us.student_id=? AND us.payment_status IN ('pending','partial') ORDER BY us.sale_date,us.id FOR UPDATE");
         $s->execute([$studentId]);$sales=$s->fetchAll(PDO::FETCH_ASSOC);$outstanding=0;foreach($sales as $sale)$outstanding+=max(0,(float)$sale['total_amount']-(float)$sale['paid_amount']);if($amount>$outstanding+0.01)throw new RuntimeException('Amount exceeds accumulated uniform balance');
         $st=$this->db->prepare('SELECT admission_no FROM students WHERE id=?');$st->execute([$studentId]);$admission=(string)$st->fetchColumn();$ref='UC-'.$admission.'-'.strtoupper(bin2hex(random_bytes(4)));
@@ -64,14 +92,23 @@ class UniformPaymentService
                 $remaining-=$line;
             }
             $this->db->prepare("INSERT INTO uniform_payment_intents(sale_id,order_id,student_id,financial_account_id,channel,amount,idempotency_reference,status,request_payload,created_by) VALUES(NULL,?,?,?,?,?,?,?,?,?)")
-                ->execute([$orderId,$studentId,(int)$account['id'],$channel,$amount,$ref,'pending',json_encode($data),$userId]);
+                ->execute([$orderId,$studentId,$accountId,$intentChannel,$amount,$ref,'pending',json_encode($data),$userId]);
             $intentId=(int)$this->db->lastInsertId();
             $this->db->prepare("INSERT INTO payment_routing_references(reference,normalized_reference,purpose,student_id,expires_at) VALUES(?,?,?, ?,DATE_ADD(NOW(),INTERVAL 30 DAY))")
                 ->execute([$ref,(new ReferenceNormalizer())->reference($ref),'uniforms',$studentId]);
             $this->db->commit();
-            if($channel==='daraja_mpesa'){
-                $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??'',$amount,'Uniform accumulated balance',(int)$account['id']);
+            if($channel==='auto'){
+                $result=(new CollectionFallbackService($this->db))->initiate('uniforms',['amount'=>$amount,'phone'=>$data['phone']??'','reference'=>$ref,'financial_account_id'=>$financialAccountId]);
+                $this->updateProvider($intentId,$result,$result['request_id']);
+                if(empty($result['accepted']))throw new RuntimeException($result['message']?:'No configured collection rail accepted the uniform payment.');
+                $this->db->prepare('UPDATE uniform_payment_intents SET channel=?, financial_account_id=? WHERE id=?')->execute([$this->intentChannel((string)$result['provider_code']),(int)$result['financial_account_id'],$intentId]);
+            }
+            elseif($channel==='daraja_mpesa'){
+                $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??'',$amount,'Uniform accumulated balance',$accountId);
                 $this->updateProvider($intentId,$result,$result['data']['checkout_request_id']??null);
+            }elseif($channel==='payhero_mpesa'){
+                $result=(new PayheroPaymentService($this->db))->initiate(['phone_number'=>$data['phone']??'','amount'=>$amount,'external_reference'=>$ref,'purpose'=>'uniforms']);
+                $this->updateProvider($intentId,$result,$result['checkout_request_id']??$result['reference']??null);
             }else{
                 $base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:'');
                 $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??'','amount'=>$amount,'invoice_number'=>$ref,'org_short_code'=>(string)$account['account_identifier'],'description'=>'Uniform accumulated balance','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']);
@@ -102,8 +139,8 @@ class UniformPaymentService
     private function paid(int $saleId): float { $s=$this->db->prepare('SELECT COALESCE(SUM(amount),0) FROM uniform_payment_records WHERE sale_id=?');$s->execute([$saleId]);return (float)$s->fetchColumn(); }
     private function record(array $sale,float $amount,string $provider,string $reference,int $userId,int $financialAccountId): void { if(!$sale)throw new RuntimeException('Uniform sale not found');
         if ($reference !== '') { $duplicate=$this->db->prepare('SELECT id FROM uniform_payment_records WHERE reference_no=? LIMIT 1'); $duplicate->execute([$reference]); if ($duplicate->fetchColumn()) return; }
-        $this->ensureWithinBalance($sale,$amount);$this->db->prepare('INSERT INTO uniform_payment_records (sale_id,financial_account_id,amount,payment_date,payment_method,reference_no,recorded_by,notes) VALUES (?,?,?,CURDATE(),?,?,?,?)')->execute([$sale['id'],$financialAccountId,$amount,$provider==='mpesa_daraja'||$provider==='kcb_buni'||$provider==='mpesa'?'mpesa':$provider,$reference,$userId?:null,'Confirmed optional uniform purchase payment']);$recordId=(int)$this->db->lastInsertId();$s=$this->db->prepare('SELECT COALESCE(SUM(amount),0) FROM uniform_payment_records WHERE sale_id=?');$s->execute([$sale['id']]);$paid=(float)$s->fetchColumn();$total=(float)$sale['unit_price']*(int)$sale['quantity'];$this->db->prepare('UPDATE uniform_sales SET payment_status=?,received_date=IF(? >= ?,CURDATE(),received_date),updated_at=NOW() WHERE id=?')->execute([$paid+0.01>=$total?'paid':($paid>0?'partial':'pending'),$paid,$total,$sale['id']]);$this->posting->postIncoming('uniform_payment_record',$recordId,$financialAccountId,'uniforms',(string)$amount,$userId,$reference);$this->notify($sale,$amount,$reference); }
+        $this->ensureWithinBalance($sale,$amount);$this->db->prepare('INSERT INTO uniform_payment_records (sale_id,financial_account_id,amount,payment_date,payment_method,reference_no,recorded_by,notes) VALUES (?,?,?,CURDATE(),?,?,?,?)')->execute([$sale['id'],$financialAccountId,$amount,in_array($provider,['mpesa_daraja','kcb_buni','payhero','mpesa'],true)?'mpesa':$provider,$reference,$userId?:null,'Confirmed optional uniform purchase payment']);$recordId=(int)$this->db->lastInsertId();$s=$this->db->prepare('SELECT COALESCE(SUM(amount),0) FROM uniform_payment_records WHERE sale_id=?');$s->execute([$sale['id']]);$paid=(float)$s->fetchColumn();$total=(float)$sale['unit_price']*(int)$sale['quantity'];$this->db->prepare('UPDATE uniform_sales SET payment_status=?,received_date=IF(? >= ?,CURDATE(),received_date),updated_at=NOW() WHERE id=?')->execute([$paid+0.01>=$total?'paid':($paid>0?'partial':'pending'),$paid,$total,$sale['id']]);$this->posting->postIncoming('uniform_payment_record',$recordId,$financialAccountId,'uniforms',(string)$amount,$userId,$reference);$this->notify($sale,$amount,$reference); }
     private function notify(array $sale,float $amount,string $reference): void { try{$s=$this->db->prepare("SELECT st.phone, st.email FROM " . ReadReplicaService::qualifiedRef('person_directory') . " st WHERE st.student_id=?");$s->execute([$sale['student_id']]);$p=$s->fetch(PDO::FETCH_ASSOC)?:[];$m=ServiceContractBroker::contract('App\API\Modules\communications\CommunicationsManager', [], $this->db);$body='Kingsway uniform purchase payment received: KES '.number_format($amount,2).' for '.$sale['student_name'].'. Ref '.$reference.'.';foreach(['sms'=>'phone','whatsapp'=>'phone','email'=>'email'] as $type=>$field)if(!empty($p[$field]))$m->createCommunication(['sender_id'=>1,'subject'=>'Uniform payment received','body'=>$body,'type'=>$type,'status'=>'sent','priority'=>'normal','recipients'=>[$p[$field]]]);}catch(\Throwable $e){\App\API\Services\Logger::legacyError('[UniformPaymentService] notification failed: '.$e->getMessage());} }
     private function updateProvider(int $id,array $result,?string $request): void { $ok=($result['accepted']??false)||(($result['status']??'')==='pending');$this->db->prepare('UPDATE uniform_payment_intents SET status=?,provider_request_id=?,response_payload=? WHERE id=?')->execute([$ok?'accepted':'failed',$request,json_encode($result),$id]); }
-    private function channelCode(string $channel): string { return ['daraja_mpesa'=>'mpesa_stk','buni_mpesa'=>'buni_ipn','c2b_mpesa'=>'mpesa_c2b','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$channel] ?? $channel; }
+    private function channelCode(string $channel): string { return ['daraja_mpesa'=>'mpesa_stk','buni_mpesa'=>'buni_ipn','payhero_mpesa'=>'mpesa_stk','c2b_mpesa'=>'mpesa_c2b','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$channel] ?? $channel; }
 }

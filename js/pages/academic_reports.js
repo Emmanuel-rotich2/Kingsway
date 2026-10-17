@@ -16,8 +16,21 @@ const academicReportsCtrl = (() => {
         learningAreas: [],
         classMetrics: [],
         currentAcademicYear: null,
-        currentTerm: null
+        currentTerm: null,
+        referenceCache: null
     };
+
+    // Aggregate the context-free reference rows through one authorized Node
+    // view; the year-dependent term list stays direct.
+    async function loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("academic", "academic-reports-references");
+            state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Academic reports reference Node view failed; using direct reads:", error);
+            state.referenceCache = null;
+        }
+    }
 
     function toast(msg, type = 'info') {
         const el = document.getElementById('arToast');
@@ -66,7 +79,7 @@ const academicReportsCtrl = (() => {
     }
 
     async function loadYears() {
-        const years = await apiGet('academic/years-list');
+        const years = state.referenceCache?.years ?? (await apiGet('academic/years-list'));
         state.years = Array.isArray(years) ? years : [];
         const sel = document.getElementById('selectYear');
         if (!sel) return;
@@ -97,7 +110,7 @@ const academicReportsCtrl = (() => {
     }
 
     async function loadClasses() {
-        const classes = await apiGet('academic/classes-list');
+        const classes = state.referenceCache?.classes ?? (await apiGet('academic/classes-list'));
         state.classes = Array.isArray(classes) ? classes : [];
         const sel = document.getElementById('selectClass');
         if (!sel) return;
@@ -112,8 +125,13 @@ const academicReportsCtrl = (() => {
 
     async function loadLearningAreas() {
         try {
-            const res = await window.API.academic.listLearningAreas().catch(() => null)
-                || await apiGet('academic/learning-areas/list').catch(() => null);
+            let res;
+            if (state.referenceCache?.learningAreas !== undefined) {
+                res = state.referenceCache.learningAreas;
+            } else {
+                res = await window.API.academic.listLearningAreas().catch(() => null)
+                    || await apiGet('academic/learning-areas/list').catch(() => null);
+            }
             const areas = res?.data ?? res ?? [];
             state.learningAreas = Array.isArray(areas) ? areas : [];
         } catch {
@@ -532,6 +550,7 @@ const academicReportsCtrl = (() => {
         }
         
         try {
+            await loadReferencesComposed();
             await loadYears();
             await Promise.all([loadTerms(), loadClasses(), loadLearningAreas()]);
             document.getElementById('selectYear')?.addEventListener('change', async () => {
@@ -543,6 +562,7 @@ const academicReportsCtrl = (() => {
             document.getElementById('reportType')?.addEventListener('change', generateReport);
             await generateReport();
             contextReady = true;
+            window.APIRealtime?.register?.('academic_reports', { refresh: async () => { await loadReferencesComposed(); await loadYears(); await Promise.all([loadTerms(), loadClasses(), loadLearningAreas()]); await generateReport(); } }, ['academic']);
         } catch (error) {
             toast(`Failed to initialise: ${error.message}`, 'danger');
         }

@@ -1093,6 +1093,13 @@ const APIRealtime = (() => {
     if (parts.length > 1) dependencies.add(parts.slice(0, 2).join("/"));
   }
 
+  function trackTargets(targets = []) {
+    targets.forEach((target) => {
+      const normalized = normalize(target);
+      if (normalized) dependencies.add(normalized);
+    });
+  }
+
   function register(name, controller, targets = []) {
     if (!controller || typeof controller !== "object") return () => {};
     registered.set(name, { controller, targets: new Set(targets.map(normalize)) });
@@ -1254,7 +1261,7 @@ const APIRealtime = (() => {
   });
 
   return {
-    track, register, schedule, registerPatch, applyPatch,
+    track, trackTargets, register, schedule, registerPatch, applyPatch,
     dependencies: () => [...dependencies],
   };
 })();
@@ -1947,7 +1954,16 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/payment-routing-cases": "finance_view",
   "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
   "/finance/payment-references": { POST: "finance_create" },
-  "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
+  // Payment-integration configuration endpoints are governed server-side by
+  // FinanceController::canConfigurePaymentIntegrations() (the explicit
+  // permission OR the System Administrator role); mirror that contract here
+  // so configuration admins are never blocked before the request is sent.
+  "/finance/payment-collection-routes": {
+    GET: ["finance_view", "system.payment_integrations.configure"],
+    POST: "system.payment_integrations.configure",
+    PUT: "system.payment_integrations.configure",
+    DELETE: "system.payment_integrations.configure",
+  },
   "/finance/ai-reconciliation-review-queue": { POST: "finance_view" },
   "/finance/ai-reconciliation-drafts": { GET: "finance_view" },
   "/finance/ai-reconciliation-draft-approve": { POST: ["finance_reconcile", "finance_manage"] },
@@ -1971,6 +1987,21 @@ const ENDPOINT_PERMISSIONS = {
   "/payments/mpesa-b2b": { POST: "finance_create" },
   "/payments/mpesa-b2c": { POST: "finance_create" },
   "/payments/mpesa-results": { GET: "finance_view" },
+
+  // PayHero channel registration/listing — client-side gate only; server
+  // RBAC is enforced in PaymentsController.
+  "/payments/payhero-channels": { GET: "finance_view" },
+  "/payments/payhero-bank-paybills": { GET: "finance_view" },
+  "/payments/payhero-channel": {
+    POST: [
+      "finance_create",
+      "finance_manage",
+      "payments_manage",
+      "finance.create",
+      "finance.manage",
+      "payments.manage",
+    ],
+  },
 
   "/transport/payment-intents": { POST: "finance_create", GET: "finance_view" },
   "/transport/payment-intent-confirm": { POST: "finance_update" },
@@ -2143,6 +2174,7 @@ const ENDPOINT_PERMISSIONS = {
     POST: "communications_create",
   },
   "/communications/audience-options": "communications_view",
+  "/communications/audience-search": "communications_view",
   "/communications/ai-message-draft-queue": "communications_view",
   "/communications/ai-drafts": "communications_view",
   "/communications/ai-draft-approve": "communications_view",
@@ -2440,6 +2472,16 @@ function validatePermission(endpoint, method) {
     ["POST", "PUT", "DELETE"].includes(String(method).toUpperCase());
 
   if (!hasPermission && leadershipManagerRole && isLeadershipManagementRequest) {
+    return;
+  }
+
+  const paymentIntegrationManagerRole = AuthContext.hasRole?.("System Administrator");
+  const isPaymentIntegrationConfigRequest =
+    /^\/(?:finance\/(?:payment-collection-routes|payment-pos-terminals|financial-accounts|financial-account-setup-options|kcb-oauth-revoke)|payments\/payhero-channel)(?:\/|$)/.test(
+      normalizedEndpoint,
+    ) && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(String(method).toUpperCase());
+
+  if (!hasPermission && paymentIntegrationManagerRole && isPaymentIntegrationConfigRequest) {
     return;
   }
 
@@ -3038,7 +3080,7 @@ function drainBoundedGets() {
 
 async function apiCall(endpoint, method = "GET", data = null, params = {}, options = {}) {
   const upperMethod = String(method || "GET").toUpperCase();
-  if (upperMethod !== "GET" || options.coalesce === false || options.isDownload) {
+  if (upperMethod !== "GET" || options.coalesce === false || options.isDownload || options.asBlob) {
     return apiCallDirect(endpoint, method, data, params, options);
   }
 
@@ -3138,7 +3180,14 @@ async function apiCallDirect(
       // still validates input, provider output, and source citations.
       "/public/ai-faq",
     ]);
-    isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
+    const publicApiPatterns = [
+      /^\/public\/(?:setup-invitation|student-verification|uniform-catalog)(?:\/|$)/,
+    ];
+    const parentCatalogPattern = /^\/parent-portal\/(?:dashboard|uniform-cart|uniform-wishlist|uniform-orders|uniform-checkout-payment|uniform-order-payment-retry|uniform-payment-options|uniform-reviews)(?:\/|$)/;
+    const isPublicApi = publicApiPatterns.some((pattern) => pattern.test(normalizedEndpoint));
+    const isParentCatalogApi = parentCatalogPattern.test(normalizedEndpoint);
+    const isAuthFreeEndpoint = authFreeEndpoints.has(normalizedEndpoint) || isPublicApi || isParentCatalogApi;
+    isProtectedRequest = !isAuthFreeEndpoint;
 
     if (isProtectedRequest && AuthContext.hasSession?.()) {
       if (isSessionIdleExpired()) {
@@ -3247,7 +3296,7 @@ async function apiCallDirect(
           Authorization: "Bearer " + token,
         }),
         ...(_csrfToken &&
-          !authFreeEndpoints.has(normalizedEndpoint) && {
+          (!isAuthFreeEndpoint || isParentCatalogApi) && {
           "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
@@ -3366,6 +3415,14 @@ async function apiCallDirect(
           "Your session has expired. Please sign in again.",
         );
       }
+    }
+
+    // Handle raw blob responses (e.g. inline mail images converted to object URLs)
+    if (options.asBlob) {
+      if (!response.ok) {
+        throw new Error("Blob request failed");
+      }
+      return await response.blob();
     }
 
     // Handle file downloads
@@ -5257,12 +5314,78 @@ window.API = {
       apiCall(`/admission/application/${id}`, "PUT", data),
   },
 
+  // Provider-agnostic messaging console (SMS, WhatsApp, Voice, MMS, Hashed,
+  // Campaigns, Contacts, Groups, Profile/Balance, message log). Routed through
+  // the CommunicationsController; the upstream SMS provider is configurable.
+  messaging: {
+    getGateway: async () => apiCall("/communications/sms-gateway", "GET"),
+    getProfile: async () => apiCall("/communications/sms-profile", "GET"),
+    getBalance: async () => apiCall("/communications/sms-balance", "GET"),
+
+    getGroups: async () => apiCall("/communications/sms-groups", "GET"),
+    getRemoteGroups: async () =>
+      apiCall("/communications/remote-sms-groups", "GET"),
+    createGroup: async (data) =>
+      apiCall("/communications/sms-groups", "POST", data),
+    updateGroup: async (id, data) =>
+      apiCall(`/communications/sms-groups/${id}`, "PUT", data),
+    deleteGroup: async (id) =>
+      apiCall(`/communications/sms-groups/${id}`, "DELETE"),
+    syncGroups: async () =>
+      apiCall("/communications/sms-groups-sync", "POST", {}),
+    provisionGroups: async () =>
+      apiCall("/communications/sms-groups-provision", "POST", {}),
+
+    getContacts: async (groupId, search = "") =>
+      apiCall("/communications/sms-contacts", "GET", null, {
+        group_id: groupId,
+        search,
+      }),
+    addContact: async (data) =>
+      apiCall("/communications/sms-contacts", "POST", data),
+    updateContact: async (id, data) =>
+      apiCall(`/communications/sms-contacts/${id}`, "PUT", data),
+    deleteContact: async (id) =>
+      apiCall(`/communications/sms-contacts/${id}`, "DELETE"),
+    syncContacts: async (groupId) =>
+      apiCall("/communications/sms-contacts-sync", "POST", {
+        group_id: groupId,
+      }),
+    importContacts: async (groupId) =>
+      apiCall("/communications/sms-contacts-import", "POST", {
+        group_id: groupId,
+      }),
+    getAudience: async (entityType) =>
+      apiCall("/communications/sms-audience", "GET", null, {
+        entity_type: entityType,
+      }),
+
+    send: async (data) => apiCall("/communications/sms-send", "POST", data),
+
+    getMessages: async (params = {}) =>
+      apiCall("/communications/sms-messages", "GET", null, params),
+    getRemoteMessages: async () =>
+      apiCall("/communications/remote-sms-messages", "GET"),
+    getRemoteMessage: async (uid) =>
+      apiCall(
+        `/communications/remote-sms-messages/${encodeURIComponent(uid)}`,
+        "GET",
+      ),
+    getQueueStatus: async (uid) =>
+      apiCall("/communications/sms-queue", "GET", null, { uid }),
+  },
+
   // Communications endpoints
   communications: {
     index: async () => apiCall("/communications/index", "GET"),
+    getSmsBalance: async () => apiCall("/communications/sms-balance", "GET"),
 
     // School-domain mailboxes (role-scoped IMAP/SMTP mailboxes)
     getMailboxes: async () => apiCall("/communications/mailboxes", "GET"),
+    getMailboxMembers: async (profileId) =>
+      apiCall(`/communications/mailboxes/${profileId}/members`, "GET"),
+    setMailboxMembers: async (profileId, members) =>
+      apiCall(`/communications/mailboxes/${profileId}/members`, "PUT", { members }),
     getMailboxFolders: async (profileId) =>
       apiCall(`/communications/mailboxes/${profileId}/folders`, "GET"),
     getMailboxMessages: async (profileId, params = {}) =>
@@ -5279,6 +5402,55 @@ window.API = {
         null,
         params,
       ),
+    sendMailboxMessage: async (profileId, data) =>
+      apiCall(`/communications/mailboxes/${profileId}/send`, "POST", data),
+    saveMailboxDraft: async (profileId, data) =>
+      apiCall(`/communications/mailboxes/${profileId}/drafts`, "POST", data),
+    mailMessageAction: async (uid, data) =>
+      apiCall(`/communications/mailboxes/messages/${uid}`, "POST", data),
+    uploadMailAttachments: async (profileId, files) =>
+      apiCall(
+        "/communications/mailboxes/attachments",
+        "POST",
+        createFormData({ profile_id: profileId }, { file: files }),
+      ),
+    downloadMailAttachment: async (params) =>
+      apiCall(
+        `/communications/mailboxes/messages/attachments/${params.index}`,
+        "GET",
+        null,
+        {
+          profile_id: params.profile_id,
+          folder: params.folder,
+          uid: params.uid,
+        },
+        { isDownload: true, filename: params.filename, checkPermission: false },
+      ),
+    fetchMailAttachmentBlob: async (params) =>
+      apiCall(
+        `/communications/mailboxes/messages/attachments/${params.index}`,
+        "GET",
+        null,
+        {
+          profile_id: params.profile_id,
+          folder: params.folder,
+          uid: params.uid,
+        },
+        { asBlob: true, checkPermission: false },
+      ),
+    getMailboxOutbox: async (profileId, params = {}) =>
+      apiCall(
+        `/communications/mailboxes/${profileId}/outbox`,
+        "GET",
+        null,
+        params,
+      ),
+    getEmailOutbox: async (params = {}) =>
+      apiCall("/communications/email-outbox", "GET", null, params),
+    retryEmailOutbox: async (outboxId, data = {}) =>
+      apiCall(`/communications/email-outbox/retry/${outboxId}`, "POST", data),
+    deleteEmailOutbox: async (outboxId) =>
+      apiCall(`/communications/email-outbox/${outboxId}`, "DELETE"),
 
     // SMS callbacks
     smsDeliveryReport: async (data) =>
@@ -5498,7 +5670,28 @@ window.API = {
     saveTemplate: async (data) =>
       apiCall("/communications/template", "POST", data),
     getAudienceOptions: async () => apiCall("/communications/audience-options", "GET"),
+    searchAudience: async (q = "", limit = 30, filters = {}) => {
+      const params = { q, limit };
+      Object.keys(filters || {}).forEach((key) => {
+        const value = filters[key];
+        if (value !== null && value !== undefined && value !== "" && value !== 0) {
+          params[key] = value;
+        }
+      });
+      return apiCall("/communications/audience-search", "GET", null, params);
+    },
     createWhatsappTemplate: async (data) => apiCall("/communications/create-whatsapp-template", "POST", data),
+
+    // Internal user-to-user messaging (Messages inbox)
+    getConversations: async () => apiCall("/communications/conversations", "GET"),
+    getConversation: async (id) =>
+      apiCall(`/communications/conversations/${id}`, "GET"),
+    createConversation: async (data) =>
+      apiCall("/communications/conversations", "POST", data),
+    replyConversation: async (id, data) =>
+      apiCall(`/communications/conversations/${id}`, "POST", data),
+    searchMessageRecipients: async (q = "") =>
+      apiCall("/communications/recipients", "GET", null, { q }),
   },
 
   // Finance endpoints
@@ -5973,8 +6166,8 @@ window.API = {
         : apiCall("/inventory/requisitions-get", "GET"),
     createRequisition: async (data) =>
       apiCall("/inventory/requisitions-create", "POST", data),
-    updateRequisitionStatus: async (id, status) =>
-      apiCall("/inventory/requisitions-update-status", "PUT", { id, status }),
+    updateRequisitionStatus: async (id, status, remarks = null) =>
+      apiCall("/inventory/requisitions-update-status", "PUT", { id, status, remarks }),
     deleteRequisition: async (id) =>
       apiCall("/inventory/requisitions-delete", "DELETE", { id }),
 
@@ -7312,6 +7505,16 @@ window.API = {
     b2c: async (data) => apiCall("/payments/mpesa-b2c", "POST", data),
     getMpesaResults: async (params = {}) =>
       apiCall("/payments/mpesa-results", "GET", null, params),
+
+    // === PayHero collection channels ===
+    // Provider-truth channel list and registration for the payment
+    // integration settings; a channel id becomes the collection-point
+    // identifier that PayHero initiation calls use.
+    payheroChannels: async () => apiCall("/payments/payhero-channels", "GET"),
+    payheroBankPaybills: async () =>
+      apiCall("/payments/payhero-bank-paybills", "GET"),
+    registerPayheroChannel: async (data) =>
+      apiCall("/payments/payhero-channel", "POST", data),
   },
 
   // Accounts endpoints (bank accounts, transactions)
@@ -8403,6 +8606,182 @@ window.API = {
     onboarding: async () => apiCall("/staff-migration/onboarding", "GET"),
     completeProfile: async (payload) =>
       apiCall("/staff-migration/profile", "PUT", payload),
+  },
+
+  // ── Node.js Gateway (universal frontend data tier) ──────────────────────
+  // All reads route through Node for pooling, caching, aggregation, realtime.
+  // Writes go to PHP; Node follows PHP-owned job progress and relays SSE.
+  nodeViews: {
+    /** Resolve a registered Node data operation (read). Pass input for filters/pagination.
+     * Response contains data, never a page-render descriptor; page controller owns presentation. */
+    resolve: async (entity, view, input = {}) => {
+      const realtimeTargets = {
+        students: ["students"],
+        boarding: ["boarding"],
+        inventory: ["inventory"],
+        finance: ["finance"],
+        academic: ["academic"],
+        admissions: ["admission"],
+      };
+      APIRealtime.trackTargets(realtimeTargets[entity] || [entity]);
+      return apiCall("/node/view", "POST", {
+        entity,
+        view,
+        contract: "data",
+        input,
+      });
+    },
+
+    /** Universal read proxy: any entity/view combination, even without explicit spec.
+     * Falls back to generic pass-through if no spec registered. */
+    read: async (entity, view, input = {}) => {
+      return apiCall("/node/view", "POST", {
+        entity,
+        view,
+        contract: "data",
+        input,
+      });
+    },
+  },
+
+  nodeJobs: {
+    /**
+     * @deprecated Node is not a job queue. Async writes and artifact requests
+     * must use their authenticated PHP domain API; this method is retained
+     * temporarily to return the server's retirement response to old callers.
+     */
+    enqueue: async (job, payload, options = {}) => {
+      const response = await apiCall('/node/jobs/enqueue', 'POST', {
+        job,
+        payload,
+        priority: options.priority || 'normal',
+        channels: options.channels || ['user']
+      });
+      const data = response?.data ?? response ?? {};
+      const jobId = data.jobId || data.job_id;
+      if (!jobId) throw new Error(data.message || 'Failed to enqueue job');
+      // Track this job so the realtime jobs widget only shows toasts for
+      // jobs explicitly enqueued by this session (not background/cron jobs)
+      if (window.RealtimeJobs && typeof window.RealtimeJobs.trackJob === 'function') {
+        window.RealtimeJobs.trackJob(jobId);
+      }
+      return {
+        jobId,
+        status: data.status || 'queued',
+        sseChannel: `job:${jobId}`
+      };
+    },
+
+    /**
+     * Get job status (polling fallback if SSE not available)
+     */
+    status: async (jobId) => {
+      const response = await apiCall(`/node/jobs/${jobId}/status`, 'GET');
+      return response?.data ?? response ?? {};
+    },
+
+    /**
+     * Subscribe to job progress via SSE (relayed by Node from PHP progress events)
+     * Usage: window.API.nodeJobs.onProgress('jobId', (progress) => { ... })
+     */
+    onProgress: (jobId, handler) => {
+      return window.API.nodeJobs.on(`job:${jobId}:progress`, handler);
+    },
+
+    /**
+     * Wait for job completion (combines SSE + polling fallback)
+     * Polls Node's internal progress tracker (PHP posts progress to Node)
+     */
+    waitForCompletion: async (jobId, options = {}) => {
+      const { intervalMs = 2500, maxAttempts = 600, onProgress } = options;
+      let attempts = 0;
+      let settled = false;
+      let timer = null;
+      let wakePoll = null;
+      let unsubDone = () => {};
+      let unsubFail = () => {};
+      let unsubProgress = () => {};
+
+      const waitForNextPoll = () => new Promise((resolve) => {
+        wakePoll = () => {
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+          wakePoll = null;
+          resolve();
+        };
+        timer = setTimeout(wakePoll, intervalMs);
+      });
+
+      // Try SSE first (Node relays JOB_PROGRESS/JOB_COMPLETED/JOB_FAILED)
+      const ssePromise = new Promise((resolve, reject) => {
+        unsubDone = window.API.nodeJobs.on(`job:${jobId}:done`, resolve);
+        unsubFail = window.API.nodeJobs.on(`job:${jobId}:failed`, (err) => {
+          reject(new Error(err?.message || 'Job failed'));
+        });
+        unsubProgress = window.API.nodeJobs.on(`job:${jobId}:progress`, (p) => {
+          if (onProgress) onProgress(p);
+        });
+      });
+
+      // Fallback polling Node's progress tracker
+      const pollPromise = (async () => {
+        while (!settled && attempts < maxAttempts) {
+          attempts++;
+          try {
+            const response = await apiCall(`/internal/jobs/${jobId}/progress`, 'GET', null, { operator_id: AuthContext.getUser?.()?.id });
+            const status = response?.data ?? response ?? {};
+            if (settled) return undefined;
+            if (onProgress) onProgress(status);
+
+            if (status.state === 'completed') return status;
+            if (status.state === 'failed') {
+              const error = new Error(status.error || 'Job failed');
+              error.code = 'JOB_TERMINAL';
+              throw error;
+            }
+          } catch (error) {
+            if (settled) return undefined;
+            if (error?.code === 'JOB_TERMINAL') throw error;
+          }
+
+          await waitForNextPoll();
+        }
+        if (!settled) throw new Error('Job timeout');
+        return undefined;
+      })();
+
+      // Race: SSE wins if it arrives first, otherwise polling
+      try {
+        return await Promise.race([ssePromise, pollPromise]);
+      } finally {
+        settled = true;
+        unsubDone();
+        unsubFail();
+        unsubProgress();
+        if (wakePoll) wakePoll();
+      }
+    },
+
+    /**
+     * Internal event emitter for job progress (used by waitForCompletion)
+     */
+    on: (event, handler) => {
+      if (typeof window.addEventListener === 'function') {
+        const listener = (e) => handler(e.detail);
+        window.addEventListener(`kingsway:${event}`, listener);
+        return () => window.removeEventListener(`kingsway:${event}`, listener);
+      }
+      return () => {};
+    },
+
+    /**
+     * Emit job event from Node's SSE relay (called by realtime_sse.js / RealtimeDispatch)
+     */
+    emit: (jobId, event, data) => {
+      if (typeof window.dispatchEvent === 'function') {
+        window.dispatchEvent(new CustomEvent(`kingsway:job:${jobId}:${event}`, { detail: data }));
+      }
+    },
   },
 };
 

@@ -1,109 +1,63 @@
 /**
- * js/pages/parents/transport.js — School transport view.
- *
- * Parents who already have an active transport entitlement see a "Pay
- * Transport" button that opens the payment modal (provider is a system
- * decision: Daraja). Learners who are not subscribed yet get a "Subscribe
- * Transport" request that the school transport office acts on.
+ * Parent Transport Controller
+ * Parent-facing view of their children's transport arrangements.
  */
-(function () {
-  'use strict';
-  var P = window.ParentCommon;
+const parentTransportController = {
+  state: { referenceCache: null, children: [], routes: [] },
 
-  function routeCard(data) {
-    return '<div class="pp-card bg-success-subtle border-0 h-100"><div class="pp-card-body">' +
-      '<span class="badge bg-success mb-2">' + P.esc(data.status || 'active') + '</span>' +
-      '<h4 class="fw-bold">' + P.esc(data.route_name) + '</h4>' +
-      '<div class="row g-3 mt-1">' +
-      '<div class="col-6"><small class="text-muted d-block">Pickup point</small><strong>' + P.esc(data.pickup_stop || 'Not set') + '</strong><div class="small">' + P.esc(data.pickup_time || '—') + '</div></div>' +
-      '<div class="col-6"><small class="text-muted d-block">Drop-off point</small><strong>' + P.esc(data.dropoff_stop || 'Not set') + '</strong><div class="small">' + P.esc(data.dropoff_time || '—') + '</div></div>' +
-      '</div>' +
-      '<hr>' +
-      '<p class="mb-0 small"><i class="bi bi-bus-front me-2 text-success"></i>' + P.esc(data.registration_number || 'Vehicle pending') +
-      ' &nbsp; <i class="bi bi-person-badge ms-2 me-2 text-success"></i>' + P.esc(data.driver_name || 'Driver pending') + '</p>' +
-      '</div></div>';
-  }
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  function emptyRouteCard() {
-    return '<div class="pp-card bg-light border-0 h-100"><div class="pp-card-body text-center py-5">' +
-      '<i class="bi bi-bus-front display-4 text-muted"></i>' +
-      '<h6 class="fw-bold mt-3">No transport assignment yet</h6>' +
-      '<p class="small text-muted mb-0">The subscription request below lets the school office set up transport for this learner.</p>' +
-      '</div></div>';
-  }
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-  function actionCard(data) {
-    if (data && data.subscribed) {
-      var due = parseFloat(data.default_amount_due || 0);
-      return '<div class="pp-card border h-100"><div class="pp-card-body text-center py-4">' +
-        '<i class="bi bi-cash-coin display-5 text-success"></i>' +
-        '<h6 class="fw-bold mt-2">' + (due > 0 ? 'KES ' + due.toLocaleString() + ' due' : 'Transport subscribed') + '</h6>' +
-        '<p class="small text-muted mb-3">' + (due > 0 ? 'Pay the outstanding transport fee for this learner.' : 'No outstanding transport fee.') + '</p>' +
-        (due > 0
-          ? '<button class="btn btn-success rounded-pill px-4" type="button" id="btnPayTransport"><i class="bi bi-phone me-2"></i>Pay Transport</button>'
-          : '<span class="text-success fw-semibold"><i class="bi bi-check-circle me-1"></i>All settled</span>') +
-        '</div></div>';
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("transport", "transport-dashboard-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Parent Transport Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
-    return '<div class="pp-card border h-100"><div class="pp-card-body text-center py-4">' +
-      '<i class="bi bi-sign-turn-right display-5 text-muted"></i>' +
-      '<h6 class="fw-bold mt-2">Not subscribed yet</h6>' +
-      '<p class="small text-muted mb-3">Request a subscription and the school transport office will arrange the route for this learner.</p>' +
-      '<button class="btn btn-outline-success rounded-pill px-4" type="button" id="btnSubscribeTransport"><i class="bi bi-bus-front me-2"></i>Subscribe Transport</button>' +
-      '</div></div>';
-  }
+  },
 
-  function showStatus(el, message, success) {
-    if (!el) return;
-    el.innerHTML = '<div class="alert ' + (success ? 'alert-success' : 'alert-danger') + ' small mt-3 mb-0"><i class="bi ' +
-      (success ? 'bi-check-circle' : 'bi-exclamation-triangle') + ' me-2"></i>' + P.esc(message) + '</div>';
-  }
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [children, routes] = await Promise.all([
+        cache?.children !== undefined ? cache.children : this.API('GET', '/api/parent/my-children-transport'),
+        cache?.routes !== undefined ? cache.routes : this.API('GET', '/api/transport/all-routes'),
+      ]);
+      this.state.children = Array.isArray(children?.data) ? children.data : (Array.isArray(children) ? children : []);
+      this.state.routes = Array.isArray(routes?.data) ? routes.data : (Array.isArray(routes) ? routes : []);
+      this.renderChildren();
+    } catch (e) { console.error(e); }
+  },
 
-  function wireButtons(data, child) {
-    var children = [];
-    try { children = JSON.parse(sessionStorage.getItem('pp_children') || '[]'); } catch (_) {}
+  getCache(key) { return this.state.referenceCache?.[key]; },
 
-    var payBtn = document.getElementById('btnPayTransport');
-    if (payBtn) payBtn.addEventListener('click', function () {
-      P.openMpesaModal({ children: children, studentId: child.id, purpose: 'transport', amount: data.default_amount_due });
-    });
+  renderChildren() {
+    const children = this.state.children;
+    const container = document.getElementById('ptChildrenContainer');
+    if (!children.length) { container.innerHTML = '<p class="text-center text-muted py-4">No children with transport assigned.</p>'; return; }
+    container.innerHTML = children.map(c => `<div class="card mb-3"><div class="card-body">
+      <h6 class="card-title">${this.esc(c.name)}</h6>
+      <p class="card-text small mb-1"><strong>Route:</strong> ${this.esc(c.route_name || 'Not assigned')}</p>
+      <p class="card-text small mb-1"><strong>Stop:</strong> ${this.esc(c.stop_name || '—')}</p>
+      <p class="card-text small mb-1"><strong>Pickup:</strong> ${this.fmtTime(c.pickup_time)} | <strong>Drop-off:</strong> ${this.fmtTime(c.dropoff_time)}</p>
+      <p class="card-text small"><strong>Vehicle:</strong> ${this.esc(c.vehicle_reg || '—')} | <strong>Driver:</strong> ${this.esc(c.driver_name || '—')}</p>
+    </div></div>`).join('');
+  },
 
-    var subBtn = document.getElementById('btnSubscribeTransport');
-    if (subBtn) subBtn.addEventListener('click', function () {
-      if (!window.confirm('Request transport subscription for ' + child.first_name + ' ' + child.last_name + '? The school office will confirm the route and charges.')) return;
-      subBtn.disabled = true;
-      subBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending request...';
-      P.requestTransportSubscription(child.id)
-        .then(function () {
-          subBtn.disabled = false;
-          subBtn.textContent = 'Subscribe Transport';
-          var el = document.getElementById('ppTransportContent');
-          showStatus(el, 'Subscription request sent. The school transport office will contact you.', true);
-        })
-        .catch(function (e) {
-          subBtn.disabled = false;
-          subBtn.textContent = 'Subscribe Transport';
-          var el = document.getElementById('ppTransportContent');
-          showStatus(el, e.message || 'Could not send the request. Please try again.', false);
-        });
-    });
-  }
+  fmtTime(v) { if (!v) return '—'; return v.length > 5 ? v.substring(0, 5) : v; },
 
-  function renderTransport(data, child, el) {
-    var hasAssignment = !!(data && data.route_name);
-    el.innerHTML = '<div class="row g-3">' +
-      '<div class="col-lg-7">' + (hasAssignment ? routeCard(data) : emptyRouteCard()) + '</div>' +
-      '<div class="col-lg-5">' + actionCard(data || {}) + '</div>' +
-      '</div>';
-    wireButtons(data || {}, child);
-  }
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("parent_transport", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["transport", "parent"]);
+  },
+};
 
-  P.childPage({
-    contentId: 'ppTransportContent',
-    defaultTab: 'transport',
-    loadTab: function (tab, child, el) {
-      P.apiFetch('/student-transport/' + child.id, 'GET')
-        .then(function (r) { renderTransport(r.data !== undefined ? r.data : r, child, el); })
-        .catch(function (e) { P.showError(el, e.message); });
-    },
-  });
-})();
+window.parentTransportController = parentTransportController;
+document.addEventListener('DOMContentLoaded', () => parentTransportController.init().catch(() => {}));

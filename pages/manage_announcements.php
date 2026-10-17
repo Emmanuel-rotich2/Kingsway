@@ -20,6 +20,9 @@
                 </div>
             </div>
             <div class="d-flex gap-2">
+                <button class="btn btn-outline-dark btn-sm" id="printAnnouncementsBtn">
+                    <i class="bi bi-printer me-1"></i>Print
+                </button>
                 <button class="btn btn-outline-secondary btn-sm" id="exportAnnouncementsBtn">
                     <i class="bi bi-download me-1"></i>Export
                 </button>
@@ -78,7 +81,7 @@
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small mb-1 text-muted">Status</label>
-                    <select class="form-select form-select-sm" id="statusFilter">
+                    <select class="form-select form-select-sm" id="statusFilter" data-filter="status">
                         <option value="">All Status</option>
                         <option value="published">Published</option>
                         <option value="draft">Draft</option>
@@ -104,6 +107,7 @@
                         <option value="students">Students</option>
                         <option value="parents">Parents</option>
                         <option value="staff">Staff</option>
+                        <option value="specific">Specific Groups</option>
                     </select>
                 </div>
             </div>
@@ -141,7 +145,13 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">Content <span class="text-danger">*</span></label>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label class="form-label mb-0">Content <span class="text-danger">*</span></label>
+                            <div class="dropdown">
+                                <button class="btn btn-link btn-sm p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown">Insert variable</button>
+                                <ul class="dropdown-menu dropdown-menu-end" id="messageVariableMenu"></ul>
+                            </div>
+                        </div>
                         <textarea class="form-control" id="content" rows="5" placeholder="Write the announcement details..." required></textarea>
                     </div>
 
@@ -173,6 +183,11 @@
                                 <option value="specific">Specific Groups</option>
                             </select>
                         </div>
+                    </div>
+
+                    <div class="mb-3 d-none" id="audienceSpecificDiv">
+                        <label class="form-label">Specific Audience <small class="text-muted">(search learners, parents, staff, classes or vendors)</small></label>
+                        <div id="audiencePicker"></div>
                     </div>
 
                     <div class="row g-3 mt-0">

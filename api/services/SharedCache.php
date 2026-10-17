@@ -72,7 +72,7 @@ class SharedCache
         if ($dir !== null && $dir !== '') {
             $candidates[] = $dir;
         } else {
-            $candidates[] = sys_get_temp_dir() . '/kingsway_cache';
+            $candidates[] = StorageRoot::path('php/cache');
             $uid = function_exists('posix_geteuid') ? posix_geteuid() : getmyuid();
             if ($uid !== false && $uid !== null) {
                 $candidates[] = sys_get_temp_dir() . '/kingsway_cache_' . $uid;

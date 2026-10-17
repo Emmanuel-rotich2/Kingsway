@@ -23,10 +23,12 @@ final class FinancialPostingCoordinator
         $source = $this->sourceAccount($financialAccountId);
         $receivable = ['fees' => '120001', 'transport' => '120002', 'uniforms' => '120003'][$purpose] ?? null;
         if (!$receivable) throw new RuntimeException('No incoming ledger recipe exists for purpose: ' . $purpose);
-        return $this->journals->post($sourceType, $sourceId, 'incoming_' . $purpose, 'Incoming ' . $purpose . ($reference ? ' ' . $reference : ''), [
+        $result = $this->journals->post($sourceType, $sourceId, 'incoming_' . $purpose, 'Incoming ' . $purpose . ($reference ? ' ' . $reference : ''), [
             ['account_code' => $source['ledger_code'], 'debit' => $amount, 'description' => 'Money received into ' . $source['account_name']],
             ['account_code' => $receivable, 'credit' => $amount, 'description' => ucfirst($purpose) . ' receivable settlement'],
         ], $actorUserId);
+        $this->announceIncoming($result, $purpose);
+        return $result;
     }
 
     /** Post a charge payment to the configured income accounts, preserving
@@ -53,7 +55,33 @@ final class FinancialPostingCoordinator
             'debit' => number_format($total, 2, '.', ''),
             'description' => 'Money received into ' . $source['account_name'],
         ]);
-        return $this->journals->post($sourceType, $sourceId, 'incoming_extra_charge', 'Incoming extra charge' . ($reference ? ' ' . $reference : ''), $lines, $actorUserId);
+        $result = $this->journals->post($sourceType, $sourceId, 'incoming_extra_charge', 'Incoming extra charge' . ($reference ? ' ' . $reference : ''), $lines, $actorUserId);
+        $this->announceIncoming($result, 'extra_charge');
+        return $result;
+    }
+
+    /**
+     * Push a PAYMENT_ALERT for a fresh verified posting. Only a genuine
+     * 'posted' outcome alerts; the idempotent 'already_posted' replay of an
+     * ambiguous provider callback must not re-announce money that finance
+     * already saw. The publisher is failure-proof and never throws, so this
+     * can never break the money path.
+     */
+    private function announceIncoming(array $result, string $purpose): void
+    {
+        if (($result['status'] ?? '') !== 'posted') {
+            return;
+        }
+        try {
+            PaymentAlertPublisher::posted((int) ($result['journal_batch_id'] ?? 0), $purpose);
+        } catch (\Throwable $error) {
+            // Belt-and-braces: RealtimeGatewayPublisher never throws, but a
+            // future refactor must not be able to fail a posting either.
+            \App\API\Includes\FileLogger::write('realtime', [
+                'event' => 'gateway.payment_alert_failed',
+                'exception' => get_class($error),
+            ]);
+        }
     }
 
     public function postDisbursement(string $sourceType, int $sourceId, int $financialAccountId, string $purpose, string $amount, int $actorUserId = 0): array

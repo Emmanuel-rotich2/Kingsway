@@ -28,6 +28,7 @@
                 console.error("Error initializing MpesaSettlementsController:", error);
                 this.showNotification("Failed to load M-Pesa settlements", "error");
             }
+            window.APIRealtime?.register?.("mpesa_settlements", this, ["payments"]);
         },
 
         /**

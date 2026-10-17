@@ -1,295 +1,84 @@
-/**
- * Menu Planning Controller
- * Page: menu_planning.php
- * Weekly meal menu planning - breakfast, lunch, supper, snack per day
- */
-const MenuPlanningController = {
-  state: {
-    menus: [],
-    currentWeek: null,
+const menuPlanningController = {
+  state: { menus: [], referenceCache: null },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  fmtDate(v) {
+    if (!v) return '\u2014';
+    const dt = new Date(String(v).replace(' ', 'T'));
+    if (isNaN(dt)) return this.esc(v);
+    return dt.toLocaleDateString();
   },
 
-  days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-  dayNames: {
-    mon: "Monday",
-    tue: "Tuesday",
-    wed: "Wednesday",
-    thu: "Thursday",
-    fri: "Friday",
-    sat: "Saturday",
-    sun: "Sunday",
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "menu-planning-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Menu Planning Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
-  meals: ["breakfast", "lunch", "supper", "snack"],
+
+  async load() {
+    const body = document.getElementById('mpBody');
+    body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    try {
+      const cache = this.state.referenceCache;
+      const r = cache?.menus !== undefined ? cache.menus : await this.API('GET', '/catering/menu');
+      this.state.menus = this.norm(r);
+      this.render();
+    } catch (e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+  },
+
+  render() {
+    const menus = this.state.menus;
+    const body = document.getElementById('mpBody');
+    if (!menus.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No menus planned.</td></tr>'; return; }
+    body.innerHTML = menus.map(m => `<tr>
+      <td class="small">${this.fmtDate(m.menu_date)}</td>
+      <td class="small fw-semibold">${this.esc(m.menu_name || 'Menu')}</td>
+      <td class="small">${this.esc(m.meal_type || '\u2014')}</td>
+      <td class="small text-muted">${this.esc(m.category_name || '\u2014')}</td>
+      <td class="small">${this.esc(m.preparation_status || 'pending')}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="menuPlanningController.viewMenu(${m.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
+
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.menus || r || []); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "menu-planning-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Menu Planning Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   async init() {
-    await window.AuthContext?.ready();
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
-    }
-    this.bindEvents();
-    this.populateWeekSelector();
-    await this.loadData();
-  },
-
-  bindEvents() {
-    document
-      .getElementById("addMenuBtn")
-      ?.addEventListener("click", () => this.openMenuModal());
-    document
-      .getElementById("printMenuBtn")
-      ?.addEventListener("click", () => this.printMenu());
-
-    document
-      .getElementById("weekSelect")
-      ?.addEventListener("change", () => this.loadData());
-    document
-      .getElementById("termSelect")
-      ?.addEventListener("change", () => this.loadData());
-    document
-      .getElementById("mealTypeFilter")
-      ?.addEventListener("change", () => this.applyFilter());
-
-    // Click on menu cells to edit
-    document.querySelectorAll(".menu-cell").forEach((cell) => {
-      cell.style.cursor = "pointer";
-      cell.addEventListener("click", () => {
-        const day = cell.dataset.day;
-        const meal = cell.dataset.meal;
-        this.editCell(day, meal, cell);
-      });
-    });
-  },
-
-  populateWeekSelector() {
-    const select = document.getElementById("weekSelect");
-    if (!select) return;
-    const now = new Date();
-    select.innerHTML = "";
-    for (let i = -2; i <= 4; i++) {
-      const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - now.getDay() + 1 + i * 7); // Monday
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      const label = `${weekStart.toLocaleDateString("en-KE", { month: "short", day: "numeric" })} - ${weekEnd.toLocaleDateString("en-KE", { month: "short", day: "numeric" })}`;
-      const opt = document.createElement("option");
-      opt.value = weekStart.toISOString().split("T")[0];
-      opt.textContent = label;
-      if (i === 0) opt.selected = true;
-      select.appendChild(opt);
-    }
-  },
-
-  async loadData() {
-    try {
-      const weekStart = document.getElementById("weekSelect")?.value;
-      const term = document.getElementById("termSelect")?.value;
-
-      const res =
-        (await window.API.boarding
-          .getMenus({ week_start: weekStart, term })
-          .catch(() => null)) ||
-        (await window.API.academic
-          .getCustom({ action: "menus", week_start: weekStart, term })
-          .catch(() => null));
-
-      this.state.menus = res || [];
-
-      const weekRange = document.getElementById("weekRange");
-      if (weekRange && weekStart) {
-        const end = new Date(weekStart);
-        end.setDate(end.getDate() + 6);
-        weekRange.textContent = `(${new Date(weekStart).toLocaleDateString("en-KE", { month: "short", day: "numeric" })} - ${end.toLocaleDateString("en-KE", { month: "short", day: "numeric" })})`;
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("menu_planning", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
       }
-
-      this.renderMenu();
-    } catch (error) {
-      console.error("Error loading menus:", error);
-    }
-  },
-
-  renderMenu() {
-    // Map menus to cells
-    this.days.forEach((day) => {
-      this.meals.forEach((meal) => {
-        const cellId = `${day}_${meal}`;
-        const cell = document.getElementById(cellId);
-        if (!cell) return;
-
-        const fullDay = this.dayNames[day]?.toLowerCase();
-        const menu = this.state.menus.find(
-          (m) =>
-            (m.day || "").toLowerCase() === fullDay &&
-            (m.meal_type || m.meal || "").toLowerCase() === meal,
-        );
-
-        if (menu) {
-          cell.innerHTML = `<strong>${this.esc(menu.menu_items || menu.items || menu.description || "")}</strong>`;
-          cell.classList.remove("text-muted");
-        } else {
-          cell.innerHTML = '<span class="text-muted">Click to add</span>';
-        }
-      });
-    });
-  },
-
-  applyFilter() {
-    const meal = document.getElementById("mealTypeFilter")?.value;
-    this.meals.forEach((m) => {
-      const cells = document.querySelectorAll(`.menu-cell[data-meal="${m}"]`);
-      cells.forEach((cell) => {
-        const row = cell.closest("tr");
-        if (row) row.style.display = !meal || meal === m ? "" : "none";
-      });
-    });
-  },
-
-  editCell(day, meal, cell) {
-    const current = cell.querySelector("strong")?.textContent || "";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "form-control form-control-sm";
-    input.value = current;
-    input.placeholder = `Enter ${meal} items...`;
-
-    cell.innerHTML = "";
-    cell.appendChild(input);
-    input.focus();
-
-    const save = async () => {
-      const value = input.value.trim();
-      if (value) {
-        cell.innerHTML = `<strong>${this.esc(value)}</strong>`;
-        cell.classList.remove("text-muted");
-        // Save to backend
-        await window.API.boarding
-          .createMenu({
-            day: this.dayNames[day.substring(0, 3)]?.toLowerCase() || day,
-            meal_type: meal,
-            menu_items: value,
-            week_start: document.getElementById("weekSelect")?.value,
-          })
-          .catch(() => null);
-      } else {
-        cell.innerHTML = '<span class="text-muted">Click to add</span>';
-      }
-    };
-
-    input.addEventListener("blur", save);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        save();
-      }
-      if (e.key === "Escape") this.renderMenu();
-    });
-  },
-
-  openMenuModal() {
-    const days = Object.entries(this.dayNames);
-    let html =
-      '<form id="bulkMenuForm"><p class="text-muted">Fill in meals for the week:</p>';
-    days.forEach(([key, name]) => {
-      html += `<div class="mb-3"><h6>${name}</h6><div class="row">`;
-      this.meals.forEach((meal) => {
-        html += `<div class="col-md-3 mb-2"><label class="form-label small">${meal.charAt(0).toUpperCase() + meal.slice(1)}</label><input type="text" class="form-control form-control-sm" data-day="${key}" data-meal="${meal}"></div>`;
-      });
-      html += "</div></div>";
-    });
-    html +=
-      '<button type="submit" class="btn btn-primary">Save All</button></form>';
-
-    let modal = document.getElementById("dynamicModal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "dynamicModal";
-      modal.className = "modal fade";
-      modal.tabIndex = -1;
-      modal.innerHTML = `<div class="modal-dialog modal-dialog-scrollable modal-xl"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Plan Weekly Menu</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"></div></div></div>`;
-      document.body.appendChild(modal);
-    }
-    modal.querySelector(".modal-body").innerHTML = html;
-    new bootstrap.Modal(modal).show();
-
-    setTimeout(() => {
-      document
-        .getElementById("bulkMenuForm")
-        ?.addEventListener("submit", (e) => {
-          e.preventDefault();
-          bootstrap.Modal.getInstance(modal)?.hide();
-          this.showNotification("Menu saved successfully", "success");
-          this.loadData();
-        });
-    }, 300);
-  },
-
-  printMenu() {
-    if (!this.state.menuItems || this.state.menuItems.length === 0) {
-      this.showNotification("No menu data to print", "warning");
-      return;
-    }
-
-    const week = document.getElementById("weekSelect")?.options[document.getElementById("weekSelect").selectedIndex]?.text || 'All';
-    const term = document.getElementById("termSelect")?.options[document.getElementById("termSelect").selectedIndex]?.text || 'All';
-    const mealType = document.getElementById("mealTypeFilter")?.options[document.getElementById("mealTypeFilter").selectedIndex]?.text || 'All';
-
-    const filters = {
-      'Week': week,
-      'Term': term,
-      'Meal Type': mealType
-    };
-
-    // Remove empty filters
-    Object.keys(filters).forEach(key => {
-      if (filters[key] === 'All' || !filters[key]) {
-        delete filters[key];
-      }
-    });
-
-    const columns = [
-      { key: 'day', label: 'Day' },
-      { key: 'meal_type', label: 'Meal Type' },
-      { key: 'meal_name', label: 'Meal' },
-      { key: 'description', label: 'Description' },
-      { key: 'cost', label: 'Cost' }
-    ];
-
-    window.PrintManager.printTable({
-      title: 'Menu Planning',
-      subtitle: 'School Meal Schedule',
-      columns: columns,
-      rows: this.state.menuItems,
-      summary: {
-        'Total Meals': this.state.menuItems.length,
-        'Generated Date': new Date().toLocaleDateString()
-      },
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'MNU-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-      signatureSection: [
-        { label: 'Catering Manager' },
-        { label: 'Principal' }
-      ]
-    });
-  },
-
-  esc(str) {
-    if (!str) return "";
-    const d = document.createElement("div");
-    d.textContent = str;
-    return d.innerHTML;
-  },
-  showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
+    }, ["catering"]);
   },
 };
 
-document.addEventListener('DOMContentLoaded', () => MenuPlanningController.init());
+const menuPlanningControllerInstance = menuPlanningController;
 
-window.MenuPlanningController = MenuPlanningController;
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => menuPlanningControllerInstance.init().catch(() => {}));
+} else {
+  menuPlanningControllerInstance.init().catch(() => {});
+}
+
+window.menuPlanningController = menuPlanningControllerInstance;

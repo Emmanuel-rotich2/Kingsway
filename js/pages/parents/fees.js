@@ -101,12 +101,18 @@
   }
 
   var _childId = null;
+  var _child = null;
+  var _tab = null;
+  var _el = null;
 
   P.childPage({
     contentId: 'ppFeesContent',
     defaultTab: 'fees',
     loadTab: function (tab, child, el) {
       _childId = child.id;
+      _child = child;
+      _tab = tab;
+      _el = el;
       P.apiFetch('/fee-balance/' + child.id, 'GET')
         .then(function (resp) { renderSummary(resp.data !== undefined ? resp.data : resp, child); })
         .catch(function () {});
@@ -141,5 +147,35 @@
     var children = [];
     try { children = JSON.parse(sessionStorage.getItem('pp_children') || '[]'); } catch (_) {}
     P.openMpesaModal({ children: children, studentId: _childId, purpose: 'fees' });
+  });
+
+  // Realtime: when a verified payment lands for this child (published by the
+  // server straight into this guardian's family:<childId> channel), refresh
+  // the open fee view in place — balance, obligations and payment history
+  // update without a reload. The dispatch layer already routed the descriptor;
+  // this re-renders the visible tab from fresh API reads.
+  window.addEventListener('kingsway:data-mutated', function (event) {
+    if (!_childId || !_child || !_el || !_tab) return;
+    var detail = event.detail || {};
+    var targets = (detail.targets || []).map(String);
+    var isFamilyFeeChange = detail.scope === 'family:' + _childId
+      || targets.indexOf('fees') !== -1
+      || targets.indexOf('payments') !== -1
+      || targets.indexOf('finance') !== -1;
+    if (!isFamilyFeeChange) return;
+    // Only react while this page's fee content is actually on screen.
+    if (!document.getElementById('ppFeesContent')) return;
+    P.apiFetch('/fee-balance/' + _childId, 'GET')
+      .then(function (resp) { renderSummary(resp.data !== undefined ? resp.data : resp, _child); })
+      .catch(function () {});
+    if (_tab === 'fees') {
+      P.apiFetch('/student-fees/' + _childId, 'GET')
+        .then(function (r) { _el.innerHTML = renderFeeHistory(r.data !== undefined ? r.data : r); })
+        .catch(function () {});
+    } else if (_tab === 'payments') {
+      P.apiFetch('/student-payment-history/' + _childId, 'GET')
+        .then(function (r) { _el.innerHTML = renderPayments(r.data !== undefined ? r.data : r); })
+        .catch(function () {});
+    }
   });
 })();

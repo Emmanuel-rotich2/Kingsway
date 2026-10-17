@@ -115,6 +115,8 @@ const MarkAttendanceController = {
     });
 
     this.ui.confirmSaveBtn?.addEventListener("click", () => this.saveAttendance());
+
+    this.bindRealtimeCollaboration();
   },
 
   async loadMeta() {
@@ -130,6 +132,29 @@ const MarkAttendanceController = {
     } catch (error) {
       console.error("Failed to load metadata:", error);
     }
+  },
+
+  /**
+   * Realtime collaboration: marking a passenger declares this route register
+   * as active so dispatch or another operator sees the editing badge; peer
+   * saves refresh the manifest through the existing DataStore-backed path.
+   */
+  presenceKey() {
+    const routeId = this.ui.routeSelect?.value || 0;
+    const tripSession = this.ui.tripSession?.value || 0;
+    const date = this.ui.attendanceDate?.value || "";
+    return `transport_register:${routeId}:${tripSession}:${date}`;
+  },
+
+  bindRealtimeCollaboration() {
+    this.ui.passengersTableBody?.addEventListener("change", () => {
+      window.RealtimePresence?.begin(this.presenceKey());
+    });
+    this.ui.passengersTableBody?.addEventListener("input", () => {
+      window.RealtimePresence?.begin(this.presenceKey());
+    });
+    window.addEventListener("pagehide", () => window.RealtimePresence?.end(this.presenceKey()), { once: true });
+    window.APIRealtime?.register?.("mark_attendance", { refresh: () => this.loadPassengers() }, ["attendance", "transport"]);
   },
 
   async loadPassengers() {
@@ -425,6 +450,7 @@ const MarkAttendanceController = {
       
       // Online - proceed normally
       const response = await this.api("/students/transport-attendance", "POST", data);
+      window.RealtimePresence?.end(this.presenceKey());
       this.notify("Attendance saved successfully", "success");
       if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {
         const modalInstance = bootstrap.Modal.getInstance(this.ui.saveConfirmationModal);

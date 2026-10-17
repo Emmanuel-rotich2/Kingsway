@@ -88,7 +88,35 @@ class PaymentRoutingService
         if (!empty($referenceRow['id'])) {
             $this->db->prepare("UPDATE payment_routing_references SET status='consumed' WHERE id=? AND status='active'")->execute([(int)$referenceRow['id']]);
         }
+        $this->announceFamilyPayment((int)$referenceRow['student_id'], $purpose);
         return ['status'=>'processed','purpose'=>$purpose,'student_id'=>(int)$referenceRow['student_id'],'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
+    }
+
+    /**
+     * Tell the payer's family in real time that money landed: a
+     * family:<studentId>-scoped descriptor so the parent portal's fee view
+     * refreshes live for the guardian. Descriptor-only (no amount, no payer
+     * identity — PHP re-authorizes any follow-up fetch); fire-and-forget so a
+     * realtime outage can never disturb the money path. Staff finance
+     * dashboards are informed separately through the finance-scoped
+     * PAYMENT_ALERT published by FinancialPostingCoordinator.
+     */
+    private function announceFamilyPayment(int $studentId, string $purpose): void
+    {
+        if ($studentId < 1) return;
+        try {
+            \App\API\Services\RealtimeGatewayPublisher::publish('DATA_CHANGED', 'family:' . $studentId, [
+                'domain' => 'finance',
+                'action' => 'payment_posted',
+                'method' => $purpose,
+                'targets' => ['fees', 'payments', 'finance'],
+            ]);
+        } catch (\Throwable $error) {
+            \App\API\Includes\FileLogger::write('realtime', [
+                'event' => 'gateway.family_payment_alert_failed',
+                'exception' => get_class($error),
+            ]);
+        }
     }
 
     public function listRoutes(): array { return $this->db->query("SELECT r.*,p.code provider_code,sa.account_name settlement_account_name,sa.account_identifier settlement_account_identifier,(SELECT GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') FROM " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rch JOIN financial_channels fc ON fc.id=rch.channel_id WHERE rch.route_id=r.id) route_channels FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r JOIN payment_providers p ON p.id=r.provider_id LEFT JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " sa ON sa.id=COALESCE(r.settlement_financial_account_id,r.financial_account_id) WHERE r.active=1 ORDER BY p.code,r.account_identifier,r.purpose")->fetchAll(PDO::FETCH_ASSOC); }
@@ -105,24 +133,25 @@ class PaymentRoutingService
         $code=(string)($data['provider_code']??$accountRow['provider_code']??''); $accountIdentifier=trim((string)($data['account_identifier']??$accountRow['account_identifier']??'')); $displayName=trim((string)($data['display_name']??'')); $prefix=trim((string)($data['reference_prefix']??($purpose==='transport'?'TRN':($purpose==='uniforms'?'U':'FEE'))));
         if (!$code || $accountIdentifier==='' || $prefix==='') throw new RuntimeException('Provider, collection identifier and reference prefix are required.');
         $pid=$this->providerId($code); $normalized=$this->normalizer->accountIdentifier($accountIdentifier); $settlement=(int)($data['settlement_financial_account_id']??$accountRow['settlement_financial_account_id']??$financialAccountId); $product=(string)($data['collection_product']??'bank_collection'); $policy=(string)($data['reference_policy']??($purpose==='fees'?'admission_no':($purpose==='transport'?'transport_reference':'uniform_reference')));
+        $priority=max(0,(int)($data['priority']??100));
         if (in_array($product,['paybill','till','buni'],true) && $settlement<=0) throw new RuntimeException('A Paybill, Till or Buni point must have a settlement school account.');
         $this->db->beginTransaction();
         try {
             if ($routeId) {
-                $q=$this->db->prepare('UPDATE payment_collection_routes SET provider_id=?,display_name=?,show_on_fee_structure=?,display_order=?,display_title=?,display_reference_label=?,display_reference_value=?,display_instructions=?,display_updated_by=?,financial_account_id=?,settlement_financial_account_id=?,account_identifier=?,normalized_account_identifier=?,collection_product=?,reference_policy=?,reference_label=?,purpose=?,reference_prefix=?,active=1 WHERE id=?');
-                $q->execute([$pid,$displayName?:null,!empty($data['show_on_fee_structure'])?1:0,max(0,(int)($data['display_order']??0)),trim((string)($data['display_title']??''))?:null,trim((string)($data['display_reference_label']??''))?:null,trim((string)($data['display_reference_value']??''))?:null,trim((string)($data['display_instructions']??''))?:null,(int)($data['updated_by']??0)?:null,$financialAccountId,$settlement,$accountIdentifier,$normalized,$product,$policy,trim((string)($data['reference_label']??''))?:null,$purpose,$prefix,$routeId]);
+                $q=$this->db->prepare('UPDATE payment_collection_routes SET provider_id=?,display_name=?,show_on_fee_structure=?,display_order=?,display_title=?,display_reference_label=?,display_reference_value=?,display_instructions=?,display_updated_by=?,financial_account_id=?,settlement_financial_account_id=?,account_identifier=?,normalized_account_identifier=?,collection_product=?,reference_policy=?,reference_label=?,purpose=?,reference_prefix=?,priority=?,active=1 WHERE id=?');
+                $q->execute([$pid,$displayName?:null,!empty($data['show_on_fee_structure'])?1:0,max(0,(int)($data['display_order']??0)),trim((string)($data['display_title']??''))?:null,trim((string)($data['display_reference_label']??''))?:null,trim((string)($data['display_reference_value']??''))?:null,trim((string)($data['display_instructions']??''))?:null,(int)($data['updated_by']??0)?:null,$financialAccountId,$settlement,$accountIdentifier,$normalized,$product,$policy,trim((string)($data['reference_label']??''))?:null,$purpose,$prefix,$priority,$routeId]);
                 $exists=$this->db->prepare('SELECT 1 FROM payment_collection_routes WHERE id=?'); $exists->execute([$routeId]); if (!$exists->fetchColumn()) throw new RuntimeException('Collection route not found.');
             } else {
                 $q=$this->db->prepare('SELECT id FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND purpose=? LIMIT 1'); $q->execute([$pid,$normalized,$purpose]); $routeId=(int)$q->fetchColumn();
                 if ($routeId) { $data['id']=$routeId; $this->db->commit(); return $this->saveRoute($data); }
-                $q=$this->db->prepare('INSERT INTO payment_collection_routes (provider_id,display_name,show_on_fee_structure,display_order,display_title,display_reference_label,display_reference_value,display_instructions,display_updated_by,financial_account_id,settlement_financial_account_id,account_identifier,normalized_account_identifier,collection_product,reference_policy,reference_label,purpose,reference_prefix) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-                $q->execute([$pid,$displayName?:null,!empty($data['show_on_fee_structure'])?1:0,max(0,(int)($data['display_order']??0)),trim((string)($data['display_title']??''))?:null,trim((string)($data['display_reference_label']??''))?:null,trim((string)($data['display_reference_value']??''))?:null,trim((string)($data['display_instructions']??''))?:null,(int)($data['updated_by']??0)?:null,$financialAccountId,$settlement,$accountIdentifier,$normalized,$product,$policy,trim((string)($data['reference_label']??''))?:null,$purpose,$prefix]); $routeId=(int)$this->db->lastInsertId();
+                $q=$this->db->prepare('INSERT INTO payment_collection_routes (provider_id,display_name,show_on_fee_structure,display_order,display_title,display_reference_label,display_reference_value,display_instructions,display_updated_by,financial_account_id,settlement_financial_account_id,account_identifier,normalized_account_identifier,collection_product,reference_policy,reference_label,purpose,reference_prefix,priority) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+                $q->execute([$pid,$displayName?:null,!empty($data['show_on_fee_structure'])?1:0,max(0,(int)($data['display_order']??0)),trim((string)($data['display_title']??''))?:null,trim((string)($data['display_reference_label']??''))?:null,trim((string)($data['display_reference_value']??''))?:null,trim((string)($data['display_instructions']??''))?:null,(int)($data['updated_by']??0)?:null,$financialAccountId,$settlement,$accountIdentifier,$normalized,$product,$policy,trim((string)($data['reference_label']??''))?:null,$purpose,$prefix,$priority]); $routeId=(int)$this->db->lastInsertId();
             }
             $this->db->prepare('DELETE FROM payment_collection_route_channels WHERE route_id=?')->execute([$routeId]);
             $channels=(array)($data['channels']??[]); if (!$channels) { $q=$this->db->prepare('SELECT c.code FROM ' . ReadReplicaService::masterRef('school_financial_account_channels') . ' ac JOIN financial_channels c ON c.id=ac.channel_id WHERE ac.financial_account_id=?'); $q->execute([$financialAccountId]); $channels=$q->fetchAll(PDO::FETCH_COLUMN); }
             if ($purpose==='fees') $channels=array_values(array_diff($channels,['cash']));
             $insert=$this->db->prepare('INSERT INTO payment_collection_route_channels(route_id,channel_id) SELECT ?,id FROM financial_channels WHERE code=?'); foreach (array_unique($channels) as $channel) $insert->execute([$routeId,$channel]);
-            $this->db->commit(); return ['id'=>$routeId,'display_name'=>$displayName,'provider_code'=>$code,'financial_account_id'=>$financialAccountId,'account_identifier'=>$accountIdentifier,'purpose'=>$purpose,'collection_product'=>$product,'reference_policy'=>$policy,'route_channels'=>implode(',',array_unique($channels))];
+            $this->db->commit(); return ['id'=>$routeId,'display_name'=>$displayName,'provider_code'=>$code,'financial_account_id'=>$financialAccountId,'account_identifier'=>$accountIdentifier,'purpose'=>$purpose,'collection_product'=>$product,'reference_policy'=>$policy,'priority'=>$priority,'route_channels'=>implode(',',array_unique($channels))];
         } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
     }
 
@@ -156,7 +185,7 @@ class PaymentRoutingService
         // student_parents is a 4NF junction table with a composite key;
         // there is intentionally no surrogate id column to order by.
         $p=$this->db->prepare('SELECT parent_id FROM student_parents WHERE student_id=? ORDER BY is_primary_contact DESC,parent_id ASC LIMIT 1'); $p->execute([$studentId]); $parent=$p->fetchColumn() ?: null;
-        $sp=$this->db->prepare('CALL sp_process_student_payment(?,?,?,?,?,?,?,?,?)'); $sp->execute([$studentId,$parent,$amount,$provider==='mpesa_daraja'?'mpesa':'bank_transfer',$reference,$receiptNo,1,date('Y-m-d H:i:s'),'Provider transaction '.$providerTransactionId.' confirmed; routed incoming payment: '.json_encode($payload)]); $sp->closeCursor();
+        $sp=$this->db->prepare('CALL sp_process_student_payment(?,?,?,?,?,?,?,?,?)'); $sp->execute([$studentId,$parent,$amount,in_array($provider,['mpesa_daraja','payhero'],true)?'mpesa':'bank_transfer',$reference,$receiptNo,1,date('Y-m-d H:i:s'),'Provider transaction '.$providerTransactionId.' confirmed; routed incoming payment: '.json_encode($payload)]); $sp->closeCursor();
         $find=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? ORDER BY id DESC LIMIT 1'); $find->execute([$receiptNo]); $paymentId=(int)$find->fetchColumn();
         if (!$paymentId) throw new RuntimeException('Fee payment procedure did not create a payment record.');
         $this->db->prepare('UPDATE payments SET financial_account_id=?,payment_purpose=? WHERE id=?')->execute([$financialAccountId,'fees',$paymentId]);
@@ -169,7 +198,7 @@ class PaymentRoutingService
     private function prefixPurpose(string $ref): ?string { return $this->normalizer->purposeFromReference($ref); }
     private function accountFinancialId(int $providerId, string $account): ?int { $s=$this->db->prepare('SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1 ORDER BY id LIMIT 1'); $s->execute([$providerId,$account]); $id=$s->fetchColumn(); if (!$id && $this->providerCode($providerId)==='generic_bank') { $s=$this->db->prepare('SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE normalized_account_identifier=? AND active=1 ORDER BY id LIMIT 1'); $s->execute([$account]); $id=$s->fetchColumn(); } return $id ? (int)$id : null; }
     private function providerCode(int $providerId): string { $s=$this->db->prepare('SELECT code FROM payment_providers WHERE id=?'); $s->execute([$providerId]); return (string)$s->fetchColumn(); }
-    private function channelCode(string $providerCode, array $payload): string { if (!empty($payload['channel'])) return (string)$payload['channel']; if ($providerCode==='mpesa_daraja') return 'mpesa_c2b'; if ($providerCode==='kcb_buni') return 'buni_ipn'; return 'bank_transfer'; }
+    private function channelCode(string $providerCode, array $payload): string { if (!empty($payload['channel'])) return (string)$payload['channel']; if ($providerCode==='mpesa_daraja') return 'mpesa_c2b'; if ($providerCode==='kcb_buni') return 'buni_ipn'; if ($providerCode==='payhero') return 'mpesa_stk'; return 'bank_transfer'; }
     private function routeAllowsChannel(int $providerId, string $account, string $purpose, string $channel): bool
     {
         $s=$this->db->prepare('SELECT r.id FROM payment_collection_routes r WHERE r.provider_id=? AND r.normalized_account_identifier=? AND r.purpose=? AND r.active=1 LIMIT 1');

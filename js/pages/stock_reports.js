@@ -4,13 +4,24 @@
  */
 const stockReportsController = {
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  state: { referenceCache: null },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
 
   monthName(m) {
     return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1] || this.esc(m);
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "stock-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Stock Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async load() {
@@ -19,9 +30,10 @@ const stockReportsController = {
     valBody.innerHTML = '<tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     usageBody.innerHTML = '<tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
+      const cache = this.state.referenceCache;
       const [valRes, usageRes] = await Promise.all([
-        this.API('GET', '/inventory/items-stock-valuation').catch(() => null),
-        this.API('GET', '/reports/inventory-usage-rates').catch(() => null),
+        cache?.valuation !== undefined ? cache.valuation : this.API('GET', '/inventory/items-stock-valuation').catch(() => null),
+        cache?.usage !== undefined ? cache.usage : this.API('GET', '/reports/inventory-usage-rates').catch(() => null),
       ]);
 
       const valPayload = valRes?.data ?? valRes ?? {};
@@ -58,9 +70,27 @@ const stockReportsController = {
     }
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "stock-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Stock Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("stockReports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory", "reports"]);
   },
 };
 

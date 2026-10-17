@@ -54,13 +54,12 @@ const fAssCtrl = {
     }
     
     await Promise.all([
-      this._loadTerms(),
+      this._loadReferencesComposed(),
       this._loadClasses(),
-      this._loadSubjects(),
-      this._loadTypes(),
     ]);
     this.loadAll();
     this._loadSummary();
+    window.APIRealtime?.register?.("formative_assessments", { refresh: async () => { await this._loadReferencesComposed(); await this.loadAll(); await this._loadSummary(); } }, ["academic"]);
 
     // Wire summary tab on first show
     const summaryTab = document.querySelector('[data-bs-target="#faTabSummary"]');
@@ -80,6 +79,32 @@ const fAssCtrl = {
   },
 
   // ── DROPDOWN LOADERS ──────────────────────────────────────────────────
+
+  // Composed startup read: one authorized Node view supplies the term,
+  // subject and assessment-type dropdowns; classes stay the offline-first read.
+  _loadReferencesComposed: async function () {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "formative-assessment-reference");
+      const sources = response?.data?.sources || response?.sources || {};
+      const pick = (v) => (Array.isArray(v?.data) ? v.data : (Array.isArray(v) ? v : []));
+      this._terms = pick(sources.terms);
+      this._subjects = pick(sources.subjects);
+      this._types = pick(sources.types);
+      const fill = (ids, rows) => ids.forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel) return;
+        const placeholder = sel.options[0].textContent;
+        sel.innerHTML = `<option value="">${placeholder}</option>`;
+        rows.forEach(t => sel.insertAdjacentHTML('beforeend', `<option value="${t.id}">${this._esc(t.name)}</option>`));
+      });
+      fill(['faTermFilter', 'faTerm'], this._terms);
+      fill(['faSubjectFilter', 'faSubject'], this._subjects);
+      fill(['faTypeFilter', 'faType'], this._types);
+    } catch (e) {
+      console.warn('Formative reference Node view failed; falling back to direct reads:', e);
+      await Promise.all([this._loadTerms(), this._loadSubjects(), this._loadTypes()]);
+    }
+  },
 
   _loadTerms: async function () {
     try {

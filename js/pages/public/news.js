@@ -120,7 +120,7 @@
     },
 
     imgFor(item, w, h, color) {
-      if (item.image_url) return S(item.image_url);
+      if (item.image_url) return S(PS.mediaUrl(item.image_url));
       const c = (color || '#198754').replace('#', '');
       return `https://placehold.co/${w}x${h}/${c}/ffffff?text=${encodeURIComponent(item.category || 'News')}`;
     },

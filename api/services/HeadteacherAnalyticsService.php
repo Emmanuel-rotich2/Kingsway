@@ -63,7 +63,7 @@ class HeadteacherAnalyticsService
                     SUM(start_time <= ? AND end_time >= ?) AS in_progress,
                     SUM(end_time < ?) AS completed_today,
                     SUM(start_time > ?) AS upcoming_today
-             FROM vw_timetable_entries
+             FROM vw_upcoming_class_schedules
              WHERE day_of_week = ? AND status = 'scheduled'"
         );
         $cursor = new \DateTimeImmutable($this->period['date_from']);
@@ -99,7 +99,7 @@ class HeadteacherAnalyticsService
     private function countUnassignedLessons(): int
     {
         try {
-            $stmt = $this->db->query("SELECT COUNT(*) FROM vw_timetable_entries WHERE status = 'scheduled' AND (teacher_id IS NULL OR teacher_id = 0)");
+            $stmt = $this->db->query("SELECT COUNT(*) FROM vw_upcoming_class_schedules WHERE status = 'scheduled' AND (teacher_id IS NULL OR teacher_id = 0)");
             return (int) $stmt->fetchColumn();
         } catch (Exception $e) {
             return 0;
