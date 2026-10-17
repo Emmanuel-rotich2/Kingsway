@@ -23,6 +23,7 @@ const academicsManager = {
     },
     // Initialize
     async init() {
+        window.APIRealtime?.register?.("academicsManager", this, ["academic"]);
         await this.loadStatistics();
         await this.loadAcademicYears();
         await this.loadTerms();
@@ -73,12 +74,15 @@ const academicsManager = {
     // ==================== STATISTICS & DASHBOARD ====================
     async loadStatistics() {
         try {
-            // Use centralized API.academic methods
-            const [classesRes, subjectsRes, yearsRes] = await Promise.all([
-                window.API.academic.listClasses(),
-                window.API.academic.listLearningAreas(),
-                window.API.academic.listYears()
-            ]);
+            const response = await window.API.nodeViews.resolve("academic", "manager-overview");
+            const sources = response?.data?.sources || response?.sources || {};
+            if (!sources.classes || !sources.learningAreas || !sources.years) {
+                throw new Error("Node returned incomplete academic overview data");
+            }
+            this._managerOverviewSources = sources;
+            const classesRes = sources.classes;
+            const subjectsRes = sources.learningAreas;
+            const yearsRes = sources.years;
 
             // Ensure responses are arrays before using array methods
             // Handle potential nested data structure from backend
@@ -95,13 +99,33 @@ const academicsManager = {
             document.getElementById('activeYear').textContent = currentYear;
         } catch (error) {
             console.error('Failed to load statistics:', error);
+            this._managerOverviewSources = null;
+            try {
+                const [classesRes, subjectsRes, yearsRes] = await Promise.all([
+                    window.API.academic.listClasses(),
+                    window.API.academic.listLearningAreas(),
+                    window.API.academic.listYears()
+                ]);
+                const classes = Array.isArray(classesRes) ? classesRes : (Array.isArray(classesRes?.data) ? classesRes.data : []);
+                const subjects = Array.isArray(subjectsRes) ? subjectsRes : (Array.isArray(subjectsRes?.data) ? subjectsRes.data : []);
+                const years = Array.isArray(yearsRes) ? yearsRes : (Array.isArray(yearsRes?.data) ? yearsRes.data : []);
+                const totalStudents = classes.reduce((sum, cls) => sum + (parseInt(cls.student_count) || 0), 0);
+                const currentYear = years.find(y => y.is_current)?.year_code || '-';
+                document.getElementById('totalClasses').textContent = classes.length;
+                document.getElementById('totalSubjects').textContent = subjects.length;
+                document.getElementById('totalStudents').textContent = totalStudents;
+                document.getElementById('activeYear').textContent = currentYear;
+                this._managerOverviewSources = { classes: classesRes, learningAreas: subjectsRes, years: yearsRes };
+            } catch (fallbackError) {
+                console.error('Academic PHP read fallback failed:', fallbackError);
+            }
         }
     },
 
     // ==================== ACADEMIC YEARS ====================
     async loadAcademicYears() {
         try {
-            const response = await window.API.academic.listYears();
+            const response = this._managerOverviewSources?.years || await window.API.academic.listYears();
             // Handle both flat array and nested data structure
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
@@ -115,6 +139,15 @@ const academicsManager = {
             this.showToast('Failed to load academic years', 'error');
             console.error(error);
         }
+    },
+
+    async refreshData() {
+        this._managerOverviewSources = null;
+        await this.loadStatistics();
+        await Promise.all([
+            this.loadAcademicYears(), this.loadTerms(), this.loadClasses(),
+            this.loadSubjects(), this.loadStreams(), this.loadTeachers(),
+        ]);
     },
 
     renderAcademicYears() {

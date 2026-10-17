@@ -424,6 +424,28 @@ define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SI
 
 /*
 |--------------------------------------------------------------------------
+| PayHero (M-Pesa aggregation)
+|--------------------------------------------------------------------------
+| PayHero credentials are a single HTTP Basic pair (or its base64 token);
+| the channel id is the collection point registered in the PayHero panel.
+| Secrets stay in .env; the database only stores school-facing values.
+*/
+define('PAYHERO_BASE_URL', $_ENV['PAYHERO_BASE_URL'] ?? 'https://backend.payhero.co.ke');
+define('PAYHERO_BASIC_AUTH', $_ENV['PAYHERO_BASIC_AUTH'] ?? '');
+define('PAYHERO_USERNAME', $_ENV['PAYHERO_USERNAME'] ?? '');
+define('PAYHERO_PASSWORD', $_ENV['PAYHERO_PASSWORD'] ?? '');
+define('PAYHERO_ACCOUNT_ID', (int) ($_ENV['PAYHERO_ACCOUNT_ID'] ?? 0));
+define('PAYHERO_CHANNEL_ID', (int) ($_ENV['PAYHERO_CHANNEL_ID'] ?? 0));
+define('PAYHERO_PAYMENTS_PATH', $_ENV['PAYHERO_PAYMENTS_PATH'] ?? '/api/v2/payments');
+define('PAYHERO_TRANSACTION_STATUS_PATH', $_ENV['PAYHERO_TRANSACTION_STATUS_PATH'] ?? '/api/v2/transaction-status');
+define('PAYHERO_WALLET_PATH', $_ENV['PAYHERO_WALLET_PATH'] ?? '/api/v2/wallets');
+define('PAYHERO_PAYMENT_CHANNELS_PATH', $_ENV['PAYHERO_PAYMENT_CHANNELS_PATH'] ?? '/api/v2/payment_channels');
+define('PAYHERO_CALLBACK_BASE_URL', $_ENV['PAYHERO_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
+define('PAYHERO_VERIFY_CALLBACK_STATUS', filter_var($_ENV['PAYHERO_VERIFY_CALLBACK_STATUS'] ?? '1', FILTER_VALIDATE_BOOLEAN));
+define('PAYHERO_TIMEOUT_SECONDS', max(5, (int) ($_ENV['PAYHERO_TIMEOUT_SECONDS'] ?? 30)));
+
+/*
+|--------------------------------------------------------------------------
 | Node.js Gateway (Realtime & Async Jobs)
 |--------------------------------------------------------------------------
 */

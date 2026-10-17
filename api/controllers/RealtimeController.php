@@ -8,6 +8,8 @@ use App\API\Services\JobHandlerRegistry;
 use App\API\Services\JobQueue;
 use App\API\Services\ReadProjectionSynchronizer;
 use App\API\Services\RealtimeScopeResolver;
+use App\API\Services\sms\SmsBatchService;
+use App\API\Services\sms\SmsPythonRelay;
 use App\Config\Config;
 
 /**
@@ -250,7 +252,7 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Invalid worker credential', 403);
         }
         try {
-            (new \App\API\Services\ScheduledMaintenanceService())->runDailyMaintenance();
+            ($this->contract(\App\API\Services\ScheduledMaintenanceService::class))->runDailyMaintenance();
             $this->contract(\App\API\Services\UploadService::class)->writeFile(
                 dirname(__DIR__, 2) . '/logs/maintenance.log',
                 date('Y-m-d H:i:s') . " - Maintenance tasks completed successfully\n",
@@ -282,12 +284,12 @@ class RealtimeController extends BaseAPI
         // otherwise persist indefinitely. Prune them here, on the same curl
         // schedule as the rest of the retention work.
         try {
-            $temp = sys_get_temp_dir();
-            $report['local_buffers'] = (new \App\API\Services\LocalBufferMaintenanceService([
-                'shared_cache' => $temp . '/kingsway_cache/sqlite',
-                'response_cache' => $temp . '/kingsway_cache_responses/sqlite',
-                'offline_replay' => $temp . '/kingsway_offline_replay/store',
-                'local_buffers' => $temp . '/kingsway_local_buffers',
+            $storage = \App\API\Services\StorageRoot::path('php');
+            $report['local_buffers'] = ($this->contract(\App\API\Services\LocalBufferMaintenanceService::class, [
+                'shared_cache' => $storage . '/cache/sqlite',
+                'response_cache' => $storage . '/response_cache/sqlite',
+                'offline_replay' => $storage . '/offline_replay/store',
+                'local_buffers' => $storage . '/buffers',
             ]))->run();
         } catch (\Throwable $error) {
             // Local cache pruning is best-effort and must never fail the job.
@@ -297,7 +299,7 @@ class RealtimeController extends BaseAPI
 
         // Sweep document batch state and artifacts (48-hour TTL).
         try {
-            $purged = (new \App\API\Services\documents\DocumentBatchStore())->purgeExpired(48);
+            $purged = ($this->contract(\App\API\Services\documents\DocumentBatchStore::class))->purgeExpired(48);
             $report['document_batches_purged'] = $purged;
         } catch (\Throwable $error) {
             \App\API\Services\Logger::legacyError('[RealtimeController] document batch purge failed: ' . $error->getMessage());
@@ -435,19 +437,23 @@ class RealtimeController extends BaseAPI
         $jobId = max(0, (int) ($data['job_id'] ?? 0));
         $attempts = max(-1, (int) ($data['attempts'] ?? -1));
         $job = $jobId > 0 ? JobQueue::fetchJob($jobId) : null;
+        $jobType = $job === null ? '' : (string) $job['job_type'];
         if ($job === null || $job['status'] !== JobQueue::STATUS_PROCESSING
-            || ($job['job_type'] ?? '') !== 'automation.run'
-            || !in_array('automation.run', $this->activePythonJobTypes(), true)
+            || !in_array($jobType, $this->activePythonJobTypes(), true)
             || $attempts !== (int) $job['attempts']) {
             return $this->errorResponse('Python job lease is not valid for input access', 409);
         }
         try {
+            if ($jobType === 'communications.sms_batch') {
+                $input = (new SmsBatchService($this->db))->preparePythonJob($job['payload'], $this->db);
+                return $this->successResponse($input, 'Authorized messaging batch input', 200);
+            }
             $input = $this->contract(\App\API\Services\automations\AutomationArtifacts::class)
                 ->preparePythonJob($job['payload'], $this->db);
             return $this->successResponse($input, 'Authorized automation input', 200);
         } catch (\Throwable $error) {
             \App\API\Services\Logger::legacyError('[RealtimeController] Python input preparation failed: ' . get_class($error));
-            return $this->errorResponse('Automation input is unavailable or no longer authorized', 422);
+            return $this->errorResponse('Python job input is unavailable or no longer authorized', 422);
         }
     }
 
@@ -475,11 +481,24 @@ class RealtimeController extends BaseAPI
                 \App\API\Services\Logger::legacyError('[RealtimeController] Python artifact validation failed: ' . get_class($error));
                 return $this->errorResponse('Python automation artifact failed validation', 422);
             }
+        } elseif ($job['job_type'] === 'communications.sms_batch') {
+            if (!in_array('communications.sms_batch', $this->activePythonJobTypes(), true) || !is_array($data['result'] ?? null)) {
+                return $this->errorResponse('Messaging batch result is not available to this worker', 422);
+            }
+            try {
+                $descriptor = (new SmsBatchService($this->db))->applyPythonResult($job['payload'], $data['result'], $this->db);
+            } catch (\Throwable $error) {
+                \App\API\Services\Logger::legacyError('[RealtimeController] Messaging batch result failed validation: ' . get_class($error));
+                return $this->errorResponse('Python messaging batch result failed validation', 422);
+            }
         }
-        if (!JobQueue::markDoneForAttempt($jobId, $claimedAttempts)) {
+        $safeResult = in_array($job['job_type'], ['automation.run', 'communications.sms_batch'], true)
+            ? $descriptor
+            : (is_array($data['result'] ?? null) ? $data['result'] : null);
+        if (!JobQueue::markDoneForAttempt($jobId, $claimedAttempts, $safeResult)) {
             return $this->errorResponse('Python job lease has been recovered', 409);
         }
-        if ($descriptor !== null) {
+        if ($descriptor !== null && $job['job_type'] === 'automation.run') {
             $this->contract(\App\API\Services\automations\AutomationArtifacts::class)->finishPythonJob($job['payload'], $descriptor);
         }
         return $this->successResponse(['job_id' => $jobId, 'status' => JobQueue::STATUS_DONE, 'artifact' => $descriptor], 'Python job completed', 200);
@@ -496,6 +515,19 @@ class RealtimeController extends BaseAPI
             || $attempts !== (int) $job['attempts']
             || !JobQueue::touchProcessingAttempt($jobId, $attempts)) {
             return $this->errorResponse('Python job lease is no longer active', 409);
+        }
+        // Long batches report bounded progress; the counters only ever move
+        // forward inside [0, total] so a stale worker cannot corrupt the meta.
+        if ($job['job_type'] === 'communications.sms_batch' && is_array($data['progress'] ?? null)) {
+            $processed = max(0, (int) ($data['progress']['processed'] ?? 0));
+            $total = max(0, (int) ($data['progress']['total'] ?? 0));
+            if ($total > 0) {
+                // updateMeta replaces the document, so merge with what is there.
+                $meta = is_array($job['meta'] ?? null) ? $job['meta'] : [];
+                $meta['processed'] = min($processed, $total);
+                $meta['total'] = $total;
+                JobQueue::updateMeta($jobId, $meta);
+            }
         }
         return $this->successResponse(['job_id' => $jobId, 'status' => JobQueue::STATUS_PROCESSING], 'Python job lease renewed', 200);
     }
@@ -543,6 +575,13 @@ class RealtimeController extends BaseAPI
         try {
             if ($this->contract(\App\API\Services\AutomationBridge::class)->available()) {
                 $types[] = 'automation.run';
+            }
+        } catch (\Throwable $error) {
+            // See the read projection fallback above.
+        }
+        try {
+            if ((new SmsPythonRelay())->available()) {
+                $types[] = 'communications.sms_batch';
             }
         } catch (\Throwable $error) {
             // See the read projection fallback above.

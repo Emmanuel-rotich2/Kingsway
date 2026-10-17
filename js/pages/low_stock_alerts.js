@@ -1,9 +1,5 @@
-/**
- * low_stock_alerts.js — Low Stock Alerts Controller (standalone page).
- * Lists inventory items at or below their reorder level.
- */
 const lowStockAlertsController = {
-  state: { items: [], count: 0 },
+  state: { items: [], count: 0, referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -17,15 +13,26 @@ const lowStockAlertsController = {
     setTimeout(() => el.remove(), 3000);
   },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.items || r?.data?.items || r?.data || []); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "low-stock-alerts-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Low Stock Alerts Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   async load() {
     const body = document.getElementById('lsaBody');
     body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/inventory/items-low-stock');
+      const cache = this.state.referenceCache;
+      const r = cache?.items !== undefined ? cache.items : await this.API('GET', '/inventory/items-low-stock');
       const payload = r?.data ?? r ?? {};
       const items = Array.isArray(payload) ? payload : (Array.isArray(payload?.items) ? payload.items : []);
       this.state.items = items;
@@ -68,21 +75,41 @@ const lowStockAlertsController = {
     }).join('');
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "low-stock-alerts-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Low Stock Alerts Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   setupEventListeners() {
     document.getElementById('lsaSearch')?.addEventListener('input', () => this.render());
   },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     this.setupEventListeners();
     await this.load();
+    window.APIRealtime?.register?.("low_stock_alerts", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory"]);
   },
 };
 
-window.lowStockAlertsController = lowStockAlertsController;
+const lowStockAlertsControllerInstance = lowStockAlertsController;
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => lowStockAlertsController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => lowStockAlertsControllerInstance.init().catch(() => {}));
 } else {
-  lowStockAlertsController.init().catch(() => {});
+  lowStockAlertsControllerInstance.init().catch(() => {});
 }
+
+window.lowStockAlertsController = lowStockAlertsControllerInstance;

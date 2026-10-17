@@ -1,243 +1,77 @@
 /**
  * My Classes Taught Controller
- * Page: my_classes_taught.php
- * Teacher-specific view of classes they teach
- * Integrates with AcademicContext for academic year awareness
+ * Teacher view of their assigned classes and subjects.
  */
-const MyClassesController = {
-  state: {
-    classes: [],
-    currentAcademicYear: null,
-    currentTerm: null,
-    stats: {
-      totalClasses: 0,
-      totalStudents: 0,
-      subjectsTeaching: 0,
-      lessonsPerWeek: 0
+const myClassesTaughtController = {
+  state: { referenceCache: null, classes: [], subjects: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "teacher-performance-reviews-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("My Classes Taught Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
   },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [classes, subjects] = await Promise.all([
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/teacher/my-classes'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/teacher/my-subjects'),
+      ]);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.renderClasses();
+      this.renderSubjects();
+    } catch (e) { console.error(e); }
+  },
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderClasses() {
+    const classes = this.state.classes;
+    const body = document.getElementById('mctClassesBody');
+    if (!classes.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No assigned classes.</td></tr>'; return; }
+    body.innerHTML = classes.map(c => `<tr>
+      <td class="small">${this.esc(c.name || '—')}</td>
+      <td class="small">${this.esc(c.stream_name || '—')}</td>
+      <td class="small text-center">${c.student_count || 0}</td>
+      <td class="small">${this.esc(c.subjects_taught || '—')}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="myClassesTaughtController.viewClass(${c.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderSubjects() {
+    const subjects = this.state.subjects;
+    const body = document.getElementById('mctSubjectsBody');
+    if (!subjects.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No assigned subjects.</td></tr>'; return; }
+    body.innerHTML = subjects.map(s => `<tr>
+      <td class="small">${this.esc(s.name || '—')}</td>
+      <td class="small">${this.esc(s.classes_taught || '—')}</td>
+      <td class="small text-center">${s.lessons_this_week || 0}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="myClassesTaughtController.viewSubject(${s.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
+
+  async viewClass(id) { /* open class detail */ },
+  async viewSubject(id) { /* open subject detail */ },
 
   async init() {
-    await window.AuthContext?.ready();
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
-    }
-    
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadMyClasses();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
-    
-    this.bindEvents();
-    await this.loadAcademicYears();
-    await this.loadMyClasses();
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("my_classes_taught", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
   },
-
-  bindEvents() {
-    // Academic year selector
-    const yearSelect = document.getElementById('academicYearSelect');
-    if (yearSelect) {
-      yearSelect.addEventListener('change', async (e) => {
-        this.state.currentAcademicYear = e.target.value;
-        if (window.AcademicContext) {
-          await window.AcademicContext.setCurrentAcademicYear(e.target.value);
-        }
-        await this.loadMyClasses();
-      });
-    }
-
-    // Term selector
-    const termSelect = document.getElementById('termSelect');
-    if (termSelect) {
-      termSelect.addEventListener('change', async (e) => {
-        this.state.currentTerm = e.target.value;
-        await this.loadMyClasses();
-      });
-    }
-  },
-
-  async loadAcademicYears() {
-    try {
-      const years = await window.API.academic.listYears() || [];
-      const yearSelect = document.getElementById('academicYearSelect');
-      if (yearSelect) {
-        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          yearSelect.value = this.state.currentAcademicYear;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading academic years:', error);
-    }
-  },
-
-  async loadMyClasses() {
-    try {
-      const user = window.AuthContext?.getUser();
-      if (!user || !user.id) {
-        this.showNotification('User not authenticated', 'error');
-        return;
-      }
-
-      const params = {
-        teacher_id: user.id
-      };
-      
-      if (this.state.currentAcademicYear) {
-        params.academic_year_id = this.state.currentAcademicYear;
-      }
-      
-      if (this.state.currentTerm) {
-        params.term_id = this.state.currentTerm;
-      }
-
-      this.state.classes = await window.API.academic.getMyClasses(params) || [];
-      this.renderClassesTable();
-      this.updateStats();
-    } catch (error) {
-      console.error('Error loading my classes:', error);
-      this.showNotification('Failed to load your classes', 'error');
-    }
-  },
-
-  renderClassesTable() {
-    const tbody = document.querySelector('#myClassesTable tbody');
-    if (!tbody) return;
-
-    if (this.state.classes.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No classes assigned to you</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = this.state.classes.map((classData, index) => {
-      const statusBadge = classData.status === 'active' 
-        ? '<span class="badge bg-success">Active</span>' 
-        : '<span class="badge bg-secondary">Inactive</span>';
-
-      return `
-        <tr>
-          <td>${index + 1}</td>
-          <td><strong>${this.escapeHtml(classData.class_name)}</strong></td>
-          <td>${this.escapeHtml(classData.stream_name || '--')}</td>
-          <td>${classData.student_count || 0}</td>
-          <td>${this.escapeHtml(classData.subject_name || '--')}</td>
-          <td>${classData.lessons_per_week || 0}</td>
-          <td>${this.escapeHtml(classData.class_teacher_name || '--')}</td>
-          <td>
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="MyClassesController.viewClassDetails(${classData.class_id})" title="View Details">
-                <i class="bi bi-eye"></i>
-              </button>
-              <button class="btn btn-outline-info" onclick="MyClassesController.viewStudents(${classData.class_id})" title="View Students">
-                <i class="bi bi-people"></i>
-              </button>
-              <button class="btn btn-outline-success" onclick="MyClassesController.viewTimetable(${classData.class_id})" title="View Timetable">
-                <i class="bi bi-calendar3"></i>
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-  },
-
-  updateStats() {
-    document.getElementById('totalClassesCount').textContent = this.state.classes.length;
-    document.getElementById('totalStudentsCount').textContent = this.state.classes.reduce((sum, c) => sum + (c.student_count || 0), 0);
-    document.getElementById('subjectsTeachingCount').textContent = new Set(this.state.classes.map(c => c.subject_id)).size;
-    document.getElementById('lessonsPerWeekCount').textContent = this.state.classes.reduce((sum, c) => sum + (c.lessons_per_week || 0), 0);
-  },
-
-  viewClassDetails(classId) {
-    // Navigate to class detail page
-    window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_classes&id=' + classId;
-  },
-
-  viewStudents(classId) {
-    // Navigate to students list filtered by class
-    window.location.href = (window.APP_BASE || '') + '/home.php?route=all_students&class_id=' + classId;
-  },
-
-  viewTimetable(classId) {
-    // Navigate to timetable page filtered by class
-    window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_timetable&class_id=' + classId;
-  },
-
-  exportClasses() {
-    if (!this.state.classes.length) return;
-    
-    const headers = ['#', 'Class', 'Stream', 'Students', 'Subject', 'Lessons/Week', 'Class Teacher', 'Status'];
-    const rows = this.state.classes.map((classData, i) => [
-      i + 1,
-      classData.class_name,
-      classData.stream_name || '--',
-      classData.student_count || 0,
-      classData.subject_name || '--',
-      classData.lessons_per_week || 0,
-      classData.class_teacher_name || '--',
-      classData.status || 'Active'
-    ]);
-    
-    if (window.PrintManager) {
-      window.PrintManager.exportToCSV({
-        headers,
-        rows
-      }, 'my_classes');
-    } else {
-      // Fallback
-      let csv = headers.join(',') + '\n' + 
-        rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
-      
-      KingswayFileLifecycle.exportText(csv, 'my_classes.csv', 'text/csv');
-    }
-  },
-
-  async refresh() {
-    await this.loadAcademicYears();
-    await this.loadMyClasses();
-  },
-
-  escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  },
-
-  showNotification(message, type = 'info') {
-    if (typeof showNotification === 'function') {
-      showNotification(message, type);
-    } else {
-      // Fallback notification
-      const container = document.querySelector('.container-fluid') || document.body;
-      const alert = document.createElement('div');
-      alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-      alert.style.zIndex = '9999';
-      alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-      container.appendChild(alert);
-      setTimeout(() => alert.remove(), 4000);
-    }
-  }
 };
 
-document.addEventListener('DOMContentLoaded', () => MyClassesController.init());
-
-window.MyClassesController = MyClassesController;
+window.myClassesTaughtController = myClassesTaughtController;
+document.addEventListener('DOMContentLoaded', () => myClassesTaughtController.init().catch(() => {}));

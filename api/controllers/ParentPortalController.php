@@ -177,7 +177,7 @@ class ParentPortalController extends BaseController
             return $this->unauthorized('Parent authentication is required');
         }
         try {
-            return $this->handleApiResponse((new ParentAiAssistantService())->ask($this->parent, $parentId, (string) ($data['question'] ?? '')));
+            return $this->handleApiResponse(($this->contract(ParentAiAssistantService::class))->ask($this->parent, $parentId, (string) ($data['question'] ?? '')));
         } catch (\DomainException $e) {
             return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {

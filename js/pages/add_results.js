@@ -32,6 +32,30 @@ const addResultsController = (() => {
     E: "danger",
   };
   let recentLog = [];
+  let referenceCache = null;
+
+  function resetSelect(sel) {
+    if (!sel) return;
+    const first = sel.querySelector("option");
+    if (first) {
+      sel.innerHTML = "";
+      sel.appendChild(first);
+    } else {
+      sel.innerHTML = '<option value="">--</option>';
+    }
+  }
+
+  // Aggregate the context-free dropdown references through one authorized
+  // Node view; the student roster stays a class-scoped direct read.
+  async function loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "add-results-references");
+      referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (e) {
+      console.warn("Add results reference Node view failed; using direct reads:", e);
+      referenceCache = null;
+    }
+  }
 
   function escapeHtml(str) {
     if (!str) return "";
@@ -52,7 +76,9 @@ const addResultsController = (() => {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+    await loadReferencesComposed();
     await Promise.all([loadYears(), loadClasses(), loadSubjects(), loadTerms(), loadAssessmentTypes()]);
+    window.APIRealtime?.register?.("add_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadYears(), loadClasses(), loadSubjects(), loadTerms(), loadAssessmentTypes()]); } }, ["academic"]);
     document
       .getElementById("addResultForm")
       .addEventListener("submit", handleSubmit);
@@ -61,7 +87,8 @@ const addResultsController = (() => {
   async function loadYears() {
     try {
       const sel = document.getElementById("yearSelect");
-      const res = await API.academic.getAllAcademicYears();
+      resetSelect(sel);
+      const res = referenceCache?.years ?? (await API.academic.getAllAcademicYears());
       const years = res?.data || res || [];
       years.forEach((y) => {
         const o = document.createElement("option");
@@ -77,7 +104,8 @@ const addResultsController = (() => {
   async function loadClasses() {
     try {
       const sel = document.getElementById("classSelect");
-      const res = await API.academic.listClasses();
+      resetSelect(sel);
+      const res = referenceCache?.classes ?? (await API.academic.listClasses());
       const cls = res?.data || res || [];
       cls.forEach((c) => {
         const o = document.createElement("option");
@@ -93,7 +121,8 @@ const addResultsController = (() => {
   async function loadSubjects() {
     try {
       const sel = document.getElementById("subjectSelect");
-      const res = await API.academic.listLearningAreas();
+      resetSelect(sel);
+      const res = referenceCache?.subjects ?? (await API.academic.listLearningAreas());
       const subs = res?.data || res || [];
       subs.forEach((s) => {
         const o = document.createElement("option");
@@ -109,9 +138,10 @@ const addResultsController = (() => {
   async function loadTerms() {
     const sel = document.getElementById("termSelect");
     if (!sel) return;
+    resetSelect(sel);
     try {
-      if (API?.academic?.getTerms) {
-        const res = await API.academic.getTerms();
+      if (API?.academic?.getTerms || referenceCache?.terms !== undefined) {
+        const res = referenceCache?.terms ?? (await API.academic.getTerms());
         const terms = res?.data || res || [];
         const termList = Array.isArray(terms) ? terms : terms.terms || [];
         if (termList.length) {
@@ -138,9 +168,10 @@ const addResultsController = (() => {
   async function loadAssessmentTypes() {
     const sel = document.getElementById("assessmentType");
     if (!sel) return;
+    resetSelect(sel);
     try {
-      if (API?.academic?.getAssessmentTypes) {
-        const res = await API.academic.getAssessmentTypes();
+      if (API?.academic?.getAssessmentTypes || referenceCache?.assessmentTypes !== undefined) {
+        const res = referenceCache?.assessmentTypes ?? (await API.academic.getAssessmentTypes());
         const types = res?.data || res || [];
         const typeList = Array.isArray(types) ? types : types.assessment_types || [];
         if (typeList.length) {

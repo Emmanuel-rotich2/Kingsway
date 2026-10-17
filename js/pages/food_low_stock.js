@@ -1,13 +1,9 @@
-/**
- * food_low_stock.js — Food Low Stock Controller (standalone page).
- * Food items flagged low / reorder / out of stock.
- */
 const foodLowStockController = {
-  state: { items: [] },
+  state: { items: [], referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.data || r?.items || r || []); },
 
@@ -25,11 +21,22 @@ const foodLowStockController = {
     return 'bg-success';
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "food-low-stock-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Low Stock Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load() {
     const body = document.getElementById('flsBody');
     body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/catering/food-stock', null, { low_stock: '1', limit: 200 });
+      const cache = this.state.referenceCache;
+      const r = cache?.items !== undefined ? cache.items : await this.API('GET', '/catering/food-stock', null, { low_stock: '1', limit: 200 });
       this.state.items = this.norm(r);
       this.render();
     } catch (e) { body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
@@ -67,16 +74,36 @@ const foodLowStockController = {
     }).join('');
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "food-low-stock-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Low Stock Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("food_low_stock", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory", "catering"]);
   },
 };
 
-window.foodLowStockController = foodLowStockController;
+const foodLowStockControllerInstance = foodLowStockController;
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodLowStockController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => foodLowStockControllerInstance.init().catch(() => {}));
 } else {
-  foodLowStockController.init().catch(() => {});
+  foodLowStockControllerInstance.init().catch(() => {});
 }
+
+window.foodLowStockController = foodLowStockControllerInstance;

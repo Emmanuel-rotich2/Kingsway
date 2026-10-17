@@ -47,14 +47,8 @@ async function checkPHP(config) {
   try {
     const { getInternalClient } = await import('../clients/internal.js');
     const internalClient = getInternalClient();
-    // Liveness + worker-secret round-trip probe: the RBAC read proxy answers
-    // reachability and secret auth without needing a live operator. Any DB is
-    // offline for the whole stack, so a failed probe marks php unhealthy.
-    const body = await internalClient.post('php', '/node/internal-read', {
-      view: 'system/health',
-      operator_id: 1,
-      input: {},
-    }, { timeout: 5000 });
+    // Narrow worker-secret liveness probe: this endpoint returns no school data.
+    const body = await internalClient.get('php', '/node/internal-health', { timeoutMs: 5000 });
     if (body?.success !== true) {
       const detail = typeof body === 'string' ? body.slice(0, 160) : JSON.stringify(body).slice(0, 160);
       return { healthy: false, component: 'php', error: detail || 'non-success PHP read probe' };
@@ -69,7 +63,7 @@ async function checkPython(config) {
   try {
     const { getInternalClient } = await import('../clients/internal.js');
     const internalClient = getInternalClient();
-    const res = await internalClient.get('python', '/health', {}, { timeout: 5000 });
+    const res = await internalClient.get('python', '/healthz', { timeoutMs: 5000 });
     return { healthy: res?.status === 'ok', component: 'python' };
   } catch (e) {
     return { healthy: false, component: 'python', error: e.message };

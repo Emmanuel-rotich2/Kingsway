@@ -189,6 +189,14 @@ class JobHandlerRegistry
             'automation.run' => static function (array $payload, PDO $pdo): void {
                 (new \App\API\Services\automations\AutomationArtifacts())->execute($payload, $pdo);
             },
+            // Bulk messaging (TALKSASA) resilience path. Python is the primary
+            // executor; when it is disabled or its lease is recovered, this
+            // handler sends the same staged batch through the gateways (which
+            // still prefer the Python relay per call, then the stream
+            // transport) and applies the per-recipient outcomes.
+            'communications.sms_batch' => static function (array $payload, PDO $pdo): void {
+                (new \App\API\Services\sms\SmsBatchService($pdo))->runPhpFallback($payload, $pdo);
+            },
             // Resumable bulk-document pipeline (BATCH lane via the 'print.'
             // prefix). Each invocation performs one bounded step and re-enqueues
             // itself until the batch is finalised, so 1000+ printable items

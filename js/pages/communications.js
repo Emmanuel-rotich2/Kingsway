@@ -1,545 +1,371 @@
 /**
- * Communications — Internal Messages Controller
+ * Messages Inbox Controller
  *
- * Two-pane internal messaging inbox for system users. Conversations live in
- * the normalised internal_messages schema and are exposed by:
- *   GET  /communications/conversations            → list my conversations
- *   GET  /communications/conversations/{id}       → thread (marks read)
- *   POST /communications/conversations            → create + send first message
- *   POST /communications/conversations/{id}       → reply
- *   GET  /communications/recipients?q={term}      → search users to message
+ * Internal user-to-user messaging for the messages_inbox.php two-pane UI.
+ * Backend (CommunicationsController):
+ *   GET  /communications/conversations        -> listConversations
+ *   GET  /communications/conversations/{id}   -> thread (marks read)
+ *   POST /communications/conversations        -> create + first message
+ *   POST /communications/conversations/{id}   -> reply
+ *   GET  /communications/recipients?q=        -> recipient search
+ *
+ * All dynamic content is escaped before injection (XSS-safe).
  */
-
-const communicationsController = {
+const MessagesInboxController = {
+  API: window.API,
   conversations: [],
-  filteredConversations: [],
-  activeConversationId: null,
-  activeConversation: null,
-  messages: [],
+  activeId: null,
   filter: "all",
   search: "",
+  recipients: [],
   selectedRecipients: [],
-  recipientResults: [],
-  initialized: false,
+  recipientTimer: null,
 
-  // ==========================================================================
-  // Lifecycle
-  // ==========================================================================
-  init: async function () {
-    if (this.initialized) return;
+  esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  },
+
+  initials(name) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+  },
+
+  avatar(name, extra = "") {
+    const palette = ["kw-av-green", "kw-av-blue", "kw-av-gold", "kw-av-purple", "kw-av-teal", "kw-av-orange"];
+    const key = String(name || "?").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    const cls = palette[key % palette.length];
+    return `<span class="kw-avatar ${cls}${extra ? " " + extra : ""}">${this.esc(this.initials(name))}</span>`;
+  },
+
+  async init() {
+    if (!document.getElementById("kwMessaging")) return;
     if (window.AuthContext?.ready) await window.AuthContext.ready();
-    if (!AuthContext.isAuthenticated()) {
+    if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    this.initialized = true;
-    this.setupEventListeners();
+    this.bindEvents();
+    this.subscribeRealtime();
     await this.loadConversations();
-    const requestedConversation = parseInt(new URLSearchParams(window.location.search).get("conversation_id"), 10);
-    if (requestedConversation > 0) {
-      this.openConversation(requestedConversation);
-    }
+    const initial = Number(new URLSearchParams(window.location.search).get("conversation_id") || 0);
+    if (initial) this.openThread(initial);
   },
 
-  setupEventListeners: function () {
-    const root = document.getElementById("kwMessaging");
-    if (!root) return;
+  bindEvents() {
+    const startCompose = () => this.openCompose();
+    document.getElementById("btnNewMessage")?.addEventListener("click", startCompose);
+    document.querySelectorAll("[data-start-compose]").forEach((el) => el.addEventListener("click", startCompose));
+    document.querySelectorAll("[data-cancel-compose]").forEach((el) => el.addEventListener("click", () => this.closeCompose()));
 
-    document.getElementById("btnNewMessage")?.addEventListener("click", () => this.startCompose());
-    document.getElementById("btnSendMessage")?.addEventListener("click", () => this.sendNewMessage());
+    document.getElementById("msgSearch")?.addEventListener("input", (e) => {
+      this.search = e.target.value.trim();
+      this.renderList();
+    });
+
+    document.querySelectorAll("#msgFilters .kw-msg-filter").forEach((el) => {
+      el.addEventListener("click", () => {
+        document.querySelectorAll("#msgFilters .kw-msg-filter").forEach((b) => b.classList.remove("active"));
+        el.classList.add("active");
+        this.filter = el.dataset.filter || "all";
+        this.renderList();
+      });
+    });
+
     document.getElementById("btnSendReply")?.addEventListener("click", () => this.sendReply());
     document.getElementById("replyBox")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        this.sendReply();
-      }
-    });
-    document.getElementById("msgSearch")?.addEventListener("input", (e) => {
-      this.search = e.target.value.trim().toLowerCase();
-      this.applyFilters();
-    });
-    document.getElementById("newRecipientSearch")?.addEventListener("input", (e) => {
-      clearTimeout(this._recipientDebounce);
-      this._recipientDebounce = setTimeout(() => this.searchRecipients(e.target.value), 300);
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) this.sendReply();
     });
 
-    root.querySelectorAll(".kw-msg-filter").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        this.filter = btn.dataset.filter;
-        root.querySelectorAll(".kw-msg-filter").forEach((b) => b.classList.toggle("active", b === btn));
-        this.applyFilters();
-      });
+    const search = document.getElementById("newRecipientSearch");
+    search?.addEventListener("input", () => {
+      clearTimeout(this.recipientTimer);
+      const term = search.value.trim();
+      this.recipientTimer = setTimeout(() => this.searchRecipients(term), 220);
+    });
+    search?.addEventListener("focus", () => {
+      if (!this.recipients.length) this.searchRecipients(search.value.trim());
+    });
+    document.addEventListener("click", (e) => {
+      const results = document.getElementById("recipientResults");
+      if (results && !results.contains(e.target) && e.target !== search) results.classList.add("d-none");
     });
 
-    root.querySelectorAll("[data-start-compose]").forEach((btn) => {
-      btn.addEventListener("click", () => this.startCompose());
-    });
-    root.querySelector("[data-cancel-compose]")?.addEventListener("click", () => this.cancelCompose());
-
-    root.querySelector("#conversationList")?.addEventListener("click", (e) => {
-      const item = e.target.closest("[data-conversation-id]");
-      if (item) this.openConversation(parseInt(item.dataset.conversationId, 10));
-    });
-
-    root.querySelector("#recipientResults")?.addEventListener("click", (e) => {
-      const item = e.target.closest("[data-recipient-id]");
-      if (item) this.addRecipient(parseInt(item.dataset.recipientId, 10), item.dataset.name);
-    });
-
-    root.querySelector("#selectedRecipients")?.addEventListener("click", (e) => {
-      const chip = e.target.closest("[data-remove-recipient]");
-      if (chip) this.removeRecipient(parseInt(chip.dataset.removeRecipient, 10));
-    });
+    document.getElementById("btnSendMessage")?.addEventListener("click", () => this.sendMessage());
   },
 
-  // ==========================================================================
-  // Conversation list
-  // ==========================================================================
-  loadConversations: async function () {
-    const listEl = document.getElementById("conversationList");
-    if (listEl) {
-      listEl.innerHTML =
-        '<div class="kw-msg-loading text-center py-5"><div class="spinner-border text-success" role="status"></div></div>';
+  subscribeRealtime() {
+    window.addEventListener("kingsway:data-mutated", (e) => this.realtimeHandler(e));
+  },
+
+  realtimeHandler(e) {
+    const detail = e.detail || {};
+    const scope = String(detail.scope || "").toLowerCase();
+    const targets = Array.isArray(detail.payload?.targets) ? detail.payload.targets : [];
+    const relevant = !scope || scope === "all" || scope.startsWith("users:") ||
+      scope.includes("conversation") || targets.includes("conversations");
+    if (!relevant) return;
+    this.loadConversations();
+    const convId = Number(detail.payload?.conversation_id || 0);
+    if (this.activeId && convId && convId === Number(this.activeId)) {
+      this.openThread(this.activeId);
     }
+  },
+
+  async loadConversations() {
     try {
-      const response = await callAPI("/communications/conversations", "GET");
-      this.conversations = Array.isArray(response?.data)
-        ? response.data
-        : Array.isArray(response)
-        ? response
-        : [];
-      this.applyFilters();
+      const data = await this.API.communications.getConversations();
+      this.conversations = Array.isArray(data) ? data : (data?.data || []);
     } catch (error) {
-      console.error("Error loading conversations:", error);
-      if (listEl) {
-        listEl.innerHTML =
-          '<div class="alert alert-danger m-3">Failed to load conversations. Please refresh.</div>';
+      console.error("Failed to load conversations", error);
+      this.conversations = [];
+    }
+    this.renderList();
+  },
+
+  visibleConversations() {
+    const term = this.search.toLowerCase();
+    return this.conversations.filter((c) => {
+      if (this.filter === "unread" && Number(c.unread_count || 0) < 1) return false;
+      if (this.filter === "group" && c.conversation_type !== "group") return false;
+      if (term) {
+        const hay = `${c.title || ""} ${c.participant_names || ""} ${c.last_message || ""}`.toLowerCase();
+        if (!hay.includes(term)) return false;
       }
-      showNotification("Failed to load conversations", "error");
-    }
+      return true;
+    });
   },
 
-  applyFilters: function () {
-    let list = this.conversations;
-    if (this.filter === "unread") {
-      list = list.filter((c) => parseInt(c.unread_count || 0, 10) > 0);
-    } else if (this.filter === "group") {
-      list = list.filter((c) => c.conversation_type && c.conversation_type !== "one_on_one");
-    }
-    if (this.search) {
-      const term = this.search;
-      list = list.filter((c) =>
-        `${c.title || ""} ${c.participant_names || ""} ${c.last_sender_name || ""} ${c.last_message || ""}`
-          .toLowerCase()
-          .includes(term)
-      );
-    }
-    this.filteredConversations = list;
-    this.renderConversationList();
-  },
-
-  renderConversationList: function () {
-    const listEl = document.getElementById("conversationList");
-    if (!listEl) return;
-
-    if (this.filteredConversations.length === 0) {
-      listEl.innerHTML =
-        '<div class="kw-msg-empty-list">' +
-        '<i class="bi bi-inbox"></i>' +
-        "<p>No conversations found.</p>" +
-        "</div>";
+  renderList() {
+    const list = document.getElementById("conversationList");
+    if (!list) return;
+    const rows = this.visibleConversations();
+    if (!rows.length) {
+      list.innerHTML = '<div class="kw-msg-empty-list"><i class="bi bi-chat-square-dots"></i><span>No conversations.</span></div>';
       return;
     }
-
-    listEl.innerHTML = this.filteredConversations
-      .map((c) => {
-        const id = parseInt(c.id, 10);
-        const active = id === this.activeConversationId ? " active" : "";
-        const unread = parseInt(c.unread_count || 0, 10);
-        const name = this.escapeHtml(c.participant_names || c.title || "Conversation");
-        const preview = this.escapeHtml(this.truncate(c.last_message || "No messages yet", 80));
-        const time = this.formatListTime(c.last_message_at || c.created_at);
-        const sender = c.last_sender_name ? this.escapeHtml(c.last_sender_name) + ": " : "";
-        const isGroup = c.conversation_type && c.conversation_type !== "one_on_one";
-        const initials = this.avatarInitials(c.participant_names || c.title || "?");
-        const colorClass = this.avatarColor(initials);
-        const unreadBadge = unread > 0
-          ? `<span class="kw-msg-unread">${unread > 99 ? "99+" : unread}</span>`
-          : "";
-        const groupBadge = isGroup
-          ? '<span class="badge rounded-pill kw-badge-group">' + c.conversation_type + "</span>"
-          : "";
-
-        return (
-          '<div class="kw-msg-item' + active + '" data-conversation-id="' + id + '" role="button" tabindex="0">' +
-          '<span class="kw-avatar ' + colorClass + '">' + this.escapeHtml(initials) + "</span>" +
-          '<div class="kw-msg-item-body">' +
-          '<div class="kw-msg-item-top">' +
-          '<span class="kw-msg-item-name">' + name + "</span>" +
-          '<span class="kw-msg-item-time">' + time + "</span>" +
-          "</div>" +
-          '<div class="kw-msg-item-bottom">' +
-          '<span class="kw-msg-item-preview">' + sender + preview + "</span>" +
-          '<span class="kw-msg-item-meta">' + groupBadge + unreadBadge + "</span>" +
-          "</div>" +
-          "</div>" +
-          "</div>"
-        );
-      })
-      .join("");
+    list.innerHTML = rows.map((c) => {
+      const unread = Number(c.unread_count || 0);
+      const title = c.title || c.participant_names || "Conversation";
+      const active = Number(c.id) === Number(this.activeId) ? " active" : "";
+      const preview = String(c.last_message || "").replace(/\s+/g, " ").slice(0, 80);
+      return `<div class="kw-msg-item${active}" data-conversation="${c.id}">
+        ${this.avatar(title)}
+        <div class="kw-msg-item-body">
+          <div class="kw-msg-item-top">
+            <span class="kw-msg-item-name">${this.esc(title)}</span>
+            <span class="kw-msg-item-time">${this.esc(this.fmtWhen(c.last_message_at || c.updated_at || c.created_at))}</span>
+          </div>
+          <div class="kw-msg-item-bottom">
+            <span class="kw-msg-item-preview">${this.esc(preview || "No messages yet")}</span>
+            <span class="kw-msg-item-meta">${unread > 0 ? `<span class="kw-msg-unread">${unread}</span>` : ""}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+    list.querySelectorAll("[data-conversation]").forEach((el) => {
+      el.addEventListener("click", () => this.openThread(el.getAttribute("data-conversation")));
+    });
   },
 
-  // ==========================================================================
-  // Thread
-  // ==========================================================================
-  openConversation: async function (id) {
-    this.activeConversationId = id;
-    this.showView("thread");
-    this.renderThreadLoading();
+  showPane(name) {
+    const map = { empty: "threadEmpty", thread: "threadView", compose: "composeView" };
+    Object.values(map).forEach((id) => document.getElementById(id)?.classList.add("d-none"));
+    document.getElementById(map[name])?.classList.remove("d-none");
+  },
+
+  async openThread(id) {
+    this.activeId = id;
+    this.closeCompose(false);
+    this.renderList();
+    this.showPane("thread");
+    const scroll = document.getElementById("threadMessages");
+    if (scroll) scroll.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm text-success"></div></div>';
     try {
-      const response = await callAPI("/communications/conversations/" + id, "GET");
-      const data = response?.data || response || {};
-      this.activeConversation = data.conversation || {};
-      this.messages = Array.isArray(data.messages) ? data.messages : [];
-      this.renderThread();
-      this.markConversationReadLocally(id);
-      this.scrollThreadToBottom();
+      const data = await this.API.communications.getConversation(id);
+      const conv = data?.conversation || {};
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      const titleEl = document.getElementById("threadTitle");
+      const partEl = document.getElementById("threadParticipants");
+      const badge = document.getElementById("threadGroupBadge");
+      if (titleEl) titleEl.textContent = conv.title || conv.participant_names || "Conversation";
+      if (partEl) partEl.textContent = conv.participant_names || "";
+      if (badge) badge.classList.toggle("d-none", conv.conversation_type !== "group");
+      this.renderThread(messages);
     } catch (error) {
-      console.error("Error loading conversation:", error);
-      const el = document.getElementById("threadMessages");
-      if (el) el.innerHTML = '<div class="alert alert-danger m-3">Failed to load conversation.</div>';
-      showNotification("Failed to load conversation", "error");
+      console.error("Failed to open conversation", error);
+      const scroll = document.getElementById("threadMessages");
+      if (scroll) scroll.innerHTML = '<div class="text-danger text-center py-4">Unable to load conversation.</div>';
+      this.notify(error.message || "Unable to load conversation", "error");
     }
   },
 
-  renderThreadLoading: function () {
-    const el = document.getElementById("threadMessages");
-    if (el) {
-      el.innerHTML =
-        '<div class="text-center py-5"><div class="spinner-border text-success" role="status"></div></div>';
-    }
-  },
-
-  renderThread: function () {
-    const titleEl = document.getElementById("threadTitle");
-    const partsEl = document.getElementById("threadParticipants");
-    const msgsEl = document.getElementById("threadMessages");
-    if (!titleEl || !partsEl || !msgsEl) return;
-
-    const conv = this.activeConversation || {};
-    titleEl.textContent = conv.title || "Conversation";
-
-    const groupBadge = document.getElementById("threadGroupBadge");
-    if (groupBadge) {
-      const isGroup = conv.conversation_type && conv.conversation_type !== "one_on_one";
-      groupBadge.classList.toggle("d-none", !isGroup);
-      if (isGroup) groupBadge.textContent = conv.conversation_type;
-    }
-    partsEl.textContent = conv.participant_names || "";
-
-    if (this.messages.length === 0) {
-      msgsEl.innerHTML =
-        '<div class="kw-msg-empty-list py-5"><i class="bi bi-chat"></i><p>No messages yet. Say hello!</p></div>';
+  renderThread(messages) {
+    const scroll = document.getElementById("threadMessages");
+    if (!scroll) return;
+    if (!messages.length) {
+      scroll.innerHTML = '<div class="text-center text-muted py-4">No messages yet. Say hello.</div>';
       return;
     }
-
-    msgsEl.innerHTML = this.messages
-      .map((m) => {
-        const isMine = parseInt(m.is_mine || 0, 10) === 1;
-        const body = this.escapeHtml(m.message_body || m.message || "");
-        const bodyHtml = this.linkify(body);
-        const sender = this.escapeHtml(m.sender_name || (isMine ? "You" : "Unknown"));
-        const time = this.formatBubbleTime(m.created_at);
-        const readIcon = isMine
-          ? m.read_at
-            ? '<i class="bi bi-check2-all kw-msg-read-icon" title="Read"></i>'
-            : '<i class="bi bi-check2 kw-msg-read-icon" title="Sent"></i>'
-          : "";
-        const priorityDot =
-          m.priority === "high" || m.priority === "urgent"
-            ? '<span class="kw-msg-priority" title="' + this.escapeHtml(m.priority) + '">' +
-              (m.priority === "urgent" ? "!!" : "!") +
-              "</span>"
-            : "";
-
-        return (
-          '<div class="kw-msg-row ' + (isMine ? "mine" : "theirs") + '">' +
-          '<div class="kw-msg-bubble">' +
-          '<div class="kw-msg-bubble-meta">' +
-          priorityDot +
-          (isMine ? "" : '<span class="kw-msg-bubble-sender">' + sender + "</span>") +
-          "</div>" +
-          '<div class="kw-msg-bubble-text">' + bodyHtml + "</div>" +
-          '<div class="kw-msg-bubble-time">' + time + readIcon + "</div>" +
-          "</div>" +
-          "</div>"
-        );
-      })
-      .join("");
+    scroll.innerHTML = messages.map((m) => {
+      const mine = Number(m.is_mine) === 1;
+      const sender = mine ? "You" : (m.sender_name || "Unknown");
+      const priority = m.priority && m.priority !== "normal"
+        ? `<span class="kw-msg-priority">${this.esc(m.priority)}</span>` : "";
+      const subject = m.subject ? `<div class="fw-semibold small mb-1">${this.esc(m.subject)}</div>` : "";
+      return `<div class="kw-msg-row ${mine ? "mine" : "theirs"}">
+        <div class="kw-msg-bubble">
+          <div class="kw-msg-bubble-meta"><span class="kw-msg-bubble-sender">${this.esc(sender)}</span></div>
+          ${subject}
+          <div class="kw-msg-bubble-text">${this.esc(m.message_body || "")}</div>
+          <div class="kw-msg-bubble-time">${this.esc(this.fmtWhen(m.created_at))}${priority}</div>
+        </div>
+      </div>`;
+    }).join("");
+    scroll.scrollTop = scroll.scrollHeight;
   },
 
-  markConversationReadLocally: function (id) {
-    const conv = this.conversations.find((c) => parseInt(c.id, 10) === id);
-    if (conv) conv.unread_count = 0;
-    this.renderConversationList();
-  },
-
-  sendReply: async function () {
+  async sendReply() {
     const box = document.getElementById("replyBox");
-    const text = (box?.value || "").trim();
-    if (!text || this.activeConversationId === null) return;
-    const id = this.activeConversationId;
+    if (!box || !this.activeId) return;
+    const message = box.value.trim();
+    if (!message) { this.notify("Type a reply first", "warning"); return; }
+    const btn = document.getElementById("btnSendReply");
+    if (btn) btn.disabled = true;
     try {
+      await this.API.communications.replyConversation(this.activeId, { message });
       box.value = "";
-      await callAPI("/communications/conversations/" + id, "POST", { message: text });
-      await this.openConversation(id);
+      await this.openThread(this.activeId);
+      this.loadConversations();
     } catch (error) {
-      console.error("Error sending reply:", error);
-      box.value = text;
-      showNotification("Failed to send reply", "error");
-    }
-  },
-
-  scrollThreadToBottom: function () {
-    const el = document.getElementById("threadMessages");
-    if (el) el.scrollTop = el.scrollHeight;
-  },
-
-  // ==========================================================================
-  // Compose
-  // ==========================================================================
-  startCompose: function () {
-    this.activeConversationId = null;
-    this.selectedRecipients = [];
-    this.recipientResults = [];
-    this.showView("compose");
-    document.getElementById("selectedRecipients").innerHTML = "";
-    document.getElementById("newRecipientSearch").value = "";
-    document.getElementById("newSubject").value = "";
-    document.getElementById("newMessage").value = "";
-    document.getElementById("newPriority").value = "normal";
-    document.getElementById("newRecipientSearch").focus();
-  },
-
-  cancelCompose: function () {
-    this.showView("empty");
-  },
-
-  searchRecipients: async function (term) {
-    const panel = document.getElementById("recipientResults");
-    if (!panel) return;
-    if (!term.trim()) {
-      panel.classList.add("d-none");
-      return;
-    }
-    try {
-      const response = await callAPI("/communications/recipients", "GET", null, { q: term });
-      this.recipientResults = Array.isArray(response?.data)
-        ? response.data
-        : Array.isArray(response)
-        ? response
-        : [];
-      const selected = new Set(this.selectedRecipients.map((r) => r.id));
-      const available = this.recipientResults.filter((r) => !selected.has(parseInt(r.id, 10)));
-      if (available.length === 0) {
-        panel.innerHTML = '<div class="kw-msg-recipient-empty">No matching users</div>';
-      } else {
-        panel.innerHTML = available
-          .map(
-            (r) =>
-              '<button type="button" class="kw-msg-recipient-item" data-recipient-id="' +
-              parseInt(r.id, 10) +
-              '" data-name="' +
-              this.escapeHtml(r.full_name || r.username) +
-              '">' +
-              '<span class="kw-avatar ' + this.avatarColor(r.full_name || r.username) + '">' +
-              this.escapeHtml(this.avatarInitials(r.full_name || r.username)) +
-              "</span>" +
-              '<span class="kw-msg-recipient-item-name">' +
-              this.escapeHtml(r.full_name || r.username) +
-              "</span>" +
-              '<span class="kw-msg-recipient-item-role">' +
-              this.escapeHtml(r.roles || "") +
-              "</span>" +
-              "</button>"
-          )
-          .join("");
-      }
-      panel.classList.remove("d-none");
-    } catch (error) {
-      console.error("Error searching recipients:", error);
-      panel.classList.add("d-none");
-    }
-  },
-
-  addRecipient: function (id, name) {
-    if (this.selectedRecipients.some((r) => r.id === id)) return;
-    this.selectedRecipients.push({ id, name });
-    document.getElementById("recipientResults").classList.add("d-none");
-    document.getElementById("newRecipientSearch").value = "";
-    this.renderSelectedRecipients();
-  },
-
-  removeRecipient: function (id) {
-    this.selectedRecipients = this.selectedRecipients.filter((r) => r.id !== id);
-    this.renderSelectedRecipients();
-  },
-
-  renderSelectedRecipients: function () {
-    const el = document.getElementById("selectedRecipients");
-    if (!el) return;
-    el.innerHTML = this.selectedRecipients
-      .map(
-        (r) =>
-          '<span class="kw-msg-chip">' +
-          this.escapeHtml(r.name) +
-          '<button type="button" class="kw-msg-chip-x" data-remove-recipient="' +
-          r.id +
-          '" aria-label="Remove ' +
-          this.escapeHtml(r.name) +
-          '">&times;</button>' +
-          "</span>"
-      )
-      .join("");
-  },
-
-  sendNewMessage: async function () {
-    const recipients = this.selectedRecipients.map((r) => r.id);
-    const subject = (document.getElementById("newSubject").value || "").trim();
-    const message = (document.getElementById("newMessage").value || "").trim();
-    const priority = document.getElementById("newPriority").value;
-
-    if (recipients.length === 0) {
-      showNotification("Select at least one recipient", "warning");
-      return;
-    }
-    if (!message) {
-      showNotification("Type a message", "warning");
-      return;
-    }
-
-    const sendBtn = document.getElementById("btnSendMessage");
-    if (sendBtn) sendBtn.disabled = true;
-    try {
-      const response = await callAPI("/communications/conversations", "POST", {
-        recipients,
-        subject,
-        message,
-        priority,
-      });
-      const data = response?.data || response || {};
-      const conversationId = data.conversation?.id
-        ? parseInt(data.conversation.id, 10)
-        : this.findNewConversationId();
-      showNotification("Message sent", "success");
-      this.cancelCompose();
-      await this.loadConversations();
-      if (conversationId) this.openConversation(conversationId);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      showNotification("Failed to send message: " + (error.message || "Unknown error"), "error");
+      console.error(error);
+      this.notify(error.message || "Reply failed", "error");
     } finally {
-      if (sendBtn) sendBtn.disabled = false;
+      if (btn) btn.disabled = false;
     }
   },
 
-  findNewConversationId: function () {
-    // The created conversation is normally the newest in the freshly-loaded list.
-    const ids = this.conversations.map((c) => parseInt(c.id, 10));
-    if (ids.length > 0) return Math.max.apply(null, ids);
-    return null;
+  openCompose() {
+    this.selectedRecipients = [];
+    const form = document.getElementById("composeForm");
+    if (form) form.reset();
+    const search = document.getElementById("newRecipientSearch");
+    if (search) { search.value = ""; }
+    const results = document.getElementById("recipientResults");
+    if (results) results.classList.add("d-none");
+    this.renderSelectedRecipients();
+    this.showPane("compose");
   },
 
-  showView: function (view) {
-    const empty = document.getElementById("threadEmpty");
-    const thread = document.getElementById("threadView");
-    const compose = document.getElementById("composeView");
-    if (empty) empty.classList.toggle("d-none", view !== "empty");
-    if (thread) thread.classList.toggle("d-none", view !== "thread");
-    if (compose) compose.classList.toggle("d-none", view !== "compose");
-    if (view !== "thread") this.activeConversationId = null;
+  closeCompose(showEmpty = true) {
+    document.getElementById("composeView")?.classList.add("d-none");
+    if (showEmpty && !this.activeId) this.showPane("empty");
   },
 
-  // ==========================================================================
-  // Utilities
-  // ==========================================================================
-  escapeHtml: function (value) {
-    if (value === null || value === undefined) return "";
-    return String(value).replace(/[&<>"']/g, (m) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    })[m]);
-  },
-
-  truncate: function (value, length) {
-    const s = String(value || "");
-    return s.length > length ? s.slice(0, length - 1) + "\u2026" : s;
-  },
-
-  linkify: function (escaped) {
-    // Input is already HTML-escaped. Wrap http(s) links in safe anchors.
-    return escaped.replace(
-      /(https?:\/\/[^\s<]+)/g,
-      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-  },
-
-  avatarInitials: function (name) {
-    const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return "?";
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  },
-
-  avatarColor: function (name) {
-    const palette = ["kw-av-green", "kw-av-blue", "kw-av-gold", "kw-av-purple", "kw-av-teal", "kw-av-orange"];
-    let hash = 0;
-    for (let i = 0; i < String(name).length; i++) {
-      hash = (hash * 31 + String(name).charCodeAt(i)) >>> 0;
+  async searchRecipients(term) {
+    try {
+      const data = await this.API.communications.searchMessageRecipients(term || "");
+      this.recipients = Array.isArray(data) ? data : (data?.data || []);
+    } catch (error) {
+      console.error("Recipient search failed", error);
+      this.recipients = [];
     }
-    return palette[hash % palette.length];
+    this.renderRecipientResults();
   },
 
-  formatListTime: function (value) {
+  renderRecipientResults() {
+    const box = document.getElementById("recipientResults");
+    if (!box) return;
+    const chosen = new Set(this.selectedRecipients.map((r) => Number(r.id)));
+    const rows = this.recipients.filter((r) => !chosen.has(Number(r.id)));
+    if (!rows.length) {
+      box.innerHTML = '<div class="kw-msg-recipient-empty">No matches.</div>';
+      box.classList.remove("d-none");
+      return;
+    }
+    box.innerHTML = rows.map((r) => `<button type="button" class="kw-msg-recipient-item" data-recipient="${r.id}">
+      ${this.avatar(r.full_name || r.username)}
+      <span class="kw-msg-recipient-item-name">${this.esc(r.full_name || r.username || "User")}</span>
+      <span class="kw-msg-recipient-item-role">${this.esc(r.roles || r.email || "")}</span>
+    </button>`).join("");
+    box.classList.remove("d-none");
+    box.querySelectorAll("[data-recipient]").forEach((el) => {
+      el.addEventListener("click", () => this.addRecipient(Number(el.getAttribute("data-recipient"))));
+    });
+  },
+
+  addRecipient(id) {
+    const found = this.recipients.find((r) => Number(r.id) === Number(id));
+    if (!found || this.selectedRecipients.some((r) => Number(r.id) === Number(id))) return;
+    this.selectedRecipients.push(found);
+    const search = document.getElementById("newRecipientSearch");
+    if (search) { search.value = ""; }
+    document.getElementById("recipientResults")?.classList.add("d-none");
+    this.renderSelectedRecipients();
+  },
+
+  removeRecipient(id) {
+    this.selectedRecipients = this.selectedRecipients.filter((r) => Number(r.id) !== Number(id));
+    this.renderSelectedRecipients();
+  },
+
+  renderSelectedRecipients() {
+    const box = document.getElementById("selectedRecipients");
+    if (!box) return;
+    box.innerHTML = this.selectedRecipients.map((r) => `<span class="badge bg-success me-1 mb-1" data-chip="${r.id}">
+      ${this.esc(r.full_name || r.username || "User")}
+      <button type="button" class="btn-close btn-close-white ms-1" style="font-size:.6rem" aria-label="Remove"></button>
+    </span>`).join("");
+    box.querySelectorAll("[data-chip]").forEach((el) => {
+      el.querySelector("button")?.addEventListener("click", () => this.removeRecipient(Number(el.getAttribute("data-chip"))));
+    });
+  },
+
+  async sendMessage() {
+    if (!this.selectedRecipients.length) { this.notify("Add at least one recipient", "warning"); return; }
+    const message = (document.getElementById("newMessage")?.value || "").trim();
+    if (!message) { this.notify("Type a message first", "warning"); return; }
+    const subject = (document.getElementById("newSubject")?.value || "").trim();
+    const priority = document.getElementById("newPriority")?.value || "normal";
+    const recipients = this.selectedRecipients.map((r) => Number(r.id));
+    const btn = document.getElementById("btnSendMessage");
+    if (btn) btn.disabled = true;
+    try {
+      const data = await this.API.communications.createConversation({ recipients, subject, message, priority });
+      const convId = data?.conversation?.id;
+      this.selectedRecipients = [];
+      this.notify("Message sent", "success");
+      await this.loadConversations();
+      if (convId) this.openThread(convId);
+      else this.showPane("empty");
+    } catch (error) {
+      console.error(error);
+      this.notify(error.message || "Failed to send message", "error");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  fmtWhen(value) {
     if (!value) return "";
-    const d = new Date(value);
-    if (isNaN(d.getTime())) return "";
-    const now = new Date();
-    const sameDay = d.toDateString() === now.toDateString();
-    if (sameDay) {
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }
-    return d.toLocaleDateString([], { day: "2-digit", month: "short" });
+    const d = new Date(String(value).replace(" ", "T"));
+    if (isNaN(d.getTime())) return String(value);
+    const sameDay = d.toDateString() === new Date().toDateString();
+    return sameDay
+      ? d.toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString("en-KE", { month: "short", day: "2-digit" });
   },
 
-  formatBubbleTime: function (value) {
-    if (!value) return "";
-    const d = new Date(value);
-    if (isNaN(d.getTime())) return "";
-    return (
-      d.toLocaleDateString([], { day: "2-digit", month: "short" }) +
-      " " +
-      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    );
+  notify(msg, type = "info") {
+    if (window.showNotification) window.showNotification(msg, type);
+    else console.warn(msg);
   },
 };
 
-// Boot: handle both normal loads and lazy injection (PageShell may append this
-// script after DOMContentLoaded has already fired).
-(function () {
-  function boot() {
-    if (document.getElementById("kwMessaging")) {
-      communicationsController.init();
-    }
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", boot);
-  } else {
-    boot();
-  }
-})();
-
-window.communicationsController = communicationsController;
+window.MessagesInboxController = MessagesInboxController;
+document.addEventListener("DOMContentLoaded", () => MessagesInboxController.init().catch((e) => console.error(e)));

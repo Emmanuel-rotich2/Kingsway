@@ -234,38 +234,31 @@ define(
 
 define(
     'SMS_PROVIDER',
-    $_ENV['SMS_PROVIDER'] ?? 'africastalking'
+    $_ENV['SMS_PROVIDER'] ?? 'talksasa'
 );
 
 define('SMS_API_KEY', $_ENV['SMS_API_KEY'] ?? '');
-define('SMS_USERNAME', $_ENV['SMS_USERNAME'] ?? 'sandbox');
-define('SMS_APPNAME', $_ENV['SMS_APPNAME'] ?? 'Sandbox');
+define('SMS_USERNAME', $_ENV['SMS_USERNAME'] ?? '');
+define('SMS_APPNAME', $_ENV['SMS_APPNAME'] ?? '');
 
+// Base API URL and per-channel conversion defaults for the configured
+// messaging provider. Switch provider by changing these values only.
 define(
-    'SMS_SENDER_ID',
-    $_ENV['SMS_SENDER_ID'] ?? 'Kingsway Preparatory'
+    'SMS_API_URL',
+    rtrim($_ENV['SMS_API_URL'] ?? 'https://bulksms.talksasa.com/api/v3/', '/') . '/'
 );
 
-define(
-    'SMS_SHORTCODE',
-    $_ENV['SMS_SHORTCODE'] ?? '20174'
-);
+define('SMS_SENDER_ID', $_ENV['SMS_SENDER_ID'] ?? '');
+define('SMS_SHORTCODE', $_ENV['SMS_SHORTCODE'] ?? '');
+define('SMS_WHATSAPP_NUMBER', $_ENV['SMS_WHATSAPP_NUMBER'] ?? '');
+define('SMS_VOICE_LANGUAGE', $_ENV['SMS_VOICE_LANGUAGE'] ?? 'en-gb');
+define('SMS_VOICE_GENDER', $_ENV['SMS_VOICE_GENDER'] ?? 'female');
 
-define(
-    'SMS_WHATSAPP_NUMBER',
-    $_ENV['SMS_WHATSAPP_NUMBER'] ?? ''
-);
-
-define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? 'https://chat.africastalking.com');
 define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? '');
-define('AFRICASTALKING_WEBHOOK_TOKEN', $_ENV['AFRICASTALKING_WEBHOOK_TOKEN'] ?? '');
 define('WHATSAPP_2FA_TEMPLATE_ID', $_ENV['WHATSAPP_2FA_TEMPLATE_ID'] ?? '');
 define('COMMUNICATION_WORKER_SECRET', $_ENV['COMMUNICATION_WORKER_SECRET'] ?? '');
 define('ATTENDANCE_WORKER_SECRET', $_ENV['ATTENDANCE_WORKER_SECRET'] ?? '');
 define('ATTENDANCE_GATE_SECRET', $_ENV['ATTENDANCE_GATE_SECRET'] ?? '');
-define('TWILIO_ACCOUNT_SID', $_ENV['TWILIO_ACCOUNT_SID'] ?? '');
-define('TWILIO_AUTH_TOKEN', $_ENV['TWILIO_AUTH_TOKEN'] ?? '');
-define('TWILIO_FROM', $_ENV['TWILIO_FROM'] ?? '');
 
 /*
 |--------------------------------------------------------------------------
@@ -423,6 +416,28 @@ define(
         ?? __DIR__ . '/kcb_public_key.pem'
 );
 define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SIGNATURE'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+
+/*
+|--------------------------------------------------------------------------
+| PayHero (M-Pesa aggregation)
+|--------------------------------------------------------------------------
+| PayHero credentials are a single HTTP Basic pair (or its base64 token);
+| the channel id is the collection point registered in the PayHero panel.
+| Secrets stay in .env; the database only stores school-facing values.
+*/
+define('PAYHERO_BASE_URL', $_ENV['PAYHERO_BASE_URL'] ?? 'https://backend.payhero.co.ke');
+define('PAYHERO_BASIC_AUTH', $_ENV['PAYHERO_BASIC_AUTH'] ?? '');
+define('PAYHERO_USERNAME', $_ENV['PAYHERO_USERNAME'] ?? '');
+define('PAYHERO_PASSWORD', $_ENV['PAYHERO_PASSWORD'] ?? '');
+define('PAYHERO_ACCOUNT_ID', (int) ($_ENV['PAYHERO_ACCOUNT_ID'] ?? 0));
+define('PAYHERO_CHANNEL_ID', (int) ($_ENV['PAYHERO_CHANNEL_ID'] ?? 0));
+define('PAYHERO_PAYMENTS_PATH', $_ENV['PAYHERO_PAYMENTS_PATH'] ?? '/api/v2/payments');
+define('PAYHERO_TRANSACTION_STATUS_PATH', $_ENV['PAYHERO_TRANSACTION_STATUS_PATH'] ?? '/api/v2/transaction-status');
+define('PAYHERO_WALLET_PATH', $_ENV['PAYHERO_WALLET_PATH'] ?? '/api/v2/wallets');
+define('PAYHERO_PAYMENT_CHANNELS_PATH', $_ENV['PAYHERO_PAYMENT_CHANNELS_PATH'] ?? '/api/v2/payment_channels');
+define('PAYHERO_CALLBACK_BASE_URL', $_ENV['PAYHERO_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
+define('PAYHERO_VERIFY_CALLBACK_STATUS', filter_var($_ENV['PAYHERO_VERIFY_CALLBACK_STATUS'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+define('PAYHERO_TIMEOUT_SECONDS', max(5, (int) ($_ENV['PAYHERO_TIMEOUT_SECONDS'] ?? 30)));
 
 /*
 |--------------------------------------------------------------------------

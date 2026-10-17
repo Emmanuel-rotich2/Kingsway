@@ -11,20 +11,6 @@ storage:
   bus: "bus/"
   logs: "logs/"
 
-queue:
-  concurrency:
-    critical: 10
-    normal: 5
-    batch: 2
-  pollIntervalMs:
-    critical: 1000
-    normal: 5000
-    batch: 15000
-  staleJobThresholdMs: 900000
-  maxAttempts: 3
-  backoffMs: 60000
-  jobRegistryTtlSeconds: 3600
-
 sse:
   maxConnections: 5000
   userMaxConnections: 5

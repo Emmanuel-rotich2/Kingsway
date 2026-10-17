@@ -186,7 +186,16 @@ final class RealtimeGatewayPublisher
                 continue;
             }
             $scheme = strtolower((string) (parse_url($origin, PHP_URL_SCHEME) ?? ''));
-            $candidateIsLocal = self::isPrivateNetworkAddress((string) (parse_url($origin, PHP_URL_HOST) ?? ''));
+            $candidateHost = (string) (parse_url($origin, PHP_URL_HOST) ?? '');
+            // A loopback gateway address is only reachable from the machine
+            // running PHP. A LAN/RFC1918 client that does NOT share that host
+            // would resolve `localhost` to its own device, so it must never
+            // receive a loopback candidate — even though the client address is
+            // itself "private".
+            if (self::isLoopbackAddress($candidateHost) && !self::isLoopbackAddress($ip)) {
+                continue;
+            }
+            $candidateIsLocal = self::isPrivateNetworkAddress($candidateHost);
             if ($candidateIsLocal && !$clientIsLocal) {
                 continue;
             }
@@ -215,6 +224,24 @@ final class RealtimeGatewayPublisher
         }
         $host = strtolower($value);
         return $host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local');
+    }
+
+    /**
+     * True only for addresses that resolve to the PHP host itself (127.0.0.0/8,
+     * ::1, `localhost`). Distinct from isPrivateNetworkAddress, which also
+     * covers LAN ranges a remote browser cannot reach via loopback.
+     */
+    private static function isLoopbackAddress(string $value): bool
+    {
+        $value = trim($value, '[]');
+        if ($value === '') {
+            return false;
+        }
+        if (filter_var($value, FILTER_VALIDATE_IP) !== false) {
+            return str_starts_with($value, '127.') || $value === '::1';
+        }
+        $host = strtolower($value);
+        return $host === 'localhost' || str_ends_with($host, '.localhost');
     }
 
     private static function pageIsHttps(): bool

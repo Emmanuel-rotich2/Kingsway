@@ -83,9 +83,17 @@ class OTPDeliveryService
         if (!$this->whatsappGateway) return false;
         try {
             $templateId = defined('WHATSAPP_2FA_TEMPLATE_ID') ? (string) WHATSAPP_2FA_TEMPLATE_ID : '';
-            $result = $templateId !== ''
-                ? $this->whatsappGateway->sendTemplate($phone, $templateId, ['bodyValues' => [$code]])
-                : $this->whatsappGateway->sendMessage($phone, $this->buildSMSMessage($code, $context));
+            if ($templateId !== '') {
+                try {
+                    $result = $this->whatsappGateway->sendTemplate($phone, $templateId, ['bodyValues' => [$code]]);
+                } catch (\Throwable $templateError) {
+                    // The provider has no provider-side template surface; the
+                    // rendered OTP message is the equivalent delivery.
+                    $result = $this->whatsappGateway->sendMessage($phone, $this->buildSMSMessage($code, $context));
+                }
+            } else {
+                $result = $this->whatsappGateway->sendMessage($phone, $this->buildSMSMessage($code, $context));
+            }
             return is_array($result) && in_array(strtolower((string) ($result['status'] ?? '')), ['success','sent','queued','accepted'], true);
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] WhatsApp failed: ' . $e->getMessage()); return false; }
     }

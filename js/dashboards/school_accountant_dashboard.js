@@ -24,19 +24,14 @@
         scopeId: 'accountantDashboardScope',
         lastUpdatedId: 'accountantDashboardLastUpdated',
 
-        async apiMethod(filters = {}) {
-            const period = filters.period;
-            const [financialResponse, paymentsResponse, defaultersResponse, unmatchedResponse] = await Promise.all([
-                window.API.dashboard.getAccountantFinancial(filters),
-                window.API.dashboard.getAccountantPayments({ ...filters, limit: 15 }),
-                window.API.dashboard.getAccountantFinancial({ ...filters, pivot: 'top-defaulters', limit: 10 }),
-                window.API.dashboard.getAccountantUnmatchedPayments({ ...filters, limit: 20 })
-            ]);
+        viewSpec: { entity: 'dashboards', view: 'school-accountant-references', input: (filters) => filters },
 
-            const financial = unwrap(financialResponse) || {};
-            const paymentFeed = unwrap(paymentsResponse) || {};
-            const defaulterFeed = unwrap(defaultersResponse) || {};
-            const unmatchedFeed = unwrap(unmatchedResponse) || {};
+        composeFromSources(sources = {}, ctrl, filters = {}) {
+            const period = filters.period;
+            const financial = sources.financial || {};
+            const paymentFeed = sources.payments || {};
+            const defaulterFeed = sources.defaulters || {};
+            const unmatchedFeed = sources.unmatched || {};
             const fees = financial.fees || {};
             const collections = financial.collections || {};
             const payments = financial.payments || {};
@@ -201,6 +196,22 @@
                     }
                 }
             };
+        },
+
+        async apiMethod(filters = {}) {
+            const [financialResponse, paymentsResponse, defaultersResponse, unmatchedResponse] = await Promise.all([
+                window.API.dashboard.getAccountantFinancial(filters),
+                window.API.dashboard.getAccountantPayments({ ...filters, limit: 15 }),
+                window.API.dashboard.getAccountantFinancial({ ...filters, pivot: 'top-defaulters', limit: 10 }),
+                window.API.dashboard.getAccountantUnmatchedPayments({ ...filters, limit: 20 })
+            ]);
+
+            return this.composeFromSources({
+                financial: unwrap(financialResponse),
+                payments: unwrap(paymentsResponse),
+                defaulters: unwrap(defaultersResponse),
+                unmatched: unwrap(unmatchedResponse)
+            }, this, filters);
         },
 
         cards: [

@@ -1,12 +1,96 @@
+/**
+ * Student Fund Transfers Controller
+ * Handles fund transfers between student accounts.
+ */
 const studentFundTransfersController = {
-  sources: [], students: [],
-  esc(v) { const d=document.createElement('div'); d.textContent=String(v ?? ''); return d.innerHTML; },
-  notify(m,t='success') { if (window.showNotification) showNotification(m,t); else alert(m); },
-  async init() { await window.AuthContext?.ready(); document.getElementById('fundTransferRefresh')?.addEventListener('click',()=>this.load()); document.getElementById('fundTransferForm')?.addEventListener('submit',e=>{e.preventDefault();this.submit();}); document.getElementById('fundDestinationType')?.addEventListener('change',()=>this.renderDestinationEntitlements()); await this.loadSources(); await this.loadStudents(); await this.load(); },
-  async loadSources() { const r=await window.API.finance.getStudentFundSources(); this.sources=r?.data?.sources||[]; const s=document.getElementById('fundSource'); s.innerHTML=this.sources.map((x,i)=>`<option value="${i}">${this.esc(x.student_name)} · ${this.esc(x.account_type)} · ${this.esc(x.reference)} · KES ${Number(x.available_amount).toLocaleString()}</option>`).join('')||'<option>No available credit</option>'; this.renderDestinationEntitlements(); },
-  async loadStudents() { const r=await window.API.students.getAll({limit:1000,status:'active'}); this.students=r?.data||[]; document.getElementById('fundDestinationStudent').innerHTML='<option value="">Select student</option>'+this.students.map(x=>`<option value="${x.id}">${this.esc(`${x.admission_no||''} — ${x.first_name||''} ${x.last_name||''}`)}</option>`).join(''); },
-  renderDestinationEntitlements() { const transport=this.sources.filter(x=>x.account_type==='transport'); const wrap=document.getElementById('fundDestinationTransportWrap'); wrap.classList.toggle('d-none',document.getElementById('fundDestinationType').value!=='transport'); document.getElementById('fundDestinationTransport').innerHTML=transport.map(x=>`<option value="${x.source_id}">${this.esc(x.student_name)} · ${this.esc(x.reference)}</option>`).join('')||'<option>No transport coverage</option>'; },
-  async load() { const r=await window.API.finance.listStudentFundTransfers(); const rows=r?.data?.transfers||[]; document.getElementById('fundTransferBody').innerHTML=rows.map(x=>`<tr><td>${this.esc(x.source_student_name)} · ${this.esc(x.source_account_type)}</td><td>${this.esc(x.destination_student_name)} · ${this.esc(x.destination_account_type)}</td><td>KES ${Number(x.amount).toLocaleString()}</td><td>${this.esc(x.parent_request_reference||'—')}</td><td><span class="badge bg-${x.status==='posted'?'success':x.status==='rejected'?'danger':'warning'}">${this.esc(x.status)}</span></td><td>${x.status==='pending_approval'?`<button class="btn btn-sm btn-success me-1" data-action="approve" data-id="${x.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-action="reject" data-id="${x.id}">Reject</button>`:x.status==='approved'?`<button class="btn btn-sm btn-primary" data-action="post" data-id="${x.id}">Post</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6" class="text-center text-muted py-4">No transfer requests.</td></tr>'; document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>this.action(b.dataset.action,b.dataset.id))); },
-  async action(action,id) { try { if(action==='post') await window.API.finance.postStudentFundTransfer(id); else await window.API.finance.decideStudentFundTransfer(id,action); this.notify('Transfer updated'); await this.load(); } catch(e) { this.notify(e.message||'Transfer action failed','danger'); } },
-  async submit() { const source=this.sources[Number(document.getElementById('fundSource').value)]; const type=document.getElementById('fundDestinationType').value; if(!source) return this.notify('Select an available source credit','warning'); const data={parent_id:source.parent_id||null,source_student_id:Number(source.student_id),source_account_type:source.account_type,source_credit_note_id:source.account_type==='fees'?Number(source.source_id):null,source_entitlement_id:source.account_type==='transport'?Number(source.source_id):null,destination_student_id:Number(document.getElementById('fundDestinationStudent').value),destination_account_type:type,destination_entitlement_id:type==='transport'?Number(document.getElementById('fundDestinationTransport').value):null,amount:Number(document.getElementById('fundAmount').value),parent_request_reference:document.getElementById('fundParentReference').value,reason:document.getElementById('fundReason').value}; try { await window.API.finance.createStudentFundTransfer(data); this.notify('Transfer submitted for approval'); bootstrap.Modal.getInstance(document.getElementById('fundTransferModal'))?.hide(); document.getElementById('fundTransferForm').reset(); await this.load(); } catch(e) { this.notify(e.message||'Transfer request failed','danger'); } }
-}; window.studentFundTransfersController=studentFundTransfersController; document.addEventListener('DOMContentLoaded',()=>studentFundTransfersController.init().catch(e=>studentFundTransfersController.notify(e.message||'Unable to load transfers','danger')));
+  state: { referenceCache: null, transfers: [], sources: [], students: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("students", "student-fund-transfers-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Student Fund Transfers Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [transfers, sources, students] = await Promise.all([
+        cache?.transfers !== undefined ? cache.transfers : this.API('GET', '/api/finance/student-fund-transfers'),
+        cache?.sources !== undefined ? cache.sources : this.API('GET', '/api/finance/student-fund-sources'),
+        cache?.students !== undefined ? cache.students : this.API('GET', '/api/students/get-all', { limit: '1000', status: 'active' }),
+      ]);
+      this.state.transfers = Array.isArray(transfers?.data) ? transfers.data : (Array.isArray(transfers) ? transfers : []);
+      this.state.sources = Array.isArray(sources?.data) ? sources.data : (Array.isArray(sources) ? sources : []);
+      this.state.students = Array.isArray(students?.data) ? students.data : (Array.isArray(students) ? students : []);
+      this.renderTransfers();
+      this.renderFormOptions();
+    } catch (e) { console.error(e); }
+  },
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderTransfers() {
+    const transfers = this.state.transfers;
+    const body = document.getElementById('sftTransfersBody');
+    if (!transfers.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No transfers recorded.</td></tr>'; return; }
+    body.innerHTML = transfers.map(t => `<tr>
+      <td class="small">${this.fmtDate(t.date)}</td>
+      <td class="small">${this.esc(t.from_student || '—')}</td>
+      <td class="small">${this.esc(t.to_student || '—')}</td>
+      <td class="small">${this.fmtKES(t.amount)}</td>
+      <td class="small">${this.esc(t.source || '—')}</td>
+      <td class="small">${this.esc(t.reference || '—')}</td>
+    </tr>`).join('');
+  },
+
+  renderFormOptions() {
+    const sources = this.state.sources;
+    const students = this.state.students;
+    const fromSelect = document.getElementById('sftFromStudent');
+    const toSelect = document.getElementById('sftToStudent');
+    const sourceSelect = document.getElementById('sftSource');
+    if (fromSelect) fromSelect.innerHTML = '<option value="">Select Student</option>' + students.map(s => `<option value="${s.id}">${this.esc(s.name)} (${this.esc(s.admission_number)})</option>`).join('');
+    if (toSelect) toSelect.innerHTML = '<option value="">Select Student</option>' + students.map(s => `<option value="${s.id}">${this.esc(s.name)} (${this.esc(s.admission_number)})</option>`).join('');
+    if (sourceSelect) sourceSelect.innerHTML = '<option value="">Select Source</option>' + sources.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+  },
+
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
+  fmtKES(n) { return 'KES ' + Number(n || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 }); },
+
+  async submitTransfer() {
+    const from = document.getElementById('sftFromStudent')?.value;
+    const to = document.getElementById('sftToStudent')?.value;
+    const source = document.getElementById('sftSource')?.value;
+    const amount = document.getElementById('sftAmount')?.value;
+    const ref = document.getElementById('sftReference')?.value;
+    if (!from || !to || !source || !amount) { this.notify('All fields required', 'warning'); return; }
+    try {
+      await this.API('POST', '/api/finance/student-fund-transfer', { from_student_id: from, to_student_id: to, source_id: source, amount, reference: ref });
+      this.notify('Transfer completed', 'success');
+      document.getElementById('sftForm')?.reset();
+      await this.load();
+    } catch (e) { this.notify('Transfer failed', 'danger'); }
+  },
+
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("student_fund_transfers", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["students", "finance"]);
+  },
+};
+
+window.studentFundTransfersController = studentFundTransfersController;
+document.addEventListener('DOMContentLoaded', () => studentFundTransfersController.init().catch(() => {}));

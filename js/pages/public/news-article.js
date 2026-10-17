@@ -41,7 +41,7 @@
 
   function imgFor(item, w, h) {
     const col = CATEGORY_COLORS[item.category] || '#198754';
-    if (item.image_url) return S(item.image_url);
+    if (item.image_url) return S(PS.mediaUrl(item.image_url));
     return `https://placehold.co/${w}x${h}/${col.replace('#', '')}/ffffff?text=${encodeURIComponent(item.category || 'News')}`;
   }
 

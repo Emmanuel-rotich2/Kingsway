@@ -83,7 +83,9 @@ export function createInternalClient() {
     const start = Date.now();
     const pool = service === 'php' ? phpPool : pythonPool;
     const breaker = service === 'php' ? phpBreaker : pythonBreaker;
-    const timeout = service === 'php' ? config.internalHttp.php.timeoutMs : config.internalHttp.python.timeoutMs;
+    const timeout = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+      ? options.timeoutMs
+      : (service === 'php' ? config.internalHttp.php.timeoutMs : config.internalHttp.python.timeoutMs);
     const hostHeader = service === 'php' ? config.internalHttp.php.hostHeader : config.internalHttp.python.hostHeader;
     const apiPrefix = service === 'php' ? config.internalHttp.php.apiPrefix : config.internalHttp.python.apiPrefix;
 
@@ -146,7 +148,7 @@ export function createInternalClient() {
     }
   }
 
-  async function fetchViewData(spec, filters, operatorId, authorization = '') {
+  async function fetchViewData(spec, operatorId, authorization = '', input = {}) {
     const view = spec.view;
     if (!view) {
       throw new Error(`View spec is missing the canonical view key (spec.view)`);
@@ -160,7 +162,10 @@ export function createInternalClient() {
         const endpoint = String(query.endpoint || '').replace(/^\/api(?=\/)/, '');
         if (!endpoint.startsWith('/')) throw new Error(`Invalid registered endpoint for ${view}`);
 
-        const params = query.params?.includes('filters') ? { ...filters } : {};
+        const params = {
+          ...(query.staticParams && typeof query.staticParams === 'object' ? query.staticParams : {}),
+          ...(input && typeof input === 'object' ? input : {}),
+        };
         const readPage = async (page) => {
           const pageParams = { ...params };
           if (query.pagination) {
@@ -183,7 +188,7 @@ export function createInternalClient() {
           const collection = query.pagination.collection;
           const pageSize = Number(query.pagination.pageSize);
           const maxPages = Number(query.pagination.maxPages);
-          const totalPages = Number(value?.pagination?.total_pages ?? 1);
+          const totalPages = Number(value?.pagination?.total_pages ?? value?.pagination?.pages ?? 1);
           if (typeof collection !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/i.test(collection)
             || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100
             || !Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > 100
@@ -222,17 +227,15 @@ export function createInternalClient() {
             uniqueRows.push(row);
           }
 
+          const sourceValue = value && typeof value === 'object' && !Array.isArray(value)
+            ? { ...value }
+            : {};
+          // Source pages are transport details only. The page receives the
+          // complete assembled collection and never a server-paging contract.
+          delete sourceValue.pagination;
           value = {
-            ...(value && typeof value === 'object' && !Array.isArray(value) ? value : {}),
+            ...sourceValue,
             [collection]: uniqueRows,
-            pagination: {
-              ...(value?.pagination || {}),
-              page: 1,
-              limit: uniqueRows.length,
-              total: Number(value?.pagination?.total ?? uniqueRows.length),
-              total_pages: 1,
-              loaded_pages: totalPages,
-            },
           };
         }
         return [query.key, value];
@@ -241,27 +244,7 @@ export function createInternalClient() {
       return Object.fromEntries(datasets);
     }
 
-    // Background jobs do not retain a browser bearer token. They use the
-    // narrow PHP internal-read operation, which reauthorizes the recorded
-    // operator against the authoritative permission source.
-    const body = await request('php', 'POST', '/node/internal-read', {
-      operatorId,
-      body: {
-        view,
-        operator_id: operatorId,
-        input: { filters },
-      },
-    });
-    // PHP envelope: { success, data: { view, data, meta } }. The datasets live
-    // on body.data.data ({cards, meta, status} for students/id-cards), keeping
-    // the aggregation engine's rawData contract (first key = primary array).
-    // The outer meta (row_count/pagination) rides along under `_viewMeta` so
-    // handlers can surface pagination without it becoming an aggregate source.
-    const datasets = body?.data?.data ?? {};
-    if (body?.data?.meta && typeof body.data.meta === 'object') {
-      datasets._viewMeta = body.data.meta;
-    }
-    return datasets;
+    throw new Error(`Interactive view ${view} requires a bearer and registered PHP source endpoints`);
   }
 
   clientCache = {

@@ -18,15 +18,35 @@ const financeController = {
     init: async function() {
         if (window.AuthContext?.ready) await window.AuthContext.ready();
         try {
-            await Promise.all([
-                this.loadPayments(),
-                this.loadPayrolls(),
-                this.loadFeesStructure()
-            ]);
+            await this.refreshData();
             this.checkUserPermissions();
         } catch (error) {
             console.error('Error initializing finance controller:', error);
             showNotification('Failed to load finance management', 'error');
+        }
+    },
+
+    async refreshData() {
+        try {
+            const response = await window.API.nodeViews.resolve("finance", "management-overview");
+            const sources = response?.data?.sources || response?.sources || {};
+            const unwrap = value => value?.data?.data ?? value?.data ?? value ?? [];
+            const list = value => {
+                const payload = unwrap(value);
+                if (Array.isArray(payload)) return payload;
+                return payload?.items || payload?.payments || payload?.payrolls || payload?.records || [];
+            };
+            if (!Object.hasOwn(sources, "payments") || !Object.hasOwn(sources, "payrolls") || !Object.hasOwn(sources, "fees")) {
+                throw new Error("Node returned an incomplete finance overview");
+            }
+            this.payments = list(sources.payments);
+            this.filteredData = [...this.payments];
+            this.payrolls = list(sources.payrolls);
+            this.fees = unwrap(sources.fees);
+            this.renderPaymentsTable();
+        } catch (error) {
+            console.warn("Finance composition unavailable; loading through PHP APIs:", error);
+            await Promise.all([this.loadPayments(), this.loadPayrolls(), this.loadFeesStructure()]);
         }
     },
 

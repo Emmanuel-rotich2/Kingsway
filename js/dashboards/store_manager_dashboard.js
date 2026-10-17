@@ -64,19 +64,33 @@
     if (state.loading) return;
     setLoading(true);
     try {
-      const [inventoryResponse, dashboardResponse, lowStockResponse] = await Promise.all([
-        window.API.inventory.getDashboard(),
-        window.API.inventory.getUniformDashboard(),
-        window.API.inventory.getLowStockUniforms(),
-      ]);
-      const uniform = { ...unwrap(inventoryResponse), ...unwrap(dashboardResponse) };
+      let uniform = null;
+      let lowStockPayload = null;
+      try {
+        const composed = await window.API.nodeViews.read('dashboards', 'store-manager-references', {});
+        const sources = composed?.data?.sources || composed?.sources || null;
+        if (sources && typeof sources === 'object' && Object.keys(sources).length) {
+          uniform = { ...(sources.dashboard || {}), ...(sources.uniform || {}) };
+          lowStockPayload = sources.low_stock;
+        }
+      } catch (composedError) {
+        uniform = null;
+      }
+      if (!uniform) {
+        const [inventoryResponse, dashboardResponse, lowStockResponse] = await Promise.all([
+          window.API.inventory.getDashboard(),
+          window.API.inventory.getUniformDashboard(),
+          window.API.inventory.getLowStockUniforms(),
+        ]);
+        uniform = { ...unwrap(inventoryResponse), ...unwrap(dashboardResponse) };
+        lowStockPayload = unwrap(lowStockResponse);
+      }
       const stock = uniform.inventory_status || {};
       const monthly = uniform.monthly_metrics || {};
       const topItems = Array.isArray(uniform.top_selling_items) ? uniform.top_selling_items : [];
-      const lowStockPayload = unwrap(lowStockResponse);
       const lowStockRows = Array.isArray(lowStockPayload)
         ? lowStockPayload
-        : (lowStockPayload.items || lowStockPayload.uniforms || []);
+        : (lowStockPayload?.items || lowStockPayload?.uniforms || []);
       const lowStock = lowStockRows.map((item) => ({
         ...item,
         name: `${item.item_name || item.name || 'Uniform'}${item.size ? ` · ${item.size}` : ''}`,

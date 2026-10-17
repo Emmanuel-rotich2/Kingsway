@@ -9,11 +9,10 @@
   "scripts": {
     "start": "node app.js",
     "dev": "node --watch app.js",
-    "test": "node --test test/**/*.test.js",
-    "test:coverage": "node --test --experimental-test-coverage test/**/*.test.js",
-    "test:unit": "node --test test/unit/**/*.test.js",
-    "test:integration": "node --test test/integration/**/*.test.js",
-    "test:watch": "node --watch --test test/**/*.test.js"
+    "test": "node --test 'tests/**/*.test.js'",
+    "test:coverage": "node --test --experimental-test-coverage 'tests/**/*.test.js'",
+    "test:unit": "node --test tests/unit.test.js",
+    "test:watch": "node --watch --test 'tests/**/*.test.js'"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

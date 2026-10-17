@@ -5,13 +5,32 @@
  */
 const requisitionsController = {
   _data: [], _filtered: [], _page: 1, _perPage: 20, _modal: null, _itemCount: 0,
+  state: { referenceCache: null },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "requisitions-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Requisitions Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._modal = new bootstrap.Modal(document.getElementById('requisitionModal'));
     this._bindEvents();
+    await this.loadReferencesComposed();
     await this._load();
+    window.APIRealtime?.register?.("requisitions", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this._load();
+      }
+    }, ["inventory", "requisitions"]);
   },
 
   _bindEvents: function () {
@@ -29,7 +48,8 @@ const requisitionsController = {
     const tbody=document.querySelector('#requisitionsTable tbody');
     if (tbody) tbody.innerHTML='<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
-      const r=await callAPI('/inventory/requisitions','GET');
+      const cache = this.state.referenceCache;
+      const r = cache?.requisitions !== undefined ? cache.requisitions : await callAPI('/inventory/requisitions','GET');
       this._data=Array.isArray(r?.data)?r.data:(Array.isArray(r)?r:[]);
       this._filtered=[...this._data];
       this._setStats();

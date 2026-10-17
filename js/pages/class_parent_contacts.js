@@ -13,10 +13,34 @@ const classParentContactsController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    document.getElementById('cpSearchBtn')?.addEventListener('click', () => this._applyFilter());
-    document.getElementById('cpSearch')?.addEventListener('keydown', e => { if (e.key === 'Enter') this._applyFilter(); });
+    document.getElementById('cpSearch')?.addEventListener('input', () => this._applyFilter());
     document.getElementById('cpExportBtn')?.addEventListener('click', () => this.exportCSV());
+    document.getElementById('cpPrintBtn')?.addEventListener('click', () => this.printContacts());
+    this._applyPermissionGates();
+    this.subscribeRealtime();
     await this._load();
+  },
+
+  _applyPermissionGates: function () {
+    const canExport = window.AuthContext?.canExport ? AuthContext.canExport('students') : true;
+    const canPrint = window.AuthContext?.canPrint ? AuthContext.canPrint('students') : true;
+    const exportBtn = document.getElementById('cpExportBtn');
+    const printBtn = document.getElementById('cpPrintBtn');
+    if (exportBtn && !canExport) exportBtn.style.display = 'none';
+    if (printBtn && !canPrint) printBtn.style.display = 'none';
+  },
+
+  subscribeRealtime: function () {
+    const self = this;
+    const handler = function (event) {
+      const detail = event && event.detail ? event.detail : {};
+      const scope = String(detail.scope || detail.module || '').toLowerCase();
+      if (!scope || scope === 'students' || scope === 'families' || scope === 'communications') {
+        self._load();
+      }
+    };
+    window.addEventListener('kingsway:data-mutated', handler);
+    window.addEventListener('kingsway:job', handler);
   },
 
   _load: async function () {
@@ -99,6 +123,10 @@ const classParentContactsController = {
   },
 
   exportCSV: function () {
+    if (window.AuthContext?.canExport && !AuthContext.canExport('students')) {
+      showNotification('You do not have permission to export this list.', 'warning');
+      return;
+    }
     if (!this._filtered.length) { showNotification('No data to export.', 'warning'); return; }
     const header = ['Student', 'Class', 'Parent/Guardian', 'Relationship', 'Phone', 'Email', 'Preferred Contact', 'Last Contacted'];
     const rows = [
@@ -115,6 +143,18 @@ const classParentContactsController = {
       ].join(',')),
     ];
     KingswayFileLifecycle.exportText(rows.join('\n'), `parent_contacts_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
+  },
+
+  printContacts: function () {
+    if (window.AuthContext?.canPrint && !AuthContext.canPrint('students')) {
+      showNotification('You do not have permission to print this list.', 'warning');
+      return;
+    }
+    if (window.PrintManager && typeof window.PrintManager.printPage === 'function') {
+      window.PrintManager.printPage({ title: 'Parent Contacts', orientation: 'landscape' });
+    } else {
+      window.print();
+    }
   },
 
   _show: function (id) {

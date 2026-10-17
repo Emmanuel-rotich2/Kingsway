@@ -106,7 +106,7 @@ class CommunicationsManager extends FileLifecycleBase
 
         $parentId = null;
         $userId = null;
-        $contactStmt = $this->db->query("SELECT pr.id AS parent_id, u.id AS user_id, p.phone FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active'");
+        $contactStmt = $this->db->query("SELECT parent_id, user_id, phone FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE parent_status = 'active' AND parent_id IS NOT NULL AND phone IS NOT NULL AND phone <> ''");
         foreach ($contactStmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
             $candidate = preg_replace('/[^0-9]/', '', (string) ($contact['phone'] ?? ''));
             if (substr($candidate, 0, 1) === '0') $candidate = '254' . substr($candidate, 1);
@@ -179,7 +179,7 @@ class CommunicationsManager extends FileLifecycleBase
                 'failed' => $recipients
             ];
         }
-        $gateway = new \App\API\Services\SMS\SMSGateway();
+        $gateway = new \App\API\Services\sms\SMSGateway();
         $sent = 0;
         $failed = [];
         foreach ($recipients as $phone) {
@@ -331,6 +331,11 @@ class CommunicationsManager extends FileLifecycleBase
         ];
         $type = $typeMap[$type] ?? 'email';
 
+        // Announcements (type=notification) are in-app notices published to the
+        // school community. They are not delivery-queued per recipient, so the
+        // requested status is persisted as-is and no recipient is required.
+        $isAnnouncement = ($type === 'notification');
+
         // Get content from message or content field
         $body = $data['body'] ?? $data['content'] ?? $data['message'] ?? 'No content';
         // If body is array, convert to JSON for storage
@@ -344,9 +349,11 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt = $this->db->prepare($sql);
         $requestedStatus = $this->normalizeStatus($data['status'] ?? 'draft');
         $recordOnly = !empty($data['record_only']);
-        $storedStatus = (!$recordOnly && $requestedStatus === 'sent') ? 'queued' : ($recordOnly && $requestedStatus === 'sent' ? 'delivered' : $requestedStatus);
-        if (!$recordOnly && in_array($storedStatus, ['queued', 'scheduled'], true) && empty($data['recipients'])) {
-            throw new \InvalidArgumentException('At least one recipient is required for delivery');
+        $storedStatus = $isAnnouncement
+            ? $requestedStatus
+            : ((!$recordOnly && $requestedStatus === 'sent') ? 'queued' : ($recordOnly && $requestedStatus === 'sent' ? 'delivered' : $requestedStatus));
+        if (!$recordOnly && !$isAnnouncement && in_array($storedStatus, ['queued', 'scheduled'], true) && empty($data['recipients'])) {
+            throw new \InvalidArgumentException('At least one recipient is required');
         }
         $startedTransaction = !$this->db->inTransaction();
         if ($startedTransaction) $this->db->beginTransaction();
@@ -386,17 +393,31 @@ class CommunicationsManager extends FileLifecycleBase
             $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
             if (!$ids) throw new \InvalidArgumentException('At least one parent is required');
             $marks = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active' AND pr.id IN ($marks)");
+            $stmt = $this->db->prepare("SELECT DISTINCT user_id, phone, email FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE parent_status = 'active' AND parent_id IN ($marks)");
             $stmt->execute($ids);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address]; }
         } elseif (in_array($recipientType, ['selected_students','selected_class','student_type','school_level'], true)) {
             $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
             if (!$ids) throw new \InvalidArgumentException('At least one audience item is required');
             $marks = implode(',', array_fill(0, count($ids), '?'));
-            $where = $recipientType === 'selected_students' ? "s.id IN ($marks)" : ($recipientType === 'selected_class' ? "c.id IN ($marks)" : ($recipientType === 'student_type' ? "s.student_type_id IN ($marks)" : "c.level_id IN ($marks)"));
-            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE s.status = 'active' AND {$where}");
+            $guardianRef = ReadReplicaService::qualifiedRef("learner_guardian");
+            switch ($recipientType) {
+                case 'selected_students':
+                    $sql = "SELECT DISTINCT parent_user_id AS user_id, parent_phone AS phone, parent_email AS email FROM " . ReadReplicaService::qualifiedRef("guardian_link") . " WHERE student_id IN ($marks) AND student_status = 'active' AND parent_status = 'active'";
+                    break;
+                case 'selected_class':
+                    $sql = "SELECT DISTINCT parent_user_id AS user_id, parent_phone AS phone, parent_email AS email FROM " . ReadReplicaService::qualifiedRef("guardian_link") . " gl JOIN " . ReadReplicaService::qualifiedRef("learner_placement") . " lp ON lp.student_id = gl.student_id WHERE gl.student_status = 'active' AND gl.parent_status = 'active' AND lp.class_id IN ($marks)";
+                    break;
+                case 'student_type':
+                    $sql = "SELECT DISTINCT parent_user_id AS user_id, parent_phone AS phone, parent_email AS email FROM " . ReadReplicaService::qualifiedRef("guardian_link") . " WHERE student_type_id IN ($marks) AND student_status = 'active' AND parent_status = 'active'";
+                    break;
+                default:
+                    $sql = "SELECT DISTINCT gl.parent_user_id AS user_id, lg.parent_phone AS phone, lg.parent_email AS email FROM {$guardianRef} lg JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = lg.class_id LEFT JOIN " . ReadReplicaService::qualifiedRef("guardian_link") . " gl ON gl.student_id = lg.student_id WHERE c.level_id IN ($marks)";
+                    break;
+            }
+            $stmt = $this->db->prepare($sql);
             $stmt->execute($ids);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [(int) $contact['user_id'], $address]; }
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address]; }
         } elseif ($recipientType === 'selected_staff') {
             $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
             if (!$ids) throw new \InvalidArgumentException('At least one staff member is required');
@@ -414,14 +435,60 @@ class CommunicationsManager extends FileLifecycleBase
             }
             $stmt = $this->db->prepare($sql); $stmt->execute($params);
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $supplier) { $address = $type === 'email' ? trim((string) $supplier['email']) : trim((string) $supplier['phone']); if ($address !== '') $rows[] = [null, $address]; }
+        } elseif ($recipientType === 'mixed') {
+            $tokens = $targetIds ?: array_map('strval', (array) $recipients);
+            $byType = [];
+            foreach ($tokens as $token) {
+                if (preg_match('/^(student|parent|staff|class|vendor|contact|group):(\d+)$/', (string) $token, $m)) {
+                    $byType[$m[1]][] = (int) $m[2];
+                }
+            }
+            foreach ($byType as $group => $ids) {
+                $ids = array_values(array_unique(array_filter($ids)));
+                if (!$ids) {
+                    continue;
+                }
+                $marks = implode(',', array_fill(0, count($ids), '?'));
+                switch ($group) {
+                    case 'student':
+                        $sql = "SELECT DISTINCT parent_user_id AS user_id, parent_phone AS phone, parent_email AS email FROM " . ReadReplicaService::qualifiedRef('guardian_link') . " WHERE student_status = 'active' AND parent_status = 'active' AND student_id IN ($marks)";
+                        break;
+                    case 'class':
+                        $sql = "SELECT DISTINCT gl.parent_user_id AS user_id, gl.parent_phone AS phone, gl.parent_email AS email FROM " . ReadReplicaService::qualifiedRef('guardian_link') . " gl JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = gl.student_id WHERE gl.student_status = 'active' AND gl.parent_status = 'active' AND lp.class_id IN ($marks)";
+                        break;
+                    case 'parent':
+                        $sql = "SELECT DISTINCT user_id, phone, email FROM " . ReadReplicaService::qualifiedRef('person_directory') . " WHERE parent_status = 'active' AND parent_id IN ($marks)";
+                        break;
+                    case 'staff':
+                        $sql = "SELECT DISTINCT user_id, phone, email FROM " . ReadReplicaService::qualifiedRef('staff_directory') . " WHERE user_status = 'active' AND staff_status = 'active' AND staff_id IN ($marks)";
+                        break;
+                    case 'vendor':
+                        $sql = "SELECT NULL AS user_id, phone, email FROM suppliers WHERE status = 'active' AND id IN ($marks)";
+                        break;
+                    case 'group':
+                        $sql = "SELECT DISTINCT NULL AS user_id, phone, email FROM contact_directory WHERE group_id IN ($marks)";
+                        break;
+                    default:
+                        $sql = "SELECT id AS user_id, phone, email FROM contact_directory WHERE id IN ($marks)";
+                        break;
+                }
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($ids);
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
+                    $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
+                    if ($address !== '') {
+                        $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address];
+                    }
+                }
+            }
         } elseif ($recipientType === 'all_parents') {
             $stmt = $this->db->query(
-                "SELECT DISTINCT u.id AS user_id, p.email, p.phone
-                   FROM " . ReadReplicaService::qualifiedRef("person_directory") . "  WHERE pr.status = 'active'"
+                "SELECT DISTINCT user_id, email, phone
+                   FROM " . ReadReplicaService::qualifiedRef("person_directory") . " WHERE parent_status = 'active' AND parent_id IS NOT NULL"
             );
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
                 $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
-                if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
+                if ($address !== '') $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address];
             }
         } elseif ($recipientType === 'all_staff') {
             $stmt = $this->db->query(
@@ -434,24 +501,22 @@ class CommunicationsManager extends FileLifecycleBase
                 if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
             }
         } elseif ($recipientType === 'contact_group') {
-            $groupIds = array_values(array_filter(array_map('intval', $recipients)));
+            $groupIds = array_values(array_filter(array_map('intval', $recipients ?: $targetIds)));
             if ($groupIds) {
                 $marks = implode(',', array_fill(0, count($groupIds), '?'));
-                $sql = "SELECT DISTINCT gm.user_id, p.email, p.phone
-                          FROM group_members gm
-                          JOIN users u ON u.id = gm.user_id
-                          JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = u.person_id
-                         WHERE gm.group_id IN ($marks)";
+                $sql = "SELECT DISTINCT NULL AS user_id, email, phone
+                          FROM contact_directory
+                         WHERE group_id IN ($marks)";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute($groupIds);
                 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
                     $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
-                    if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
+                    if ($address !== '') $rows[] = [null, $address];
                 }
             }
         }
         foreach ($recipients as $recipient) {
-            if (in_array($recipientType, ['contact_group', 'all_parents', 'all_staff', 'all_students', 'selected_parents','selected_students','selected_class','student_type','school_level','selected_staff','selected_vendors','all_vendors'], true)) continue;
+            if (in_array($recipientType, ['contact_group', 'all_parents', 'all_staff', 'all_students', 'selected_parents','selected_students','selected_class','student_type','school_level','selected_staff','selected_vendors','all_vendors','mixed'], true)) continue;
             $value = trim((string) $recipient);
             if ($value === '') continue;
             if (ctype_digit($value)) {
@@ -532,8 +597,13 @@ class CommunicationsManager extends FileLifecycleBase
             }
         }
         if (isset($data['status'])) {
+            $normalizedStatus = $this->normalizeStatus($data['status']);
             $fields[] = "status = :status";
-            $params[':status'] = $this->normalizeStatus($data['status']);
+            $params[':status'] = $normalizedStatus;
+            if (!in_array($normalizedStatus, ['scheduled', 'queued'], true) && !isset($data['scheduled_at'])) {
+                $fields[] = "scheduled_at = :scheduled_at_cleared";
+                $params[':scheduled_at_cleared'] = null;
+            }
         }
         if (isset($data['priority'])) {
             $fields[] = "priority = :priority";
@@ -583,9 +653,81 @@ class CommunicationsManager extends FileLifecycleBase
         $sql .= " ORDER BY created_at DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return array_map(function ($row) {
+        $rows = array_map(function ($row) {
             return $this->decorateRow($row);
         }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+        return $this->attachRecipientSummaries($rows);
+    }
+
+    /**
+     * Attach recipient count, delivery breakdown and a short address sample to
+     * each communication row so list views can render a meaningful "Recipients"
+     * column without an N+1 query per row.
+     */
+    private function attachRecipientSummaries(array $rows): array
+    {
+        if (!$rows) {
+            return $rows;
+        }
+        $ids = array_values(array_filter(array_map(static fn($row) => (int) ($row['id'] ?? 0), $rows)));
+        if (!$ids) {
+            return $rows;
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $summary = [];
+        $stmt = $this->db->prepare(
+            "SELECT r.communication_id,
+                    COUNT(e.id) AS recipient_count,
+                    SUM(e.status IN ('sent','delivered')) AS delivered_count,
+                    SUM(e.status = 'failed') AS failed_count
+               FROM communication_recipients r
+               LEFT JOIN communication_recipient_endpoints e ON e.communication_recipient_id = r.id
+              WHERE r.communication_id IN ($placeholders)
+              GROUP BY r.communication_id"
+        );
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $summary[(int) $row['communication_id']] = $row;
+        }
+
+        $samples = [];
+        $stmt = $this->db->prepare(
+            "SELECT r.communication_id, e.address
+               FROM communication_recipients r
+               JOIN communication_recipient_endpoints e ON e.communication_recipient_id = r.id
+              WHERE r.communication_id IN ($placeholders)
+              ORDER BY e.id"
+        );
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $cid = (int) $row['communication_id'];
+            if (!isset($samples[$cid])) {
+                $samples[$cid] = [];
+            }
+            if (count($samples[$cid]) < 3) {
+                $samples[$cid][] = (string) $row['address'];
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $cid = (int) ($row['id'] ?? 0);
+            $stat = $summary[$cid] ?? null;
+            $count = (int) ($stat['recipient_count'] ?? 0);
+            $row['recipient_count'] = $count;
+            $row['delivered_count'] = (int) ($stat['delivered_count'] ?? 0);
+            $row['failed_count'] = (int) ($stat['failed_count'] ?? 0);
+            $sample = $samples[$cid] ?? [];
+            if ($count === 0) {
+                $row['recipient_summary'] = '';
+            } elseif ($count === 1) {
+                $row['recipient_summary'] = $sample[0] ?? '';
+            } else {
+                $row['recipient_summary'] = ($sample[0] ?? '') . ' + ' . ($count - 1) . ' more';
+            }
+        }
+        unset($row);
+        return $rows;
     }
 
     /**
@@ -662,7 +804,7 @@ class CommunicationsManager extends FileLifecycleBase
         $fileSize = $fileData['file_size'] ?? null;
         $mediaId = null;
         try {
-            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
+            $mediaManager = \App\API\Services\ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
             $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
             $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
             if ($uploadFile) {
@@ -1132,8 +1274,8 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt = $this->db->prepare("SELECT id FROM communication_template_versions WHERE template_id = ? AND version_no = 1");
         $stmt->execute([$catalogId]);
         $versionId = (int) $stmt->fetchColumn();
-        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, language_code, body, provider_name, provider_template_id, provider_template_name, provider_template_status) VALUES (?, 'whatsapp', ?, ?, 'africastalking', ?, ?, ?) ON DUPLICATE KEY UPDATE body = VALUES(body), provider_template_id = VALUES(provider_template_id), provider_template_name = VALUES(provider_template_name), provider_template_status = VALUES(provider_template_status)")
-            ->execute([$versionId, $data['language'] ?? 'en', $data['body'] ?? '', $providerId, $data['name'] ?? null, $data['status'] ?? null]);
+        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, language_code, body, provider_name, provider_template_id, provider_template_name, provider_template_status) VALUES (?, 'whatsapp', ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE body = VALUES(body), provider_template_id = VALUES(provider_template_id), provider_template_name = VALUES(provider_template_name), provider_template_status = VALUES(provider_template_status)")
+            ->execute([$versionId, $data['language'] ?? 'en', $data['body'] ?? '', defined('SMS_PROVIDER') ? constant('SMS_PROVIDER') : 'sms', $providerId, $data['name'] ?? null, $data['status'] ?? null]);
     }
 
 }

@@ -1,235 +1,84 @@
 /**
- * Create Subject CAT Controller - Subject Teacher CAT Creation
- * Role: Subject Teacher (8)
- * Shows only subjects the teacher is assigned to
- * Integrates with AcademicContext for academic year awareness
+ * Create Subject Category Controller
+ * Manages subject categories for CBC curriculum.
  */
+const createSubjectCatController = {
+  state: { referenceCache: null, categories: [], subjects: [] },
 
-const createSubjectCatCtrl = (() => {
-    const state = {
-        subjects: [],
-        classes: [],
-        years: [],
-        terms: [],
-        currentAcademicYear: null,
-        currentTerm: null
-    };
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-    function toast(msg, type = 'info') {
-        const el = document.getElementById('catToast');
-        if (!el) {
-            const toast = document.createElement('div');
-            toast.id = 'catToast';
-            toast.className = `toast align-items-center text-bg-${type} border-0 position-fixed top-0 end-0 m-3`;
-            toast.style.zIndex = '9999';
-            toast.innerHTML = `
-                <div class="d-flex">
-                    <div class="toast-body">${msg}</div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-                </div>
-            `;
-            document.body.appendChild(toast);
-            new bootstrap.Toast(toast, { delay: 3000 }).show();
-        } else {
-            el.className = `toast align-items-center text-bg-${type} border-0 position-fixed top-0 end-0 m-3`;
-            el.querySelector('.toast-body').textContent = msg;
-            new bootstrap.Toast(el, { delay: 3000 }).show();
-        }
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "curriculum-cbc-reference");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Create Subject Category Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
+  },
 
-    async function apiCall(endpoint, method = 'GET', data = null) {
-        try {
-            return await window.API.apiCall(endpoint, method, data, null, { checkPermission: false });
-        } catch (error) {
-            console.error('API call failed:', error);
-            throw error;
-        }
-    }
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [categories, subjects] = await Promise.all([
+        cache?.categories !== undefined ? cache.categories : this.API('GET', '/api/academic/subject-categories'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas'),
+      ]);
+      this.state.categories = Array.isArray(categories?.data) ? categories.data : (Array.isArray(categories) ? categories : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.renderCategories();
+      this.renderFormOptions();
+    } catch (e) { console.error(e); }
+  },
 
-    async function loadYears() {
-        try {
-            const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
-            const select = document.getElementById('catYear');
-            if (select) {
-                select.innerHTML = '<option value="">Select Year</option>';
-                state.years.forEach(year => {
-                    const option = document.createElement('option');
-                    option.value = year.id;
-                    option.textContent = year.year_name;
-                    if (year.is_current) option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load years:', error);
-        }
-    }
+  getCache(key) { return this.state.referenceCache?.[key]; },
 
-    async function loadTerms() {
-        try {
-            const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
-            const select = document.getElementById('catTerm');
-            if (select) {
-                select.innerHTML = '<option value="">Select Term</option>';
-                state.terms.forEach(term => {
-                    const option = document.createElement('option');
-                    option.value = term.id;
-                    option.textContent = `${term.name} (${term.year_code || ''})`;
-                    if (term.status === 'current') option.selected = true;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load terms:', error);
-        }
-    }
+  renderCategories() {
+    const categories = this.state.categories;
+    const body = document.getElementById('cscCategoriesBody');
+    if (!categories.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No categories defined.</td></tr>'; return; }
+    body.innerHTML = categories.map(c => `<tr>
+      <td class="small">${this.esc(c.name || '—')}</td>
+      <td class="small">${this.esc(c.description || '—')}</td>
+      <td class="small">${c.subjects_count || 0} subjects</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="createSubjectCatController.editCategory(${c.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
 
-    async function loadSubjects() {
-        try {
-            // Load only subjects assigned to this teacher
-            const response = await apiCall('academic/subjects-list', 'GET', {
-                subject_teacher_only: true
-            });
-            state.subjects = response.data || [];
-            const select = document.getElementById('catSubject');
-            if (select) {
-                select.innerHTML = '<option value="">Select Subject</option>';
-                state.subjects.forEach(subject => {
-                    const option = document.createElement('option');
-                    option.value = subject.id;
-                    option.textContent = subject.subject_name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load subjects:', error);
-        }
-    }
+  renderFormOptions() {
+    const subjects = this.state.subjects;
+    const subjectSelect = document.getElementById('cscSubjectSelect');
+    if (subjectSelect) subjectSelect.innerHTML = '<option value="">Select Subject</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+  },
 
-    async function loadClasses() {
-        try {
-            const response = await apiCall('academic/classes-list');
-            state.classes = response.data || [];
-            const select = document.getElementById('catClass');
-            if (select) {
-                select.innerHTML = '<option value="">Select Class</option>';
-                state.classes.forEach(cls => {
-                    const option = document.createElement('option');
-                    option.value = cls.id;
-                    option.textContent = cls.class_name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load classes:', error);
-        }
-    }
+  async createCategory() {
+    const name = document.getElementById('cscName')?.value;
+    const description = document.getElementById('cscDescription')?.value;
+    const subjectId = document.getElementById('cscSubjectSelect')?.value;
+    if (!name) { this.notify('Name required', 'warning'); return; }
+    try {
+      await this.API('POST', '/api/academic/subject-categories', { name, description, subject_id: subjectId });
+      this.notify('Category created', 'success');
+      document.getElementById('cscForm')?.reset();
+      await this.load();
+    } catch (e) { this.notify('Creation failed', 'danger'); }
+  },
 
-    async function createCat(event) {
-        event.preventDefault();
+  async editCategory(id) { /* open edit modal */ },
 
-        const data = {
-            name: document.getElementById('catName').value,
-            type: document.getElementById('catType').value,
-            subject_id: document.getElementById('catSubject').value,
-            class_id: document.getElementById('catClass').value,
-            year_id: document.getElementById('catYear').value,
-            term_id: document.getElementById('catTerm').value,
-            cat_date: document.getElementById('catDate').value,
-            max_marks: document.getElementById('catMaxMarks').value,
-            status: document.getElementById('catStatus').value,
-            description: document.getElementById('catDescription').value,
-            instructions: document.getElementById('catInstructions').value
-        };
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
 
-        try {
-            const submitBtn = document.querySelector('#createCatForm button[type="submit"]');
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Creating...';
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("create_subject_cat", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
+  },
+};
 
-            await apiCall('academic/formative-assessments', 'POST', data);
-
-            toast('CAT created successfully', 'success');
-            document.getElementById('createCatForm').reset();
-            
-            // Reload data
-            await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]);
-        } catch (error) {
-            console.error('Failed to create CAT:', error);
-            toast('Failed to create CAT', 'error');
-        } finally {
-            const submitBtn = document.querySelector('#createCatForm button[type="submit"]');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Create CAT';
-        }
-    }
-
-    function resetForm() {
-        document.getElementById('createCatForm').reset();
-        toast('Form reset', 'info');
-    }
-
-    function viewMyCats() {
-        // Navigate to my_subject_cats page
-        window.location.href = '?route=my_subject_cats';
-    }
-
-    function bindEvents() {
-        document.getElementById('createCatForm')?.addEventListener('submit', createCat);
-        document.getElementById('resetBtn')?.addEventListener('click', resetForm);
-        document.getElementById('viewMyCatsBtn')?.addEventListener('click', viewMyCats);
-        
-        // Update classes when subject changes (optional)
-        document.getElementById('catSubject')?.addEventListener('change', async (e) => {
-            // Could filter classes based on subject if needed
-        });
-    }
-
-    async function init() {
-        await window.AuthContext?.ready();
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
-        }
-
-        // Initialize Academic Context if available
-        if (window.AcademicContext) {
-            window.AcademicContext.subscribe((context, event, data) => {
-                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-                    loadYears();
-                    loadTerms();
-                }
-            });
-
-            if (!window.AcademicContext.isLoaded()) {
-                await window.AcademicContext.init();
-            }
-
-            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-            state.currentTerm = window.AcademicContext.getTermId();
-            
-            // Set default year and term from context
-            if (state.currentAcademicYear) {
-                document.getElementById('catYear').value = state.currentAcademicYear;
-            }
-            if (state.currentTerm) {
-                document.getElementById('catTerm').value = state.currentTerm;
-            }
-        }
-
-        document.getElementById('catLoading').style.display = 'none';
-        document.getElementById('catContent').style.display = 'block';
-
-        await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]);
-        bindEvents();
-    }
-
-    return { init };
-})();
-
-document.addEventListener('DOMContentLoaded', createSubjectCatCtrl.init);
-
-window.createSubjectCatCtrl = createSubjectCatCtrl;
-window.APIRealtime?.register?.(createSubjectCatCtrl, createSubjectCatCtrl);
+window.createSubjectCatController = createSubjectCatController;
+document.addEventListener('DOMContentLoaded', () => createSubjectCatController.init().catch(() => {}));

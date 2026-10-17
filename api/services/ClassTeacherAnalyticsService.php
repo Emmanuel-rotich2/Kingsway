@@ -382,14 +382,14 @@ class ClassTeacherAnalyticsService
                 return [];
             }
 
-            $query = "SELECT start_time, end_time, subject_name AS subject,
-                             teacher_name AS teacher, room_name, status
-                        FROM vw_timetable_entries
-                       WHERE academic_year_class_stream_id = ?
-                         AND day_of_week = WEEKDAY(CURDATE()) + 1
-                         AND status = 'scheduled'
-                       ORDER BY start_time";
-            $stmt = $this->db->query($query, [$this->streamId]);
+$query = "SELECT start_time, end_time, subject_name AS subject,
+                             teacher_name AS teacher,
+                             IFNULL(room_name, '') AS room_name, status
+                         FROM vw_upcoming_class_schedules
+                        WHERE day_of_week = WEEKDAY(CURDATE()) + 1
+                          AND status = 'scheduled'
+                        ORDER BY start_time";
+            $stmt = $this->db->query($query);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("getTodaySchedule error: " . $e->getMessage());

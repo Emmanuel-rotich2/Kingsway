@@ -203,7 +203,14 @@ const DashboardBaseController = {
 
                 try {
                     const filters = this.resolvePeriodFilters(this.period);
-                    const response = await this.apiMethod(filters);
+                    // Composed-view fast path: when a dashboard declares a
+                    // `viewSpec`, Node fans the same endpoints out in one
+                    // pooled request. Any failure falls back to the direct
+                    // API method so the dashboard never regresses.
+                    const composed = await this.loadFromComposedView(filters);
+                    const response = composed !== null
+                        ? composed
+                        : await this.apiMethod(filters);
                     const data = this.filterDateBearingData(
                         this.normalizeResponse(response),
                         filters
@@ -249,6 +256,46 @@ const DashboardBaseController = {
                     || response?.data
                     || response
                     || null;
+            },
+
+            async loadFromComposedView(filters) {
+                const spec = this.viewSpec;
+                if (!spec || !spec.view || !window.API?.nodeViews?.read) {
+                    return null;
+                }
+
+                try {
+                    const input = typeof spec.input === 'function'
+                        ? spec.input(filters, this)
+                        : (spec.input || {});
+
+                    const result = await window.API.nodeViews.read(
+                        spec.entity || 'dashboards',
+                        spec.view,
+                        input
+                    );
+                    const sources = result?.data?.sources || result?.sources || null;
+                    if (!sources || typeof sources !== 'object'
+                        || !Object.keys(sources).length) {
+                        return null;
+                    }
+
+                    if (typeof this.composeFromSources === 'function') {
+                        const composed = this.composeFromSources(sources, this, filters);
+                        return composed && typeof composed === 'object'
+                            ? composed
+                            : null;
+                    }
+
+                    const primary = sources[spec.sourceKey || 'stats'];
+                    return primary && typeof primary === 'object' ? primary : null;
+                } catch (error) {
+                    console.warn(
+                        `[${this.controllerName}] composed view unavailable; using direct API`,
+                        error
+                    );
+                    return null;
+                }
             },
 
             resolvePeriodFilters(period) {

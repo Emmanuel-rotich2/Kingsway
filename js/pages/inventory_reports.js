@@ -4,8 +4,9 @@
  */
 const inventoryReportsController = {
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  state: { referenceCache: null },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   fmtDateTime(v) {
     if (!v) return '\u2014';
@@ -20,6 +21,16 @@ const inventoryReportsController = {
     return { approved: 'bg-success', pending: 'bg-warning text-dark', rejected: 'bg-danger', draft: 'bg-secondary', fulfilled: 'bg-primary', cancelled: 'bg-secondary' }[s] || 'bg-secondary';
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("inventory", "inventory-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Inventory Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load() {
     const stockBody = document.getElementById('irStockBody');
     const adjBody = document.getElementById('irAdjBody');
@@ -28,10 +39,11 @@ const inventoryReportsController = {
     document.getElementById('irReqSummary').innerHTML = '<div class="spinner-border spinner-border-sm"></div>';
 
     try {
+      const cache = this.state.referenceCache;
       const [stock, reqs, adjustments] = await Promise.all([
-        this.API('GET', '/reports/inventory-stock-levels').catch(() => []),
-        this.API('GET', '/reports/requisitions-summary').catch(() => []),
-        this.API('GET', '/reports/inventory-adjustment-logs').catch(() => []),
+        cache?.stock !== undefined ? cache.stock : this.API('GET', '/reports/inventory-stock-levels').catch(() => []),
+        cache?.requisitions !== undefined ? cache.requisitions : this.API('GET', '/reports/requisitions-summary').catch(() => []),
+        cache?.adjustments !== undefined ? cache.adjustments : this.API('GET', '/reports/inventory-adjustment-logs').catch(() => []),
       ]);
 
       const stockList = this.norm(stock);
@@ -72,7 +84,15 @@ const inventoryReportsController = {
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("inventory_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory", "finance"]);
   },
 };
 

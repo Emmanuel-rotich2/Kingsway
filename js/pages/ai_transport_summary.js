@@ -1,15 +1,65 @@
-(function () {
-  const esc = (value) => { const el = document.createElement('div'); el.textContent = String(value ?? ''); return el.innerHTML; };
-  const render = async () => {
-    const host = document.getElementById('aiTransportSummaries'); if (!host || !window.API?.transport) return;
+/**
+ * AI Transport Summary Controller
+ * AI-generated transport insights and summaries.
+ */
+const aiTransportSummaryController = {
+  state: { referenceCache: null, summary: null, insights: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    // AI summaries typically don't need static references
+    this.state.referenceCache = {};
+  },
+
+  async load() {
     try {
-      const own = await window.API.transport.getAiOperationsSummaries('own'); let review = { drafts: [] };
-      try { review = await window.API.transport.getAiOperationsSummaries('review'); } catch (_) {}
-      const rows = [...(own?.data?.drafts || own?.drafts || []).map((x) => ({ ...x, __review: false })), ...(review?.data?.drafts || review?.drafts || []).map((x) => ({ ...x, __review: true }))].filter((x) => x.metadata?.subject_type === 'transport_operations_summary');
-      host.innerHTML = rows.length ? rows.map((draft) => { const body = draft.draft || {}; const approve = draft.__review && draft.status === 'pending_approval'; return `<div class="col-12"><article class="border rounded p-2"><div class="d-flex justify-content-between"><strong>${esc(body.title || 'Transport operations summary')}</strong><span class="badge text-bg-secondary">${esc(draft.status || 'queued')}</span></div><p class="small mt-2 mb-2">${esc(body.body || 'Summary is still being generated.')}</p>${Array.isArray(body.next_steps) && body.next_steps.length ? `<ul class="small mb-2">${body.next_steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ul>` : ''}${approve ? `<button class="btn btn-sm btn-success" data-ai-transport-approve="${Number(draft.id)}">Approve guidance</button>` : ''}${draft.status === 'approved' ? '<div class="small text-info">Approved for staff guidance. Transport rules remain authoritative.</div>' : ''}</article></div>`; }).join('') : '<div class="col-12 small text-muted">No transport operations summary has been requested.</div>';
-      host.querySelectorAll('[data-ai-transport-approve]').forEach((button) => button.addEventListener('click', async () => { try { await window.API.transport.approveAiOperationsSummary(button.dataset.aiTransportApprove); window.showNotification?.('Transport guidance approved', 'success'); await render(); } catch (error) { window.showNotification?.(error.message || 'Unable to approve transport guidance', 'danger'); } }));
-    } catch (_) { host.innerHTML = '<div class="col-12 small text-warning">Transport assistance is temporarily unavailable.</div>'; }
-  };
-  const init = () => { document.getElementById('queueAiTransportSummary')?.addEventListener('click', async () => { const button = document.getElementById('queueAiTransportSummary'); button.disabled = true; try { const result = await window.API.transport.queueAiOperationsSummary(); window.showNotification?.(`Transport summary queued${result?.job_id ? ` (job ${result.job_id})` : ''}`, 'info'); for (let i = 0; i < 6; i += 1) { await new Promise((resolve) => setTimeout(resolve, i === 0 ? 1000 : 2500)); await render(); } } catch (error) { window.showNotification?.(error.message || 'Unable to queue transport summary', 'danger'); } finally { button.disabled = false; } }); render(); };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true }); else init();
-})();
+      const [summary, insights] = await Promise.all([
+        this.API('GET', '/api/transport/ai-summary'),
+        this.API('GET', '/api/transport/ai-insights'),
+      ]);
+      this.state.summary = summary?.data || summary || {};
+      this.state.insights = Array.isArray(insights?.data) ? insights.data : (Array.isArray(insights) ? insights : []);
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  render() {
+    const summary = this.state.summary;
+    const insights = this.state.insights;
+    document.getElementById('atsSummaryText')?.textContent = summary?.overview || 'No summary available.';
+    document.getElementById('atsEfficiency')?.textContent = `${summary?.efficiency_score ?? '—'}%`;
+    document.getElementById('atsCostPerKm')?.textContent = `KES ${Number(summary?.cost_per_km || 0).toLocaleString()}`;
+    document.getElementById('atsRecommendations')?.textContent = summary?.recommendations || '—';
+    const insightsBody = document.getElementById('atsInsightsBody');
+    if (!insights.length) { insightsBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No AI insights.</td></tr>'; return; }
+    insightsBody.innerHTML = insights.map(i => `<tr>
+      <td class="small"><span class="badge bg-${i.type === 'alert' ? 'danger' : i.type === 'warning' ? 'warning' : 'info'}">${this.esc(i.type)}</span></td>
+      <td class="small">${this.esc(i.title || '—')}</td>
+      <td class="small">${this.esc(i.description || '—')}</td>
+    </tr>`).join('');
+  },
+
+  async refresh() {
+    try {
+      await this.API('POST', '/api/transport/ai-summary/refresh');
+      this.notify('Summary refreshed', 'success');
+      await this.load();
+    } catch (e) { this.notify('Refresh failed', 'danger'); }
+  },
+
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.load();
+    window.APIRealtime?.register?.("ai_transport_summary", {
+      refresh: async () => await this.load()
+    }, ["transport", "ai"]);
+  },
+};
+
+window.aiTransportSummaryController = aiTransportSummaryController;
+document.addEventListener('DOMContentLoaded', () => aiTransportSummaryController.init().catch(() => {}));

@@ -302,9 +302,10 @@ class SubjectTeacherAnalyticsService
     {
         try {
             $stmt = $this->db->query(
-                "SELECT start_time, end_time, subject_name, class_name, stream_name,
-                        room_name, status
-                   FROM vw_timetable_entries
+                "SELECT start_time, end_time, subject_name, class_name,
+                        IFNULL('', stream_name) AS stream_name,
+                        IFNULL(room_name, '') AS room_name, status
+                   FROM vw_upcoming_class_schedules
                   WHERE teacher_id = ? AND day_of_week = WEEKDAY(CURDATE()) + 1
                     AND status = 'scheduled'
                   ORDER BY start_time",

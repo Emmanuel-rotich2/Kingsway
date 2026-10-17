@@ -21,7 +21,32 @@
       }
       this.composeModal = new bootstrap.Modal(document.getElementById("composeModal"));
       this.bindEvents();
-      await Promise.all([this.loadData(), this.loadContacts(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
+      this.subscribeRealtime();
+      this.applyPermissionGates();
+      await Promise.all([this.loadData(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
+      this.setupVariableMenu();
+    },
+
+    setupVariableMenu: function () {
+      const menu = document.getElementById("messageVariableMenu");
+      if (!menu || !window.RecipientPicker) return;
+      menu.innerHTML = window.RecipientPicker.variables()
+        .map((v) => `<li><button type="button" class="dropdown-item" data-var="${v.token}">${v.token} <span class="text-muted small">${v.label}</span></button></li>`)
+        .join("");
+      menu.querySelectorAll("[data-var]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          window.RecipientPicker.insertVariable("messageBody", this.getAttribute("data-var"));
+        });
+      });
+    },
+
+    applyPermissionGates: function () {
+      const canExport = window.AuthContext?.canExport ? AuthContext.canExport("communications") : true;
+      const canPrint = window.AuthContext?.canPrint ? AuthContext.canPrint("communications") : true;
+      const ex = document.getElementById("exportWaBtn");
+      const pr = document.getElementById("printWaBtn");
+      if (ex && !canExport) ex.style.display = "none";
+      if (pr && !canPrint) pr.style.display = "none";
     },
 
     bindEvents: function () {
@@ -52,6 +77,27 @@
         self.on(id, "input", function () { self.currentPage = 1; self.applyFilters(); });
         self.on(id, "change", function () { self.currentPage = 1; self.applyFilters(); });
       });
+      this.on("exportWaBtn", "click", function () { self.exportWa(); });
+      this.on("printWaBtn", "click", function () { self.printWa(); });
+    },
+
+    subscribeRealtime: function () {
+      const self = this;
+      window.APIRealtime?.register?.('manageWhatsApp', this, ['communications']);
+      const refresh = (() => {
+        let timer = null;
+        return function () {
+          clearTimeout(timer);
+          timer = setTimeout(function () { self.loadData(); }, 400);
+        };
+      })();
+      ["kingsway:data-mutated", "kingsway:job"].forEach(function (evt) {
+        window.addEventListener(evt, function (e) {
+          const scope = String(e.detail?.scope || "").toLowerCase();
+          if (scope && scope !== "all" && !scope.includes("communic") && !scope.includes("whatsapp")) return;
+          refresh();
+        });
+      });
     },
 
     loadData: async function () {
@@ -63,15 +109,6 @@
         this.data = [];
       }
       this.applyFilters();
-    },
-
-    loadContacts: async function () {
-      try {
-        const res = await window.API.communications.getContact();
-        this.contacts = Array.isArray(res) ? res : (res?.data || []);
-      } catch (e) {
-        this.contacts = [];
-      }
     },
 
     loadGroups: async function () {
@@ -95,7 +132,7 @@
         const sel = document.getElementById("templateSelect");
         if (sel) {
           sel.innerHTML = '<option value="">No template</option>' +
-            this.templates.filter(t => t.template_type === 'sms' || t.template_type === 'announcement')
+            this.templates.filter(t => t.template_type === 'sms' || t.template_type === 'whatsapp' || t.template_type === 'announcement')
               .map(t => `<option value="${t.id}">${this.esc(t.name)}</option>`).join("");
         }
       } catch (e) {
@@ -111,9 +148,19 @@
       document.getElementById("recipientSelector").style.display = "none";
       document.getElementById("groupSelector").style.display = "none";
       document.getElementById("customNumbersDiv").style.display = "none";
+      const pickerDiv = document.getElementById("recipientPickerDiv");
+      if (pickerDiv) pickerDiv.style.display = "none";
       const sel = document.getElementById("specificRecipients");
       sel.innerHTML = "";
-      if (["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"].includes(val)) {
+      if (val === "custom_selection") {
+        if (pickerDiv) pickerDiv.style.display = "";
+        if (!this.recipientPicker && window.RecipientPicker) {
+          this.recipientPicker = window.RecipientPicker.create("recipientPicker", {
+            mode: "multi",
+            placeholder: "Search learner, parent, staff, class or vendor…",
+          });
+        }
+      } else if (["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"].includes(val)) {
         document.getElementById("recipientSelector").style.display = "";
         this.populateRecipientList(val);
       } else if (val === "contact_group") {
@@ -183,16 +230,21 @@
     collectFormData: function () {
       const recipientType = this.value("recipientType");
       let recipients = [];
+      let payloadRecipientType = recipientType;
       if (recipientType === "custom_numbers") {
         recipients = this.value("customNumbers").split(",").map(s => s.trim()).filter(Boolean);
       } else if (recipientType === "contact_group") {
         recipients = [this.value("groupSelect")];
+      } else if (recipientType === "custom_selection") {
+        recipients = this.recipientPicker ? this.recipientPicker.getTokens() : [];
+        payloadRecipientType = "mixed";
       } else if (["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"].includes(recipientType)) {
         recipients = Array.from(document.getElementById("specificRecipients").selectedOptions).map(o => o.value);
       } else {
         recipients = [recipientType];
       }
       const message = this.value("messageBody").trim();
+      if (!recipients.length) throw new Error("Select at least one recipient");
       const msgType = this.value("messageType");
       const signature = this.value("senderSignature").trim();
       const fullMessage = signature ? message + "\n\n— " + signature : message;
@@ -218,8 +270,8 @@
         scheduled_at: scheduleTime || null,
         reminder_at: reminderAt,
         sender_signature: signature,
-        recipient_type: recipientType,
-        target_ids: recipients,
+        recipient_type: payloadRecipientType,
+        target_ids: payloadRecipientType === "mixed" ? [] : recipients,
       };
     },
 
@@ -384,6 +436,31 @@
         console.error(e);
         this.notify("Failed to resend", "error");
       }
+    },
+
+    exportWa: function () {
+      if (window.AuthContext?.canExport && !AuthContext.canExport("communications")) return;
+      const rows = [["Date/Time", "Type", "Recipient", "Message", "Status"]];
+      (this.filtered || []).forEach((item) => {
+        rows.push([
+          this.formatDate(item.created_at || item.sent_at || item.scheduled_at),
+          item.category ? String(item.category).replace(/_/g, " ") : "",
+          item.recipient_type || item.recipient_summary || "",
+          String(item.content || item.message || item.body || "").replace(/\s+/g, " ").slice(0, 500),
+          item.status || "",
+        ]);
+      });
+      const csv = rows.map((row) => row.map((v) => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
+      if (window.KingswayFileLifecycle?.exportText) {
+        window.KingswayFileLifecycle.exportText(csv, "whatsapp_messages_" + new Date().toISOString().slice(0, 10) + ".csv", "text/csv;charset=utf-8;");
+      } else {
+        this.notify("Export unavailable", "error");
+      }
+    },
+
+    printWa: function () {
+      if (window.AuthContext?.canPrint && !AuthContext.canPrint("communications")) return;
+      window.PrintManager?.printPage({ title: "WhatsApp Messages", orientation: "landscape" }) ?? window.print();
     },
 
     unwrapList: function (response, keys) {

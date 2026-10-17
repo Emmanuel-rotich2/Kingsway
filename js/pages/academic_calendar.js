@@ -1,107 +1,79 @@
 /**
  * Academic Calendar Controller
- * Page: academic_calendar.php
- * Read-only calendar view (headteacher / deputy roles). Delegates the events
- * table to the shared AcademicEventsTable component and renders a deduplicated
- * upcoming-events widget. Editing happens on the School Events page.
+ * Manages academic calendar events and term dates.
  */
-const AcademicCalendarController = {
-    initialized: false,
-    table: null,
+const academicCalendarController = {
+  state: { referenceCache: null, events: [], terms: [] },
 
-    async init() {
-        await window.AuthContext?.ready();
-        if (!window.AuthContext?.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || "") + "/index.php";
-            return;
-        }
-        if (this.initialized) return;
-        this.initialized = true;
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-        this.table = window.AcademicEventsTable.create({
-            containerId: "calendarEventsTable",
-            editable: false,
-        });
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-        await this.loadUpcomingEvents();
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "academic-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Academic Calendar Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
-        const printBtn = document.getElementById("printCalendar");
-        if (printBtn) {
-            printBtn.addEventListener("click", () => this.printCalendar());
-        }
-    },
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [events, terms] = await Promise.all([
+        cache?.events !== undefined ? cache.events : this.API('GET', '/api/academic/calendar'),
+        cache?.terms !== undefined ? cache.terms : this.API('GET', '/api/academic/terms-list'),
+      ]);
+      this.state.events = Array.isArray(events?.data) ? events.data : (Array.isArray(events) ? events : []);
+      this.state.terms = Array.isArray(terms?.data) ? terms.data : (Array.isArray(terms) ? terms : []);
+      this.renderEvents();
+      this.renderTerms();
+    } catch (e) { console.error(e); }
+  },
 
-    async loadUpcomingEvents() {
-        const container = document.getElementById("upcomingEvents");
-        if (!container || !window.UpcomingEventsWidget) return;
-        try {
-            const res = await window.API.academic.getCustom({
-                action: "unified-events",
-                scope: "upcoming",
-            });
-            const data = res?.data || res;
-            const events = (data && data.events) || [];
-            window.UpcomingEventsWidget.render(container, events, { max: 8 });
-        } catch (error) {
-            console.error("Error loading upcoming events:", error);
-            container.innerHTML =
-                '<li class="list-group-item text-center text-muted py-4">Failed to load upcoming events.</li>';
-        }
-    },
+  getCache(key) { return this.state.referenceCache?.[key]; },
 
-    printCalendar() {
-        const events = this.table?.state?.events || [];
-        if (!events.length) {
-            this.showNotification("No events to print for the current filter", "warning");
-            return;
-        }
+  renderEvents() {
+    const events = this.state.events;
+    const body = document.getElementById('acEventsBody');
+    if (!events.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No calendar events.</td></tr>'; return; }
+    body.innerHTML = events.map(e => `<tr>
+      <td class="small">${this.fmtDate(e.date)}</td>
+      <td class="small">${this.esc(e.title || '—')}</td>
+      <td class="small"><span class="badge bg-${e.type === 'holiday' ? 'info' : e.type === 'exam' ? 'warning' : e.type === 'event' ? 'primary' : 'secondary'}">${this.esc(e.type || '—')}</span></td>
+      <td class="small">${this.esc(e.description || '—')}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicCalendarController.editEvent(${e.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
 
-        if (window.PrintManager?.printAcademicCalendar) {
-            window.PrintManager.printAcademicCalendar({
-                title: "Academic Calendar",
-                subtitle: "School Events Schedule",
-                academicYear: this.state?.academicYear || null,
-                events: events,
-                filename: `academic_calendar_${new Date().toISOString().slice(0,10)}`,
-            });
-        } else if (window.PrintManager?.printTable) {
-            window.PrintManager.printTable({
-                title: "Academic Calendar",
-                subtitle: "School Events Schedule",
-                columns: [
-                    { key: "term_name", label: "Term" },
-                    { key: "week_number", label: "Week" },
-                    { key: "title", label: "Event" },
-                    { key: "start_date", label: "Start Date" },
-                    { key: "start_time", label: "Start Time" },
-                    { key: "end_date", label: "End Date" },
-                    { key: "end_time", label: "End Time" },
-                    { key: "type", label: "Type" },
-                    { key: "status", label: "Status" },
-                ],
-                rows: events,
-                orientation: "landscape",
-                paperSize: "A4",
-            });
-        } else {
-            this.showNotification("Printing is not available", "error");
-        }
-    },
+  renderTerms() {
+    const terms = this.state.terms;
+    const body = document.getElementById('acTermsBody');
+    if (!terms.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No terms defined.</td></tr>'; return; }
+    body.innerHTML = terms.map(t => `<tr>
+      <td class="small">${this.esc(t.name || '—')}</td>
+      <td class="small">${this.fmtDate(t.start_date)}</td>
+      <td class="small">${this.fmtDate(t.end_date)}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicCalendarController.editTerm(${t.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
 
-    showNotification(message, type = "info") {
-        if (window.showNotification) {
-            window.showNotification(message, type);
-            return;
-        }
-        const alert = document.createElement("div");
-        alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-        alert.style.zIndex = "9999";
-        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-        document.body.appendChild(alert);
-        setTimeout(() => alert.remove(), 4000);
-    },
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
+
+  async editEvent(id) { /* open edit modal */ },
+  async editTerm(id) { /* open edit modal */ },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("academic_calendar", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
+  },
 };
 
-document.addEventListener("DOMContentLoaded", () => AcademicCalendarController.init());
-
-window.AcademicCalendarController = AcademicCalendarController;
+window.academicCalendarController = academicCalendarController;
+document.addEventListener('DOMContentLoaded', () => academicCalendarController.init().catch(() => {}));

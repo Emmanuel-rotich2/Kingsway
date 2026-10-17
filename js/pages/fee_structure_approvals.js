@@ -126,6 +126,7 @@ const feeApprovalsController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
     this.loadData();
+    window.APIRealtime?.register?.("fee_structure_approvals", this, ["finance"]);
   },
 };
 

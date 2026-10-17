@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { resolve } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 import { getMetrics } from '../metrics/index.js';
@@ -56,6 +57,7 @@ function createCache() {
   const metrics = getMetrics();
 
   const dbPath = config.storage.cache;
+  mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
   const db = new Database(dbPath);
   for (const pragma of config.cache.sqlitePragma.split(';').map(s => s.trim()).filter(Boolean)) {
     db.pragma(pragma);

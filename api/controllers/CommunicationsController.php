@@ -2,11 +2,14 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Modules\communications\TemplatesAPI;
 use App\API\Services\AiDraftService;
 use App\API\Services\AiWorkflowService;
 use App\API\Services\DataScopeService;
 use App\API\Services\EmailProfileService;
 use App\API\Services\EmailInboxService;
+use App\API\Services\MailboxMailService;
+use App\API\Services\UploadService;
 use DomainException;
 use Exception;
 
@@ -168,19 +171,28 @@ class CommunicationsController extends BaseController
      * @var CommunicationsAPI
      */
     private $api;
+    private TemplatesAPI $templatesApi;
     private EmailProfileService $emailProfileService;
     private EmailInboxService $emailInboxService;
+    private MailboxMailService $mailboxMailService;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = $this->contract('App\API\Modules\communications\CommunicationsAPI');
+        $this->templatesApi = $this->contract('App\API\Modules\communications\TemplatesAPI');
         $this->emailProfileService = $this->contract('App\API\Services\EmailProfileService',
             $this->getDb()->getConnection()
         );
         $this->emailInboxService = $this->contract('App\API\Services\EmailInboxService',
             $this->getDb()->getConnection(),
             $this->emailProfileService
+        );
+        $this->mailboxMailService = $this->contract('App\API\Services\MailboxMailService',
+            $this->getDb()->getConnection(),
+            $this->emailProfileService,
+            $this->emailInboxService,
+            new UploadService()
         );
     }
 
@@ -193,6 +205,264 @@ class CommunicationsController extends BaseController
             'user_id' => (int) $this->getUserId(),
             'visibility' => $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged'),
         ]));
+    }
+
+    /** GET /api/communications/sms-balance */
+    public function getSmsBalance($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = $this->contract(
+                'App\API\Services\SystemCommsConfigService',
+                $this->getDb()->getConnection()
+            );
+            $result = $service->getSmsBalance();
+        } catch (\Throwable $e) {
+            return $this->badRequest('Unable to retrieve SMS balance.');
+        }
+
+        return $this->success([
+            'balance' => $result['balance'] ?? 0,
+            'available' => !empty($result['success']),
+        ], $result['message'] ?? 'Balance retrieved');
+    }
+
+    // --- Provider-agnostic messaging surface (SMS/WhatsApp/Voice/MMS/Hashed) ---
+
+    private function smsService(): \App\API\Services\sms\SMSService
+    {
+        return $this->contract('App\API\Services\sms\SMSService', $this->getDb()->getConnection());
+    }
+
+    /** GET /api/communications/sms-gateway */
+    public function getSmsGateway($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->smsService()->gatewayInfo());
+    }
+
+    /** GET /api/communications/sms-profile */
+    public function getSmsProfile($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->smsService()->profile());
+    }
+
+    /** GET /api/communications/sms-groups */
+    public function getSmsGroups($id = null, $data = [], $segments = [])
+    {
+        return $this->success(['groups' => $this->smsService()->groups()]);
+    }
+
+    /** GET /api/communications/remote-sms-groups */
+    public function getRemoteSmsGroups($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->smsService()->remoteGroups());
+    }
+
+    /** POST /api/communications/sms-groups */
+    public function postSmsGroups($id = null, $data = [], $segments = [])
+    {
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            return $this->badRequest('Group name is required');
+        }
+        try {
+            return $this->created($this->smsService()->createGroup($name), 'Contact group created');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** PUT /api/communications/sms-groups/{id} */
+    public function putSmsGroups($id = null, $data = [], $segments = [])
+    {
+        if ($id === null || (int) $id < 1) {
+            return $this->badRequest('Group ID required');
+        }
+        $name = trim((string) ($data['name'] ?? ''));
+        if ($name === '') {
+            return $this->badRequest('Group name is required');
+        }
+        try {
+            return $this->success($this->smsService()->updateGroup((int) $id, $name), 'Contact group updated');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/communications/sms-groups/{id} */
+    public function deleteSmsGroups($id = null, $data = [], $segments = [])
+    {
+        if ($id === null || (int) $id < 1) {
+            return $this->badRequest('Group ID required');
+        }
+        try {
+            return $this->success($this->smsService()->deleteGroup((int) $id), 'Contact group deleted');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/communications/sms-groups-sync */
+    public function postSmsGroupsSync($id = null, $data = [], $segments = [])
+    {
+        try {
+            return $this->success($this->smsService()->syncGroups(), 'Groups synchronised from provider');
+        } catch (\Throwable $e) {
+            return $this->badRequest('Group sync failed: ' . $e->getMessage());
+        }
+    }
+
+    /** POST /api/communications/sms-groups-provision */
+    public function postSmsGroupsProvision($id = null, $data = [], $segments = [])
+    {
+        try {
+            return $this->success($this->smsService()->provisionGroups(), 'Groups provisioned with provider');
+        } catch (\Throwable $e) {
+            return $this->badRequest('Group provisioning failed: ' . $e->getMessage());
+        }
+    }
+
+    /** GET /api/communications/sms-contacts?group_id= */
+    public function getSmsContacts($id = null, $data = [], $segments = [])
+    {
+        $groupId = (int) ($data['group_id'] ?? $_GET['group_id'] ?? $id ?? 0);
+        if ($groupId < 1) {
+            return $this->badRequest('group_id is required');
+        }
+        $search = (string) ($data['search'] ?? $_GET['search'] ?? '');
+        return $this->success(['contacts' => $this->smsService()->contacts($groupId, $search)]);
+    }
+
+    /** POST /api/communications/sms-contacts */
+    public function postSmsContacts($id = null, $data = [], $segments = [])
+    {
+        $groupId = (int) ($data['group_id'] ?? 0);
+        if ($groupId < 1) {
+            return $this->badRequest('group_id is required');
+        }
+        try {
+            return $this->created($this->smsService()->addContact($groupId, $data), 'Contact added');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** PUT /api/communications/sms-contacts/{id} */
+    public function putSmsContacts($id = null, $data = [], $segments = [])
+    {
+        if ($id === null || (int) $id < 1) {
+            return $this->badRequest('Contact ID required');
+        }
+        try {
+            return $this->success($this->smsService()->updateContact((int) $id, $data), 'Contact updated');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/communications/sms-contacts/{id} */
+    public function deleteSmsContacts($id = null, $data = [], $segments = [])
+    {
+        if ($id === null || (int) $id < 1) {
+            return $this->badRequest('Contact ID required');
+        }
+        try {
+            return $this->success($this->smsService()->deleteContact((int) $id), 'Contact deleted');
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/communications/sms-contacts-sync */
+    public function postSmsContactsSync($id = null, $data = [], $segments = [])
+    {
+        $groupId = (int) ($data['group_id'] ?? 0);
+        if ($groupId < 1) {
+            return $this->badRequest('group_id is required');
+        }
+        try {
+            return $this->success($this->smsService()->syncContacts($groupId), 'Contacts synchronised');
+        } catch (\Throwable $e) {
+            return $this->badRequest('Contact sync failed: ' . $e->getMessage());
+        }
+    }
+
+    /** POST /api/communications/sms-contacts-import */
+    public function postSmsContactsImport($id = null, $data = [], $segments = [])
+    {
+        $groupId = (int) ($data['group_id'] ?? $_GET['group_id'] ?? 0);
+        if ($groupId < 1) {
+            return $this->badRequest('group_id is required');
+        }
+        try {
+            $result = $this->smsService()->importAudience($groupId);
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->badRequest('Import failed: ' . $e->getMessage());
+        }
+
+        $message = sprintf(
+            'Imported %d new contact(s) (%d refreshed, %d removed).',
+            (int) ($result['added'] ?? 0),
+            (int) ($result['updated'] ?? 0),
+            (int) ($result['removed'] ?? 0)
+        );
+        return $this->success($result, $message);
+    }
+
+    /** GET /api/communications/sms-audience?entity_type=parents|staff|students|vendors */
+    public function getSmsAudience($id = null, $data = [], $segments = [])
+    {
+        $entityType = strtolower((string) ($data['entity_type'] ?? $_GET['entity_type'] ?? ''));
+        if ($entityType === '') {
+            return $this->badRequest('entity_type is required');
+        }
+        return $this->success(['contacts' => $this->smsService()->resolveAudience($entityType)]);
+    }
+
+    /** POST /api/communications/sms-send */
+    public function postSmsSend($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardLiveExternalCommunication('Message delivery')) return $guard;
+        try {
+            return $this->success($this->smsService()->send($data), 'Message queued');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->badRequest('Message could not be sent: ' . $e->getMessage());
+        }
+    }
+
+    /** GET /api/communications/sms-messages */
+    public function getSmsMessages($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->smsService()->listMessages($data));
+    }
+
+    /** GET /api/communications/remote-sms-messages */
+    public function getRemoteSmsMessages($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->smsService()->remoteMessages());
+    }
+
+    /** GET /api/communications/remote-sms-messages/{uid} */
+    public function getRemoteSmsMessage($id = null, $data = [], $segments = [])
+    {
+        $uid = (string) ($id ?? $data['uid'] ?? $_GET['uid'] ?? '');
+        if ($uid === '') {
+            return $this->badRequest('Message UID required');
+        }
+        return $this->success($this->smsService()->remoteMessage($uid));
+    }
+
+    /** GET /api/communications/sms-queue?uid= */
+    public function getSmsQueue($id = null, $data = [], $segments = [])
+    {
+        $uid = (string) ($data['uid'] ?? $_GET['uid'] ?? $id ?? '');
+        if ($uid === '') {
+            return $this->badRequest('queue uid is required');
+        }
+        return $this->success($this->smsService()->queueStatus($uid));
     }
 
     /** POST /api/communications/ai-message-draft-queue */
@@ -367,12 +637,12 @@ class CommunicationsController extends BaseController
         return $this->success($result, 'Communication outbox processed');
     }
 
-    /** POST /api/communications/sync-talksasa-contacts
-     *  Synchronize contacts from our database to Talksasa contact groups.
+    /** POST /api/communications/sync-sms-contacts
+     *  Provider-agnostic reconciliation of contact groups and contacts.
      *  Requires X-Kingsway-Worker-Secret authentication.
-     *  Triggers an immediate sync of all configured Talksasa groups.
+     *  Pulls provider groups, provisions missing local groups, pushes contacts.
      */
-    public function postSyncTalksasaContacts($id = null, $data = [], $segments = [])
+    public function postSyncSmsContacts($id = null, $data = [], $segments = [])
     {
         $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
         $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
@@ -380,12 +650,13 @@ class CommunicationsController extends BaseController
             return $this->forbidden('Invalid worker credential');
         }
 
-        $result = $this->contract(
-            'App\API\Services\sms\TalksasaContactSyncService',
-            $this->getDb()->getConnection()
-        )->sync();
+        try {
+            $result = $this->smsService()->syncAll();
+        } catch (\Throwable $e) {
+            return $this->badRequest('Contact sync failed: ' . $e->getMessage());
+        }
 
-        return $this->success($result, 'Talksasa contacts synced successfully');
+        return $this->success($result, 'Contacts synced successfully');
     }
 
     // --- SMS Callback Endpoints ---
@@ -502,7 +773,7 @@ class CommunicationsController extends BaseController
     public function getPta($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requirePtaAccess()) return $guard;
-        $service = new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection());
+        $service = $this->contract(\App\API\Services\ParentPtaMembershipService::class, $this->getDb()->getConnection());
         if ($id !== null) {
             $row = $service->find((int) $id);
             return $row ? $this->success($row) : $this->notFound('PTA membership not found');
@@ -515,7 +786,7 @@ class CommunicationsController extends BaseController
         if ($guard = $this->requirePtaAccess()) return $guard;
         $parentId=(int)($data['parent_id']??0); $role=trim((string)($data['role']??'Member'));
         if (!$parentId) return $this->badRequest('parent_id is required');
-        $service = new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection());
+        $service = $this->contract(\App\API\Services\ParentPtaMembershipService::class, $this->getDb()->getConnection());
         if (!$service->parentExists($parentId)) return $this->badRequest('Parent record not found');
         $data['parent_id'] = $parentId; $data['role'] = $role;
         return $this->success(['id'=>$service->create($data, (int)$this->getUserId())],'PTA member added');
@@ -526,7 +797,7 @@ class CommunicationsController extends BaseController
         if ($guard = $this->requirePtaAccess()) return $guard;
         if ($id===null) return $this->badRequest('PTA membership ID is required');
         try {
-            (new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection()))->update((int)$id, $data);
+            ($this->contract(\App\API\Services\ParentPtaMembershipService::class, $this->getDb()->getConnection()))->update((int)$id, $data);
         } catch (\InvalidArgumentException $e) {
             return $this->badRequest($e->getMessage());
         }
@@ -537,7 +808,7 @@ class CommunicationsController extends BaseController
     {
         if ($guard = $this->requirePtaAccess()) return $guard;
         if ($id===null) return $this->badRequest('PTA membership ID is required');
-        (new \App\API\Services\ParentPtaMembershipService($this->getDb()->getConnection()))->delete((int)$id);
+        ($this->contract(\App\API\Services\ParentPtaMembershipService::class, $this->getDb()->getConnection()))->delete((int)$id);
         return $this->success(['id'=>(int)$id],'PTA member removed');
     }
 
@@ -797,7 +1068,7 @@ class CommunicationsController extends BaseController
         $full = !empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]));
         $teacher = !empty(array_intersect($roles, [7, 8, 9])) && !$full;
         return $this->success(array_merge($this->api->getAudienceOptions(), [
-            'allowed_audiences' => $teacher ? ['selected_students', 'selected_class', 'selected_parents'] : ['all_parents', 'selected_parents', 'selected_students', 'selected_class', 'student_type', 'school_level', 'all_staff', 'selected_staff', 'selected_vendors', 'all_vendors', 'contact_group', 'custom_numbers'],
+            'allowed_audiences' => $teacher ? ['selected_students', 'selected_class', 'selected_parents', 'custom_selection'] : ['all_parents', 'selected_parents', 'selected_students', 'selected_class', 'student_type', 'school_level', 'all_staff', 'selected_staff', 'selected_vendors', 'all_vendors', 'contact_group', 'custom_selection', 'custom_numbers'],
         ]));
     }
 
@@ -909,16 +1180,12 @@ class CommunicationsController extends BaseController
 
     private function validProviderCallback(array $data): bool
     {
-        $atToken = defined('AFRICASTALKING_WEBHOOK_TOKEN') ? (string) AFRICASTALKING_WEBHOOK_TOKEN : '';
-        if ($atToken !== '') {
-            $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_TOKEN'] ?? ($_GET['token'] ?? ($data['token'] ?? ''));
-            return is_string($provided) && hash_equals($atToken, $provided);
-        }
         $secret = defined('COMMUNICATION_WEBHOOK_SECRET') ? (string) COMMUNICATION_WEBHOOK_SECRET : '';
         if ($secret === '') {
             return strtolower((string) ($_ENV['APP_ENV'] ?? 'development')) !== 'production';
         }
-        $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_SECRET'] ?? ($data['webhook_secret'] ?? '');
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_SECRET']
+            ?? ($_SERVER['HTTP_X_KINGSWAY_WEBHOOK_TOKEN'] ?? ($_GET['token'] ?? ($data['webhook_secret'] ?? ($data['token'] ?? ''))));
         return is_string($provided) && hash_equals($secret, $provided);
     }
 
@@ -993,6 +1260,26 @@ class CommunicationsController extends BaseController
         }
         $term = isset($data['q']) ? (string)$data['q'] : (string)($data['term'] ?? '');
         return $this->handleResponse($this->api->searchMessageRecipients($userId, $term));
+    }
+
+    /**
+     * GET /communications/audience-search?q={term}&limit={n}
+     *   → unified recipient search for the shared recipient picker.
+     */
+    public function getAudienceSearch($id = null, $data = [], $segments = [])
+    {
+        $query = (string) ($data['q'] ?? $data['term'] ?? '');
+        $limit = (int) ($data['limit'] ?? 30);
+        $filters = [
+            'type' => (string) ($data['type'] ?? ''),
+            'class_id' => (int) ($data['class_id'] ?? 0),
+            'stream_id' => (int) ($data['stream_id'] ?? 0),
+            'student_type_id' => (int) ($data['student_type_id'] ?? 0),
+            'school_level_id' => (int) ($data['school_level_id'] ?? 0),
+            'role_id' => (int) ($data['role_id'] ?? 0),
+            'group_id' => (int) ($data['group_id'] ?? 0),
+        ];
+        return $this->handleResponse($this->api->searchAudienceRecipients($query, $limit, $filters));
     }
 
     // --- Attachments CRUD ---
@@ -1117,6 +1404,196 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->deleteTemplate($id));
     }
 
+    // --- Advanced Templates CRUD (new catalog system) ---
+    /** GET /api/communications/templates?channel=sms&status=active | /templates/{id} */
+    public function getTemplates($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            return $this->handleResponse($this->templatesApi->getTemplate(['id' => (int) $id]));
+        }
+        return $this->handleResponse($this->templatesApi->getTemplates($data));
+    }
+
+    /** POST /api/communications/templates */
+    public function postTemplates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postTemplate($data));
+    }
+
+    /** PUT /api/communications/templates/{id} */
+    public function putTemplates($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('ID required');
+        }
+        $data['id'] = (int) $id;
+        return $this->handleResponse($this->templatesApi->putTemplate($data));
+    }
+
+    /** DELETE /api/communications/templates/{id} */
+    public function deleteTemplates($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('ID required');
+        }
+        $data['id'] = (int) $id;
+        return $this->handleResponse($this->templatesApi->deleteTemplate($data));
+    }
+
+    /** GET /api/communications/templates/channels/{channelId} */
+    public function getTemplatesChannels($id = null, $data = [], $segments = [])
+    {
+        $channelId = (int) ($id ?? 0);
+        if (!$channelId) {
+            return $this->badRequest('Channel ID required');
+        }
+        $data['channel_id'] = $channelId;
+        return $this->handleResponse($this->templatesApi->getTemplateChannel($data));
+    }
+
+    /** PUT /api/communications/templates/channels/{channelId} */
+    public function putTemplatesChannels($id = null, $data = [], $segments = [])
+    {
+        $channelId = (int) ($id ?? 0);
+        if (!$channelId) {
+            return $this->badRequest('Channel ID required');
+        }
+        $data['channel_id'] = $channelId;
+        return $this->handleResponse($this->templatesApi->putTemplateChannel($data));
+    }
+
+    /** POST /api/communications/templates/{id}/versions */
+    public function postTemplatesVersions($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Template ID required');
+        }
+        $data['id'] = (int) $id;
+        return $this->handleResponse($this->templatesApi->postTemplateVersion($data));
+    }
+
+    /** POST /api/communications/templates/versions/{versionId}/approve */
+    public function postTemplatesVersionsApprove($id = null, $data = [], $segments = [])
+    {
+        $versionId = (int) ($id ?? 0);
+        if (!$versionId) {
+            return $this->badRequest('Version ID required');
+        }
+        $data['version_id'] = $versionId;
+        return $this->handleResponse($this->templatesApi->postApproveVersion($data));
+    }
+
+    /** POST /api/communications/templates/preview */
+    public function postTemplatesPreview($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postPreview($data));
+    }
+
+    /** POST /api/communications/templates/extract-placeholders */
+    public function postTemplatesExtractPlaceholders($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postExtractPlaceholders($data));
+    }
+
+    /** POST /api/communications/templates/validate-variables */
+    public function postTemplatesValidateVariables($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postValidateVariables($data));
+    }
+
+    /** POST /api/communications/templates/estimate-sms-cost */
+    public function postTemplatesEstimateSmsCost($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postEstimateSmsCost($data));
+    }
+
+    /** GET /api/communications/lists */
+    public function getLists($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->listGroups($data));
+    }
+
+    /** GET /api/communications/channels */
+    public function getChannels($id = null, $data = [], $segments = [])
+    {
+        return $this->success([
+            'channels' => [
+                ['id' => 'sms', 'name' => 'SMS', 'type' => 'messaging', 'is_active' => true],
+                ['id' => 'whatsapp', 'name' => 'WhatsApp', 'type' => 'messaging', 'is_active' => true],
+                ['id' => 'email', 'name' => 'Email', 'type' => 'messaging', 'is_active' => true],
+                ['id' => 'in_app', 'name' => 'In-App', 'type' => 'internal', 'is_active' => true],
+                ['id' => 'portal', 'name' => 'Parent Portal', 'type' => 'internal', 'is_active' => true],
+            ],
+        ]);
+    }
+
+    /** GET /api/communications/templates/code/{code} */
+    public function getTemplateCode($id = null, $data = [], $segments = [])
+    {
+        $code = $segments[0] ?? ($data['code'] ?? '');
+        if (!$code) {
+            return $this->badRequest('Template code required');
+        }
+        $data['code'] = $code;
+        return $this->handleResponse($this->templatesApi->getTemplateByCode($data));
+    }
+
+    /** POST /api/communications/templates/{id}/versions */
+    public function postTemplateVersion($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Template ID required');
+        }
+        $data['id'] = $id;
+        return $this->handleResponse($this->templatesApi->postTemplateVersion($data));
+    }
+
+    /** PUT /api/communications/templates/channels/{channelId} */
+    public function putTemplateChannel($id = null, $data = [], $segments = [])
+    {
+        $channelId = (int) ($id ?? $data['channel_id'] ?? 0);
+        if (!$channelId) {
+            return $this->badRequest('Channel ID required');
+        }
+        $data['channel_id'] = $channelId;
+        return $this->handleResponse($this->templatesApi->putTemplateChannel($data));
+    }
+
+    /** POST /api/communications/templates/versions/{versionId}/approve */
+    public function postApproveVersion($id = null, $data = [], $segments = [])
+    {
+        $versionId = (int) ($id ?? $data['version_id'] ?? 0);
+        if (!$versionId) {
+            return $this->badRequest('Version ID required');
+        }
+        $data['version_id'] = $versionId;
+        return $this->handleResponse($this->templatesApi->postApproveVersion($data));
+    }
+
+    /** POST /api/communications/templates/preview */
+    public function postTemplatePreview($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postPreview($data));
+    }
+
+    /** POST /api/communications/templates/extract-placeholders */
+    public function postExtractPlaceholders($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postExtractPlaceholders($data));
+    }
+
+    /** POST /api/communications/templates/validate-variables */
+    public function postValidateVariables($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postValidateVariables($data));
+    }
+
+    /** POST /api/communications/templates/estimate-sms-cost */
+    public function postEstimateSmsCost($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->templatesApi->postEstimateSmsCost($data));
+    }
+
     // --- Workflow Instances CRUD ---
     public function getWorkflowInstance($id = null, $data = [], $segments = [])
     {
@@ -1161,7 +1638,14 @@ class CommunicationsController extends BaseController
         if (is_array($result)) {
             if (isset($result['success'])) {
                 if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+                    if (array_key_exists('data', $result)) {
+                        return $this->success($result['data'], $result['message'] ?? 'Success');
+                    }
+                    // Module payloads (e.g. TemplatesAPI) return their own keys
+                    // (templates, template, channel, rendered, ...) without a
+                    // 'data' wrapper. Forward them intact so callers receive the
+                    // payload instead of null.
+                    return $this->success($result, $result['message'] ?? 'Success');
                 } else {
                     return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
                 }
@@ -1172,46 +1656,76 @@ class CommunicationsController extends BaseController
     }
 
     /**
-     * School-domain mailbox endpoints. Access rule: School Admin (role 4) sees ALL
-     * profiles; any other authenticated staff role sees only profiles whose
-     * assigned_role_ids intersect their own role IDs. System Administrator is not
-     * granted mailbox visibility here — configuration only.
+     * School-domain mailbox endpoints. Access rule (EmailProfileService):
+     * School Admin (role 4) sees ALL mailboxes with send access; personal
+     * mailboxes belong to their owner plus explicit members; group mailboxes
+     * honour explicit members and the legacy assigned_role_ids rule (empty
+     * list = all staff). System Administrator is not granted mailbox
+     * visibility here — configuration only.
      */
+
+    private function mailboxAccessContext(): array
+    {
+        $roles = $this->getUserRoleIds();
+
+        return [
+            'user_id' => (int) $this->getUserId(),
+            'roles' => $roles,
+            'is_school_admin' => in_array(4, $roles, true),
+            'is_system_admin' => $this->userHasRole('System Administrator') || $this->userHasPermission('*'),
+        ];
+    }
 
     private function accessibleMailboxProfiles(): array
     {
-        $roles = $this->getUserRoleIds();
-        $isSchoolAdmin = in_array(4, $roles, true);
-        $profiles = $this->emailProfileService->listProfiles();
-        $visible = [];
-        foreach ($profiles as $profile) {
-            if ((int) ($profile['is_active'] ?? 0) !== 1) {
-                continue;
-            }
-            if ($isSchoolAdmin) {
-                $visible[] = $profile;
-                continue;
-            }
-            $assigned = $profile['assigned_role_ids'] ?? [];
-            // Empty (NULL) assigned_role_ids means "all staff".
-            if (!is_array($assigned) || $assigned === []) {
-                $visible[] = $profile;
-                continue;
-            }
-            if (!empty(array_intersect($assigned, $roles))) {
-                $visible[] = $profile;
-            }
-        }
-        return $visible;
+        $context = $this->mailboxAccessContext();
+
+        return $this->emailProfileService->mailboxesForUser(
+            $context['user_id'],
+            $context['roles'],
+            $context['is_school_admin'],
+            $context['is_system_admin']
+        );
     }
 
-    private function resolveAccessibleProfile(int $profileId): ?array
+    private function resolveAccessibleProfile(int $profileId, string $capability = 'read'): ?array
     {
         foreach ($this->accessibleMailboxProfiles() as $profile) {
-            if ((int) $profile['id'] === $profileId) {
+            if ((int) $profile['id'] === $profileId && !empty($profile['can_' . $capability])) {
                 return $profile;
             }
         }
+        return null;
+    }
+
+    /**
+     * Resolve a mailbox with decrypted credentials after checking access. At
+     * least one of $capabilities ('read','reply','compose') must be granted.
+     *
+     * @param string[] $capabilities
+     */
+    private function resolveMailboxCredentials(int $profileId, array $capabilities = ['read']): ?array
+    {
+        $context = $this->mailboxAccessContext();
+
+        $resolved = $this->emailProfileService->resolveAccessibleProfile(
+            $profileId,
+            $context['user_id'],
+            $context['roles'],
+            $context['is_school_admin'],
+            $context['is_system_admin']
+        );
+
+        if ($resolved === null) {
+            return null;
+        }
+
+        foreach ($capabilities as $capability) {
+            if (!empty($resolved['can_' . $capability])) {
+                return $resolved;
+            }
+        }
+
         return null;
     }
 
@@ -1219,6 +1733,76 @@ class CommunicationsController extends BaseController
     {
         unset($profile['smtp_password'], $profile['imap_password'], $profile['smtp_pass'], $profile['imap_pass']);
         return $profile;
+    }
+
+    /**
+     * Mailbox access management (assign who may read/reply/compose) is a School
+     * Administrator responsibility; System Administrator configures accounts
+     * only and does not grant mailbox access.
+     */
+    private function ensureMailboxManagementAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if ($this->userHasRole('School Administrator') || $this->userHasPermission('*')) {
+            return null;
+        }
+        return $this->forbidden('School Administrator access is required to manage mailbox access.');
+    }
+
+    // GET /api/communications/mailboxes/{id}/members
+    public function getMailboxesMembers($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureMailboxManagementAccess()) {
+            return $auth;
+        }
+
+        $profileId = (int) ($id ?? ($data['profile_id'] ?? 0));
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+
+        try {
+            $members = $this->emailProfileService->listMembers($profileId);
+            return $this->success([
+                'members'    => $members,
+                'mailbox'    => $this->maskProfile((array) $this->emailProfileService->getProfile($profileId)),
+            ], 'Mailbox members retrieved');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] member list failed: ' . $e->getMessage());
+            return $this->serverError('Mailbox members could not be retrieved');
+        }
+    }
+
+    // PUT /api/communications/mailboxes/{id}/members
+    public function putMailboxesMembers($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureMailboxManagementAccess()) {
+            return $auth;
+        }
+
+        $profileId = (int) ($id ?? ($data['profile_id'] ?? 0));
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+
+        $members = $data['members'] ?? [];
+        if (!is_array($members)) {
+            return $this->badRequest('members must be an array of {user_id, can_read, can_reply, can_compose}.');
+        }
+
+        try {
+            $result = $this->emailProfileService->setMembers($profileId, $members, (int) $this->getUserId());
+            return $this->success(['members' => $result], 'Mailbox access updated');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound('Email profile not found');
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] member update failed: ' . $e->getMessage());
+            return $this->serverError('Mailbox access could not be updated');
+        }
     }
 
     public function getMailboxes($id = null, $data = [], $segments = [])
@@ -1237,8 +1821,14 @@ class CommunicationsController extends BaseController
             return $this->forbidden('Mailbox not accessible to your role');
         }
         try {
-            $folders = $this->emailInboxService->listMailboxes($profileId);
-            return $this->success(['folders' => $folders], 'Folders retrieved');
+            $result = $this->emailInboxService->listMailboxes($profileId);
+            if (!($result['success'] ?? false)) {
+                return $this->badRequest($result['message'] ?? 'Unable to connect to mailbox.');
+            }
+            return $this->success([
+                'folders' => $result['folders'] ?? [],
+                'profile' => $result['profile'] ?? null,
+            ], 'Folders retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[CommunicationsController] folder listing failed: ' . $e->getMessage());
             return $this->badRequest('Unable to connect to mailbox. Please contact the System Administrator.');
@@ -1257,8 +1847,17 @@ class CommunicationsController extends BaseController
         $folder = (string) ($data['folder'] ?? 'INBOX');
         $page = max(1, (int) ($data['page'] ?? 1));
         $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
+        $filters = [
+            'q'       => $data['q'] ?? null,
+            'unread'  => $data['unread'] ?? null,
+            'flagged' => $data['flagged'] ?? null,
+            'from'    => $data['from'] ?? null,
+            'subject' => $data['subject'] ?? null,
+            'since'   => $data['since'] ?? null,
+            'before'  => $data['before'] ?? null,
+        ];
         try {
-            $result = $this->emailInboxService->listMessages($profileId, $folder, $page, $perPage);
+            $result = $this->emailInboxService->listMessages($profileId, $folder, $page, $perPage, $filters);
             return $this->success($result, 'Messages retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[CommunicationsController] message listing failed: ' . $e->getMessage());
@@ -1286,6 +1885,318 @@ class CommunicationsController extends BaseController
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[CommunicationsController] message read failed: ' . $e->getMessage());
             return $this->badRequest('Unable to read message. Please contact the System Administrator.');
+        }
+    }
+
+    /**
+     * POST /api/communications/mailboxes/{profileId}/send
+     */
+    public function postMailboxesSend($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($id ?? ($data['profile_id'] ?? 0));
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+
+        $resolved = $this->resolveMailboxCredentials($profileId, ['reply', 'compose']);
+        if ($resolved === null) {
+            return $this->forbidden('You do not have send access to this mailbox.');
+        }
+
+        try {
+            $result = $this->mailboxMailService->send($resolved['profile'], (int) $this->getUserId(), $data);
+            return $this->success($result, $result['warning'] ?? 'Message sent successfully.');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] mailbox send failed: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/communications/mailboxes/{profileId}/drafts — IMAP APPEND to
+     * the account's Drafts folder, optionally replacing an existing draft.
+     */
+    public function postMailboxesDrafts($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($id ?? ($data['profile_id'] ?? 0));
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+
+        $resolved = $this->resolveMailboxCredentials($profileId, ['compose']);
+        if ($resolved === null) {
+            return $this->forbidden('You do not have compose access to this mailbox.');
+        }
+
+        $replaceUid = isset($data['draft_uid']) && $data['draft_uid'] !== '' ? (string) $data['draft_uid'] : null;
+
+        try {
+            $result = $this->mailboxMailService->saveDraft($resolved['profile'], (int) $this->getUserId(), $data, $replaceUid);
+            return $this->success($result, 'Draft saved');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] draft save failed: ' . $e->getMessage());
+            return $this->badRequest('Draft could not be saved: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/communications/mailboxes/messages/{uid} — flag/move/copy/delete
+     * a message. Body: profile_id, folder, action (flags|move|copy|delete),
+     * add[], remove[], target, permanent.
+     */
+    public function postMailboxesMessages($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($data['profile_id'] ?? 0);
+        $uid = (string) ($id ?? ($data['uid'] ?? ''));
+        $folder = (string) ($data['folder'] ?? 'INBOX');
+        $action = strtolower(trim((string) ($data['action'] ?? 'flags')));
+
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+        if ($uid === '') {
+            return $this->badRequest('Message UID required');
+        }
+
+        $resolved = $this->resolveMailboxCredentials($profileId, ['read']);
+        if ($resolved === null) {
+            return $this->forbidden('You do not have access to this mailbox.');
+        }
+
+        try {
+            switch ($action) {
+                case 'flags':
+                    $add = is_array($data['add'] ?? null) ? $data['add'] : explode(',', (string) ($data['add'] ?? ''));
+                    $remove = is_array($data['remove'] ?? null) ? $data['remove'] : explode(',', (string) ($data['remove'] ?? ''));
+                    $result = $this->emailInboxService->setFlags($profileId, $folder, $uid, $add, $remove);
+                    break;
+
+                case 'move':
+                    $target = trim((string) ($data['target'] ?? ''));
+                    if ($target === '') {
+                        return $this->badRequest('Target folder required for move.');
+                    }
+                    $result = $this->emailInboxService->moveMessage($profileId, $folder, $uid, $target);
+                    break;
+
+                case 'copy':
+                    $target = trim((string) ($data['target'] ?? ''));
+                    if ($target === '') {
+                        return $this->badRequest('Target folder required for copy.');
+                    }
+                    $result = $this->emailInboxService->copyMessage($profileId, $folder, $uid, $target);
+                    break;
+
+                case 'delete':
+                    $permanent = filter_var($data['permanent'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                    $result = $this->emailInboxService->deleteMessage($profileId, $folder, $uid, $permanent);
+                    break;
+
+                default:
+                    return $this->badRequest('Unsupported message action: ' . $action);
+            }
+
+            return $this->success($result, $result['message'] ?? 'Message updated');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] message action failed: ' . $e->getMessage());
+            return $this->badRequest('The message could not be updated: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/communications/mailboxes/attachments — multipart upload for
+     * compose attachments (communication_attachment category).
+     */
+    public function postMailboxesAttachments($id = null, $data = [], $segments = [])
+    {
+        $resolved = $this->resolveMailboxCredentials((int) ($data['profile_id'] ?? 0), ['compose']);
+        if ($resolved === null) {
+            return $this->forbidden('You do not have compose access to this mailbox.');
+        }
+
+        $files = $_FILES['file'] ?? $_FILES['files'] ?? null;
+        if ($files === null) {
+            return $this->badRequest('No file uploaded.');
+        }
+
+        $normalized = [];
+        if (is_array($files['name'])) {
+            foreach (array_keys($files['name']) as $index) {
+                $normalized[] = [
+                    'name'     => (string) $files['name'][$index],
+                    'type'     => (string) ($files['type'][$index] ?? ''),
+                    'tmp_name' => (string) ($files['tmp_name'][$index] ?? ''),
+                    'error'    => (int) ($files['error'][$index] ?? UPLOAD_ERR_NO_FILE),
+                    'size'     => (int) ($files['size'][$index] ?? 0),
+                ];
+            }
+        } else {
+            $normalized[] = $files;
+        }
+
+        if (count($normalized) > MailboxMailService::MAX_ATTACHMENTS) {
+            return $this->badRequest('At most ' . MailboxMailService::MAX_ATTACHMENTS . ' attachments are allowed per message.');
+        }
+
+        $uploadService = new UploadService();
+        $stored = [];
+        try {
+            foreach ($normalized as $file) {
+                if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                    return $this->badRequest('Attachment upload failed: ' . (string) ($file['name'] ?? 'file'));
+                }
+                $result = $uploadService->store($file, 'communication_attachment', [
+                    'owner_id' => (string) $this->getUserId(),
+                    'prefix'   => 'mail',
+                ]);
+                $stored[] = [
+                    'path' => $result['relative_path'],
+                    'name' => $result['original_filename'],
+                    'mime' => $result['mime_type'],
+                    'size' => $result['file_size_bytes'],
+                ];
+            }
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] attachment upload failed: ' . $e->getMessage());
+            return $this->badRequest('Attachment upload failed: ' . $e->getMessage());
+        }
+
+        return $this->success(['attachments' => $stored], 'Attachments uploaded');
+    }
+
+    /**
+     * GET /api/communications/mailboxes/messages/attachments/{index} —
+     * stream one attachment. Query: profile_id, folder, uid.
+     */
+    public function getMailboxesMessagesAttachments($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($data['profile_id'] ?? 0);
+        $uid = (string) ($data['uid'] ?? '');
+        $folder = (string) ($data['folder'] ?? 'INBOX');
+        $index = (int) ($id ?? ($data['index'] ?? -1));
+
+        if ($profileId <= 0 || $uid === '' || $index < 0) {
+            return $this->badRequest('profile_id, uid and attachment index are required.');
+        }
+        if (!$this->resolveAccessibleProfile($profileId)) {
+            return $this->forbidden('Mailbox not accessible to your role');
+        }
+
+        $attachment = $this->emailInboxService->getAttachmentContent($profileId, $folder, $uid, $index);
+        if ($attachment === null) {
+            return $this->badRequest('Attachment not found.');
+        }
+
+        $filename = preg_replace('/[^A-Za-z0-9._ -]/', '_', (string) $attachment['filename']) ?: 'attachment';
+        header('Content-Type: ' . (string) ($attachment['mime'] ?: 'application/octet-stream'));
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen((string) $attachment['content']));
+        header('X-Content-Type-Options: nosniff');
+        echo (string) $attachment['content'];
+        exit;
+    }
+
+    /**
+     * GET /api/communications/mailboxes/{profileId}/outbox
+     */
+    public function getMailboxesOutbox($id = null, $data = [], $segments = [])
+    {
+        $profileId = (int) ($id ?? ($data['profile_id'] ?? 0));
+        if ($profileId <= 0) {
+            return $this->badRequest('Profile ID required');
+        }
+        if (!$this->resolveAccessibleProfile($profileId)) {
+            return $this->forbidden('Mailbox not accessible to your role');
+        }
+
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
+        $result = $this->mailboxMailService->listOutbox([$profileId], $data, $page, $perPage);
+
+        return $this->success($result, 'Outbox retrieved');
+    }
+
+    /**
+     * GET /api/communications/email-outbox — outbox across every mailbox the
+     * caller can see; GET /api/communications/email-outbox/{id} for one row.
+     */
+    public function getEmailOutbox($id = null, $data = [], $segments = [])
+    {
+        $profileIds = array_map('intval', array_column($this->accessibleMailboxProfiles(), 'id'));
+        if ($profileIds === []) {
+            return $this->success(['messages' => [], 'pagination' => ['total' => 0, 'page' => 1, 'limit' => 25, 'pages' => 0]], 'Outbox retrieved');
+        }
+
+        if ($id !== null && is_numeric($id)) {
+            $row = $this->mailboxMailService->getOutbox((int) $id, $profileIds);
+            if ($row === null) {
+                return $this->badRequest('Outbox message not found.');
+            }
+            return $this->success(['message' => $row], 'Outbox message retrieved');
+        }
+
+        $page = max(1, (int) ($data['page'] ?? 1));
+        $perPage = min(50, max(1, (int) ($data['per_page'] ?? 25)));
+        $result = $this->mailboxMailService->listOutbox($profileIds, $data, $page, $perPage);
+
+        return $this->success($result, 'Outbox retrieved');
+    }
+
+    /**
+     * POST /api/communications/email-outbox/retry/{outboxId}
+     */
+    public function postEmailOutboxRetry($id = null, $data = [], $segments = [])
+    {
+        $outboxId = (int) ($id ?? ($data['outbox_id'] ?? 0));
+        if ($outboxId <= 0) {
+            return $this->badRequest('Outbox message ID required');
+        }
+
+        $row = $this->mailboxMailService->getOutbox($outboxId, array_map('intval', array_column($this->accessibleMailboxProfiles(), 'id')));
+        if ($row === null) {
+            return $this->badRequest('Outbox message not found.');
+        }
+
+        $resolved = $this->resolveMailboxCredentials((int) $row['profile_id'], ['reply', 'compose']);
+        if ($resolved === null) {
+            return $this->forbidden('You do not have send access to this mailbox.');
+        }
+
+        try {
+            $result = $this->mailboxMailService->retry($outboxId, $resolved['profile'], (int) $this->getUserId());
+            return $this->success($result, 'Message sent successfully.');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] outbox retry failed: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * DELETE /api/communications/email-outbox/{outboxId}
+     */
+    public function deleteEmailOutbox($id = null, $data = [], $segments = [])
+    {
+        $outboxId = (int) ($id ?? ($data['outbox_id'] ?? 0));
+        if ($outboxId <= 0) {
+            return $this->badRequest('Outbox message ID required');
+        }
+
+        $profileId = $this->mailboxMailService->outboxProfileId($outboxId);
+        if ($profileId !== null && !$this->resolveMailboxCredentials($profileId, ['reply', 'compose'])) {
+            return $this->forbidden('You do not have send access to this mailbox.');
+        }
+
+        try {
+            $this->mailboxMailService->deleteOutbox($outboxId, array_map('intval', array_column($this->accessibleMailboxProfiles(), 'id')));
+            return $this->success(['id' => $outboxId], 'Outbox entry removed');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
         }
     }
 }

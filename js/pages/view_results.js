@@ -80,13 +80,20 @@
 
   // ── Reference data ───────────────────────────────────────────────────────
   async function loadReferences() {
+    let composed = null;
+    try {
+      const response = await window.API.nodeViews.resolve('academic', 'view-results-references');
+      composed = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn('View results reference Node view failed; using direct reads:', error);
+    }
     const [terms, classes, periods, areas, systems, classifications] = await Promise.allSettled([
-      payload('/academic/terms-list'),
-      payload('/academic/classes-list?limit=200'),
-      payload('/academic/exam-periods'),
-      payload('/academic/learning-areas/list'),
-      payload('/academic/grading-systems'),
-      payload('/academic/assessment-classifications'),
+      composed?.terms !== undefined ? composed.terms : payload('/academic/terms-list'),
+      composed?.classes !== undefined ? composed.classes : payload('/academic/classes-list?limit=200'),
+      composed?.examPeriods !== undefined ? composed.examPeriods : payload('/academic/exam-periods'),
+      composed?.learningAreas !== undefined ? composed.learningAreas : payload('/academic/learning-areas/list'),
+      composed?.gradingSystems !== undefined ? composed.gradingSystems : payload('/academic/grading-systems'),
+      composed?.classifications !== undefined ? composed.classifications : payload('/academic/assessment-classifications'),
     ]);
     state.refs.terms = terms.status === 'fulfilled' ? arr(terms.value) : [];
     state.refs.classes = classes.status === 'fulfilled' ? arr(classes.value) : [];
@@ -1194,6 +1201,7 @@
     await loadClassAreas();
     populateAreaSelect();
     await refresh();
+    window.APIRealtime?.register?.('view_results', { refresh: async () => { await loadReferences(); populateBaseSelectors(); renderGradingToggle(); populateExamPeriodSelect(); await populateStreams(); await loadClassAreas(); populateAreaSelect(); await refresh(); } }, ['academic']);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });

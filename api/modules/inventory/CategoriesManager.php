@@ -27,7 +27,7 @@ class CategoriesManager extends BaseAPI
                     c.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . "
+                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . " c
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON c.id = i.category_id
                 WHERE c.status = 'active'
                 GROUP BY c.id
@@ -51,7 +51,7 @@ class CategoriesManager extends BaseAPI
                     c.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . "
+                FROM " . ReadReplicaService::qualifiedRef("inventory_categories") . " c
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON c.id = i.category_id
                 WHERE c.id = ?
                 GROUP BY c.id

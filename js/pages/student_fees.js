@@ -19,6 +19,7 @@ const StudentFeesController = {
       collection_rate: 0,
     },
   },
+  state: { referenceCache: null },
   filters: {
     search: "",
     class_name: "",
@@ -68,6 +69,13 @@ const StudentFeesController = {
     await this.loadPaymentStatus();
     this.attachEvents();
     this.bindRealtimeCollaboration();
+    window.APIRealtime?.register?.("student_fees", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadInitialData();
+        await this.loadPaymentStatus();
+      }
+    }, ["finance", "payments"]);
   },
 
   /**
@@ -382,6 +390,8 @@ const StudentFeesController = {
   loadInitialData: async function () {
     const errors = [];
 
+    await this.loadReferencesComposed();
+
     const [classes, years] = await Promise.all([
       this.loadClasses().catch((error) => {
         errors.push("classes");
@@ -433,13 +443,25 @@ const StudentFeesController = {
     }
   },
 
+  loadReferencesComposed: async function () {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "student-fees-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Student fees Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   loadClasses: async function () {
-    const resp = await window.API.academic.listClasses();
+    const cache = this.state.referenceCache;
+    const resp = cache?.classes !== undefined ? cache.classes : await window.API.academic.listClasses();
     return this.unwrapList(resp);
   },
 
   loadYears: async function () {
-    const resp = await window.API.academic.listYears();
+    const cache = this.state.referenceCache;
+    const resp = cache?.years !== undefined ? cache.years : await window.API.academic.listYears();
     return this.unwrapList(resp);
   },
 
@@ -1162,11 +1184,12 @@ const StudentFeesController = {
    * year the ledger is showing.
    */
   loadTermsForYear: async function (academicYear) {
+    const cache = this.state.referenceCache;
     const params = {};
     if (academicYear) {
       params.academic_year = academicYear;
     }
-    const termsResp = await window.API.academic.listTerms(params);
+    const termsResp = cache?.terms !== undefined ? cache.terms : await window.API.academic.listTerms(params);
     const terms = this.unwrapList(termsResp);
     this.data.academicYearTerms = terms;
     this.populateTermFilter(terms);

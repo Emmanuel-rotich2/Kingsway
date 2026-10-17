@@ -3,9 +3,17 @@ namespace App\API\Services;
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
+use App\API\Includes\FileLogger;
 
 class MessageService
 {
+    /**
+     * PHP SMTP attempts before a message becomes eligible for the Python
+     * smtplib resilience path. Shared by every queued-email caller so the
+     * retry policy cannot drift between modules.
+     */
+    public const SMTP_MAX_ATTEMPTS = 3;
+
     private $db;
 
     /** DB-stored SMTP override applied by the dispatcher (System Config pages). */
@@ -363,6 +371,109 @@ class MessageService
         foreach ($recipientList as $recipients) {
             $this->sendEmail($recipients, $subject, $htmlBody, $attachments, $includeAuditBcc);
         }
+    }
+
+    /**
+     * Resilience path: deliver one already-rendered message through the
+     * Python platform's smtplib fallback after the PHP SMTP retries are
+     * exhausted. Returns the normalized Python outcome, or null when the
+     * relay is unavailable (the caller must keep its PHP retry loop).
+     *
+     * @return array{ok:bool,sent:int,failed:int,message:string,transport:string}|null
+     */
+    public function sendViaPythonFallback($recipients, string $subject, string $htmlBody, array $attachments = []): ?array
+    {
+        $relay = new EmailPythonRelay();
+        if (!$relay->available()) {
+            return null;
+        }
+
+        // The Python transport cannot embed CID images; rewrite the logo
+        // reference to its public URL so the branded layout survives.
+        $html = (string) $htmlBody;
+        if (stripos($html, 'cid:kingsway-logo') !== false) {
+            $logoUrl = $this->publicLogoUrl();
+            if ($logoUrl !== '') {
+                $html = str_ireplace('cid:kingsway-logo', $logoUrl, $html);
+            }
+        }
+
+        $envelope = [
+            'host' => (string) $this->overlayOrConstant('host', 'SMTP_HOST'),
+            'port' => (int) ($this->overlayOrConstant('port', 'SMTP_PORT') ?: 587),
+            'security' => 'tls',
+            'username' => (string) $this->overlayOrConstant('username', 'SMTP_USERNAME'),
+            'password' => (string) $this->overlayOrConstant('password', 'SMTP_PASSWORD'),
+            'from_email' => (string) ($this->overlayOrConstant('from_email', 'SMTP_FROM_EMAIL') ?: 'noreply@kingswaypreparatoryschool.sc.ke'),
+            'from_name' => (string) $this->overlayOrConstant('from_name', 'SMTP_FROM_NAME'),
+            'subject' => $subject,
+            'html' => $html,
+            'text' => strip_tags($html),
+            'to' => $this->normalizeEmailRecipients($recipients),
+            'attachments' => [],
+        ];
+        foreach ($attachments as $filePath) {
+            if (is_string($filePath) && $filePath !== '' && file_exists($filePath)) {
+                $envelope['attachments'][] = [
+                    'path' => $filePath,
+                    'file_name' => basename($filePath),
+                ];
+            }
+        }
+
+        try {
+            $outcome = $relay->send($envelope);
+        } catch (\Throwable $error) {
+            FileLogger::write('communications', [
+                'type' => 'email_python_fallback_error',
+                'error_class' => get_class($error),
+            ], 'error');
+            return null;
+        }
+        if ($outcome === null) {
+            return null;
+        }
+        FileLogger::write('communications', [
+            'type' => 'email_python_fallback',
+            'ok' => $outcome['ok'],
+            'sent' => $outcome['sent'],
+            'failed' => $outcome['failed'],
+            'recipient_count' => count($envelope['to']),
+        ], $outcome['ok'] ? 'info' : 'error');
+        return $outcome;
+    }
+
+    /**
+     * @param array|string $recipients email=>name map or list/string of addresses
+     * @return array<int,array{email:string,name:string}>
+     */
+    private function normalizeEmailRecipients($recipients): array
+    {
+        $normalized = [];
+        if (is_string($recipients)) {
+            $recipients = [$recipients => ''];
+        }
+        foreach ((array) $recipients as $email => $name) {
+            if (is_int($email)) {
+                $email = (string) $name;
+                $name = '';
+            }
+            $email = trim((string) $email);
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $normalized[] = ['email' => $email, 'name' => (string) $name];
+            }
+        }
+        return $normalized;
+    }
+
+    /** Public URL of the official school logo, when the upload root is configured. */
+    private function publicLogoUrl(): string
+    {
+        if (!defined('UPLOAD_URL') || trim((string) UPLOAD_URL) === '') {
+            return '';
+        }
+        $base = rtrim((string) UPLOAD_URL, '/');
+        return $base . '/school_assets/official_school_logo.png';
     }
 
     private function emailProfile($subject)

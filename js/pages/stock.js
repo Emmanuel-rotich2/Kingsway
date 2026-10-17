@@ -6,13 +6,32 @@
 const stockController = {
   _data: [], _filtered: [], _items: [], _page: 1, _perPage: 25,
   _stockInModal: null,
+  state: { referenceCache: null },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "stock-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Stock Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._stockInModal = new bootstrap.Modal(document.getElementById('stockInModal'));
     this._bindEvents();
+    await this.loadReferencesComposed();
     await Promise.all([this._load(), this._loadItems()]);
+    window.APIRealtime?.register?.("stock", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await Promise.all([this._load(), this._loadItems()]);
+      }
+    }, ["inventory"]);
   },
 
   _bindEvents: function () {
@@ -30,7 +49,8 @@ const stockController = {
     const tbody=document.querySelector('#stockMovementsTable tbody');
     if (tbody) tbody.innerHTML='<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
-      const r=await callAPI('/inventory/stock','GET');
+      const cache = this.state.referenceCache;
+      const r = cache?.movements !== undefined ? cache.movements : await callAPI('/inventory/stock','GET');
       this._data=Array.isArray(r?.data)?r.data:(Array.isArray(r)?r:[]);
       this._filtered=[...this._data];
       this._setStats();
@@ -42,7 +62,8 @@ const stockController = {
 
   _loadItems: async function () {
     try {
-      const r=await callAPI('/inventory/assets','GET');
+      const cache = this.state.referenceCache;
+      const r = cache?.items !== undefined ? cache.items : await callAPI('/inventory/assets','GET');
       this._items=Array.isArray(r?.data)?r.data:(Array.isArray(r)?r:[]);
       const sel=document.getElementById('stock_in_item');
       const filt=document.getElementById('itemFilter');

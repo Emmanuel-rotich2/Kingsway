@@ -147,7 +147,7 @@
     }
     source = new EventSource(endpoint.toString());
     source.addEventListener('kingsway', deliver);
-    source.addEventListener('ready', () => {
+    const onStreamOpen = () => {
       const isReconnect = retryAttempt > 0;
       retryAttempt = 0;
       // Gateway restart catch-up: after a reconnect the socket missed every
@@ -158,6 +158,30 @@
         window.APIRealtime.schedule([...(window.APIRealtime.dependencies ? window.APIRealtime.dependencies() : [])]);
       }
       emit('kingsway:realtime-status', { detail: { state: 'connected' } });
+    };
+    // The gateway announces the stream with a `connected` frame; an older
+    // server build used `ready`. Accept both so liveness detection never
+    // depends on which build is deployed.
+    source.addEventListener('connected', onStreamOpen);
+    source.addEventListener('ready', onStreamOpen);
+    // Heartbeats are the ONLY proof the peer is still writing. EventSource's
+    // readyState stays OPEN on a socket the peer has silently stopped writing
+    // to, so forwarding the typed HEARTBEAT lets RealtimeManager keep buffer
+    // polling suppressed while the stream is genuinely alive and resume it
+    // within the staleness window once the peer goes quiet.
+    source.addEventListener('heartbeat', (event) => {
+      let payload = {};
+      try {
+        payload = JSON.parse(event.data) || {};
+      } catch (_) {
+        payload = {};
+      }
+      window.RealtimeDispatch?.dispatch?.({
+        type: 'HEARTBEAT',
+        scope: 'all',
+        payload,
+        source: 'node-sse',
+      });
     });
     source.onerror = () => {
       // Take control of reconnection (EventSource would loop the same URL on

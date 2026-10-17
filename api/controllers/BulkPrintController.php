@@ -48,7 +48,7 @@ class BulkPrintController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->batches = new DocumentBatchService($this->db->getConnection());
+        $this->batches = $this->contract(DocumentBatchService::class, $this->db->getConnection());
     }
 
     public function postEnqueue(string $id = null, array $data = []): array

@@ -3,6 +3,7 @@
 namespace App\API\Services;
 
 use App\Database\ConnectionManager;
+use InvalidArgumentException;
 use PDO;
 use RuntimeException;
 
@@ -30,6 +31,9 @@ final class JobQueue
     public const PYTHON_JOB_TYPES = [
         'reads.projection.refresh',
         'automation.run',
+        // Bulk messaging transport (TALKSASA) executed in Python; PHP owns the
+        // stage/input/result boundary and applies per-recipient outcomes.
+        'communications.sms_batch',
         // Batch families are registered here for the shared queue contract.
         // RealtimeController activates them only after its PHP-owned
         // authorization/input/result boundary has been implemented.
@@ -59,6 +63,7 @@ final class JobQueue
         'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
         'curriculum.policy_interpret', 'rpc.async.dispatch',
         'rebake_realtime_buffer', 'purge_old_realtime_events',
+        'communications.sms_batch',
     ];
 
     /** Job-type prefixes that always run on the CRITICAL lane. */
@@ -410,14 +415,40 @@ final class JobQueue
     }
 
     /** Complete only the exact processing attempt returned to a Python worker. */
-    public static function markDoneForAttempt(int $id, int $attempts): bool
+    public static function markDoneForAttempt(int $id, int $attempts, ?array $result = null): bool
     {
-        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts): bool {
-            $stmt = $pdo->prepare(
-                'UPDATE jobs_queue SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
-                . 'WHERE id = ? AND status = ? AND attempts = ?'
+        $resultJson = null;
+        if ($result !== null) {
+            $resultJson = json_encode(
+                ['result' => $result],
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             );
-            $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            if (strlen($resultJson) > 16384) {
+                throw new InvalidArgumentException('Job result descriptor exceeds the 16 KB limit.');
+            }
+        }
+
+        return ConnectionManager::run(static function (PDO $pdo) use ($id, $attempts, $resultJson): bool {
+            if ($resultJson === null) {
+                $stmt = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
+                    . 'WHERE id = ? AND status = ? AND attempts = ?'
+                );
+                $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING, max(0, $attempts)]);
+            } else {
+                $stmt = $pdo->prepare(
+                    'UPDATE jobs_queue SET status = ?, payload = JSON_MERGE_PATCH(payload, ?), '
+                    . 'failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW() '
+                    . 'WHERE id = ? AND status = ? AND attempts = ?'
+                );
+                $stmt->execute([
+                    self::STATUS_DONE,
+                    $resultJson,
+                    $id,
+                    self::STATUS_PROCESSING,
+                    max(0, $attempts),
+                ]);
+            }
             return $stmt->rowCount() === 1;
         }, ConnectionManager::NS_BUFFERS);
     }

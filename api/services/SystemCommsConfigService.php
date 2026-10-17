@@ -22,13 +22,13 @@ class SystemCommsConfigService
         'comms_sms_username'   => ['SMS_USERNAME', 'SMS Username', false],
         'comms_sms_api_key'    => ['SMS_API_KEY', 'SMS API Key', true],
         'comms_sms_appname'    => ['SMS_APPNAME', 'SMS App Name', false],
+        'comms_sms_api_url'    => ['SMS_API_URL', 'API Base URL', false],
         'comms_sms_sender_id'  => ['SMS_SENDER_ID', 'Sender ID', false],
         'comms_sms_shortcode'  => ['SMS_SHORTCODE', 'Short Code', false],
-        'comms_sms_wa_number'  => ['SMS_WHATSAPP_NUMBER', 'WhatsApp Number (AT)', false],
-        'comms_sms_wa_url'     => ['SMS_WHATSAPP_API_URL', 'WhatsApp API URL', false],
-        'comms_twilio_sid'     => ['TWILIO_ACCOUNT_SID', 'Twilio Account SID', false],
-        'comms_twilio_token'   => ['TWILIO_AUTH_TOKEN', 'Twilio Auth Token', true],
-        'comms_twilio_from'    => ['TWILIO_FROM', 'Twilio From Number', false],
+        'comms_sms_wa_number'  => ['SMS_WHATSAPP_NUMBER', 'WhatsApp Number', false],
+        'comms_sms_topup_paybill' => ['SMS_TOPUP_PAYBILL', 'Top-up Paybill', false],
+        'comms_sms_topup_account' => ['SMS_TOPUP_ACCOUNT', 'Top-up Account Number', false],
+        'comms_sms_topup_notes'   => ['SMS_TOPUP_NOTES', 'Top-up Instructions', false],
     ];
 
     private const EMAIL_KEYS = [
@@ -44,7 +44,7 @@ class SystemCommsConfigService
         'comms_wa_username' => ['SMS_USERNAME', 'WhatsApp Username', false],
         'comms_wa_api_key'  => ['SMS_API_KEY', 'WhatsApp API Key', true],
         'comms_wa_number'   => ['SMS_WHATSAPP_NUMBER', 'WhatsApp Number', false],
-        'comms_wa_api_url'  => ['SMS_WHATSAPP_API_URL', 'WhatsApp API URL', false],
+        'comms_wa_api_url'  => ['SMS_API_URL', 'API Base URL', false],
     ];
 
     private const EMAIL_ADVANCED_KEYS = [
@@ -129,7 +129,7 @@ class SystemCommsConfigService
     /**
      * Upsert allowed fields into school_settings and return the refreshed group.
      *
-     * $fields = [['key' => 'comms_sms_provider', 'value' => 'africastalking'], ...]
+     * $fields = [['key' => 'comms_sms_provider', 'value' => 'talksasa'], ...]
      */
     public function saveGroup(string $group, array $fields): array
     {
@@ -167,18 +167,20 @@ class SystemCommsConfigService
     {
         $rows = $this->loadDbValues();
 
+        $senderId = $rows['comms_sms_sender_id']['setting_value'] ?? $this->envValue('SMS_SENDER_ID');
+        if ($senderId === '') {
+            $senderId = $this->envValue('SMS_SHORTCODE');
+        }
+
         return [
-            'provider'         => $rows['comms_sms_provider']['setting_value']   ?? $this->envValue('SMS_PROVIDER')           ?: 'africastalking',
-            'api_key'          => $rows['comms_sms_api_key']['setting_value']    ?? $this->envValue('SMS_API_KEY'),
-            'username'         => $rows['comms_sms_username']['setting_value']   ?? $this->envValue('SMS_USERNAME'),
-            'appname'          => $rows['comms_sms_appname']['setting_value']    ?? $this->envValue('SMS_APPNAME'),
-            'sender_id'        => $rows['comms_sms_sender_id']['setting_value']  ?? $this->envValue('SMS_SENDER_ID'),
-            'shortcode'        => $rows['comms_sms_shortcode']['setting_value']  ?? $this->envValue('SMS_SHORTCODE'),
-            'wa_number'        => $rows['comms_sms_wa_number']['setting_value']  ?? $this->envValue('SMS_WHATSAPP_NUMBER'),
-            'whatsapp_api_url' => $rows['comms_sms_wa_url']['setting_value']     ?? $this->envValue('SMS_WHATSAPP_API_URL') ?: 'https://chat.africastalking.com',
-            'account_sid'      => $rows['comms_twilio_sid']['setting_value']     ?? $this->envValue('TWILIO_ACCOUNT_SID'),
-            'auth_token'       => $rows['comms_twilio_token']['setting_value']   ?? $this->envValue('TWILIO_AUTH_TOKEN'),
-            'from'             => $rows['comms_twilio_from']['setting_value']    ?? $this->envValue('TWILIO_FROM'),
+            'provider'  => $rows['comms_sms_provider']['setting_value']  ?? $this->envValue('SMS_PROVIDER') ?: 'talksasa',
+            'api_key'   => $rows['comms_sms_api_key']['setting_value']   ?? $this->envValue('SMS_API_KEY'),
+            'username'  => $rows['comms_sms_username']['setting_value']  ?? $this->envValue('SMS_USERNAME'),
+            'appname'   => $rows['comms_sms_appname']['setting_value']   ?? $this->envValue('SMS_APPNAME'),
+            'api_url'   => $rows['comms_sms_api_url']['setting_value']   ?? $this->envValue('SMS_API_URL') ?: 'https://bulksms.talksasa.com/api/v3/',
+            'sender_id' => $senderId,
+            'shortcode' => $rows['comms_sms_shortcode']['setting_value'] ?? $this->envValue('SMS_SHORTCODE'),
+            'wa_number' => $rows['comms_sms_wa_number']['setting_value'] ?? $this->envValue('SMS_WHATSAPP_NUMBER'),
         ];
     }
 
@@ -189,12 +191,19 @@ class SystemCommsConfigService
     {
         $rows = $this->loadDbValues();
 
+        $provider = $rows['comms_sms_provider']['setting_value'] ?? $this->envValue('SMS_PROVIDER');
+        $senderId = $rows['comms_wa_number']['setting_value'] ?? $this->envValue('SMS_WHATSAPP_NUMBER');
+        if ($senderId === '') {
+            $senderId = $rows['comms_sms_sender_id']['setting_value'] ?? $this->envValue('SMS_SENDER_ID');
+        }
+
         return [
-            'provider' => 'africastalking',
-            'api_key'  => $rows['comms_wa_api_key']['setting_value']  ?? $this->envValue('SMS_API_KEY'),
-            'username' => $rows['comms_wa_username']['setting_value'] ?? $this->envValue('SMS_USERNAME'),
-            'wa_number' => $rows['comms_wa_number']['setting_value']  ?? $this->envValue('SMS_WHATSAPP_NUMBER'),
-            'api_url'  => $rows['comms_wa_api_url']['setting_value']  ?? $this->envValue('SMS_WHATSAPP_API_URL') ?: 'https://chat.africastalking.com',
+            'provider'  => $provider !== '' ? $provider : 'talksasa',
+            'api_key'   => $rows['comms_wa_api_key']['setting_value']  ?? $this->envValue('SMS_API_KEY'),
+            'username'  => $rows['comms_wa_username']['setting_value'] ?? $this->envValue('SMS_USERNAME'),
+            'wa_number' => $senderId,
+            'sender_id' => $senderId,
+            'api_url'   => $rows['comms_wa_api_url']['setting_value']  ?? $this->envValue('SMS_API_URL') ?: 'https://bulksms.talksasa.com/api/v3/',
         ];
     }
 
@@ -232,7 +241,7 @@ class SystemCommsConfigService
 
     /**
      * Attempt a balance check using the effective SMS config.
-     * For africastalking, instantiate the SDK and call getBalance().
+     * Instantiates the provider-agnostic SMSGateway and calls balance().
      * Does NOT actually send an SMS.
      */
     public function testSms(string $testPhone): array
@@ -240,23 +249,21 @@ class SystemCommsConfigService
         try {
             $cfg = $this->effectiveSmsConfig();
 
-            if (empty($cfg['username']) || empty($cfg['api_key'])) {
-                return ['success' => false, 'message' => 'SMS username or API key is not configured.'];
+            if (empty($cfg['api_key'])) {
+                return ['success' => false, 'message' => 'SMS API key is not configured.'];
             }
 
-            if ($cfg['provider'] !== 'africastalking') {
-                return ['success' => false, 'message' => "Balance check is only available for africastalking provider. Current provider: {$cfg['provider']}."];
+            $gateway = new \App\API\Services\sms\SMSGateway($cfg);
+            $result = $gateway->balance();
+
+            if (!($result['ok'] ?? false)) {
+                return ['success' => false, 'message' => $result['message'] ?: 'SMS provider connection failed.'];
             }
-
-            require_once __DIR__ . '/../../vendor/autoload.php';
-
-            $at       = new \AfricasTalking\SDK\AfricasTalking($cfg['username'], $cfg['api_key']);
-            $balance  = $at->account()->getBalance();
 
             return [
                 'success' => true,
-                'message' => 'Africa\'s Talking account is reachable.',
-                'balance' => is_object($balance) && isset($balance->balance) ? (float) $balance->balance : (float) $balance,
+                'message' => 'SMS provider account is reachable.',
+                'balance' => $this->extractBalance($result['data'] ?? null),
             ];
         } catch (\Throwable $e) {
             Logger::legacyError('[SystemCommsConfig] testSms failed: ' . $e->getMessage());
@@ -276,8 +283,6 @@ class SystemCommsConfigService
                 return ['success' => false, 'message' => 'SMTP host or port is not configured.'];
             }
 
-            require_once __DIR__ . '/../../vendor/autoload.php';
-
             $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
             $mail->isSMTP();
             $mail->Host       = $cfg['host'];
@@ -288,7 +293,7 @@ class SystemCommsConfigService
             $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
 
             $mail->smtpConnect();
-            $mail->smtp->close();
+            $mail->smtpClose();
 
             return ['success' => true, 'message' => 'SMTP connection successful.'];
         } catch (\Throwable $e) {
@@ -298,52 +303,59 @@ class SystemCommsConfigService
     }
 
     /**
-     * Check Talksasa SMS balance.
+     * Check the configured messaging provider's SMS balance.
      */
-    public function getTalksasaBalance(): array
+    public function getSmsBalance(): array
     {
-        $url = rtrim((string) ($this->envValue('TALKSASA_API_URL') ?? 'https://bulksms.talksasa.com/api/v3/'), '/') . '/sms/balance';
+        $cfg = $this->effectiveSmsConfig();
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . ($this->envValue('SMS_API_KEY') ?? ''),
-            'Accept: application/json'
-        ]);
-        $response = curl_exec($ch);
-        curl_close($ch);
+        if (($cfg['api_key'] ?? '') === '') {
+            return ['success' => false, 'balance' => 0, 'message' => 'SMS API key is not configured.'];
+        }
 
-        $data = json_decode($response, true ?? false) ?? [];
+        try {
+            $gateway = new \App\API\Services\sms\SMSGateway($cfg);
+            $result = $gateway->balance();
+        } catch (\Throwable $e) {
+            return ['success' => false, 'balance' => 0, 'message' => 'Balance check failed: ' . $e->getMessage()];
+        }
+
+        if (!($result['ok'] ?? false)) {
+            return ['success' => false, 'balance' => 0, 'message' => $result['message'] ?: 'SMS balance could not be retrieved.'];
+        }
 
         return [
             'success' => true,
-            'balance' => $data['balance'] ?? $data['data']['balance'] ?? 0,
-            'message' => 'Balance retrieved from Talksasa',
+            'balance' => $this->extractBalance($result['data'] ?? null),
+            'message' => 'Balance retrieved',
         ];
     }
 
     /**
-     * Validate WhatsApp config presence and optionally test AT balance.
+     * Validate the WhatsApp config and probe the provider account.
      */
     public function testWhatsApp(): array
     {
         try {
             $cfg = $this->effectiveWhatsAppConfig();
 
-            if (empty($cfg['username']) || empty($cfg['api_key'])) {
-                return ['success' => false, 'message' => 'WhatsApp username or API key is not configured.'];
+            if (empty($cfg['api_key'])) {
+                return ['success' => false, 'message' => 'WhatsApp API key is not configured.'];
             }
 
-            require_once __DIR__ . '/../../vendor/autoload.php';
-
-            $at      = new \AfricasTalking\SDK\AfricasTalking($cfg['username'], $cfg['api_key']);
-            $balance = $at->account()->getBalance();
+            $gateway = new \App\API\Services\sms\SMSGateway($cfg);
+            $result = $gateway->profile();
+            if (!($result['ok'] ?? false)) {
+                $result = $gateway->balance();
+            }
+            if (!($result['ok'] ?? false)) {
+                return ['success' => false, 'message' => $result['message'] ?: 'WhatsApp provider connection failed.'];
+            }
 
             return [
                 'success' => true,
-                'message' => 'WhatsApp (Africa\'s Talking) account is reachable.',
-                'balance' => is_object($balance) && isset($balance->balance) ? (float) $balance->balance : (float) $balance,
+                'message' => 'WhatsApp provider account is reachable.',
+                'balance' => $this->extractBalance($result['data'] ?? null),
             ];
         } catch (\Throwable $e) {
             Logger::legacyError('[SystemCommsConfig] testWhatsApp failed: ' . $e->getMessage());
@@ -352,6 +364,55 @@ class SystemCommsConfigService
     }
 
     // ── Private helpers ───────────────────────────────────────────────────
+
+    /**
+     * Pull a numeric balance out of a provider payload with varying shapes.
+     */
+    private function extractBalance($data): float
+    {
+        if (is_numeric($data)) {
+            return (float) $data;
+        }
+        if (!is_array($data)) {
+            return $this->balanceToNumber($data) ?? 0.0;
+        }
+        foreach (['balance', 'sms_unit', 'sms_units', 'unit', 'units', 'credits', 'amount', 'remaining_balance', 'remaining_units'] as $key) {
+            if (isset($data[$key])) {
+                $num = $this->balanceToNumber($data[$key]);
+                if ($num !== null) {
+                    return $num;
+                }
+            }
+        }
+        foreach ($data as $value) {
+            if (is_array($value)) {
+                $nested = $this->extractBalance($value);
+                if ($nested > 0) {
+                    return $nested;
+                }
+            }
+        }
+        return 0.0;
+    }
+
+    /**
+     * Coerce a provider balance value to a number, tolerating the decorated
+     * forms real gateways return ("Ksh5", "KES 1,250.00", "1500 units").
+     */
+    private function balanceToNumber($value): ?float
+    {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        if (!is_string($value)) {
+            return null;
+        }
+        $clean = preg_replace('/[^0-9.\-]/', '', $value);
+        if ($clean === null || $clean === '' || $clean === '-' || $clean === '.' || $clean === '-.') {
+            return null;
+        }
+        return (float) $clean;
+    }
 
     /**
      * Load and cache all comms_* rows from school_settings.

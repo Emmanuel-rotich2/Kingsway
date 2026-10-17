@@ -61,7 +61,7 @@ class DashboardController extends BaseController
     public function postAssessmentPolicyWatch()
     {
         try {
-            $agent = new \App\API\Services\CurriculumPolicyWatchAgent();
+            $agent = $this->contract(\App\API\Services\CurriculumPolicyWatchAgent::class);
             $results = $agent->runSources($this->db->getConnection());
             $summary = [];
             foreach ($results as $authority => $result) {
@@ -99,7 +99,7 @@ class DashboardController extends BaseController
             try {
                 $userId = (int) $this->getUserId();
                 if ($userId > 0) {
-                    (new AiBehaviorProfiler())->observe($userId, 'workspace_visit', [
+                    ($this->contract(AiBehaviorProfiler::class))->observe($userId, 'workspace_visit', [
                         'route' => $route,
                         'module' => $module,
                     ]);
@@ -537,7 +537,7 @@ class DashboardController extends BaseController
         }
         try {
             $pdo = $this->getDb()->getConnection();
-            $result = (new CurriculumPolicyWatchAgent())->run($pdo);
+            $result = ($this->contract(CurriculumPolicyWatchAgent::class))->run($pdo);
 
             return $this->success($result, 'KICD policy watch completed');
         } catch (\Throwable $e) {

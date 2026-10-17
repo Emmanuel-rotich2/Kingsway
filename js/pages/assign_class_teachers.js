@@ -47,8 +47,13 @@ const AssignClassTeachersController = {
     }
     
     this.bindEvents();
-    await this.loadReferenceData();
+    await this.loadReferenceDataComposed();
     await this.loadAssignments();
+    window.APIRealtime?.register?.(
+      "assign_class_teachers",
+      { refresh: async () => { await this.loadReferenceDataComposed(); await this.loadAssignments(); } },
+      ["academic"],
+    );
   },
 
   bindEvents() {
@@ -77,10 +82,27 @@ const AssignClassTeachersController = {
     }
   },
 
+  // Composed startup read: one authorized Node view supplies the class,
+  // teacher and academic-year references; assignment rows stay a context read.
+  async loadReferenceDataComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "class-teacher-references");
+      const sources = response?.data?.sources || response?.sources || {};
+      const toArray = (value) => (Array.isArray(value) ? value : (Array.isArray(value?.data) ? value.data : []));
+      this.state.classes = toArray(sources.classes);
+      this.state.teachers = toArray(sources.teachers);
+      this.state.academicYears = toArray(sources.years);
+      this.populateDropdowns();
+    } catch (error) {
+      console.error('Class teacher reference Node view failed; falling back to direct reads:', error);
+      await this.loadReferenceData();
+    }
+  },
+
   async loadReferenceData() {
     try {
       // Load classes
-      this.state.classes = await window.API.apiCall('/academic/classes', 'GET') || [];
+      this.state.classes = await window.API.apiCall('/academic/classes-list', 'GET') || [];
 
       // Load teachers
       this.state.teachers = await window.API.apiCall('/staff/teachers', 'GET') || [];

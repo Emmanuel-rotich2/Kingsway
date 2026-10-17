@@ -22,8 +22,73 @@
         scopeId: 'driverDashboardScope',
         lastUpdatedId: 'driverDashboardLastUpdated',
 
+        viewSpec: { entity: 'dashboards', view: 'driver-references', input: (filters) => filters },
+
+        composeFromSources(sources = {}, ctrl, filters = {}) {
+            const route = sources.route || null;
+            const vehicle = sources.vehicle || null;
+            const manifestValue = sources.manifest;
+            const manifest = Array.isArray(manifestValue)
+                ? manifestValue
+                : Array.isArray(manifestValue?.manifest)
+                    ? manifestValue.manifest
+                    : [];
+
+            const inRange = row => {
+                const value = row?.date || row?.incident_date || row?.created_at;
+                if (!value) return true;
+                const date = String(value).slice(0, 10);
+                return date >= filters.date_from && date <= filters.date_to;
+            };
+            const schedules = (Array.isArray(route?.schedules) ? route.schedules : []).filter(inRange);
+            const incidents = (Array.isArray(route?.recent_incidents) ? route.recent_incidents : []).filter(inRange);
+
+            const dayTotals = {};
+            weekdayLabels.forEach(day => { dayTotals[day] = 0; });
+            schedules.forEach((row) => {
+                if (!row.date) return;
+                const date = new Date(`${row.date}T00:00:00`);
+                if (!Number.isNaN(date.getTime())) {
+                    const dayName = weekdayLabels[(date.getDay() + 6) % 7];
+                    dayTotals[dayName] += 1;
+                }
+            });
+
+            const stopTotals = manifest.reduce((totals, row) => {
+                const stop = row.pickup_stop || row.stop_name || 'Unassigned';
+                totals[stop] = (totals[stop] || 0) + 1;
+                return totals;
+            }, {});
+
+            return {
+                meta: { scope_label: route?.name || route?.route_name || 'Transport assignment' },
+                cards: {
+                    vehicle_registration: vehicle?.registration_number || route?.registration_number || '—',
+                    vehicle_status: vehicle?.status || route?.vehicle_status || 'No vehicle assigned',
+                    route_name: route?.name || route?.route_name || '—',
+                    route_code: route?.code || route?.route_code || 'No active route',
+                    passengers: Number(route?.passenger_count || manifest.length || 0),
+                    recent_incidents: incidents.length
+                },
+                charts: {
+                    passengers_by_stop: { labels: Object.keys(stopTotals), data: Object.values(stopTotals) },
+                    weekly_trips: { labels: weekdayLabels, data: weekdayLabels.map(day => dayTotals[day]) }
+                },
+                tables: {
+                    schedule: schedules.map(row => ({
+                        ...row,
+                        route_name: route?.name || route?.route_name || '—',
+                        status: row.status || 'upcoming'
+                    })),
+                    manifest: manifest.map(row => ({
+                        ...row,
+                        status: row.status || 'active'
+                    }))
+                }
+            };
+        },
+
         async apiMethod(filters = {}) {
-            const period = filters.period;
             try {
                 const [routeResponse, vehicleResponse] = await Promise.all([
                     window.API.transport.getMyRoute(),
@@ -49,65 +114,9 @@
                             : [];
                 }
 
-                const inRange = row => {
-                    const value = row?.date || row?.incident_date || row?.created_at;
-                    if (!value) return true;
-                    const date = String(value).slice(0, 10);
-                    return date >= filters.date_from && date <= filters.date_to;
-                };
-                const schedules = (Array.isArray(route?.schedules) ? route.schedules : []).filter(inRange);
-                const incidents = (Array.isArray(route?.recent_incidents) ? route.recent_incidents : []).filter(inRange);
-
-                const dayTotals = {};
-                weekdayLabels.forEach(day => { dayTotals[day] = 0; });
-                schedules.forEach((row) => {
-                    if (!row.date) return;
-                    const date = new Date(`${row.date}T00:00:00`);
-                    if (!Number.isNaN(date.getTime())) {
-                        const dayName = weekdayLabels[(date.getDay() + 6) % 7];
-                        dayTotals[dayName] += 1;
-                    }
-                });
-
-                const stopTotals = manifest.reduce((totals, row) => {
-                    const stop = row.pickup_stop || row.stop_name || 'Unassigned';
-                    totals[stop] = (totals[stop] || 0) + 1;
-                    return totals;
-                }, {});
-
-                return {
-                    meta: { scope_label: route?.name || route?.route_name || 'Transport assignment' },
-                    cards: {
-                        vehicle_registration: vehicle?.registration_number || route?.registration_number || '—',
-                        vehicle_status: vehicle?.status || route?.vehicle_status || 'No vehicle assigned',
-                        route_name: route?.name || route?.route_name || '—',
-                        route_code: route?.code || route?.route_code || 'No active route',
-                        passengers: Number(route?.passenger_count || manifest.length || 0),
-                        recent_incidents: incidents.length
-                    },
-                    charts: {
-                        passengers_by_stop: { labels: Object.keys(stopTotals), data: Object.values(stopTotals) },
-                        weekly_trips: { labels: weekdayLabels, data: weekdayLabels.map(day => dayTotals[day]) }
-                    },
-                    tables: {
-                        schedule: schedules.map(row => ({
-                            ...row,
-                            route_name: route?.name || route?.route_name || '—',
-                            status: row.status || 'upcoming'
-                        })),
-                        manifest: manifest.map(row => ({
-                            ...row,
-                            status: row.status || 'active'
-                        }))
-                    }
-                };
+                return this.composeFromSources({ route, vehicle, manifest }, this, filters);
             } catch (e) {
-                return {
-                    meta: { scope_label: 'Transport' },
-                    cards: { vehicle_registration: '—', vehicle_status: 'No vehicle assigned', route_name: '—', route_code: 'No active route', passengers: 0, recent_incidents: 0 },
-                    charts: { passengers_by_stop: { labels: [], data: [] }, weekly_trips: { labels: weekdayLabels, data: weekdayLabels.map(() => 0) } },
-                    tables: { schedule: [], manifest: [] }
-                };
+                return this.composeFromSources({}, this, filters);
             }
         },
 

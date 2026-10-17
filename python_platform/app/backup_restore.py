@@ -41,7 +41,7 @@ class BackupManager:
     """Manage Parquet snapshots and point-in-time restores."""
 
     def __init__(self, base_path: Optional[str] = None):
-        # Storage root comes from Config (AI_STORAGE_DIR, app-root-anchored);
+        # Storage root comes from Config (STORAGE_ROOT/python by default);
         # base_path stays as an explicit override for tests.
         cfg = Config()
         self.storage_dir = cfg.storage_dir

@@ -30,7 +30,7 @@ class FeatureStore:
     """
 
     def __init__(self, db_path: Optional[str] = None):
-        # Storage root comes from Config (AI_STORAGE_DIR, app-root-anchored);
+        # Storage root comes from Config (STORAGE_ROOT/python by default);
         # db_path stays as an explicit override for tests.
         features_dir = Config().storage_dir / "buffers" / "features"
         self.db_path = Path(db_path) if db_path else features_dir / "feature_store.db"

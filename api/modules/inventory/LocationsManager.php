@@ -27,7 +27,7 @@ class LocationsManager extends BaseAPI
                     l.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . "
+                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . " l
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON l.id = i.location_id
                 WHERE l.status = 'active'
                 GROUP BY l.id
@@ -51,7 +51,7 @@ class LocationsManager extends BaseAPI
                     l.*,
                     COUNT(DISTINCT i.id) as item_count,
                     SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . "
+                FROM " . ReadReplicaService::qualifiedRef("inventory_locations") . " l
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON l.id = i.location_id
                 WHERE l.id = ?
                 GROUP BY l.id

@@ -1,8 +1,6 @@
 import fastify from 'fastify';
 import fastifyCors from '@fastify/cors';
 import fastifySSE from '@fastify/sse';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
 
 import { loadConfig, getConfig } from './src/config/index.js';
 import { createLogger, getLogger } from './src/logger/index.js';
@@ -13,15 +11,10 @@ import { createCache, getCache } from './src/clients/cache.js';
 import { createBus, getBus } from './src/realtime/bus.js';
 import { createSSE, getSSE } from './src/realtime/sse.js';
 import { registerWebSocket } from './src/realtime/websocket.js';
-import { createJobProcessor, getJobProcessor } from './src/queue/processor.js';
-import { genericLoadHandler, genericAggregateHandler, exportBulkHandler } from './src/queue/handlers/index.js';
 import { getAggregationEngine } from './src/aggregation/engine.js';
-import { registerJobRoutes } from './src/routes/jobs.js';
 import { registerViewRoutes } from './src/routes/views.js';
 import { registerPublicRoutes } from './src/routes/public.js';
 import { registerInternalRoutes } from './src/routes/internal.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function safeRequestPath(url) {
   return String(url || '').split('?', 1)[0].slice(0, 256);
@@ -121,17 +114,8 @@ async function createApp(env = {}) {
 
   registerHealthRoutes(app);
   registerPublicRoutes(app);
-  registerJobRoutes(app);
   registerViewRoutes(app);
   registerInternalRoutes(app);
-
-  const processor = createJobProcessor();
-  app.kingsway.processor = processor;
-  processor.registerHandler('students:id-cards:load', genericLoadHandler);
-  // Finance and staff loads stay on their existing PHP paths until their
-  // registered source plans, scope checks and refresh contracts are complete.
-  processor.registerHandler('report:aggregate', genericAggregateHandler, { concurrency: 1 });
-  processor.registerHandler('export:bulk', exportBulkHandler, { concurrency: 2 });
 
   app.setNotFoundHandler(async (req, reply) => {
     return reply.code(404).send({ error: 'not found' });
@@ -147,10 +131,8 @@ async function createApp(env = {}) {
     return reply.code(500).send({ error: 'internal error' });
   });
 
-  async function close({ reason = 'shutdown' } = {}) {
+  async function close() {
     try {
-      await processor.stop();
-      (await import('./src/queue/jobRegistry.js')).getJobRegistry().close();
       await bus.close();
       await internalClient.close();
       cache.close();
@@ -172,13 +154,11 @@ async function createApp(env = {}) {
     cache,
     bus,
     sse,
-    processor,
     aggregationEngine,
     startedAt,
     close,
     async start() {
       await bus.init();
-      await processor.start();
       await app.ready();
       return app;
     },

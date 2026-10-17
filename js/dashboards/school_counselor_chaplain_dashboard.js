@@ -24,9 +24,10 @@
         scopeId: 'counselorDashboardScope',
         lastUpdatedId: 'counselorDashboardLastUpdated',
         defaultPeriod: 'week',
+        viewSpec: { entity: 'dashboards', view: 'school-counselor-chaplain-references', input: (filters) => filters },
 
-        async apiMethod(filters = {}) {
-            const summary = unwrap(await window.API.counseling.getSummary(filters)) || {};
+        composeFromSources(sources = {}) {
+            const summary = sources.summary || {};
             const byType = Array.isArray(summary.by_type) ? summary.by_type : [];
             const trend = Array.isArray(summary.session_trend) ? summary.session_trend : [];
             const referralSources = Array.isArray(summary.referrals_by_source) ? summary.referrals_by_source : [];
@@ -68,6 +69,11 @@
                 },
                 recent_sessions: Array.isArray(summary.recent_sessions) ? summary.recent_sessions : []
             };
+        },
+
+        async apiMethod(filters = {}) {
+            const summary = unwrap(await window.API.counseling.getSummary(filters)) || {};
+            return this.composeFromSources({ summary }, this, filters);
         },
 
         cards: [

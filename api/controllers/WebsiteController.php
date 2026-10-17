@@ -727,13 +727,13 @@ class WebsiteController extends BaseController
     public function getCalendarDownload($id = null, $data = [], $segments = [])
     {
         $yearId = !empty($data['year']) ? (int)$data['year'] : null;
-        $pdfPath = (new \App\API\Services\PrintService())->printAcademicCalendar($yearId ? ['academicYear' => $yearId] : []);
+        $pdfPath = ($this->contract(\App\API\Services\PrintService::class))->printAcademicCalendar($yearId ? ['academicYear' => $yearId] : []);
         $yearLabel = 'calendar';
         if ($yearId) {
             $code = $this->contract(\App\API\Services\AcademicContextService::class)->yearCode($yearId);
             if ($code) $yearLabel = $code;
         }
-        (new \App\API\Services\DownloadService())->streamAbsolutePath(
+        ($this->contract(\App\API\Services\DownloadService::class))->streamAbsolutePath(
             $pdfPath, 'Kingsway_Academic_Calendar_' . $yearLabel . '.pdf', 'application/pdf', 'attachment'
         );
         exit; // streamAbsolutePath terminates; dead-code guard

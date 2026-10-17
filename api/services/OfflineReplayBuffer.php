@@ -22,7 +22,7 @@ final class OfflineReplayBuffer
 
     public function __construct(?string $directory = null)
     {
-        $directory = $directory ?: (sys_get_temp_dir() . '/kingsway_offline_replay');
+        $directory = $directory ?: StorageRoot::path('php/offline_replay');
         if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
             throw new RuntimeException('Unable to create offline replay directory.');
         }

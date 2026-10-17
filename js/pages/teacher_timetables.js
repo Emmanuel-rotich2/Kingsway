@@ -84,6 +84,7 @@ const teacherTimetablesController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
     await this.loadTeachers();
+    window.APIRealtime?.register?.("teacher_timetables", { refresh: () => Promise.all([this.loadTeachers(), this.loadData()]) }, ["academic"]);
   },
 };
 

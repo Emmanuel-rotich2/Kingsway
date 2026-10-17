@@ -50,6 +50,7 @@ window.studentsManagementController = window.studentsManagementController || {
       this.renderForbidden();
       return;
     }
+    window.APIRealtime?.register?.("manageStudents", this, ["students"]);
     await GradingScale.preload();
     await this.loadInitialData();
     await this.loadStudents();
@@ -203,7 +204,18 @@ window.studentsManagementController = window.studentsManagementController || {
       }
     };
 
-    const importContextResp = await load("existing-student fee context", () =>
+    let sources = null;
+    try {
+      const response = await window.API.nodeViews.resolve("students", "management-reference-data");
+      sources = response?.data?.sources || response?.sources || null;
+      if (!sources || !["importContext", "classes", "studentTypes", "streams", "parents"].every(key => Object.hasOwn(sources, key))) {
+        throw new Error("Node returned incomplete student management reference data");
+      }
+    } catch (error) {
+      console.warn("Student reference composition unavailable; loading through PHP APIs:", error);
+    }
+
+    const importContextResp = sources?.importContext ?? await load("existing-student fee context", () =>
       window.API.students.getImportContext()
     );
     const importContext = importContextResp?.data?.data || importContextResp?.data || importContextResp;
@@ -211,22 +223,22 @@ window.studentsManagementController = window.studentsManagementController || {
     this.bindImportFinancialInputs();
     this.populateSchoolReliefDropdowns();
 
-    const classesResp = await load("classes", () => window.API.academic.listClasses());
+    const classesResp = sources?.classes ?? await load("classes", () => window.API.academic.listClasses());
     const classes = this.unwrapList(classesResp, "classes");
     this.data.classes = classes;
     this.populateClassDropdowns();
 
-    const typesResp = await load("student types", () => window.API.finance.listStudentTypes());
+    const typesResp = sources?.studentTypes ?? await load("student types", () => window.API.finance.listStudentTypes());
     const studentTypes = this.unwrapList(typesResp, "student_types");
     this.data.studentTypes = studentTypes;
     this.populateStudentTypeDropdown();
 
-    const streamsResp = await load("streams", () => window.API.academic.listStreams());
+    const streamsResp = sources?.streams ?? await load("streams", () => window.API.academic.listStreams());
     const streams = this.unwrapList(streamsResp, "streams");
     this.data.streams = streams;
     this.populateStreamFilter();
 
-    await this.loadExistingParents();
+    await this.loadExistingParents(sources?.parents);
     await this.loadTransportOptions();
     this.refreshImportFeePreview();
   },
@@ -518,9 +530,9 @@ window.studentsManagementController = window.studentsManagementController || {
     document.getElementById("studentTransportFields")?.classList.toggle("d-none", !enabled);
   },
 
-  loadExistingParents: async function () {
+  loadExistingParents: async function (source = null) {
     try {
-      const resp = await window.API.students.getParentsList();
+      const resp = source ?? await window.API.students.getParentsList();
       const parents = this.unwrapList(resp, "parents");
       if (parents.length) {
         this.data.parents = parents;
@@ -529,6 +541,11 @@ window.studentsManagementController = window.studentsManagementController || {
     } catch (error) {
       console.warn("Could not load parents:", error);
     }
+  },
+
+  refreshData: async function () {
+    await Promise.all([this.loadInitialData(), this.loadPendingPhotos()]);
+    await this.loadStudents(this.data.pagination?.page || 1);
   },
 
   populateClassDropdowns: function () {

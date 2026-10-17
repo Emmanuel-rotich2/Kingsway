@@ -11,7 +11,21 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-STREAM_DIR = Path(os.getenv("KINGSWAY_STREAM_DIR", "/tmp/kingsway_streams"))
+_SHARED_STORAGE_ROOT = os.getenv("STORAGE_ROOT", "").strip()
+if _SHARED_STORAGE_ROOT:
+    _storage_root = Path(_SHARED_STORAGE_ROOT)
+    if not _storage_root.is_absolute():
+        raise ValueError("STORAGE_ROOT must be an absolute path")
+    STREAM_DIR = _storage_root / "python" / "streams"
+else:
+    # Local-development fallback. KINGSWAY_STREAM_DIR remains a compatibility
+    # override only when the shared three-runtime root is not configured.
+    _legacy_stream_dir = os.getenv("KINGSWAY_STREAM_DIR", "").strip()
+    STREAM_DIR = (
+        Path(_legacy_stream_dir)
+        if _legacy_stream_dir
+        else Path(__file__).resolve().parents[2] / "storage" / "python" / "streams"
+    )
 STREAM_DIR.mkdir(parents=True, exist_ok=True)
 
 

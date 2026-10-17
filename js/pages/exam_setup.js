@@ -141,12 +141,19 @@ const examSetupController = (() => {
        REFERENCE DATA LOADING
     ================================================================= */
   async function loadReferenceData() {
+    let composed = null;
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "exam-setup-references");
+      composed = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exam setup reference Node view failed; using direct reads:", error);
+    }
     const [yearsRes, termsRes, classesRes, areasRes] = await Promise.allSettled(
       [
-        api("/academic/years/list", "GET"),
-        api("/academic/terms/list", "GET"),
-        api("/academic/classes/list", "GET"),
-        api("/academic/learning-areas/list", "GET"),
+        composed?.years !== undefined ? composed.years : api("/academic/years/list", "GET"),
+        composed?.terms !== undefined ? composed.terms : api("/academic/terms/list", "GET"),
+        composed?.classes !== undefined ? composed.classes : api("/academic/classes/list", "GET"),
+        composed?.learningAreas !== undefined ? composed.learningAreas : api("/academic/learning-areas/list", "GET"),
       ],
     );
 
@@ -1395,6 +1402,7 @@ const examSetupController = (() => {
     _attachListeners();
     await loadReferenceData();
     await loadExams();
+    window.APIRealtime?.register?.("exam_setup", { refresh: async () => { await loadReferenceData(); await loadExams(pagination.page); } }, ["academic"]);
   }
 
   /* Helper: render table with create/edit/delete gated */

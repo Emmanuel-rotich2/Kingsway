@@ -21,10 +21,19 @@ const boardingController = {
       return;
     }
     role = role || 'viewer';
+    this._role = role;
+    window.APIRealtime?.register?.('boarding', this, ['boarding']);
     if      (role === 'admin')    this._initAdmin();
     else if (role === 'manager')  this._initManager();
     else if (role === 'operator') this._initOperator();
     else                          this._initViewer();
+  },
+
+  refreshData: function () {
+    if (this._role === 'admin') return this._initAdmin();
+    if (this._role === 'manager') return this._initManager();
+    if (this._role === 'operator') return this._initOperator();
+    return this._initViewer();
   },
 
   // ── ADMIN ──────────────────────────────────────────────────────────

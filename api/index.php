@@ -74,11 +74,25 @@ register_shutdown_function(function () use ($emitError) {
 
 use App\API\Router\Router;
 use App\API\Services\RequestIdempotencyService;
+use App\API\Services\StorageRoot;
 use App\Config\Config;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
 Config::init();
+
+// ============================================================
+// RUNTIME DIRECTORY PROVISIONING
+// PHP owns runtime directories: the shared STORAGE_ROOT (or its default)
+// and every subsystem namespace are created when missing so PHP, Python
+// and Node always find their paths ready without a manual setup step.
+// ============================================================
+try {
+    StorageRoot::ensureRuntimeDirectories();
+} catch (\Throwable $e) {
+    error_log('Storage provisioning skipped: ' . $e->getMessage());
+}
+// ============================================================
 
 // ============================================================
 // REQUEST-ID CORRELATION BOOTSTRAP

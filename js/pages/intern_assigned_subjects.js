@@ -1,239 +1,97 @@
 /**
  * Intern Assigned Subjects Controller
- * Page: intern_assigned_subjects.php
- * Intern-specific view of subjects assigned for internship
- * Integrates with AcademicContext for academic year awareness
+ * Manages subject assignments for intern teachers.
  */
-const InternAssignedSubjectsController = {
-  state: {
-    subjects: [],
-    currentAcademicYear: null,
-    currentTerm: null,
-    stats: {
-      totalSubjects: 0,
-      classes: 0,
-      hoursPerWeek: 0,
-      syllabusProgress: 0
+const internAssignedSubjectsController = {
+  state: { referenceCache: null, assignments: [], interns: [], subjects: [], classes: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "manage-timetable-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Intern Assigned Subjects Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
   },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [assignments, interns, subjects, classes] = await Promise.all([
+        cache?.assignments !== undefined ? cache.assignments : this.API('GET', '/api/academic/intern-subject-assignments'),
+        cache?.interns !== undefined ? cache.interns : this.API('GET', '/api/staff/interns'),
+        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas/list'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+      ]);
+      this.state.assignments = Array.isArray(assignments?.data) ? assignments.data : (Array.isArray(assignments) ? assignments : []);
+      this.state.interns = Array.isArray(interns?.data) ? interns.data : (Array.isArray(interns) ? interns : []);
+      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.renderAssignments();
+      this.renderFormOptions();
+    } catch (e) { console.error(e); }
+  },
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderAssignments() {
+    const assignments = this.state.assignments;
+    const body = document.getElementById('iasAssignmentsBody');
+    if (!assignments.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No assignments.</td></tr>'; return; }
+    body.innerHTML = assignments.map(a => `<tr>
+      <td class="small">${this.esc(a.intern_name || '—')}</td>
+      <td class="small">${this.esc(a.subject || '—')}</td>
+      <td class="small">${this.esc(a.class_name || '—')}</td>
+      <td class="small">${this.esc(a.stream_name || '—')}</td>
+      <td class="small"><span class="badge bg-${a.status === 'active' ? 'success' : 'secondary'}">${this.esc(a.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="internAssignedSubjectsController.editAssignment(${a.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  renderFormOptions() {
+    const interns = this.state.interns;
+    const subjects = this.state.subjects;
+    const classes = this.state.classes;
+    const internSelect = document.getElementById('iasInternSelect');
+    const subjectSelect = document.getElementById('iasSubjectSelect');
+    const classSelect = document.getElementById('iasClassSelect');
+    if (internSelect) internSelect.innerHTML = '<option value="">Select Intern</option>' + interns.map(i => `<option value="${i.id}">${this.esc(i.name)}</option>`).join('');
+    if (subjectSelect) subjectSelect.innerHTML = '<option value="">Select Subject</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');
+    if (classSelect) classSelect.innerHTML = '<option value="">Select Class</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+  },
+
+  async createAssignment() {
+    const intern = document.getElementById('iasInternSelect')?.value;
+    const subject = document.getElementById('iasSubjectSelect')?.value;
+    const classId = document.getElementById('iasClassSelect')?.value;
+    const stream = document.getElementById('iasStreamSelect')?.value;
+    if (!intern || !subject || !classId) { this.notify('All fields required', 'warning'); return; }
+    try {
+      await this.API('POST', '/api/academic/intern-subject-assignments', { intern_id: intern, subject_id: subject, class_id: classId, stream_id: stream });
+      this.notify('Assignment created', 'success');
+      document.getElementById('iasForm')?.reset();
+      await this.load();
+    } catch (e) { this.notify('Creation failed', 'danger'); }
+  },
+
+  async editAssignment(id) { /* open edit modal */ },
+
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
 
   async init() {
-    await window.AuthContext?.ready();
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
-    }
-    
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadAssignedSubjects();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-      
-      // Get current academic context
-      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      this.state.currentTerm = window.AcademicContext.getTermId();
-    }
-    
-    this.bindEvents();
-    await this.loadAcademicYears();
-    await this.loadAssignedSubjects();
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("intern_assigned_subjects", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
   },
-
-  bindEvents() {
-    // Academic year selector
-    const yearSelect = document.getElementById('academicYearSelect');
-    if (yearSelect) {
-      yearSelect.addEventListener('change', async (e) => {
-        this.state.currentAcademicYear = e.target.value;
-        if (window.AcademicContext) {
-          await window.AcademicContext.setCurrentAcademicYear(e.target.value);
-        }
-        await this.loadAssignedSubjects();
-      });
-    }
-
-    // Term selector
-    const termSelect = document.getElementById('termSelect');
-    if (termSelect) {
-      termSelect.addEventListener('change', async (e) => {
-        this.state.currentTerm = e.target.value;
-        await this.loadAssignedSubjects();
-      });
-    }
-  },
-
-  async loadAcademicYears() {
-    try {
-      const years = await window.API.academic.listYears() || [];
-      const yearSelect = document.getElementById('academicYearSelect');
-      if (yearSelect) {
-        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-        
-        // Set current academic year if available
-        if (this.state.currentAcademicYear) {
-          yearSelect.value = this.state.currentAcademicYear;
-        }
-      }
-    } catch (error) {
-      console.error('Error loading academic years:', error);
-    }
-  },
-
-  async loadAssignedSubjects() {
-    try {
-      const user = window.AuthContext?.getUser();
-      if (!user || !user.id) {
-        this.showNotification('User not authenticated', 'error');
-        return;
-      }
-
-      const params = {
-        intern_id: user.id
-      };
-      
-      if (this.state.currentAcademicYear) {
-        params.academic_year_id = this.state.currentAcademicYear;
-      }
-      
-      if (this.state.currentTerm) {
-        params.term_id = this.state.currentTerm;
-      }
-
-      this.state.subjects = await window.API.academic.getInternSubjects(params) || [];
-      this.renderSubjectsTable();
-      this.updateStats();
-    } catch (error) {
-      console.error('Error loading assigned subjects:', error);
-      this.showNotification('Failed to load assigned subjects', 'error');
-    }
-  },
-
-  renderSubjectsTable() {
-    const tbody = document.querySelector('#assignedSubjectsTable tbody');
-    if (!tbody) return;
-
-    if (this.state.subjects.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No subjects assigned to you</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = this.state.subjects.map((subject, index) => {
-      const statusBadge = subject.status === 'active' 
-        ? '<span class="badge bg-success">Active</span>' 
-        : '<span class="badge bg-secondary">Inactive</span>';
-
-      return `
-        <tr>
-          <td>${index + 1}</td>
-          <td><strong>${this.escapeHtml(subject.subject_name)}</strong></td>
-          <td>${this.escapeHtml(subject.learning_area || '--')}</td>
-          <td>${subject.classes_count || 0}</td>
-          <td>${this.escapeHtml(subject.teacher_name || '--')}</td>
-          <td>${subject.periods_per_week || 0}</td>
-          <td>${statusBadge}</td>
-          <td>
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="InternAssignedSubjectsController.viewSyllabus(${subject.subject_id})" title="View Syllabus">
-                <i class="bi bi-journal-text"></i>
-              </button>
-              <button class="btn btn-outline-info" onclick="InternAssignedSubjectsController.viewSchedule(${subject.subject_id})" title="View Schedule">
-                <i class="bi bi-calendar3"></i>
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-  },
-
-  updateStats() {
-    document.getElementById('totalSubjectsCount').textContent = this.state.subjects.length;
-    document.getElementById('classesCount').textContent = this.state.subjects.reduce((sum, s) => sum + (s.classes_count || 0), 0);
-    document.getElementById('hoursPerWeekCount').textContent = this.state.subjects.reduce((sum, s) => sum + (s.periods_per_week || 0), 0);
-    
-    // Calculate syllabus progress
-    const totalStrands = this.state.subjects.reduce((sum, s) => sum + (s.total_strands || 0), 0);
-    const completedStrands = this.state.subjects.reduce((sum, s) => sum + (s.completed_strands || 0), 0);
-    const progress = totalStrands > 0 ? Math.round((completedStrands / totalStrands) * 100) : 0;
-    document.getElementById('syllabusProgress').textContent = progress + '%';
-  },
-
-  viewSyllabus(subjectId) {
-    // Navigate to syllabus view
-    window.location.href = (window.APP_BASE || '') + '/home.php?route=view_syllabus&subject_id=' + subjectId;
-  },
-
-  viewSchedule(subjectId) {
-    // Navigate to intern schedule filtered by subject
-    window.location.href = (window.APP_BASE || '') + '/home.php?route=intern_schedule&subject_id=' + subjectId;
-  },
-
-  exportSubjects() {
-    if (!this.state.subjects.length) return;
-    
-    const headers = ['#', 'Subject', 'Learning Area', 'Classes', 'Teacher', 'Periods/Week', 'Status'];
-    const rows = this.state.subjects.map((subject, i) => [
-      i + 1,
-      subject.subject_name,
-      subject.learning_area || '--',
-      subject.classes_count || 0,
-      subject.teacher_name || '--',
-      subject.periods_per_week || 0,
-      subject.status || 'Active'
-    ]);
-    
-    if (window.PrintManager) {
-      window.PrintManager.exportToCSV({
-        headers,
-        rows
-      }, 'intern_assigned_subjects');
-    } else {
-      // Fallback
-      let csv = headers.join(',') + '\n' + 
-        rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
-      
-      KingswayFileLifecycle.exportText(csv, 'intern_assigned_subjects.csv', 'text/csv');
-    }
-  },
-
-  async refresh() {
-    await this.loadAcademicYears();
-    await this.loadAssignedSubjects();
-  },
-
-  escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  },
-
-  showNotification(message, type = 'info') {
-    if (typeof showNotification === 'function') {
-      showNotification(message, type);
-    } else {
-      // Fallback notification
-      const container = document.querySelector('.container-fluid') || document.body;
-      const alert = document.createElement('div');
-      alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-      alert.style.zIndex = '9999';
-      alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-      container.appendChild(alert);
-      setTimeout(() => alert.remove(), 4000);
-    }
-  }
 };
 
-document.addEventListener('DOMContentLoaded', () => InternAssignedSubjectsController.init());
-
-window.InternAssignedSubjectsController = InternAssignedSubjectsController;
+window.internAssignedSubjectsController = internAssignedSubjectsController;
+document.addEventListener('DOMContentLoaded', () => internAssignedSubjectsController.init().catch(() => {}));

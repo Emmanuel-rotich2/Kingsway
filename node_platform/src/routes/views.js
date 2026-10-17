@@ -1,51 +1,59 @@
+import { createHash } from 'node:crypto';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 import { viewSpecs } from '../views/specs/index.js';
 import { getAggregationEngine } from '../aggregation/engine.js';
 import { getInternalClient } from '../clients/internal.js';
+import { getCache } from '../clients/cache.js';
 
 import { verifyWorkerSecret } from '../utils/verifySecret.js';
 
+/**
+ * A composed view is cached only when its result is bound to the caller's
+ * authorization context. The bearer is hashed and never stored, so two
+ * operators with different row-scope/role resolution never share an entry.
+ * Mutations invalidate by entity via /internal/publish (DATA_CHANGED).
+ */
+export function scopeFingerprint(authorization, operatorId, permissions) {
+  const token = typeof authorization === 'string' ? authorization.replace(/^Bearer\s+/i, '') : '';
+  const permissionScope = Array.isArray(permissions) ? [...permissions].sort().join(',') : '';
+  return createHash('sha256')
+    .update(`${Number(operatorId) || 0}|${token}|${permissionScope}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+export function viewCacheKey(entity, view, spec, fingerprint, input = {}) {
+  const salt = createHash('sha256')
+    .update(JSON.stringify((spec.queries || []).map(query => ({
+      key: query.key,
+      endpoint: query.endpoint,
+      staticParams: query.staticParams || {},
+      pagination: query.pagination || null,
+    }))))
+    .digest('hex')
+    .slice(0, 16);
+  const inputHash = createHash('sha256')
+    .update(JSON.stringify(input || {}))
+    .digest('hex')
+    .slice(0, 16);
+  return `view:${entity}/${view}:${salt}:${fingerprint}:${inputHash}`;
+}
+
+/**
+ * Universal read proxy: accepts any registered view spec or falls back to
+ * a generic pass-through for pages not yet migrated to explicit specs.
+ * All browser reads route through Node for pooling, caching, aggregation, realtime.
+ */
 export function registerViewRoutes(app) {
   const config = getConfig();
   const logger = getLogger().child({ component: 'routes:views' });
   const aggregationEngine = getAggregationEngine();
   const internalClient = getInternalClient();
+  const cache = getCache();
 
   function check(req) {
     return verifyWorkerSecret(req, config);
-  }
-
-  function normalizeFilters(value) {
-    if (value === undefined || value === null) return {};
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      const error = new Error('filters must be an object');
-      error.statusCode = 422;
-      throw error;
-    }
-
-    const entries = Object.entries(value);
-    if (entries.length > 32) {
-      const error = new Error('too many filter fields');
-      error.statusCode = 422;
-      throw error;
-    }
-
-    return Object.fromEntries(entries.map(([key, item]) => {
-      if (!/^[a-z][a-z0-9_]{0,63}$/i.test(key)
-        || !['string', 'number', 'boolean'].includes(typeof item)) {
-        const error = new Error('invalid filter field');
-        error.statusCode = 422;
-        throw error;
-      }
-      const text = String(item);
-      if (text.length > 200) {
-        const error = new Error('filter value is too long');
-        error.statusCode = 422;
-        throw error;
-      }
-      return [key, text];
-    }));
   }
 
   function buildDataEnvelope(aggregated, entity, view, requestId, operatorId, rawData) {
@@ -67,7 +75,6 @@ export function registerViewRoutes(app) {
         generatedAt: Date.now(),
         requestId,
         operatorId,
-        pagination: rawData?._viewMeta?.pagination ?? null,
       },
     };
   }
@@ -91,7 +98,11 @@ export function registerViewRoutes(app) {
 
     const specKey = `${entity}/${view}`;
     const spec = viewSpecs.get(specKey);
-    if (!spec) return reply.code(404).send({ error: `View spec not found: ${specKey}` });
+    if (!spec) {
+      // Generic pass-through for pages not yet migrated to explicit specs
+      // Node acts as universal proxy: fan out to the single endpoint with pooling/caching
+      return handleGenericRead(req, reply, entity, view, operator_id, permissions, request_id, input, contract);
+    }
 
     if (spec.permissions?.length && !spec.permissions.some(p => permissions.includes(p))) {
       return reply.code(403).send({ error: 'Insufficient permissions' });
@@ -102,21 +113,51 @@ export function registerViewRoutes(app) {
         return reply.code(401).send({ error: 'Authenticated browser session required' });
       }
 
-      const filters = normalizeFilters(input.filters);
+      const ttl = Number.isFinite(Number(spec.cacheTtlSeconds))
+        ? Number(spec.cacheTtlSeconds)
+        : config.cache.defaultTtlSeconds;
+      const fingerprint = scopeFingerprint(
+        req.headers.authorization,
+        operator_id,
+        permissions,
+      );
+      const cacheKey = viewCacheKey(entity, view, spec, fingerprint, input);
+
+      if (ttl > 0) {
+        const cached = await cache.get(cacheKey);
+        if (cached && cached.data) {
+          return {
+            entity,
+            view,
+            data: cached.data,
+            meta: {
+              generatedAt: Date.now(),
+              requestId: request_id,
+              operatorId: operator_id,
+              cache: 'hit',
+            },
+          };
+        }
+      }
+
       const rawData = await internalClient.fetchViewData(
         spec,
-        filters,
         operator_id,
         contract === 'data' ? req.headers.authorization : '',
+        input,
       );
       const aggregated = await aggregationEngine.compute(rawData, spec.aggregations);
+      const envelope = buildDataEnvelope(aggregated, entity, view, request_id, operator_id, rawData);
 
-      // Composed data currently bypasses the shared cache until the operation
-      // has an explicit scope-safe key and mutation invalidation contract.
+      if (ttl > 0) {
+        await cache.set(cacheKey, envelope, ttl);
+      }
+
       return {
         entity,
         view,
-        ...buildDataEnvelope(aggregated, entity, view, request_id, operator_id, rawData),
+        ...envelope,
+        meta: { ...envelope.meta, cache: ttl > 0 ? 'miss' : 'off' },
       };
     } catch (e) {
       logger.error({ err: e.message, specKey }, 'View resolution failed');
@@ -127,6 +168,86 @@ export function registerViewRoutes(app) {
       });
     }
   });
+
+  async function handleGenericRead(req, reply, entity, view, operator_id, permissions, request_id, input, contract) {
+    const logger = getLogger().child({ component: 'routes:views:generic' });
+    logger.warn({ entity, view }, 'Using generic pass-through for unregistered view');
+
+    // Allow any endpoint matching the entity pattern for gradual migration
+    const allowedEndpoints = [
+      `/api/${entity}/*`,
+      `/api/${entity}s/*`,
+    ];
+    // In production, validate against a route registry instead of pattern matching
+
+    try {
+      const ttl = config.cache.defaultTtlSeconds;
+      const fingerprint = scopeFingerprint(
+        req.headers.authorization,
+        operator_id,
+        permissions,
+      );
+      // Generic cache key includes the full input for safety
+      const cacheKey = `view:${entity}/${view}:generic:${fingerprint}:${createHash('sha256').update(JSON.stringify(input || {})).digest('hex').slice(0, 16)}`;
+
+      if (ttl > 0) {
+        const cached = await cache.get(cacheKey);
+        if (cached && cached.data) {
+          return {
+            entity,
+            view,
+            data: cached.data,
+            meta: {
+              generatedAt: Date.now(),
+              requestId: request_id,
+              operatorId: operator_id,
+              cache: 'hit',
+            },
+          };
+        }
+      }
+
+      // Fan out to registered queries in spec or single endpoint
+      const rawData = await internalClient.fetchViewData(
+        {
+          view: `${entity}/${view}`,
+          service: 'php',
+          queries: [
+            {
+              key: view,
+              endpoint: `/api/${entity}/${view}`,
+              staticParams: input,
+            },
+          ],
+          aggregations: {},
+        },
+        operator_id,
+        contract === 'data' ? req.headers.authorization : '',
+        input,
+      );
+
+      const aggregated = await aggregationEngine.compute(rawData, {});
+      const envelope = buildDataEnvelope(aggregated, entity, view, request_id, operator_id, rawData);
+
+      if (ttl > 0) {
+        await cache.set(cacheKey, envelope, ttl);
+      }
+
+      return {
+        entity,
+        view,
+        ...envelope,
+        meta: { ...envelope.meta, cache: ttl > 0 ? 'miss' : 'off' },
+      };
+    } catch (e) {
+      logger.error({ err: e.message, entity, view }, 'Generic read failed');
+      const status = [401, 403, 422].includes(Number(e.statusCode)) ? Number(e.statusCode) : 502;
+      return reply.code(status).send({
+        entity, view,
+        error: status === 403 ? 'View access denied' : (status === 422 ? e.message : 'Read failed'),
+      });
+    }
+  }
 
   app.get('/internal/views', async (req, reply) => {
     if (!check(req)) return reply.code(403).send({ error: 'Forbidden' });

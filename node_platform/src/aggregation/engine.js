@@ -114,32 +114,11 @@ export class AggregationEngine {
   }
 
   async computeTables(data, spec, pl) {
-    const result = {};
-    const mainData = Array.isArray(data) ? data : [];
-    const df = pl.DataFrame(mainData);
-
-    for (const [tableName, tableSpec] of Object.entries(spec)) {
-      try {
-        let tableDf = df;
-        if (tableSpec.groupBy) {
-          const aggs = {};
-          for (const col of tableSpec.cols || []) {
-            if (col !== tableSpec.groupBy[0]) {
-              aggs[col] = pl.col(col).first();
-            }
-          }
-          tableDf = df.groupBy(tableSpec.groupBy).agg(Object.values(aggs));
-        }
-        const cols = tableSpec.cols || tableDf.columns;
-        result[tableName] = {
-          columns: cols,
-          rows: tableDf.select(cols).toRecords(),
-        };
-      } catch (e) {
-        result[tableName] = { columns: [], rows: [] };
-      }
-    }
-    return result;
+    // Grouped table metrics are deliberately computed in plain JS. The
+    // optional Polars adapter previously selected metric names as source
+    // columns (for example `totalStudents`) and either returned empty groups
+    // or copied the first row instead of calculating the metric.
+    return this.computeTablesVanilla(Array.isArray(data) ? data : [], spec);
   }
 
   async computeCharts(rawData, spec, pl) {
@@ -228,11 +207,23 @@ export class AggregationEngine {
       if (tableSpec.groupBy) {
         const groups = new Map();
         for (const row of data) {
-          const key = tableSpec.groupBy.map(g => row[g]).join('|');
-          if (!groups.has(key)) groups.set(key, { count: 0, ...row });
-          groups.get(key).count++;
+          const keyParts = tableSpec.groupBy.map(g => row[g] ?? null);
+          const key = JSON.stringify(keyParts);
+          if (!groups.has(key)) {
+            groups.set(key, {
+              keys: Object.fromEntries(tableSpec.groupBy.map((field, index) => [field, keyParts[index]])),
+              rows: [],
+            });
+          }
+          groups.get(key).rows.push(row);
         }
-        rows = Array.from(groups.values());
+        rows = Array.from(groups.values(), ({ keys, rows: groupRows }) => {
+          const output = { ...keys };
+          for (const [field, expression] of Object.entries(tableSpec.metrics || {})) {
+            output[field] = this.computeMetric(groupRows, expression);
+          }
+          return output;
+        });
       }
       result[tableName] = {
         columns: tableSpec.cols || Object.keys(rows[0] || {}),
@@ -246,6 +237,33 @@ export class AggregationEngine {
       };
     }
     return result;
+  }
+
+  computeMetric(rows, expression) {
+    if (expression === 'count()') return rows.length;
+    if (typeof expression !== 'string') return null;
+
+    const filteredCount = expression.match(/^filter\(([^!=]+?)\s*(==|!=)\s*(['\"]?)(.*?)\3\)\.count\(\)$/);
+    if (filteredCount) {
+      const [, rawField, operator, , expected] = filteredCount;
+      const field = rawField.trim();
+      return rows.filter(row => {
+        const matches = String(row[field] ?? '') === expected;
+        return operator === '==' ? matches : !matches;
+      }).length;
+    }
+
+    const numeric = expression.match(/^(sum|avg|min|max)\(([^)]+)\)$/);
+    if (numeric) {
+      const [, operation, rawField] = numeric;
+      const values = rows.map(row => Number(row[rawField.trim()])).filter(Number.isFinite);
+      if (operation === 'sum') return values.reduce((total, value) => total + value, 0);
+      if (!values.length) return null;
+      if (operation === 'avg') return values.reduce((total, value) => total + value, 0) / values.length;
+      return operation === 'min' ? Math.min(...values) : Math.max(...values);
+    }
+
+    return null;
   }
 
   computeFilterOptionsVanilla(data, spec) {

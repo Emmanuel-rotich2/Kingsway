@@ -9,6 +9,15 @@ Endpoints (all service-to-service, bearer-authenticated, never browser-facing):
   POST /internal/worker            curl-cron dispatch (queue jobs or digest/assist)
   POST /internal/behavior/forget   DPA erasure for one staff member
                               (behaviour profile and conversation turns)
+  POST /api/sms/execute            TALKSASA provider call relayed by PHP (PHP
+                              owns configuration; Python owns the transport)
+  POST /api/payhero/execute        PayHero API call relayed by PHP (PHP owns
+                              payment orchestration; Python owns the transport)
+  POST /api/payment-gateway/execute
+                              Daraja / KCB Buni HTTP relay for the PHP
+                              clients (host- and header-allowlisted)
+  POST /api/email/send             SMTP resilience path after PHP PHPMailer
+                              retries are exhausted
 """
 
 from __future__ import annotations
@@ -37,6 +46,10 @@ from .automations import AutomationEngine, AutomationError
 from .tools import ToolBridge
 from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
 from .queue_worker import PythonQueueWorker
+from .sms_provider import SmsProviderError, execute as sms_provider_execute
+from .payhero_provider import PayheroProviderError, execute as payhero_provider_execute
+from .payment_gateway import PaymentGatewayError, execute as payment_gateway_execute
+from .email_provider import send_email as smtp_send_email
 
 
 def _render_document_html(html: str) -> bytes:
@@ -113,6 +126,171 @@ def create_app(config: Config | None = None) -> Flask:
         if not bearer_authorized(request.headers, cfg.secret):
             return jsonify({"success": False, "message": "unauthorized"}), 401
         return None
+
+    @app.post("/api/sms/execute")
+    def sms_execute():
+        """Execute one TALKSASA provider action for the PHP relay.
+
+        PHP remains the configuration and consent authority; it sends the
+        provider credentials for the call and this service performs only the
+        provider HTTP exchange before handing the normalized result back.
+        """
+        denied = auth_guard()
+        if denied:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        action = str(payload.get("action") or "").strip()
+        params = (
+            payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        )
+        config = (
+            payload.get("config") if isinstance(payload.get("config"), dict) else {}
+        )
+        if action == "" or not isinstance(config.get("api_key"), str):
+            return jsonify(
+                {"success": False, "message": "action and config.api_key are required"}
+            ), 422
+        try:
+            outcome = sms_provider_execute(config, action, params)
+        except SmsProviderError as error:
+            journal.write(
+                "communications",
+                {
+                    "type": "sms_execute_failed",
+                    "action": action,
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "Provider execution failed"}
+            ), 502
+        journal.write(
+            "communications",
+            {
+                "type": "sms_execute",
+                "action": action,
+                "ok": bool(outcome.get("ok")),
+                "http": int(outcome.get("http") or 0),
+            },
+        )
+        return jsonify({"success": True, "data": {"outcome": outcome}})
+
+    @app.post("/api/payhero/execute")
+    def payhero_execute():
+        """Execute one PayHero API call for the PHP relay.
+
+        PHP remains the payment orchestration authority; it sends the PayHero
+        credentials for the call and this service performs only the provider
+        HTTP exchange before handing the normalized result back.
+        """
+        denied = auth_guard()
+        if denied:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        action = str(payload.get("action") or "").strip()
+        params = (
+            payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        )
+        config = (
+            payload.get("config") if isinstance(payload.get("config"), dict) else {}
+        )
+        if action == "" or not isinstance(config.get("basic_auth"), str):
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "action and config.basic_auth are required",
+                }
+            ), 422
+        try:
+            outcome = payhero_provider_execute(config, action, params)
+        except PayheroProviderError as error:
+            journal.write(
+                "payments",
+                {
+                    "type": "payhero_execute_failed",
+                    "action": action,
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "PayHero provider execution failed"}
+            ), 502
+        journal.write(
+            "payments",
+            {
+                "type": "payhero_execute",
+                "action": action,
+                "ok": bool(outcome.get("ok")),
+                "http": int(outcome.get("http") or 0),
+            },
+        )
+        return jsonify({"success": True, "data": {"outcome": outcome}})
+
+    @app.post("/api/payment-gateway/execute")
+    def payment_gateway_execute_route():
+        """Execute one Daraja / KCB Buni HTTP exchange for the PHP relay.
+
+        PHP remains the orchestration authority (tokens, payload shaping,
+        ledger handoff); it sends the already-shaped request and this service
+        performs only the provider HTTP exchange. Destination hosts come from
+        the platform allowlist, never from the request.
+        """
+        denied = auth_guard()
+        if denied:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        params = (
+            payload.get("params") if isinstance(payload.get("params"), dict) else {}
+        )
+        if not isinstance(params.get("url"), str) or params.get("url") == "":
+            return jsonify({"success": False, "message": "params.url is required"}), 422
+        try:
+            outcome = payment_gateway_execute(cfg.payment_gateway_hosts, params)
+        except PaymentGatewayError as error:
+            journal.write(
+                "payments",
+                {
+                    "type": "payment_gateway_execute_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "Payment gateway request was refused"}
+            ), 422
+        journal.write(
+            "payments",
+            {
+                "type": "payment_gateway_execute",
+                "ok": bool(outcome.get("ok")),
+                "http": int(outcome.get("http") or 0),
+            },
+        )
+        return jsonify({"success": True, "data": {"outcome": outcome}})
+
+    @app.post("/api/email/send")
+    def smtp_fallback_send():
+        """Resilience SMTP delivery after PHP's PHPMailer retries are exhausted."""
+        denied = auth_guard()
+        if denied:
+            return denied
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload.get("to"), list) or not payload.get("to"):
+            return jsonify({"success": False, "message": "to[] is required"}), 422
+        outcome = smtp_send_email(payload)
+        journal.write(
+            "communications",
+            {
+                "type": "email_smtp_fallback",
+                "ok": bool(outcome.get("ok")),
+                "sent": int(outcome.get("sent") or 0),
+                "failed": int(outcome.get("failed") or 0),
+            },
+        )
+        if not outcome.get("ok"):
+            return jsonify(
+                {"success": False, "message": outcome.get("message"), "data": outcome}
+            ), 502
+        return jsonify({"success": True, "data": outcome})
 
     @app.post("/api/documents/student-id-cards/render")
     def render_student_id_cards():

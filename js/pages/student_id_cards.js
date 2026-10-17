@@ -242,13 +242,32 @@ const StudentIdCardsController = {
                 let data = null;
                 do {
                     this.refreshAgain = false;
-                    const response = await window.API.nodeViews.resolve(
-                        'students',
-                        'id-cards',
-                    );
-                    const envelope = response?.data ? response : response || {};
-                    data = envelope.data || {};
-                    const sources = data.sources || {};
+                    let sources;
+                    try {
+                        const response = await window.API.nodeViews.resolve(
+                            'students',
+                            'id-cards',
+                        );
+                        const envelope = response?.data ? response : response || {};
+                        data = envelope.data || {};
+                        sources = data.sources || {};
+                    } catch (gatewayError) {
+                        // Node composes these same registered, authorized PHP
+                        // reads. Keep the page usable during a gateway outage.
+                        console.warn('ID card composition unavailable; using PHP API:', gatewayError);
+                        const [cardsResponse, metaResponse] = await Promise.all([
+                            this.apiCall('/students/id-cards', 'GET'),
+                            this.apiCall('/students/id-card-meta', 'GET'),
+                        ]);
+                        if (!this.isSuccessfulResponse(cardsResponse) || !this.isSuccessfulResponse(metaResponse)) {
+                            throw gatewayError;
+                        }
+                        sources = {
+                            cards: this.unwrapPayload(cardsResponse),
+                            meta: this.unwrapPayload(metaResponse),
+                        };
+                        data = { sources };
+                    }
 
                     await this.loadMetadata(sources.meta || null);
                     this.onTableRendered(Array.isArray(sources.cards) ? sources.cards : []);

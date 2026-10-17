@@ -3,6 +3,8 @@
  * Accountant views fee collection statistics, trends and revenue sources.
  */
 const paymentReportsController = {
+  state: { referenceCache: null },
+
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
   notify(msg, type = 'success') {
@@ -15,19 +17,30 @@ const paymentReportsController = {
     setTimeout(() => el.remove(), 3000);
   },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   fmtKES(n) { return 'KES ' + Number(n || 0).toLocaleString(); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "payment-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Payment reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
 
   async load() {
     document.getElementById('prStatsCards').innerHTML = '<div class="text-muted small py-2">Loading…</div>';
     document.getElementById('prTrends').textContent = 'Loading…';
     document.getElementById('prSources').textContent = 'Loading…';
     try {
+      const cache = this.state.referenceCache;
       const [stats, trends, sources] = await Promise.all([
-        this.API('GET', 'payments/stats'),
-        this.API('GET', 'payments/collection-trends'),
-        this.API('GET', 'payments/revenue-sources'),
+        cache?.stats !== undefined ? cache.stats : this.API('GET', 'payments/stats'),
+        cache?.trends !== undefined ? cache.trends : this.API('GET', 'payments/collection-trends'),
+        cache?.sources !== undefined ? cache.sources : this.API('GET', 'payments/revenue-sources'),
       ]);
       this.renderStats(stats?.data ?? stats ?? {});
       this.renderTrends(trends?.data ?? trends ?? {});
@@ -89,7 +102,15 @@ const paymentReportsController = {
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("payment_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["finance", "payments"]);
   },
 };
 

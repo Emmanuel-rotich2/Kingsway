@@ -7,6 +7,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Writer\Ods;
+use App\API\Includes\FileLogger;
 use DateTimeImmutable;
 use PDO;
 use RuntimeException;
@@ -657,8 +658,39 @@ PHP;
                     ->execute([(int)$message['id']]);
                 $sent++;
             } catch (Throwable $e) {
+                $attempts = (int) $message['attempts'] + 1;
+                // After the PHP SMTP attempts are exhausted, try the Python
+                // smtplib resilience path before scheduling another retry.
+                if ($attempts >= MessageService::SMTP_MAX_ATTEMPTS && isset($body)) {
+                    $fallback = $service->sendViaPythonFallback(
+                        [$message['recipient'] => (string) ($payload['name'] ?? '')],
+                        $message['subject'] ?: 'Your Kingsway account is ready',
+                        $body
+                    );
+                    if ($fallback !== null && !empty($fallback['ok'])) {
+                        $this->db->prepare("UPDATE outbound_messages SET status='sent', sent_at=NOW(), last_error=NULL, updated_at=NOW() WHERE id=?")
+                            ->execute([(int)$message['id']]);
+                        FileLogger::write('communications', [
+                            'type' => 'staff_invitation_email_python_fallback',
+                            'message_id' => (int) $message['id'],
+                            'attempts' => $attempts,
+                            'transport' => $fallback['transport'],
+                        ]);
+                        $sent++;
+                        continue;
+                    }
+                    if ($fallback !== null) {
+                        $e = new RuntimeException($e->getMessage() . ' | Python fallback: ' . $fallback['message']);
+                    }
+                }
                 $this->db->prepare("UPDATE outbound_messages SET status='retry', last_error=?, next_attempt_at=DATE_ADD(NOW(), INTERVAL 15 MINUTE), updated_at=NOW() WHERE id=?")
                     ->execute([mb_substr($e->getMessage(),0,1000),(int)$message['id']]);
+                FileLogger::write('communications', [
+                    'type' => 'staff_invitation_email_retry',
+                    'message_id' => (int) $message['id'],
+                    'attempts' => $attempts,
+                    'error' => mb_substr($e->getMessage(), 0, 300),
+                ], 'warning');
                 $failed++;
             }
         }

@@ -9,13 +9,24 @@
     const drafts = (response) => response?.data?.drafts || response?.drafts || [];
     const notify = (message, type = 'info') => window.showNotification?.(message, type);
 
+    let referenceCache = null;
+    async function loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve('academic', 'ai-academic-reviews-references');
+            referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn('AI academic reviews Node view failed; using direct reads:', error);
+            referenceCache = null;
+        }
+    }
+
     async function load() {
         const host = document.getElementById('aiAcademicReviews');
         if (!host || !window.API?.academic) return;
         try {
-            const own = await window.API.academic.getAiSchemeDrafts('own');
+            const own = referenceCache?.own !== undefined ? referenceCache.own : await window.API.academic.getAiSchemeDrafts('own');
             let review = { drafts: [] };
-            try { review = await window.API.academic.getAiSchemeDrafts('review'); } catch (_) { /* optional review scope */ }
+            try { review = referenceCache?.review !== undefined ? referenceCache.review : await window.API.academic.getAiSchemeDrafts('review'); } catch (_) { /* optional review scope */ }
             const seen = new Set();
             const rows = [...drafts(own).map((row) => ({ ...row, __review: false })), ...drafts(review).map((row) => ({ ...row, __review: true }))]
                 .filter((row) => {
@@ -36,6 +47,7 @@
                             : window.API.academic.approveAiCoverageReview(id);
                     await approve;
                     notify('Academic review approved for staff editing/guidance.', 'success');
+                    referenceCache = null;
                     await load();
                 } catch (error) {
                     notify(error.message || 'Unable to approve academic review.', 'danger');
@@ -69,7 +81,7 @@
         } finally { button.disabled = false; }
     }
 
-    function init() {
+    async function init() {
         document.getElementById('queueAiCoverageReview')?.addEventListener('click', function () {
             const id = Number(document.getElementById('aiCoverageClassId')?.value || 0);
             if (id < 1) return notify('Enter an authorized academic year class ID first.', 'warning');
@@ -83,8 +95,13 @@
             if (id < 1) return notify('Enter an authorized learning outcome ID first.', 'warning');
             queue(this, window.API.academic.queueAiRubricDraft, { learning_outcome_id: id }, 'Rubric draft queued.');
         });
+        await loadReferencesComposed();
         load();
     }
+
+    window.APIRealtime?.register?.('ai_academic_reviews', {
+        refresh: async () => { await loadReferencesComposed(); await load(); },
+    }, ['academic']);
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
     else init();

@@ -59,6 +59,7 @@ class AuthMiddleware
             'payments/mpesa-c2b-confirmation',
             'payments/mpesa-stk-callback',
             'payments/kcb-mpesa-express-callback',
+            'payments/payhero-callback',
             'payments/mpesa-result',
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
@@ -153,11 +154,6 @@ class AuthMiddleware
             'realtime/python-job-heartbeat',
             'realtime/python-job-complete',
             'realtime/python-job-fail',
-            // Node.js gateway internal surface: durable queue claim/complete and
-            // the RBAC read proxy. Authenticated by the shared worker secret
-            // (X-Kingsway-Worker-Secret) inside NodeController, never by a JWT.
-            'node/internal-queue',
-            'node/internal-read',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'dashboard/agent-digest-worker',
             // Governed data-tool execution for the Python AI platform's
@@ -174,6 +170,13 @@ class AuthMiddleware
         // keep this exemption exact so a similarly named route is not opened.
         $pathOnly = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
         if ($pathOnly === '/api/mcp') {
+            return;
+        }
+
+        // Node's internal PHP liveness probe has no user data and validates
+        // X-Kingsway-Worker-Secret inside NodeController. Keep it exact and GET-only.
+        if (preg_match('#(?:^|/)api/node/internal-health/?$#', $pathOnly)
+            && strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET') {
             return;
         }
 

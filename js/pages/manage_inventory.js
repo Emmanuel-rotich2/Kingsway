@@ -37,6 +37,17 @@
     let filteredItems = [];
     let currentPage = 1;
 
+    function normalizeItem(item) {
+        return {
+            ...item,
+            item_code: item.item_code ?? item.code ?? "",
+            quantity: item.quantity ?? item.quantity_on_hand ?? item.current_stock ?? 0,
+            current_stock: item.current_stock ?? item.quantity_on_hand ?? item.quantity ?? 0,
+            unit_price: item.unit_price ?? item.unit_cost ?? 0,
+            unit: item.unit ?? item.unit_of_measure ?? "",
+        };
+    }
+
     // ── Controller ────────────────────────────────────────────────────────────
     const ManageInventoryController = {
 
@@ -47,38 +58,35 @@
                 return;
             }
             this.bindEvents();
+            window.APIRealtime?.register?.("manageInventory", this, ["inventory"]);
             this.loadAll();
         },
 
         async loadAll() {
-            await Promise.all([
-                this.loadStats(),
-                this.loadItems(),
-                this.loadCategories(),
-                this.loadLocations(),
-            ]);
-        },
-
-        // ── Stats ──────────────────────────────────────────────────────────────
-        async loadStats() {
             try {
-                const [lowStock, valuation] = await Promise.all([
-                    window.API.inventory.getLowStockItems(),
-                    window.API.inventory.getStockValuation(),
-                ]);
-                const low = Array.isArray(lowStock) ? lowStock : (lowStock?.items || []);
-                const val = valuation?.total_value ?? valuation ?? 0;
-
-                // item counts come from allItems once loaded; refresh after items load
-                this._lowStockCount = low.length;
-                this._totalValue = val;
-                this._pendingRequisitions = valuation?.pending_requisitions ?? 0;
-                this._expiringSoon = valuation?.expiring_soon ?? 0;
+                const result = await window.API.nodeViews.resolve("inventory", "manage-overview");
+                const sources = result?.data?.sources || result?.sources;
+                if (!sources?.items || !sources?.categories || !sources?.locations) {
+                    throw new Error("Node returned an incomplete inventory overview");
+                }
+                allItems = (sources.items.items || [])
+                    .filter(item => !item.status || String(item.status).toLowerCase() === "active")
+                    .map(normalizeItem);
+                this._lowStockCount = (sources.lowStock?.items || []).length;
+                this._totalValue = sources.valuation?.grand_total ?? sources.valuation?.total_value ?? 0;
+                this._pendingRequisitions = (sources.requisitions?.items || [])
+                    .filter(requisition => requisition.status === "pending").length;
+                this.populateCategories(sources.categories.categories || sources.categories.items || []);
+                this.populateLocations(sources.locations.locations || sources.locations.items || []);
+                this.applyFilters();
                 this.renderStats();
-            } catch (e) {
-                console.error("Stats load error:", e);
+            } catch (error) {
+                console.error("Node inventory overview failed:", error);
+                showToast("Failed to load fresh inventory data", "error");
             }
         },
+
+        refreshData() { return this.loadAll(); },
 
         renderStats() {
             const inStock   = allItems.filter(i => (i.quantity ?? i.current_stock ?? 0) > (i.reorder_level ?? 0)).length;
@@ -88,6 +96,13 @@
                 const rl  = i.reorder_level ?? 0;
                 return qty > 0 && qty <= rl;
             }).length;
+            const now = Date.now();
+            const monthAhead = now + 30 * 86400000;
+            this._expiringSoon = allItems.filter(item => {
+                if (!item.expiry_date) return false;
+                const expiry = Date.parse(item.expiry_date);
+                return Number.isFinite(expiry) && expiry >= now && expiry <= monthAhead;
+            }).length;
 
             setText("totalItems",        allItems.length);
             setText("inStockItems",      inStock);
@@ -96,24 +111,6 @@
             setText("totalStockValue",   currency(this._totalValue));
             setText("pendingRequisitions", this._pendingRequisitions ?? 0);
             setText("expiringSoon",      this._expiringSoon ?? 0);
-        },
-
-        // ── Items ──────────────────────────────────────────────────────────────
-        async loadItems() {
-            try {
-                const res = await window.API.inventory.getItemsWithStock();
-                allItems = Array.isArray(res) ? res : (res?.items || res?.data || []);
-                filteredItems = [...allItems];
-                currentPage = 1;
-                this.renderStats();
-                this.renderTable();
-            } catch (e) {
-                console.error("Items load error:", e);
-                showToast("Failed to load inventory items", "error");
-                allItems = [];
-                filteredItems = [];
-                this.renderTable();
-            }
         },
 
         renderTable() {
@@ -214,36 +211,36 @@
         },
 
         // ── Categories & Locations for dropdowns ──────────────────────────────
-        async loadCategories() {
+        populateCategories(cats) {
             try {
-                const res = await window.API.inventory.listCategories();
-                const cats = Array.isArray(res) ? res : (res?.categories || res?.data || []);
                 const sel  = document.getElementById("categoryFilter");
                 const formSel = document.getElementById("category");
                 [sel, formSel].forEach(el => {
                     if (!el) return;
+                    const selected = el.value;
                     const existing = el.querySelectorAll("option[value='']");
                     // keep the first blank option
                     const blank = el.options[0]?.value === "" ? el.options[0].outerHTML : '<option value="">All Categories</option>';
                     el.innerHTML = blank + cats.map(c =>
                         `<option value="${esc(c.id || c.category_id)}">${esc(c.name || c.category_name)}</option>`
                     ).join("");
+                    if ([...el.options].some(option => option.value === selected)) el.value = selected;
                 });
             } catch (e) { console.error("Categories load error:", e); }
         },
 
-        async loadLocations() {
+        populateLocations(locs) {
             try {
-                const res = await window.API.inventory.listLocations();
-                const locs = Array.isArray(res) ? res : (res?.locations || res?.data || []);
                 const sel  = document.getElementById("locationFilter");
                 const formSel = document.getElementById("location");
                 [sel, formSel].forEach(el => {
                     if (!el) return;
+                    const selected = el.value;
                     const blank = el.options[0]?.value === "" ? el.options[0].outerHTML : '<option value="">All Locations</option>';
                     el.innerHTML = blank + locs.map(l =>
                         `<option value="${esc(l.id || l.location_id)}">${esc(l.name || l.location_name)}</option>`
                     ).join("");
+                    if ([...el.options].some(option => option.value === selected)) el.value = selected;
                 });
             } catch (e) { console.error("Locations load error:", e); }
         },
@@ -303,7 +300,7 @@
                     showToast("Item created successfully");
                 }
                 bootstrap.Modal.getInstance(document.getElementById("itemModal"))?.hide();
-                await this.loadItems();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to save item", "error");
             } finally {
@@ -316,7 +313,7 @@
             try {
                 await window.API.inventory.delete(id);
                 showToast("Item deleted");
-                await this.loadItems();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to delete item", "error");
             }
@@ -385,8 +382,7 @@
                     const m = document.getElementById(id);
                     if (m) bootstrap.Modal.getInstance(m)?.hide();
                 });
-                await this.loadItems();
-                await this.loadStats();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to adjust stock", "error");
             }

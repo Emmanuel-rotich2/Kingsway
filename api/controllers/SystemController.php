@@ -1409,7 +1409,7 @@ class SystemController extends BaseController
 
         try {
             $result = $this->systemCommsConfig->saveGroup($group, $fields);
-            return $this->success($result, ucfirst($group) . ' configuration saved');
+            return $this->success([$group => $result], ucfirst($group) . ' configuration saved');
         } catch (\InvalidArgumentException $e) {
             Logger::legacyError('[SystemController] ' . $e->getMessage());
             return $this->badRequest('An internal error occurred.');
@@ -1420,7 +1420,7 @@ class SystemController extends BaseController
     }
 
     // POST /api/system/communication-configs/test
-    public function postCommunicationConfigTest($id = null, $data = [], $segments = [])
+    public function postCommunicationConfigsTest($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
@@ -1607,7 +1607,7 @@ class SystemController extends BaseController
         }
 
         try {
-            $profile = $this->emailProfileService->getProfile((int) $profileId);
+            $profile = $this->emailProfileService->getProfile((int) $profileId, true);
             if ($profile === null) {
                 return $this->notFound('Email profile not found');
             }

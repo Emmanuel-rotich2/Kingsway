@@ -425,10 +425,10 @@
     // Initialize the dashboard controller when DOM is ready
     document.addEventListener('DOMContentLoaded', function () {
         // Wait for API to be available (loaded in home.php)
-        if (typeof schoolAdminDashboardController !== 'undefined') {
-            schoolAdminDashboardController.init();
+        if (typeof schoolAdministrativeOfficerDashboardController !== 'undefined') {
+            schoolAdministrativeOfficerDashboardController.init();
         } else {
-            console.error('School Admin Dashboard Controller not loaded!');
+            console.error('School Administrative Officer Dashboard Controller not loaded!');
         }
     });
 </script>

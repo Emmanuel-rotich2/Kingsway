@@ -10,6 +10,17 @@ const admissionsWorkspaceController = {
     dom: {},
     pendingStageSkip: null,
     workspaceModalParentState: null,
+    state: { referenceCache: null },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.read("admissions", "workspace-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Admissions Workspace Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
+        }
+    },
 
     init: async function() {
         if (this.initialized) return;
@@ -39,6 +50,7 @@ const admissionsWorkspaceController = {
 
             this.cacheDom();
             this.setupEventListeners();
+            await this.loadReferencesComposed();
             await this.loadQueueData();
             
             // Subscribe to conflict events
@@ -47,6 +59,14 @@ const admissionsWorkspaceController = {
                     this.handleConflict(conflict);
                 });
             }
+
+            window.APIRealtime?.register?.("admissions_workspace", {
+                refresh: async () => {
+                    this.state.referenceCache = null;
+                    await this.loadReferencesComposed();
+                    await this.loadQueueData();
+                }
+            }, ["admissions", "students", "finance", "academic"]);
 
         } catch (error) {
             console.error("Failed to initialize Admissions Workspace Controller:", error);
@@ -136,31 +156,23 @@ const admissionsWorkspaceController = {
         try {
             let queueData;
             
-            // Try DataStore first for caching
-            if (typeof DataStore !== 'undefined') {
-                try {
-                    queueData = await DataStore.get('admissions', {
-                        strategy: 'stale-while-revalidate',
-                        ttl: 60000, // 1 minute for fresh queue data
-                        storeName: 'admission_queue_cache',
-                        endpoint: '/admission/queues',
-                        forceRefresh: false
-                    });
-                } catch (dataStoreError) {
-                    console.warn("DataStore failed, falling back to API:", dataStoreError);
-                }
+            // Use Node view for initial queue data (with DataStore fallback for offline)
+            const cache = this.state.referenceCache;
+            if (cache?.queues !== undefined) {
+                queueData = cache.queues;
+            } else {
+                queueData = await this.apiCall('/admission/queues', 'GET');
             }
             
-            // Fallback to direct API call
-            if (!queueData) {
-                queueData = await this.apiCall('/admission/queues', 'GET');
-                
-                // Cache in DataStore
-                if (typeof DataStore !== 'undefined') {
+            // Cache in DataStore for offline
+            if (typeof DataStore !== 'undefined') {
+                try {
                     await DataStore.set('admissions', queueData, {
                         ttl: 60000,
                         storeName: 'admission_queue_cache'
                     });
+                } catch (e) {
+                    console.warn('DataStore cache failed:', e);
                 }
             }
 

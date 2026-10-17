@@ -24,6 +24,7 @@ const timetableController = (() => {
   let teacherScope = null;
   let lowerPrimaryClassTeacher = false;
   let activeClassTeacherDraft = null;
+  let referenceCache = null;
 
   function roleNames() {
     const roles = typeof AuthContext !== "undefined" && AuthContext.getRoles ? AuthContext.getRoles() : [];
@@ -86,6 +87,7 @@ const timetableController = (() => {
       // Also hide any button with onclick containing enterEditMode or generateTimetable
       document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"],[onclick*="saveCell"],[onclick*="removeCell"]').forEach((el) => el.classList.add('d-none'));
     }
+    await loadReferencesComposed();
     await Promise.all([loadFilters(), loadTimeSlots(), loadDraftStreams()]);
     // Both filter and stream requests run concurrently; normalize the selector
     // after they finish so teachers never see class-level/global options.
@@ -100,6 +102,13 @@ const timetableController = (() => {
     }
     bindEvents();
     await loadTimetable();
+    if (window.APIRealtime?.register) {
+      window.APIRealtime.register(
+        "manage_timetable",
+        { refresh: async () => { await loadTimetable(); } },
+        ["academic", "schedules"],
+      );
+    }
     // After load, re-hide edit controls in case they are rendered dynamically
     if (!canEdit) {
       document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
@@ -255,11 +264,25 @@ const timetableController = (() => {
     }
   }
 
+  async function loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "manage-timetable-references");
+      referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Manage timetable reference Node view failed; using direct reads:", error);
+      referenceCache = null;
+    }
+  }
+
   async function loadFilters() {
     try {
       const managementUser = !isTeacherView();
       const [clsRes, subRes, termsRes] = managementUser
-        ? await Promise.all([API.academic.listClasses(), API.academic.listLearningAreas(), API.academic.listTerms()])
+        ? await Promise.all([
+            referenceCache?.classes !== undefined ? referenceCache.classes : API.academic.listClasses(),
+            referenceCache?.subjects !== undefined ? referenceCache.subjects : API.academic.listLearningAreas(),
+            referenceCache?.terms !== undefined ? referenceCache.terms : API.academic.listTerms(),
+          ])
         : [null, null, null];
       classes = clsRes?.data || clsRes || [];
       subjects = subRes?.data || subRes || [];
@@ -355,7 +378,7 @@ const timetableController = (() => {
       }
       if (managementUser) {
         try {
-          const rRes = await API.schedules.getRooms();
+          const rRes = referenceCache?.rooms !== undefined ? referenceCache.rooms : await API.schedules.getRooms();
           rooms = rRes?.data || rRes || [];
         } catch (e) { console.warn("Rooms load:", e); }
       }

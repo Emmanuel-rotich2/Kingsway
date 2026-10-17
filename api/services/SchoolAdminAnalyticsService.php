@@ -720,7 +720,7 @@ class SchoolAdminAnalyticsService
                         cs.subject_id,
                         cs.teacher_name,
                         'Class' as event_type
-                      FROM vw_timetable_entries cs
+                      FROM vw_upcoming_class_schedules cs
                       WHERE cs.day_of_week = ?
                         AND cs.status = 'scheduled'
                       ORDER BY cs.start_time

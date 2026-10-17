@@ -21,21 +21,6 @@ const ConfigSchema = z.object({
     bus: z.string(),
     logs: z.string(),
   }),
-  queue: z.object({
-    concurrency: z.object({
-      critical: z.number().int().min(1),
-      normal: z.number().int().min(1),
-      batch: z.number().int().min(1),
-    }),
-    pollIntervalMs: z.object({
-      critical: z.number().int().min(100),
-      normal: z.number().int().min(100),
-      batch: z.number().int().min(100),
-    }),
-    staleJobThresholdMs: z.number().int().min(1000),
-    maxAttempts: z.number().int().min(1),
-    backoffMs: z.number().int().min(1000),
-  }),
   sse: z.object({
     maxConnections: z.number().int().min(1),
     userMaxConnections: z.number().int().min(1),
@@ -121,18 +106,23 @@ function mergeEnv(fileEnv, processEnv) {
 }
 
 function resolveStoragePaths(config) {
-  // Allow STORAGE_ROOT env var to override (shared across PHP, Python, Node)
-  const storageRoot = process.env.STORAGE_ROOT || config.storage.root;
+  // All three runtimes share a root and keep their own files in separate
+  // namespaces. When STORAGE_ROOT is absent the repository default applies;
+  // PHP provisions the directory tree at runtime, so no manual setup and no
+  // startup failure is required for any of the three runtimes.
+  const storageRoot = config.storage.root || resolve(APP_ROOT, 'storage');
   if (!storageRoot.startsWith('/')) {
     throw new Error(`storage.root must be absolute path, got: ${storageRoot}`);
   }
+  const nodeRoot = resolve(storageRoot, 'node');
   return {
     ...config,
     storage: {
       ...config.storage,
-      cache: resolve(storageRoot, config.storage.cache),
-      bus: resolve(storageRoot, config.storage.bus),
-      logs: resolve(storageRoot, config.storage.logs),
+      root: nodeRoot,
+      cache: resolve(nodeRoot, config.storage.cache),
+      bus: resolve(nodeRoot, config.storage.bus),
+      logs: resolve(nodeRoot, config.storage.logs),
     },
   };
 }
@@ -169,6 +159,10 @@ export function loadConfig(overrides = {}) {
     app: {
       ...yamlConfig.app,
       instanceId: mergedEnv.NODE_REALTIME_INSTANCE_ID || yamlConfig.app?.instanceId || '',
+    },
+    storage: {
+      ...yamlConfig.storage,
+      root: mergedEnv.STORAGE_ROOT || resolve(APP_ROOT, 'storage'),
     },
     sse: {
       ...yamlConfig.sse,

@@ -743,6 +743,94 @@ class PaymentsAPI extends BaseAPI
         }
     }
 
+    /**
+     * Process a PayHero STK / collection callback. Always answers a 2xx
+     * envelope so PayHero never retries a poison payload; anything the router
+     * cannot place is kept in the unmatched queue for staff reconciliation.
+     */
+    public function processPayheroCallback(array $callbackData, array $headers)
+    {
+        try {
+            $result = (new \App\API\Services\payments\PayheroPaymentService($this->db))->processCallback($callbackData);
+            $ok = !empty($result['processed']);
+            return [
+                'status' => 'success',
+                'data' => $result,
+                'message' => $ok ? 'PayHero payment confirmed' : 'PayHero callback received for reconciliation',
+            ];
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] PayHero callback error: ' . $e->getMessage());
+            return ['status' => 'success', 'data' => ['processed' => false], 'message' => 'PayHero callback received for reconciliation'];
+        }
+    }
+
+    /** Query a PayHero transaction by reference (manual/API trigger). */
+    public function triggerPayheroStatus(array $data): array
+    {
+        $service = new \App\API\Services\payments\PayheroPaymentService($this->db);
+        return $service->queryStatus((string)($data['reference'] ?? $data['checkout_request_id'] ?? ''));
+    }
+
+    /** Register a paybill, till or bank collection channel with PayHero. */
+    public function triggerPayheroChannelRegister(array $data): array
+    {
+        try {
+            $service = new \App\API\Services\payments\PayheroPaymentService($this->db);
+            if (!$service->isConfigured()) {
+                return $this->errorResponse('PayHero is not configured yet. Save the gateway settings first.', 422);
+            }
+            return $this->successResponse(
+                $service->registerChannel($data),
+                'PayHero channel registered'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] PayHero channel register error: ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** Active PayHero channels for the school account (provider truth). */
+    public function getPayheroChannels(): array
+    {
+        try {
+            $service = new \App\API\Services\payments\PayheroPaymentService($this->db);
+            if (!$service->isConfigured()) {
+                return $this->errorResponse('PayHero is not configured yet.', 422);
+            }
+            return $this->successResponse(
+                ['channels' => $service->listChannels()],
+                'PayHero channels retrieved'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] getPayheroChannels error: ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** Bank paybills PayHero recognises, for the bank-channel picker. */
+    public function getPayheroBankPaybills(): array
+    {
+        try {
+            $service = new \App\API\Services\payments\PayheroPaymentService($this->db);
+            if (!$service->isConfigured()) {
+                return $this->errorResponse('PayHero is not configured yet.', 422);
+            }
+            return $this->successResponse(
+                ['bank_paybills' => $service->bankPaybills()],
+                'PayHero bank paybills retrieved'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] getPayheroBankPaybills error: ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
     private function flattenKcbPayload(array $payload): array
     {
         $flat = [];

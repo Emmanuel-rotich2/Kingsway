@@ -15,8 +15,24 @@ const ModerationController = {
         await window.AuthContext?.ready?.();
         if (!AuthContext.isAuthenticated()) return;
         await window.GradingScale?.preload?.();
-        await this.loadReferences();
+        await this.loadReferencesComposed();
         this.setupFilters();
+        window.APIRealtime?.register?.("exam_moderation", { refresh: async () => { await this.loadReferencesComposed(); await this.loadPending(); } }, ["academic"]);
+    },
+    // Composed startup read: one authorized Node view supplies moderation
+    // filter references; pending rows stay a filtered direct read.
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("academic", "moderation-references");
+            const sources = response?.data?.sources || response?.sources || {};
+            const pick = (value) => (Array.isArray(value) ? value : (value?.data || []));
+            this.state.classes = pick(sources.classes);
+            this.state.subjects = pick(sources.subjects);
+            this.populateSelects();
+        } catch (e) {
+            console.error('Moderation reference Node view failed; falling back to direct reads:', e);
+            await this.loadReferences();
+        }
     },
     async callAPI(endpoint, method, data) {
         const r = await window.API.apiCall(endpoint, method, data || undefined);

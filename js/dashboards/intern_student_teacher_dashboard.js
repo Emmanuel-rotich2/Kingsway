@@ -6,6 +6,7 @@
         stateId: 'internDashboardState',
         scopeId: 'internDashboardScope',
         lastUpdatedId: 'internDashboardLastUpdated',
+        viewSpec: { entity: 'dashboards', view: 'intern-student-teacher-references', sourceKey: 'stats', input: (filters) => filters },
 
         async apiMethod({ period } = {}) {
             try {

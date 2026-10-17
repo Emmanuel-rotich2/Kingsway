@@ -8,6 +8,7 @@ const classPlacementController = {
     currentTab: 'classes',
     initialized: false,
     dom: {},
+    state: { referenceCache: null },
 
     init: async function() {
         if (this.initialized) return;
@@ -28,14 +29,33 @@ const classPlacementController = {
 
             this.cacheDom();
             this.setupEventListeners();
+            await this.loadReferencesComposed();
             await this.loadClasses();
             await this.loadPlacements();
+            window.APIRealtime?.register?.("admissions_class_placement", {
+              refresh: async () => {
+                this.state.referenceCache = null;
+                await this.loadReferencesComposed();
+                await this.loadClasses();
+                await this.loadPlacements();
+              }
+            }, ["admissions", "finance", "boarding"]);
 
         } catch (error) {
             console.error("Failed to initialize Class Placement Controller:", error);
             this.showError("classesGrid", error.message || "Failed to initialize class placement page.");
             this.showError("placementsTableBody", error.message || "Failed to initialize class placement page.");
             this.showError("capacityGrid", error.message || "Failed to initialize class placement page.");
+        }
+    },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("admissions", "class-placement-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Class Placement Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
         }
     },
 
@@ -102,7 +122,8 @@ const classPlacementController = {
     
     loadClasses: async function() {
         try {
-            const result = await this.apiCall('/admission/placement-classes', 'GET');
+            const cache = this.state.referenceCache;
+            const result = cache?.classes !== undefined ? cache.classes : await this.apiCall('/admission/placement-classes', 'GET');
             this.classes = result?.classes || [];
 
             this.renderClassesGrid();

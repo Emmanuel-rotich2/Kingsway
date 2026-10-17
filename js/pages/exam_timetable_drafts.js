@@ -1,6 +1,6 @@
 const ExamTimetableDraftsController = {
   initialized: false,
-  state: { draft: null, drafts: [], streams: [], types: [], staff: [], yearId: null, termId: null },
+  state: { draft: null, drafts: [], streams: [], types: [], staff: [], yearId: null, termId: null, referenceCache: null },
 
   escape(value) {
     const node = document.createElement("span");
@@ -12,6 +12,16 @@ const ExamTimetableDraftsController = {
     return response && Object.prototype.hasOwnProperty.call(response, "data") ? response.data : response;
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "exam-timetable-drafts-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exam timetable drafts Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (this.initialized) return;
     await window.AuthContext?.ready?.();
@@ -20,8 +30,10 @@ const ExamTimetableDraftsController = {
     this.state.yearId = Number(window.AcademicContext?.getAcademicYearId?.() || 0);
     this.state.termId = Number(window.AcademicContext?.getTermId?.() || 0);
     this.bindEvents();
+    await this.loadReferencesComposed();
     await this.loadReferences();
     await this.loadDrafts();
+    window.APIRealtime?.register?.("exam_timetable_drafts", { refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await Promise.all([this.loadReferences(), this.loadDrafts()]); } }, ["academic", "schedules"]);
     this.initialized = true;
   },
 
@@ -39,10 +51,11 @@ const ExamTimetableDraftsController = {
   },
 
   async loadReferences() {
+    const cache = this.state.referenceCache;
     const [streamsResponse, typesResponse, staffResponse] = await Promise.all([
       window.API.schedules.listTimetableStreams({ academic_year_id: this.state.yearId }),
-      window.API.academic.getAssessmentTypes({ filter: "summative" }),
-      window.API.apiCall("/staff/staff", "GET", null, { limit: 1000 }),
+      cache?.types !== undefined ? cache.types : window.API.academic.getAssessmentTypes({ filter: "summative" }),
+      cache?.staff !== undefined ? cache.staff : window.API.apiCall("/staff/staff", "GET", null, { limit: 1000 }),
     ]);
     this.state.streams = this.unwrap(streamsResponse) || [];
     this.state.types = this.unwrap(typesResponse) || [];

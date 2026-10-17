@@ -19,10 +19,17 @@ class EmailProfileService
 
     private const IMAP_PORT = 993;
 
+    public const MAILBOX_PERSONAL = 'personal';
+
+    public const MAILBOX_GROUP = 'group';
+
     private const UPDATABLE_COLUMNS = [
         'label',
         'email_address',
         'display_name',
+        'mailbox_type',
+        'owner_user_id',
+        'signature',
         'smtp_host',
         'smtp_port',
         'smtp_username',
@@ -49,7 +56,7 @@ class EmailProfileService
         try {
             $this->ensureConfigDefaultProfile();
 
-            $sql = 'SELECT id, label, email_address, display_name, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at FROM comms_email_profiles';
+            $sql = 'SELECT id, label, email_address, display_name, mailbox_type, owner_user_id, signature, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at FROM comms_email_profiles';
             $params = [];
 
             if (isset($filters['role_id']) && $filters['role_id'] !== '') {
@@ -89,14 +96,17 @@ class EmailProfileService
             'label'         => (string) $row['label'],
             'email_address' => (string) $row['email_address'],
             'display_name'  => (string) $row['display_name'],
+            'mailbox_type'  => (string) ($row['mailbox_type'] ?? self::MAILBOX_GROUP),
+            'owner_user_id' => isset($row['owner_user_id']) && $row['owner_user_id'] !== null ? (int) $row['owner_user_id'] : null,
+            'signature'     => (string) ($row['signature'] ?? ''),
             'smtp_host'     => (string) $row['smtp_host'],
             'smtp_port'     => (int) $row['smtp_port'],
             'smtp_username' => (string) $row['smtp_username'],
-            'smtp_password' => (string) ($row['smtp_password'] ?? ''),
+            'smtp_password' => EmailCredentialCipher::decrypt((string) ($row['smtp_password'] ?? '')),
             'imap_host'     => (string) $row['imap_host'],
             'imap_port'     => (int) $row['imap_port'],
             'imap_username' => (string) $row['imap_username'],
-            'imap_password' => (string) ($row['imap_password'] ?? ''),
+            'imap_password' => EmailCredentialCipher::decrypt((string) ($row['imap_password'] ?? '')),
             'is_active'     => (int) $row['is_active'],
             'is_default'    => (int) $row['is_default'],
             'assigned_role_ids' => json_decode((string) ($row['assigned_role_ids'] ?? ''), true) ?: [],
@@ -105,13 +115,25 @@ class EmailProfileService
 
     /**
      * Return a single profile with masked secrets, or null when not found.
+     * With $withMembers the explicit member list (resolved names) is included
+     * for the administration UI.
      */
-    public function getProfile(int $id): ?array
+    public function getProfile(int $id, bool $withMembers = false): ?array
     {
         try {
             $row = $this->fetchRaw($id);
 
-            return $row === null ? null : $this->hydrate($row);
+            if ($row === null) {
+                return null;
+            }
+
+            $profile = $this->hydrate($row);
+
+            if ($withMembers) {
+                $profile['members'] = $this->listMembers($id);
+            }
+
+            return $profile;
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[EmailProfileService] getProfile failed: ' . $e->getMessage());
             throw $e;
@@ -143,6 +165,16 @@ class EmailProfileService
             $isActive = (int) ($data['is_active'] ?? 1);
             $isDefault = (int) ($data['is_default'] ?? 0);
             $roles = $this->normalizeRoles($data['assigned_role_ids'] ?? null);
+            $mailboxType = $this->normalizeMailboxType($data['mailbox_type'] ?? self::MAILBOX_GROUP);
+            $ownerUserId = $this->normalizeOwnerUserId($data['owner_user_id'] ?? null);
+            $signature = trim((string) ($data['signature'] ?? ''));
+
+            if ($mailboxType === self::MAILBOX_PERSONAL && $ownerUserId === null) {
+                throw new \InvalidArgumentException('A personal mailbox requires owner_user_id.');
+            }
+            if ($ownerUserId !== null) {
+                $this->assertUserExists($ownerUserId);
+            }
 
             if ($isDefault === 1) {
                 $this->db->exec('UPDATE comms_email_profiles SET is_default = 0');
@@ -150,27 +182,39 @@ class EmailProfileService
 
             $stmt = $this->db->prepare(
                 'INSERT INTO comms_email_profiles
-                 (label, email_address, display_name, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+                 (label, email_address, display_name, mailbox_type, owner_user_id, signature, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
             );
             $stmt->execute([
                 $label,
                 $email,
                 $displayName,
+                $mailboxType,
+                $ownerUserId,
+                $signature === '' ? null : $signature,
                 $smtpHost,
                 $smtpPort,
                 $smtpUsername,
-                $smtpPassword,
+                EmailCredentialCipher::encrypt($smtpPassword),
                 $imapHost,
                 $imapPort,
                 $imapUsername,
-                $imapPassword,
+                EmailCredentialCipher::encrypt($imapPassword),
                 $isActive,
                 $isDefault,
                 $roles,
             ]);
 
-            return $this->getProfile((int) $this->db->lastInsertId());
+            $profileId = (int) $this->db->lastInsertId();
+
+            if ($mailboxType === self::MAILBOX_PERSONAL && $ownerUserId !== null) {
+                $this->setMembers($profileId, [['user_id' => $ownerUserId, 'access_level' => 'send']], $ownerUserId);
+            }
+            if (array_key_exists('members', $data)) {
+                $this->setMembers($profileId, $this->normalizeMembers($data['members']), null);
+            }
+
+            return $this->getProfile($profileId);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[EmailProfileService] createProfile failed: ' . $e->getMessage());
             throw $e;
@@ -183,7 +227,8 @@ class EmailProfileService
     public function updateProfile(int $id, array $data): array
     {
         try {
-            if ($this->fetchRaw($id) === null) {
+            $existing = $this->fetchRaw($id);
+            if ($existing === null) {
                 throw new \Exception('Email profile not found.');
             }
 
@@ -201,8 +246,19 @@ class EmailProfileService
                     if (!is_string($value) || str_contains($value, '***')) {
                         continue;
                     }
+                    $value = EmailCredentialCipher::encrypt($value);
                 } elseif ($column === 'assigned_role_ids') {
                     $value = $this->normalizeRoles($value);
+                } elseif ($column === 'mailbox_type') {
+                    $value = $this->normalizeMailboxType($value);
+                } elseif ($column === 'owner_user_id') {
+                    $value = $this->normalizeOwnerUserId($value);
+                    if ($value !== null) {
+                        $this->assertUserExists($value);
+                    }
+                } elseif ($column === 'signature') {
+                    $value = trim((string) $value);
+                    $value = $value === '' ? null : $value;
                 } elseif (in_array($column, ['smtp_port', 'imap_port', 'is_active', 'is_default'], true)) {
                     $value = (int) $value;
                 } else {
@@ -211,6 +267,17 @@ class EmailProfileService
 
                 $sets[] = "{$column} = ?";
                 $params[] = $value;
+            }
+
+            $mailboxType = array_key_exists('mailbox_type', $data)
+                ? $this->normalizeMailboxType($data['mailbox_type'])
+                : (string) ($existing['mailbox_type'] ?? self::MAILBOX_GROUP);
+            $ownerUserId = array_key_exists('owner_user_id', $data)
+                ? $this->normalizeOwnerUserId($data['owner_user_id'])
+                : (isset($existing['owner_user_id']) && $existing['owner_user_id'] !== null ? (int) $existing['owner_user_id'] : null);
+
+            if ($mailboxType === self::MAILBOX_PERSONAL && $ownerUserId === null) {
+                throw new \InvalidArgumentException('A personal mailbox requires owner_user_id.');
             }
 
             if ($sets !== []) {
@@ -223,6 +290,25 @@ class EmailProfileService
 
                 $stmt = $this->db->prepare('UPDATE comms_email_profiles SET ' . implode(', ', $sets) . ' WHERE id = ?');
                 $stmt->execute($params);
+            }
+
+            if (array_key_exists('members', $data)) {
+                $this->setMembers($id, $this->normalizeMembers($data['members']), null);
+            }
+
+            $oldOwnerId = isset($existing['owner_user_id']) && $existing['owner_user_id'] !== null ? (int) $existing['owner_user_id'] : null;
+            $ownerChanged = array_key_exists('owner_user_id', $data) && $oldOwnerId !== $ownerUserId;
+            if ($ownerChanged && $oldOwnerId !== null) {
+                $stmt = $this->db->prepare('DELETE FROM comms_email_profile_users WHERE profile_id = ? AND user_id = ?');
+                $stmt->execute([$id, $oldOwnerId]);
+            }
+            if ($ownerChanged && $ownerUserId !== null) {
+                $stmt = $this->db->prepare(
+                    'INSERT INTO comms_email_profile_users (profile_id, user_id, access_level, added_by, created_at)
+                     VALUES (?, ?, \'send\', NULL, NOW())
+                     ON DUPLICATE KEY UPDATE access_level = \'send\''
+                );
+                $stmt->execute([$id, $ownerUserId]);
             }
 
             return $this->getProfile($id);
@@ -284,7 +370,7 @@ class EmailProfileService
     public function getEffectiveSmtp(int $profileId): array
     {
         try {
-            $stmt = $this->db->prepare('SELECT id, email_address, display_name, smtp_host, smtp_port, smtp_username, smtp_password, is_active FROM comms_email_profiles WHERE id = ?');
+            $stmt = $this->db->prepare('SELECT id, email_address, display_name, smtp_host, smtp_port, smtp_username, smtp_password, signature, is_active FROM comms_email_profiles WHERE id = ?');
             $stmt->execute([$profileId]);
             $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -300,9 +386,11 @@ class EmailProfileService
                 'host'       => $row['smtp_host'],
                 'port'       => (int) $row['smtp_port'],
                 'username'   => $row['smtp_username'],
-                'password'   => $row['smtp_password'],
+                'password'   => EmailCredentialCipher::decrypt((string) ($row['smtp_password'] ?? '')),
                 'from_email' => $row['email_address'],
                 'from_name'  => $row['display_name'],
+                'profile_id' => (int) $row['id'],
+                'signature'  => (string) ($row['signature'] ?? ''),
             ];
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[EmailProfileService] getEffectiveSmtp failed: ' . $e->getMessage());
@@ -457,9 +545,403 @@ class EmailProfileService
         }
     }
 
+    /**
+     * Explicit members of a mailbox, with resolved staff names for the admin UI.
+     */
+    public function listMembers(int $profileId): array
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT user_id, access_level, can_read, can_reply, can_compose, added_by, created_at FROM comms_email_profile_users WHERE profile_id = ? ORDER BY created_at ASC, user_id ASC');
+            $stmt->execute([$profileId]);
+            $members = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            if ($members === []) {
+                return [];
+            }
+
+            $userIds = array_values(array_unique(array_map(static fn (array $m): int => (int) $m['user_id'], $members)));
+            $users = $this->fetchUsersByIds($userIds);
+
+            $ownerStmt = $this->db->prepare('SELECT owner_user_id FROM comms_email_profiles WHERE id = ?');
+            $ownerStmt->execute([$profileId]);
+            $ownerId = $ownerStmt->fetchColumn();
+            $ownerId = ($ownerId === false || $ownerId === null) ? null : (int) $ownerId;
+
+            $result = [];
+            foreach ($members as $member) {
+                $userId = (int) $member['user_id'];
+                $user = $users[$userId] ?? null;
+                $fullName = trim((string) ($user['full_name'] ?? ''));
+                $result[] = [
+                    'user_id'      => $userId,
+                    'username'     => (string) ($user['username'] ?? ''),
+                    'full_name'    => $fullName !== '' ? $fullName : (string) ($user['username'] ?? ('User #' . $userId)),
+                    'email'        => (string) ($user['email'] ?? ''),
+                    'status'       => (string) ($user['status'] ?? ''),
+                    'access_level' => (string) $member['access_level'],
+                    'can_read'     => (int) $member['can_read'] === 1,
+                    'can_reply'    => (int) $member['can_reply'] === 1,
+                    'can_compose'  => (int) $member['can_compose'] === 1,
+                    'is_owner'     => $ownerId !== null && $ownerId === $userId,
+                    'added_by'     => $member['added_by'] === null ? null : (int) $member['added_by'],
+                    'created_at'   => (string) $member['created_at'],
+                ];
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[EmailProfileService] listMembers failed: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Replace the explicit member list of a mailbox. The owner of a personal
+     * mailbox is always kept with send access so a direct call cannot lock the
+     * owner out of their own mailbox.
+     */
+    public function setMembers(int $profileId, array $members, ?int $actorId): array
+    {
+        try {
+            if ($this->fetchRaw($profileId) === null) {
+                throw new \Exception('Email profile not found.');
+            }
+
+            $normalized = [];
+            foreach ($this->normalizeMembers($members) as $row) {
+                $normalized[(int) $row['user_id']] = $row;
+            }
+
+            $ownerStmt = $this->db->prepare('SELECT owner_user_id FROM comms_email_profiles WHERE id = ?');
+            $ownerStmt->execute([$profileId]);
+            $ownerId = $ownerStmt->fetchColumn();
+            if ($ownerId !== false && $ownerId !== null) {
+                $normalized[(int) $ownerId] = ['user_id' => (int) $ownerId, 'can_read' => 1, 'can_reply' => 1, 'can_compose' => 1];
+            }
+
+            $this->db->beginTransaction();
+
+            $delete = $this->db->prepare('DELETE FROM comms_email_profile_users WHERE profile_id = ?');
+            $delete->execute([$profileId]);
+
+            $insert = $this->db->prepare(
+                'INSERT INTO comms_email_profile_users (profile_id, user_id, access_level, can_read, can_reply, can_compose, added_by, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                 ON DUPLICATE KEY UPDATE access_level = VALUES(access_level), can_read = VALUES(can_read), can_reply = VALUES(can_reply), can_compose = VALUES(can_compose), added_by = VALUES(added_by)'
+            );
+            foreach ($normalized as $member) {
+                $canRead = (int) $member['can_read'];
+                $canReply = (int) $member['can_reply'];
+                $canCompose = (int) $member['can_compose'];
+                $accessLevel = ($canRead && ($canReply || $canCompose)) ? 'send' : 'read';
+                $insert->execute([$profileId, $member['user_id'], $accessLevel, $canRead, $canReply, $canCompose, $actorId]);
+            }
+
+            $this->db->commit();
+
+            return $this->listMembers($profileId);
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            \App\API\Services\Logger::legacyError('[EmailProfileService] setMembers failed: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mailboxes a staff user may open in the mail client, with the access level
+     * each grant provides. Rules: School Administrator (role 4) sees everything
+     * with send access; explicit pivot memberships and personal ownership come
+     * next; group mailboxes additionally keep the legacy assigned_role_ids
+     * behaviour (empty list = all staff, intersection = matching roles).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function mailboxesForUser(int $userId, array $roleIds, bool $isSchoolAdmin, bool $isSystemAdmin = false): array
+    {
+        // System Administrator configures mail accounts only and must never
+        // gain mailbox visibility in the mail client. A user who is also a
+        // School Administrator keeps their school-admin mailbox duties.
+        if ($isSystemAdmin && !$isSchoolAdmin) {
+            return [];
+        }
+
+        try {
+            $roleIds = array_map('intval', $roleIds);
+
+            $pivotStmt = $this->db->prepare('SELECT profile_id, access_level, can_read, can_reply, can_compose FROM comms_email_profile_users WHERE user_id = ?');
+            $pivotStmt->execute([$userId]);
+            $pivot = [];
+            foreach ($pivotStmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $pivot[(int) $row['profile_id']] = [
+                    'access_level' => (string) $row['access_level'],
+                    'can_read'     => (int) $row['can_read'] === 1,
+                    'can_reply'    => (int) $row['can_reply'] === 1,
+                    'can_compose'  => (int) $row['can_compose'] === 1,
+                ];
+            }
+
+            $visible = [];
+            foreach ($this->listProfiles() as $profile) {
+                $isActive = (int) ($profile['is_active'] ?? 0) === 1;
+                // Ordinary staff only ever see mailboxes that are ready to use.
+                // A School Administrator additionally sees not-yet-configured
+                // accounts (is_active = 0) so they know the mailbox is expected
+                // and can finish its setup.
+                if (!$isActive && !$isSchoolAdmin) {
+                    continue;
+                }
+
+                $profileId = (int) $profile['id'];
+                $isOwner = ($profile['owner_user_id'] ?? null) === $userId;
+                $capabilities = null;
+
+                if ($isSchoolAdmin || $isOwner) {
+                    $capabilities = ['can_read' => true, 'can_reply' => true, 'can_compose' => true];
+                } elseif (isset($pivot[$profileId])) {
+                    $capabilities = [
+                        'can_read'    => $pivot[$profileId]['can_read'],
+                        'can_reply'   => $pivot[$profileId]['can_reply'],
+                        'can_compose' => $pivot[$profileId]['can_compose'],
+                    ];
+                } elseif (($profile['mailbox_type'] ?? self::MAILBOX_GROUP) === self::MAILBOX_GROUP) {
+                    $assigned = $profile['assigned_role_ids'] ?? [];
+                    if (!is_array($assigned) || $assigned === [] || array_intersect($assigned, $roleIds) !== []) {
+                        $capabilities = ['can_read' => true, 'can_reply' => true, 'can_compose' => true];
+                    }
+                }
+
+                if ($capabilities === null) {
+                    continue;
+                }
+
+                // A not-yet-configured mailbox is listed for administrators but
+                // grants no capability until the credentials are set.
+                if (!$isActive) {
+                    $capabilities = ['can_read' => false, 'can_reply' => false, 'can_compose' => false];
+                }
+
+                $visible[] = [
+                    'id'                => $profileId,
+                    'label'             => (string) $profile['label'],
+                    'email_address'     => (string) $profile['email_address'],
+                    'display_name'      => (string) $profile['display_name'],
+                    'mailbox_type'      => (string) ($profile['mailbox_type'] ?? self::MAILBOX_GROUP),
+                    'owner_user_id'     => $profile['owner_user_id'],
+                    'signature'         => $profile['signature'] ?? '',
+                    'is_active'         => (int) $profile['is_active'],
+                    'is_default'        => (int) $profile['is_default'],
+                    'assigned_role_ids' => $profile['assigned_role_ids'] ?? [],
+                    'is_owner'          => $isOwner,
+                    'can_read'          => $capabilities['can_read'],
+                    'can_reply'         => $capabilities['can_reply'],
+                    'can_compose'       => $capabilities['can_compose'],
+                    'can_send'          => $capabilities['can_reply'] || $capabilities['can_compose'],
+                ];
+            }
+
+            return $visible;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[EmailProfileService] mailboxesForUser failed: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Resolve a profile for mail-client use after checking the caller's access.
+     * Returns the unmasked credentials row plus the access level, or null when
+     * the mailbox is not visible to the caller.
+     */
+    public function resolveAccessibleProfile(int $profileId, int $userId, array $roleIds, bool $isSchoolAdmin, bool $isSystemAdmin = false): ?array
+    {
+        foreach ($this->mailboxesForUser($userId, $roleIds, $isSchoolAdmin, $isSystemAdmin) as $mailbox) {
+            if ((int) ($mailbox['id'] ?? 0) !== $profileId) {
+                continue;
+            }
+            // A not-yet-configured account is listed for management but cannot
+            // be opened until an administrator stores its credentials.
+            if (($mailbox['is_active'] ?? 1) === 0) {
+                return null;
+            }
+            $credentials = $this->getCredentials($profileId);
+            if ($credentials === null) {
+                return null;
+            }
+
+            return [
+                'profile'     => $credentials,
+                'can_read'    => (bool) ($mailbox['can_read'] ?? false),
+                'can_reply'   => (bool) ($mailbox['can_reply'] ?? false),
+                'can_compose' => (bool) ($mailbox['can_compose'] ?? false),
+                'can_send'    => (bool) ($mailbox['can_send'] ?? false),
+                'is_owner'    => (bool) $mailbox['is_owner'],
+                'mailbox'     => $mailbox,
+            ];
+        }
+
+        return null;
+    }
+
+    private function fetchUsersByIds(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+        $stmt = $this->db->prepare("SELECT id, person_id, username, status FROM users WHERE id IN ({$placeholders})");
+        $stmt->execute($userIds);
+
+        $users = [];
+        $personIds = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $userId = (int) $row['id'];
+            $users[$userId] = [
+                'username'  => (string) $row['username'],
+                'status'    => (string) $row['status'],
+                'full_name' => '',
+                'email'     => '',
+            ];
+            if ($row['person_id'] !== null) {
+                $personIds[$userId] = (int) $row['person_id'];
+            }
+        }
+
+        if ($personIds !== []) {
+            $uniquePersonIds = array_values(array_unique(array_values($personIds)));
+            $placeholders = implode(',', array_fill(0, count($uniquePersonIds), '?'));
+            $stmt = $this->db->prepare("SELECT id, first_name, last_name, email FROM persons WHERE id IN ({$placeholders})");
+            $stmt->execute($uniquePersonIds);
+            $persons = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $persons[(int) $row['id']] = $row;
+            }
+            foreach ($personIds as $userId => $personId) {
+                if (isset($persons[$personId])) {
+                    $person = $persons[$personId];
+                    $users[$userId]['full_name'] = trim((string) $person['first_name'] . ' ' . (string) $person['last_name']);
+                    $users[$userId]['email'] = (string) ($person['email'] ?? '');
+                }
+            }
+        }
+
+        return $users;
+    }
+
+    private function normalizeMailboxType(mixed $value): string
+    {
+        $type = strtolower(trim((string) $value));
+
+        return $type === self::MAILBOX_PERSONAL ? self::MAILBOX_PERSONAL : self::MAILBOX_GROUP;
+    }
+
+    private function normalizeOwnerUserId(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || $value === 0 || $value === '0') {
+            return null;
+        }
+
+        $userId = (int) $value;
+
+        return $userId > 0 ? $userId : null;
+    }
+
+    /**
+     * @return array<int, array{user_id:int, access_level:string}>
+     */
+    private function normalizeMembers(mixed $members): array
+    {
+        if ($members === null || $members === '') {
+            return [];
+        }
+        if (is_string($members)) {
+            $members = json_decode($members, true);
+        }
+        if (!is_array($members)) {
+            throw new \InvalidArgumentException('members must be an array of user ids or {user_id, can_read, can_reply, can_compose} objects.');
+        }
+
+        $clean = [];
+        foreach ($members as $member) {
+            if (is_array($member)) {
+                $userId = (int) ($member['user_id'] ?? $member['id'] ?? 0);
+                $flags = $this->memberFlags($member);
+            } else {
+                $userId = (int) $member;
+                $flags = ['can_read' => 1, 'can_reply' => 1, 'can_compose' => 1];
+            }
+
+            if ($userId <= 0) {
+                continue;
+            }
+            // A later grant wins; merge by OR-ing capabilities so a member listed
+            // twice never loses access.
+            if (!isset($clean[$userId])) {
+                $clean[$userId] = $flags;
+            } else {
+                $clean[$userId] = [
+                    'can_read'    => ($clean[$userId]['can_read'] || $flags['can_read']) ? 1 : 0,
+                    'can_reply'   => ($clean[$userId]['can_reply'] || $flags['can_reply']) ? 1 : 0,
+                    'can_compose' => ($clean[$userId]['can_compose'] || $flags['can_compose']) ? 1 : 0,
+                ];
+            }
+        }
+
+        $result = [];
+        foreach ($clean as $userId => $flags) {
+            $this->assertUserExists((int) $userId);
+            $result[] = ['user_id' => (int) $userId] + $flags;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Resolve read/reply/compose flags from an inbound member payload. Accepts
+     * explicit booleans or the legacy `access_level` string ('read' or 'send').
+     *
+     * @return array{can_read:int, can_reply:int, can_compose:int}
+     */
+    private function memberFlags(array $member): array
+    {
+        $hasFlags = array_key_exists('can_read', $member)
+            || array_key_exists('can_reply', $member)
+            || array_key_exists('can_compose', $member);
+
+        if (!$hasFlags) {
+            $level = strtolower(trim((string) ($member['access_level'] ?? 'send')));
+            return $level === 'read'
+                ? ['can_read' => 1, 'can_reply' => 0, 'can_compose' => 0]
+                : ['can_read' => 1, 'can_reply' => 1, 'can_compose' => 1];
+        }
+
+        $flag = static function ($value): int {
+            if (is_bool($value)) {
+                return $value ? 1 : 0;
+            }
+            return in_array((string) $value, ['1', 'true', 'on', 'yes'], true) ? 1 : 0;
+        };
+
+        return [
+            'can_read'    => $flag($member['can_read'] ?? 0),
+            'can_reply'   => $flag($member['can_reply'] ?? 0),
+            'can_compose' => $flag($member['can_compose'] ?? 0),
+        ];
+    }
+
+    private function assertUserExists(int $userId): void
+    {
+        $stmt = $this->db->prepare('SELECT id FROM users WHERE id = ?');
+        $stmt->execute([$userId]);
+        if ($stmt->fetchColumn() === false) {
+            throw new \InvalidArgumentException('User #' . $userId . ' does not exist.');
+        }
+    }
+
     private function fetchRaw(int $id): ?array
     {
-        $stmt = $this->db->prepare('SELECT id, label, email_address, display_name, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at FROM comms_email_profiles WHERE id = ?');
+        $stmt = $this->db->prepare('SELECT id, label, email_address, display_name, mailbox_type, owner_user_id, signature, smtp_host, smtp_port, smtp_username, smtp_password, imap_host, imap_port, imap_username, imap_password, is_active, is_default, assigned_role_ids, created_at, updated_at FROM comms_email_profiles WHERE id = ?');
         $stmt->execute([$id]);
 
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -477,6 +959,9 @@ class EmailProfileService
             'label'             => (string) $row['label'],
             'email_address'     => (string) $row['email_address'],
             'display_name'      => (string) $row['display_name'],
+            'mailbox_type'      => (string) ($row['mailbox_type'] ?? self::MAILBOX_GROUP),
+            'owner_user_id'     => isset($row['owner_user_id']) && $row['owner_user_id'] !== null ? (int) $row['owner_user_id'] : null,
+            'signature'         => (string) ($row['signature'] ?? ''),
             'smtp_host'         => (string) $row['smtp_host'],
             'smtp_port'         => (int) $row['smtp_port'],
             'smtp_username'     => (string) $row['smtp_username'],
@@ -488,6 +973,7 @@ class EmailProfileService
             'is_active'         => (int) $row['is_active'],
             'is_default'        => (int) $row['is_default'],
             'assigned_role_ids' => $roleIds,
+            'credentials_encrypted' => EmailCredentialCipher::enabled(),
             'created_at'        => (string) $row['created_at'],
             'updated_at'        => (string) $row['updated_at'],
         ];
@@ -534,11 +1020,11 @@ class EmailProfileService
                 $host,
                 $port,
                 $username,
-                $password,
+                EmailCredentialCipher::encrypt($password),
                 self::DEFAULT_HOST,
                 self::IMAP_PORT,
                 $username,
-                $password,
+                EmailCredentialCipher::encrypt($password),
             ]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[EmailProfileService] config default profile bootstrap failed: ' . $e->getMessage());
@@ -590,7 +1076,7 @@ class EmailProfileService
             'encryption'    => $encryption,
             'validate_cert' => false,
             'username'      => (string) ($profile['imap_username'] ?? ''),
-            'password'      => (string) ($profile['imap_password'] ?? ''),
+            'password'      => EmailCredentialCipher::decrypt((string) ($profile['imap_password'] ?? '')),
             'protocol'      => 'imap',
         ];
     }

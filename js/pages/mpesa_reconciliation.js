@@ -10,6 +10,7 @@ const MpesaReconciliationController = {
         if (!window.AuthContext?.isAuthenticated()) return;
         this.bindEvents();
         await this.loadData();
+        window.APIRealtime?.register?.('mpesa_reconciliation', this, ['finance', 'payments']);
     },
 
     bindEvents() {
