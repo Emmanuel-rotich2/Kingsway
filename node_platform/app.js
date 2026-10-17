@@ -165,7 +165,13 @@ async function createApp(env = {}) {
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Passenger's node loader loads this file with CommonJS require(). Node
+// supports require(esm) only when the module graph has NO top-level await,
+// so the bootstrap must stay synchronous at the top level and the async
+// work lives inside runGateway(). Started either directly (node app.js)
+// or under Passenger, where argv[1] may point at the loader rather than
+// at this file.
+async function runGateway() {
   const underPassenger = typeof PhusionPassenger !== 'undefined';
   if (underPassenger && typeof PhusionPassenger.configure === 'function') {
     PhusionPassenger.configure({ autoInstall: false });
@@ -223,6 +229,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
+if (import.meta.url === `file://${process.argv[1]}` || typeof PhusionPassenger !== 'undefined') {
+  runGateway().catch((error) => {
+    process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+    process.exit(1);
+  });
 }
 
 export { createApp, isTruthy };

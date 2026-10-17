@@ -528,6 +528,12 @@ class CommunicationsManager extends FileLifecycleBase
                     if ($address !== '') $rows[] = [(int) $contact['id'], $address];
                     continue;
                 }
+                // Not a contact-directory id: a raw MSISDN (e.g. the payer
+                // phone on a payment) is still a valid direct address.
+                if (\App\API\Services\PhoneNumberNormalizer::normalize($value) !== null) {
+                    $rows[] = [null, $value];
+                    continue;
+                }
             }
             if (ctype_digit($value)) {
                 throw new \InvalidArgumentException('Recipient contact could not be resolved');
