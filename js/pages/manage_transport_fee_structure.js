@@ -203,6 +203,7 @@ const manageTransportFeeStructureController = {
     this.setupEventListeners();
     await this.loadReference();
     await this.loadBills();
+    window.APIRealtime?.register?.("manage_transport_fee_structure", { refresh: () => this.loadBills() }, ["finance", "transport"]);
   },
 };
 

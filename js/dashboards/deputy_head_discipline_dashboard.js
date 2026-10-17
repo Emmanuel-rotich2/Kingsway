@@ -9,8 +9,9 @@
         scopeId: 'deputyDisciplineDashboardScope',
         lastUpdatedId: 'deputyDisciplineDashboardLastUpdated',
         defaultPeriod: 'today',
-        apiMethod: async ({ period }) => {
-            const source = unwrap(await window.API.dashboard.getDeputyDisciplineFull({ period }));
+        viewSpec: { entity: 'dashboards', view: 'deputy-head-discipline-references', sourceKey: 'stats', input: (filters) => filters },
+        composeFromSources(sources) {
+            const source = sources.stats || {};
             const discipline = source.cards?.discipline_cases || {};
             const attendance = source.cards?.attendance_today || {};
             const communications = source.cards?.parent_communications || {};
@@ -61,6 +62,10 @@
                 },
                 meta: { scope_label: 'Whole-school discipline and safeguarding' }
             };
+        },
+        apiMethod: async ({ period }) => {
+            const source = unwrap(await window.API.dashboard.getDeputyDisciplineFull({ period }));
+            return this.composeFromSources({ stats: source });
         },
         cards: [
             {

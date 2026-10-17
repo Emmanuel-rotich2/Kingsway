@@ -127,7 +127,7 @@ final class ResponseCacheMiddleware
     private static function cache(): SharedCache
     {
         if (self::$cache === null) {
-            self::$cache = new SharedCache(sys_get_temp_dir() . '/kingsway_cache_responses');
+            self::$cache = new SharedCache(\App\API\Services\StorageRoot::path('php/response_cache'));
         }
         return self::$cache;
     }

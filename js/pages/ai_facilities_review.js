@@ -30,6 +30,7 @@
       catch (error) { window.showNotification?.(error.message || 'Unable to queue maintenance review', 'danger'); }
       finally { button.disabled = false; }
     });
+    window.RealtimeJobWake?.onDomain('ai', render);;
     render();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true }); else init();

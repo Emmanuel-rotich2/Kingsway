@@ -48,7 +48,7 @@ class AccountsManager extends BaseAPI
             'channels' => $this->db->query('SELECT code,name FROM financial_channels ORDER BY name')->fetchAll(PDO::FETCH_ASSOC),
             'providers' => $this->db->query("SELECT code,display_name,environment FROM payment_providers WHERE active=1 ORDER BY display_name")->fetchAll(PDO::FETCH_ASSOC),
             'ledger_accounts' => $this->db->query("SELECT account_code,account_name FROM chart_of_accounts WHERE status='active' AND is_postable=1 ORDER BY account_code")->fetchAll(PDO::FETCH_ASSOC),
-            'settlement_accounts' => $this->db->query("SELECT a.id,a.account_name,a.account_identifier,k.code account_kind FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing') ORDER BY a.account_name")->fetchAll(PDO::FETCH_ASSOC),
+            'settlement_accounts' => $this->db->query("SELECT a.id,a.account_name,a.account_identifier,k.code account_kind FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a JOIN financial_account_kinds k ON k.id=a.account_kind_id WHERE a.status IN ('active','pending_verification') AND k.code IN ('bank','cash','clearing') ORDER BY a.account_name")->fetchAll(PDO::FETCH_ASSOC),
             'roles' => $this->db->query("SELECT id,name FROM roles WHERE id NOT IN (2) ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
         ]);
     }
@@ -149,6 +149,14 @@ class AccountsManager extends BaseAPI
     {
         $normalizer = new ReferenceNormalizer();
         $normalized = $normalizer->accountIdentifier($identifier);
+        // Preserve failover priorities chosen in Payment Integration Settings;
+        // this sync only rebuilds route rows when the account itself changes.
+        $priorities = [];
+        $priorityRows = $this->db->prepare('SELECT purpose, priority FROM payment_collection_routes WHERE financial_account_id=?');
+        $priorityRows->execute([$accountId]);
+        foreach ($priorityRows->fetchAll(PDO::FETCH_KEY_PAIR) as $purposeKey => $priorityValue) {
+            $priorities[(string) $purposeKey] = (int) $priorityValue;
+        }
         if ($providerId) {
             // Remove legacy rows that pre-date financial_account_id as well as
             // rows belonging to this account, preventing duplicate-key clashes.
@@ -159,14 +167,14 @@ class AccountsManager extends BaseAPI
         }
         $providerCode = '';
         if ($providerId) { $p=$this->db->prepare('SELECT code FROM payment_providers WHERE id=?'); $p->execute([$providerId]); $providerCode=(string)$p->fetchColumn(); }
-        $product = trim((string)($data['collection_product'] ?? '')) ?: ($providerCode === 'mpesa_daraja' ? (($data['account_product'] ?? 'paybill') === 'till' ? 'till' : 'paybill') : ($providerCode === 'kcb_buni' ? 'buni' : 'bank_collection'));
-        $route = $this->db->prepare('INSERT INTO payment_collection_routes (provider_id,financial_account_id,settlement_financial_account_id,account_identifier,normalized_account_identifier,collection_product,reference_policy,reference_label,purpose,reference_prefix) VALUES (?,?,?,?,?,?,?,?,?,?)');
+        $product = trim((string)($data['collection_product'] ?? '')) ?: (in_array($providerCode, ['mpesa_daraja','payhero'], true) ? (($data['account_product'] ?? 'paybill') === 'till' ? 'till' : 'paybill') : ($providerCode === 'kcb_buni' ? 'buni' : 'bank_collection'));
+        $route = $this->db->prepare('INSERT INTO payment_collection_routes (provider_id,financial_account_id,settlement_financial_account_id,account_identifier,normalized_account_identifier,collection_product,reference_policy,reference_label,purpose,reference_prefix,priority) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
         $routeChannel = $this->db->prepare('INSERT IGNORE INTO payment_collection_route_channels (route_id,channel_id) SELECT ?,fc.id FROM financial_channels fc WHERE fc.code=?');
         foreach (array_intersect(['fees','transport','uniforms'], $purposes) as $purpose) {
             $prefix = $purpose === 'transport' ? 'TRN' : ($purpose === 'uniforms' ? 'U' : 'FEE');
             $policy = trim((string)($data['reference_policy'] ?? '')) ?: ($purpose === 'fees' ? 'admission_no' : ($purpose === 'transport' ? 'transport_reference' : 'uniform_reference'));
             $label = trim((string)($data['reference_label'] ?? '')) ?: null;
-            $route->execute([$providerId,$accountId,$settlementId ?: $accountId,$identifier,$normalizer->accountIdentifier($identifier),$product,$policy,$label,$purpose,$prefix]);
+            $route->execute([$providerId,$accountId,$settlementId ?: $accountId,$identifier,$normalizer->accountIdentifier($identifier),$product,$policy,$label,$purpose,$prefix,$priorities[$purpose] ?? 100]);
             $routeId = (int)$this->db->lastInsertId();
             foreach ($this->collectionChannelCodes($accountId, $purpose, $data) as $channelCode) {
                 $routeChannel->execute([$routeId, $channelCode]);

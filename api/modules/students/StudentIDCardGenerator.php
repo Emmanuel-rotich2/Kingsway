@@ -242,14 +242,94 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ? 'direct_card'
                 : 'a4_pdf';
 
-            $placeholders = implode(
-                ',',
-                array_fill(0, count($studentIds), '?')
+            $queryStarted = microtime(true);
+            $students = $this->loadStudentCardRecords($studentIds);
+            $queryDurationMs = (int) round((microtime(true) - $queryStarted) * 1000);
+
+            if ($students === []) {
+                return formatResponse(
+                    false,
+                    null,
+                    'No active students were found for printing.'
+                );
+            }
+
+            $result = $this->renderStudentIdCardPdfs(
+                $students,
+                [
+                    'printerMode' => $printerMode,
+                    'side' => $side,
+                    'chunkSize' => 20,
+                    'queryDurationMs' => $queryDurationMs,
+                    'filename' => 'student_id_cards_'
+                        . date('Y-m-d_His'),
+                ]
             );
 
-            $queryStarted = microtime(true);
-            $statement = $this->db->prepare(
-                "SELECT
+            $files = array_map(
+                fn (string $path): array => $this->buildPrintFile($path),
+                $result['files']
+            );
+
+            $payload = array_merge(
+                $result,
+                [
+                    'student_count' => count($students),
+                    'files' => $files,
+                    'file' => $files[0] ?? null,
+                    'pdf_url' => $files[0]['download_url'] ?? null,
+                    'download_url' =>
+                        $files[0]['download_url'] ?? null,
+                ]
+            );
+
+            $this->logAction(
+                'create',
+                0,
+                sprintf(
+                    'Generated %s student ID-card PDF for %d students.',
+                    $printerMode,
+                    count($students)
+                )
+            );
+
+            return formatResponse(
+                true,
+                $payload,
+                'Student ID-card PDF generated successfully.'
+            );
+        } catch (Exception $exception) {
+            $this->logError(
+                'generateBulkIDCardsPDF',
+                $exception->getMessage()
+            );
+
+            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Load normalized card records for the given active student ids.
+     *
+     * This is the single source of truth for the student card-record shape,
+     * shared by the synchronous bulk flow and the asynchronous document-batch
+     * pipeline so the two can never drift apart.
+     *
+     * @param array<int, int> $studentIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function loadStudentCardRecords(array $studentIds): array
+    {
+        $studentIds = array_values(array_map('intval', $studentIds));
+        $studentIds = array_filter($studentIds, static fn (int $id): bool => $id > 0);
+        if ($studentIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($studentIds), '?'));
+        $statement = $this->db->prepare(
+            "SELECT
                     s.id,
                     s.admission_no,
                     per.photo_url,
@@ -313,101 +393,40 @@ return formatResponse(false, null, 'An internal error occurred.');
                    AND s.status = 'active'
                  ORDER BY c.name, sm.name,
                           per.first_name, per.last_name"
-            );
-            $statement->execute($studentIds);
-            $students = $statement->fetchAll(PDO::FETCH_ASSOC);
+        );
+        $statement->execute($studentIds);
+        $students = $statement->fetchAll(PDO::FETCH_ASSOC);
 
-            if ($students === []) {
-                return formatResponse(
-                    false,
-                    null,
-                    'No active students were found for printing.'
+        foreach ($students as &$student) {
+            $student['card_number'] = (string) (
+                $student['card_number']
+                ?? $student['admission_no']
+                ?? ''
+            );
+            $student['issue_date'] = (string) (
+                $student['card_issue_date']
+                ?? date('Y-m-d')
+            );
+            $student['expiry_date'] = (string) (
+                $student['card_expiry_year']
+                ?? $student['card_expiry_date']
+                ?? (date('Y') + 1) . '-12-31'
+            );
+            $student['qr_code_url'] = (string) (
+                $student['qr_code_path']
+                ?? $student['qr_code_url']
+                ?? ''
+            );
+
+            if (trim($student['qr_code_url']) === '') {
+                $student['qr_code_url'] = $this->qrDataUri(
+                    (string) ($student['qr_token'] ?? '')
                 );
             }
-
-            foreach ($students as &$student) {
-                $student['card_number'] = (string) (
-                    $student['card_number']
-                    ?? $student['admission_no']
-                    ?? ''
-                );
-                $student['issue_date'] = (string) (
-                    $student['card_issue_date']
-                    ?? date('Y-m-d')
-                );
-                $student['expiry_date'] = (string) (
-                    $student['card_expiry_year']
-                    ?? $student['card_expiry_date']
-                    ?? (date('Y') + 1) . '-12-31'
-                );
-                $student['qr_code_url'] = (string) (
-                    $student['qr_code_path']
-                    ?? $student['qr_code_url']
-                    ?? ''
-                );
-
-                if (trim($student['qr_code_url']) === '') {
-                    $student['qr_code_url'] = $this->qrDataUri(
-                        (string) ($student['qr_token'] ?? '')
-                    );
-                }
-            }
-            unset($student);
-            $queryDurationMs = (int) round((microtime(true) - $queryStarted) * 1000);
-
-            $result = $this->renderStudentIdCardPdfs(
-                $students,
-                [
-                    'printerMode' => $printerMode,
-                    'side' => $side,
-                    'chunkSize' => 20,
-                    'queryDurationMs' => $queryDurationMs,
-                    'filename' => 'student_id_cards_'
-                        . date('Y-m-d_His'),
-                ]
-            );
-
-            $files = array_map(
-                fn (string $path): array => $this->buildPrintFile($path),
-                $result['files']
-            );
-
-            $payload = array_merge(
-                $result,
-                [
-                    'student_count' => count($students),
-                    'files' => $files,
-                    'file' => $files[0] ?? null,
-                    'pdf_url' => $files[0]['download_url'] ?? null,
-                    'download_url' =>
-                        $files[0]['download_url'] ?? null,
-                ]
-            );
-
-            $this->logAction(
-                'create',
-                0,
-                sprintf(
-                    'Generated %s student ID-card PDF for %d students.',
-                    $printerMode,
-                    count($students)
-                )
-            );
-
-            return formatResponse(
-                true,
-                $payload,
-                'Student ID-card PDF generated successfully.'
-            );
-        } catch (Exception $exception) {
-            $this->logError(
-                'generateBulkIDCardsPDF',
-                $exception->getMessage()
-            );
-
-            \App\API\Services\Logger::legacyError('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
-return formatResponse(false, null, 'An internal error occurred.');
         }
+        unset($student);
+
+        return $students;
     }
 
     /**
@@ -685,20 +704,51 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         $renderStarted = microtime(true);
-        $batch = $renderer->renderDocuments(
-            array_map(
-                static fn (array $chunk, int $index): array => [
-                    'document_id' => 'id-cards-' . ($index + 1),
-                    'html' => (string) ($chunk['html'] ?? ''),
-                ],
-                $chunks,
-                array_keys($chunks)
-            ),
-            'combined',
-            'none'
+        $chunkDocuments = array_map(
+            static fn (array $chunk, int $index): array => [
+                'document_id' => 'id-cards-' . ($index + 1),
+                'html' => (string) ($chunk['html'] ?? ''),
+            ],
+            $chunks,
+            array_keys($chunks)
         );
-        $pythonRoundTripMs = (int) round((microtime(true) - $renderStarted) * 1000);
-        $encodedPdf = $batch['pdf_base64'] ?? null;
+        $maxPerBatchBytes = 10 * 1024 * 1024;
+        $maxPerBatchDocs = 12;
+        $batches = [];
+        $current = [];
+        $currentBytes = 0;
+        foreach ($chunkDocuments as $doc) {
+            $bytes = strlen((string) ($doc['html'] ?? ''));
+            if ($current !== [] && ($currentBytes + $bytes > $maxPerBatchBytes || count($current) >= $maxPerBatchDocs)) {
+                $batches[] = $current;
+                $current = [];
+                $currentBytes = 0;
+            }
+            $current[] = $doc;
+            $currentBytes += $bytes;
+        }
+        if ($current !== []) {
+            $batches[] = $current;
+        }
+        $mergedEncodedPdfs = [];
+        $totalBridgeTimeMs = 0;
+        foreach ($batches as $batchDocs) {
+            $batchStart = microtime(true);
+            $batch = $renderer->renderDocuments($batchDocs, 'combined', 'none');
+            $totalBridgeTimeMs += (int) round((microtime(true) - $batchStart) * 1000);
+            $mergedEncodedPdfs[] = (string) ($batch['pdf_base64'] ?? '');
+        }
+        if (count($mergedEncodedPdfs) === 0) {
+            throw new Exception('No ID-card PDFs were produced.');
+        }
+        if (count($mergedEncodedPdfs) === 1) {
+            $encodedPdf = $mergedEncodedPdfs[0];
+        } else {
+            $mergeStart = microtime(true);
+            $encodedPdf = $renderer->mergePdfs($mergedEncodedPdfs);
+            $totalBridgeTimeMs += (int) round((microtime(true) - $mergeStart) * 1000);
+        }
+        $pythonRoundTripMs = $totalBridgeTimeMs;
         $pdf = is_string($encodedPdf) ? base64_decode($encodedPdf, true) : false;
         if (!is_string($pdf) || !str_starts_with($pdf, '%PDF-')) {
             throw new Exception('The Python renderer returned an invalid combined ID-card PDF.');

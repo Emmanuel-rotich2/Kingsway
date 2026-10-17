@@ -1,100 +1,63 @@
-'use strict';
+import fastify from 'fastify';
+import fastifyCors from '@fastify/cors';
+import fastifySSE from '@fastify/sse';
 
-/**
- * Kingsway realtime gateway — entry point (Passenger main file).
- *
- * Node.js 24 is the Real-Time Data Engine & State Orchestrator: it streams
- * change descriptors to logged-in browsers over SSE, eliminates page
- * reloads/polling, and carries job telemetry. Strict rules: stateless (holds
- * only open SSE sockets and ephemeral presence declarations), zero database
- * access, `/events` needs a short-lived PHP-issued capability JWT, and
- * `/internal/*` needs the shared worker secret plus a permitted source address.
- *
- * Wiring order matters and is deliberate:
- *   config → validate → logger → metrics → connections → dispatcher → bus
- * The bus is the ONLY publish path, and the dispatcher is its only subscriber,
- * so an event can never be fanned out twice by two different code paths.
- *
- * All composition lives here; `src/` holds the modules. Nothing in this process
- * opens a MySQL connection, reads a business record, or holds a durable log.
- */
+import { loadConfig, getConfig } from './src/config/index.js';
+import { createLogger, getLogger } from './src/logger/index.js';
+import { createMetrics, getMetrics } from './src/metrics/index.js';
+import { registerHealthRoutes } from './src/health/index.js';
+import { createInternalClient, getInternalClient } from './src/clients/internal.js';
+import { createCache, getCache } from './src/clients/cache.js';
+import { createBus, getBus } from './src/realtime/bus.js';
+import { createSSE, getSSE } from './src/realtime/sse.js';
+import { registerWebSocket } from './src/realtime/websocket.js';
+import { getAggregationEngine } from './src/aggregation/engine.js';
+import { registerViewRoutes } from './src/routes/views.js';
+import { registerPublicRoutes } from './src/routes/public.js';
+import { registerInternalRoutes } from './src/routes/internal.js';
 
-const fastify = require('fastify');
-
-const { createConfig, validate, mergedEnv, allowedOrigins } = require('./src/config');
-const { createLogger } = require('./src/logger');
-const { createMetrics } = require('./src/metrics');
-const { createState } = require('./src/state');
-const { createRegistry } = require('./src/connections');
-const { createDispatcher } = require('./src/dispatcher');
-const { createBus } = require('./src/bus');
-const { createRoutes } = require('./src/routes');
-const { verifyCapability } = require('./src/auth');
+function safeRequestPath(url) {
+  return String(url || '').split('?', 1)[0].slice(0, 256);
+}
 
 function isTruthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value || ''));
 }
 
-function createApp(env = mergedEnv()) {
-  const config = validate(createConfig(env));
+async function createApp(env = {}) {
+  const config = loadConfig(env);
   const startedAt = Date.now();
-  // NODE_REALTIME_JOURNAL=off silences output during a maintenance window. The
-  // journal() API stays callable either way, so no call site branches on it.
-  const journalOff = String(env.NODE_REALTIME_JOURNAL || '').toLowerCase() === 'off';
 
-  const logger = createLogger({
-    enabled: !journalOff,
-    pretty: config.nodeEnv !== 'production',
-    level: config.nodeEnv === 'production' ? 'info' : 'debug',
-    base: {
-      host: config.host,
-      port: config.port,
-      pid: process.pid,
-      ...(config.instanceId ? { instance: config.instanceId } : {}),
-    },
+  const logger = createLogger({});
+  const metrics = createMetrics({});
+
+  const internalClient = createInternalClient();
+  const cache = createCache();
+
+  const bus = createBus();
+  const sse = createSSE();
+  const aggregationEngine = getAggregationEngine();
+  await aggregationEngine.init();
+
+  // Cache invalidation pipeline: when a CACHE_INVALIDATE domain event lands on
+  // the broadcast channel (PHP publisher or a peer gateway), purge the matching
+  // view/job/agg namespaces from BOTH cache layers so every worker re-resolves
+  // from PHP on the next request rather than serving a stale descriptor.
+  bus.subscribe('broadcast', (msg) => {
+    const type = String(msg.payload?.type || msg.type || '').toUpperCase();
+    if (type !== 'CACHE_INVALIDATE' && type !== 'CACHE_INVALIDATED') return;
+    const targets = Array.isArray(msg.payload?.payload?.targets) ? msg.payload.payload.targets : [];
+    for (const pattern of targets) {
+      if (typeof pattern === 'string' && pattern) {
+        cache.delPattern(pattern).catch(() => {});
+      }
+    }
   });
-
-  const metrics = createMetrics({
-    prefix: config.metricsPrefix,
-    collectDefaults: config.nodeEnv === 'production',
-  });
-
-  const state = createState();
-  state.stats.started_at = startedAt;
-
-  const registry = createRegistry({
-    state,
-    maxConnections: config.maxConnections,
-    queueLimit: config.queueLimit,
-    slowClientTimeoutMs: config.slowClientTimeoutMs,
-    presenceTtlMs: config.presenceTtlMs,
-    metrics,
-    logger,
-  });
-
-  const dispatcher = createDispatcher({
-    registry,
-    state,
-    metrics,
-    logger,
-    coalesceWindowMs: config.coalesceWindowMs,
-    coalesceMaxWaitMs: config.coalesceMaxWaitMs,
-  });
-
-  const bus = createBus({ redisUrl: config.redisUrl, logger, metrics, instanceId: config.instanceId });
-  bus.subscribe((event) => dispatcher.dispatch(event));
 
   const app = fastify({
-    // pino is constructed above so the redaction rules and journal wrapper are
-    // shared; Fastify's own logger would be a second, unreconciled sink.
     logger: false,
-    bodyLimit: config.maxBodyBytes,
+    bodyLimit: 1024 * 1024,
     trustProxy: true,
-    // The descriptor allowlist must REJECT unknown keys, not silently strip them.
-    // Fastify's default AJV ships removeAdditional: true, which would quietly
-    // delete `{sql: "..."}` from a publish and answer 202 — an allowlist that
-    // hides its own failures is worse than no allowlist, because a publisher bug
-    // or a probe would look like a success.
     ajv: {
       customOptions: {
         removeAdditional: false,
@@ -103,117 +66,78 @@ function createApp(env = mergedEnv()) {
         allErrors: false,
       },
     },
-    // Node's default request timeout destroys a response that has not completed
-    // within 300s, which would kill every SSE stream every five minutes. SSE is
-    // long-lived by design, so this must be disabled; per-connection liveness is
-    // enforced by the pool cap and the client-eviction path instead.
     requestTimeout: 0,
     keepAliveTimeout: 72000,
   });
 
-  app.decorate('kingsway', { config, logger, metrics, state, registry, dispatcher, bus });
+  app.decorate('kingsway', { config, logger, metrics, internalClient, cache, bus, sse, aggregationEngine, startedAt });
 
-  const origins = allowedOrigins(config);
-
-  app.addHook('onRequest', async (req, reply) => {
-    // CORS is required, not cosmetic: the gateway is served from a different
-    // origin than the PHP site (realtime.… vs kingsway…), so every browser
-    // request to /presence is cross-origin and needs the headers below or the
-    // browser blocks it before it reaches the handler.
-    const origin = req.headers.origin;
-    if (!origin || !origins.includes(origin)) return undefined;
-    reply.header('access-control-allow-origin', origin);
-    reply.header('vary', 'Origin');
-    reply.header('access-control-allow-headers', 'content-type, x-kingsway-sse-token');
-    reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
-    reply.header('access-control-max-age', '600');
-
-    // Private Network Access: a SECURE page (https://localhost, or the
-    // production https site) asking for a LOOPBACK address is a
-    // secure-context -> local-network request, which Chrome blocks unless the
-    // server opts in. EventSource cannot send a preflight, so the opt-in has to
-    // ride on the actual response or the stream silently never opens.
-    //
-    // Only echoed when the browser actually asks, and only for origins already
-    // on the allowlist, so this grants nothing extra. In production the gateway
-    // is a public HTTPS hostname and the browser never sends this header.
-    if (req.headers['access-control-request-private-network'] === 'true') {
-      reply.header('access-control-allow-private-network', 'true');
-      reply.header('vary', 'Origin, Access-Control-Request-Private-Network');
-    }
-    return undefined;
+  await app.register(fastifyCors, {
+    origin: config.security.webOrigins,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['content-type', 'x-kingsway-sse-token', 'last-event-id'],
+    credentials: true,
+    maxAge: 600,
   });
 
-  app.addHook('onSend', async (req, reply, payload) => {
-    // Live state must never be cached by an intermediary.
+  await app.register(fastifySSE);
+
+  // Register this BEFORE any route: Fastify only attaches hooks to routes that
+  // exist at the moment addHook() runs. CORS has to be set in an onRequest hook
+  // rather than relying on @fastify/cors, whose hook runs late enough that the
+  // SSE plugin has already flushed the response headers.
+  app.addHook('onRequest', async (req, reply) => {
     reply.header('cache-control', 'no-store');
     reply.header('x-content-type-options', 'nosniff');
-    return payload;
+
+    const requestOrigin = req.headers.origin;
+    if (requestOrigin && config.security.webOrigins.includes(requestOrigin)) {
+      reply.header('access-control-allow-origin', requestOrigin);
+      reply.header('access-control-allow-credentials', 'true');
+      reply.header('vary', 'Origin');
+    }
+
+    if (req.method === 'OPTIONS') {
+      reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+      reply.header(
+        'access-control-allow-headers',
+        'content-type, x-kingsway-sse-token, last-event-id'
+      );
+      reply.header('access-control-max-age', '600');
+      if (requestOrigin && config.security.webOrigins.includes(requestOrigin)) {
+        return reply.code(204).send();
+      }
+    }
   });
 
-  const routing = createRoutes({
-    config,
-    logger,
-    metrics,
-    registry,
-    state,
-    dispatcher,
-    bus,
-  });
-  routing.register(app);
+  await registerWebSocket(app);
 
-  // Preflight responses for the cross-origin browser surface.
-  //
-  // /presence sends the capability header and therefore genuinely needs one.
-  // /events also needs one, contrary to the "EventSource is a simple request"
-  // assumption: Chrome's Private Network Access treats a secure page reaching
-  // loopback as requiring a preflight, and a 404 on OPTIONS fails the whole
-  // stream silently. Answering every preflight is simpler than enumerating
-  // which browser quirk applies where, and the onRequest hook has already
-  // enforced the origin allowlist by the time this runs.
-  app.options('/*', async (req, reply) => reply.code(204).send());
+  registerHealthRoutes(app);
+  registerPublicRoutes(app);
+  registerViewRoutes(app);
+  registerInternalRoutes(app);
 
   app.setNotFoundHandler(async (req, reply) => {
-    if (routing.wrongMethod(req)) {
-      return reply.code(405).header('allow', 'GET').send({ error: 'method not allowed' });
-    }
     return reply.code(404).send({ error: 'not found' });
   });
+
   app.setErrorHandler(async (error, req, reply) => {
-    // A client-side rejection (schema violation, unparseable body, wrong method)
-    // gets an accurate status and a safe generic message. The raw error text is
-    // journalled, never returned, so internals are not echoed to a caller.
     const status = error.validation ? 400 : (error.statusCode || 500);
     if (status >= 400 && status < 500) {
-      logger.journal('request.rejected', { path: req.url, code: error.code, status });
-      return reply.code(status).send({
-        error: error.validation ? 'invalid request body' : 'invalid request',
-      });
+      logger.info({ code: error.code, status, path: safeRequestPath(req.url) }, 'request rejected');
+      return reply.code(status).send({ error: error.validation ? 'invalid request body' : 'invalid request' });
     }
-    logger.error({ err: error?.message, code: error?.code, path: req.url }, 'request failed');
+    logger.error({ err: error?.message, code: error?.code, path: safeRequestPath(req.url) }, 'request failed');
     return reply.code(500).send({ error: 'internal error' });
   });
 
-  const sweeper = setInterval(() => registry.sweepPresence(), config.presenceSweepMs);
-  if (typeof sweeper.unref === 'function') sweeper.unref();
-
-  app.addHook('onClose', async () => {
-    clearInterval(sweeper);
-  });
-
-  /**
-   * Graceful drain for a deploy or a self-restart: flush anything still
-   * coalesced, tell every stream to come straight back, then close. The browser
-   * sees a disconnect, reconnects, and resyncs through PHP's catch-up reader —
-   * which is why no event log needs to be persisted here.
-   */
-  async function close({ reason = 'shutdown' } = {}) {
+  async function close() {
     try {
-      dispatcher.coalescer.flushAll();
-      const frame = `event: server_restart\ndata: ${JSON.stringify({ reason })}\n\n`;
-      const closed = registry.closeAll(frame);
-      if (closed) logger.journal('sse.drain', { connections: closed, reason });
-      await bus.stop();
+      await bus.close();
+      await internalClient.close();
+      cache.close();
+      // Allow time for better-sqlite3 to finalize statements
+      await new Promise(r => setTimeout(r, 100));
     } catch (error) {
       logger.error({ err: error?.message }, 'drain failed');
     }
@@ -226,31 +150,53 @@ function createApp(env = mergedEnv()) {
     config,
     logger,
     metrics,
-    state,
-    registry,
-    dispatcher,
+    internalClient,
+    cache,
     bus,
+    sse,
+    aggregationEngine,
     startedAt,
     close,
-    verifyCapability: (token) => verifyCapability(token, config),
-    /** Bring async subsystems (the bus) up and resolve routes. */
     async start() {
-      await bus.start();
+      await bus.init();
       await app.ready();
       return app;
     },
   };
 }
 
-if (require.main === module) {
-  const gateway = createApp();
-  gateway.start()
-    .then(() => gateway.server.listen(gateway.config.port, gateway.config.host, () => {
-      process.stdout.write(
-        `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
-        + `(bus: ${gateway.bus.modeName}, pool: ${gateway.config.maxConnections})\n`,
-      );
-    }))
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const underPassenger = typeof PhusionPassenger !== 'undefined';
+  if (underPassenger && typeof PhusionPassenger.configure === 'function') {
+    PhusionPassenger.configure({ autoInstall: false });
+  }
+
+  let gateway;
+  try {
+    gateway = await createApp();
+  } catch (error) {
+    process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+    process.exit(1);
+  }
+
+  await gateway.start()
+    .then(() => {
+      if (underPassenger) {
+        gateway.server.listen('passenger', () => {
+          process.stdout.write(
+            `Kingsway realtime listening on the Passenger socket `
+            + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
+          );
+        });
+        return;
+      }
+      gateway.server.listen(gateway.config.port, gateway.config.host, () => {
+        process.stdout.write(
+          `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
+          + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
+        );
+      });
+    })
     .catch((error) => {
       process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
       process.exit(1);
@@ -258,12 +204,25 @@ if (require.main === module) {
 
   const shutdown = (signal) => {
     process.stdout.write(`\nKingsway realtime draining (${signal})\n`);
+    // Bounded drain: never block Passenger from stopping the instance. If
+    // outstanding keep-alive sockets or in-flight polls outlive the grace
+    // window, fall through to a hard exit rather than hanging forever.
+    const watchdog = setTimeout(() => {
+      process.stdout.write('Kingsway realtime drain watchdog: forcing exit\n');
+      process.exit(0);
+    }, 8000);
     gateway.close({ reason: signal })
-      .then(() => process.exit(0))
-      .catch(() => process.exit(1));
+      .then(() => {
+        clearTimeout(watchdog);
+        process.exit(0);
+      })
+      .catch(() => {
+        clearTimeout(watchdog);
+        process.exit(1);
+      });
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-module.exports = { createApp, isTruthy };
+export { createApp, isTruthy };

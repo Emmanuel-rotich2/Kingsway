@@ -20,7 +20,7 @@ class PaymentTerminalManager extends BaseAPI
     public function listTerminals(): array
     {
         $sql = "SELECT t.*, a.account_name settlement_account_name, a.account_identifier settlement_account_identifier
-                FROM " . ReadReplicaService::qualifiedRef("payment_pos_terminals") . "
+                FROM " . ReadReplicaService::qualifiedRef("payment_pos_terminals") . " t
                 JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a ON a.id=t.settlement_financial_account_id
                 ORDER BY t.terminal_name";
         return formatResponse(true, ['terminals' => $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC)]);

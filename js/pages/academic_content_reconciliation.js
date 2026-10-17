@@ -1,26 +1,84 @@
-const academicContentReconciliation = {
-  items: [],
-  esc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : v; return d.innerHTML; },
+/**
+ * Academic Content Reconciliation Controller
+ * Reconciles academic content across terms and years.
+ */
+const academicContentReconciliationController = {
+  state: { referenceCache: null, discrepancies: [], years: [], classes: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "academic-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Academic Content Reconciliation Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load() {
-    const r = await window.callAPI('academic/legacy-content-reconciliation', 'GET');
-    const data = r?.data || r || {}; this.items = data.items || [];
-    const tbody = document.querySelector('#acrTable tbody');
-    if (!this.items.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No unresolved academic content.</td></tr>'; return; }
-    tbody.innerHTML = this.items.map((x, i) => {
-      const candidates = x.candidates || [];
-      const options = candidates.map(c => `<option value="${c.stream_learning_area_id}">${this.esc(`${c.class_name || ''} · ${c.stream_name || ''}`)}</option>`).join('');
-      const weeks = (x.available_weeks || []).map(w => `<option value="${w.id}">Week ${w.week_number} · ${w.week_start} to ${w.week_end}</option>`).join('');
-      return `<tr><td>${this.esc(x.content_type)}</td><td>#${x.content_id}<br><small>${this.esc(x.title || '')}</small></td><td><span class="badge ${x.status === 'manual_required' ? 'bg-warning text-dark' : 'bg-secondary'}">${this.esc(x.status)}</span><br><small>${this.esc(x.reason)}</small></td><td>${candidates.length ? `<select class="form-select form-select-sm mb-1" id="acr-${i}"><option value="">Select verified stream</option>${options}</select><select class="form-select form-select-sm" id="acr-week-${i}"><option value="">Select verified week</option>${weeks}</select>` : '<span class="text-muted small">No safe candidate. Recreate canonically.</span>'}</td><td>${candidates.length ? `<button class="btn btn-sm btn-success" onclick="academicContentReconciliation.resolve(${i})">Resolve</button>` : '<span class="text-muted small">Quarantine</span>'}</td></tr>`;
-    }).join('');
+    try {
+      const cache = this.state.referenceCache;
+      const [discrepancies, years, classes] = await Promise.all([
+        cache?.discrepancies !== undefined ? cache.discrepancies : this.API('GET', '/api/academic/content-reconciliation'),
+        cache?.years !== undefined ? cache.years : this.API('GET', '/api/academic/years/list'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+      ]);
+      this.state.discrepancies = Array.isArray(discrepancies?.data) ? discrepancies.data : (Array.isArray(discrepancies) ? discrepancies : []);
+      this.state.years = Array.isArray(years?.data) ? years.data : (Array.isArray(years) ? years : []);
+      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
+      this.renderDiscrepancies();
+      this.renderFilters();
+    } catch (e) { console.error(e); }
   },
-  async resolve(index) {
-    const x = this.items[index]; const select = document.getElementById(`acr-${index}`); const week = document.getElementById(`acr-week-${index}`); const option = select?.selectedOptions[0];
-    if (!option?.value || !week?.value) return window.showNotification?.('Select and verify both the canonical stream and week.', 'warning');
-    const payload = { queue_id: x.id, stream_learning_area_id: Number(option.value), calendar_week_id: Number(week.value) };
-    if (x.content_type === 'lesson_plan') payload.scheme_of_work_id = Number(x.scheme_of_work_id || 0);
-    try { await window.callAPI('academic/resolve-legacy-academic-content', 'POST', payload); window.showNotification?.('Legacy record reconciled.', 'success'); await this.load(); } catch (e) { window.showNotification?.(e.message || 'Reconciliation failed.', 'danger'); }
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  renderDiscrepancies() {
+    const discrepancies = this.state.discrepancies;
+    const body = document.getElementById('acrDiscrepanciesBody');
+    if (!discrepancies.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No discrepancies found.</td></tr>'; return; }
+    body.innerHTML = discrepancies.map(d => `<tr>
+      <td class="small">${this.esc(d.year || '—')}</td>
+      <td class="small">${this.esc(d.class_name || '—')}</td>
+      <td class="small">${this.esc(d.subject || '—')}</td>
+      <td class="small"><span class="badge bg-${d.severity === 'high' ? 'danger' : d.severity === 'medium' ? 'warning' : 'info'}">${this.esc(d.severity || '—')}</span></td>
+      <td class="small">${this.esc(d.description || '—')}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicContentReconciliationController.resolve(${d.id})"><i class="bi bi-check-circle"></i></button></td>
+    </tr>`).join('');
   },
-  init() { document.getElementById('acrRefresh')?.addEventListener('click', () => this.load()); this.load().catch(e => window.showNotification?.(e.message || 'Unable to load queue.', 'danger')); }
+
+  renderFilters() {
+    const years = this.state.years;
+    const classes = this.state.classes;
+    const yearSelect = document.getElementById('acrYearFilter');
+    const classSelect = document.getElementById('acrClassFilter');
+    if (yearSelect) yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y.id}">${this.esc(y.name)}</option>`).join('');
+    if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+  },
+
+  async resolve(id) {
+    try {
+      await this.API('POST', `/api/academic/content-reconciliation/${id}/resolve`);
+      this.notify('Discrepancy resolved', 'success');
+      await this.load();
+    } catch (e) { this.notify('Resolution failed', 'danger'); }
+  },
+
+  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("academic_content_reconciliation", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
+  },
 };
-window.academicContentReconciliation = academicContentReconciliation;
-document.addEventListener('DOMContentLoaded', () => academicContentReconciliation.init());
+
+window.academicContentReconciliationController = academicContentReconciliationController;
+document.addEventListener('DOMContentLoaded', () => academicContentReconciliationController.init().catch(() => {}));

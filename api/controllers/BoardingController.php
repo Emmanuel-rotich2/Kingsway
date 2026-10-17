@@ -42,10 +42,12 @@ class BoardingController extends BaseController
     }
     public function getStats($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         return $this->handleApiResponse($this->manager->getStats());
     }
     public function getOccupancy($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         return $this->handleApiResponse($this->manager->getOccupancy());
     }
 
@@ -122,34 +124,40 @@ class BoardingController extends BaseController
 
     public function getDormitories($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         return $this->handleApiResponse($this->manager->listDormitories());
     }
 
     public function postDormitories($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_edit')) return $denied;
         return $this->handleApiResponse($this->manager->createDormitory($data));
     }
 
     public function putDormitories($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_edit')) return $denied;
         $dormId = (int) ($id ?? $data['id'] ?? 0);
         return $this->handleApiResponse($this->manager->updateDormitory($dormId, $data));
     }
 
     public function deleteDormitories($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_edit')) return $denied;
         $dormId = (int) ($id ?? $data['id'] ?? 0);
         return $this->handleApiResponse($this->manager->deleteDormitory($dormId));
     }
 
     public function getStudents($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         $dormId = $_GET['dormitory_id'] ?? $data['dormitory_id'] ?? null;
         $search = $_GET['search'] ?? $data['search'] ?? '';
         return $this->handleApiResponse($this->manager->getStudents($dormId, $search));
     }
     public function getRollCall($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         $date = $_GET['date'] ?? $data['date'] ?? date('Y-m-d');
         $dateFrom = $_GET['date_from'] ?? $data['date_from'] ?? $date;
         $dateTo = $_GET['date_to'] ?? $data['date_to'] ?? $date;
@@ -158,12 +166,14 @@ class BoardingController extends BaseController
 
     public function postRollCall($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_edit')) return $denied;
         $markedBy = $this->user['user_id'] ?? $this->user['id'] ?? null;
         return $this->handleApiResponse($this->manager->markRollCall($data, $markedBy));
     }
 
     public function getExeats($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         $status = $_GET['status'] ?? $data['status'] ?? '';
         return $this->handleApiResponse($this->manager->getExeats(
             $status,
@@ -174,6 +184,7 @@ class BoardingController extends BaseController
 
     public function postExeats($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_create', ['system administrator', 'school administrator', 'headteacher', 'boarding master'])) return $denied;
         return $this->handleApiResponse($this->manager->createExeat($data));
     }
 
@@ -181,11 +192,25 @@ class BoardingController extends BaseController
     {
         $exeatId = (int) ($id ?? $data['id'] ?? 0);
         $action = $data['action'] ?? $segments[0] ?? 'approve';
+        $approval = in_array(strtolower((string) $action), ['approve', 'reject'], true);
+        $permission = $approval ? 'attendance_boarding_approve' : 'attendance_boarding_edit';
+        $roles = $approval
+            ? ['system administrator', 'school administrator', 'headteacher', 'director']
+            : ['system administrator', 'school administrator', 'headteacher', 'boarding master'];
+        if ($denied = $this->guardBoarding($permission, $roles)) return $denied;
         return $this->handleApiResponse($this->manager->updateExeat($exeatId, $action));
     }
 
     public function getActivity($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         return $this->handleApiResponse($this->manager->getActivity());
+    }
+
+    /** Apply the same permission and named-role fallback used by attendance APIs. */
+    private function guardBoarding(string $permission, array $roles = ['system administrator', 'school administrator', 'headteacher', 'director', 'boarding master'])
+    {
+        if ($this->userHasAny([$permission], [], $roles)) return null;
+        return $this->forbidden('You are not permitted to access this boarding operation.');
     }
 }

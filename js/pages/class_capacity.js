@@ -168,3 +168,4 @@ const ClassCapacityController = (() => {
 document.addEventListener('DOMContentLoaded', () => ClassCapacityController.init());
 
 window.ClassCapacityController = ClassCapacityController;
+window.APIRealtime?.register?.("class_capacity", ClassCapacityController, ["academic"]);

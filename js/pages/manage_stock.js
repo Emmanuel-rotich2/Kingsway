@@ -33,7 +33,6 @@
     function todayStr() {
         return new Date().toISOString().split("T")[0];
     }
-
     // ── state ─────────────────────────────────────────────────────────────────
     const PAGE_SIZE = 20;
     let allMovements = [];
@@ -51,24 +50,44 @@
                 return;
             }
             this.bindEvents();
+            window.APIRealtime?.register?.("manageStock", this, ["inventory"]);
             this.loadAll();
         },
 
         async loadAll() {
-            await Promise.all([this.loadItems(), this.loadMovements()]);
-        },
-
-        // ── Items for filter dropdown ─────────────────────────────────────────
-        async loadItems() {
             try {
-                const res = await window.API.inventory.listItems();
-                allItems = Array.isArray(res) ? res : (res?.items || res?.data || []);
+                const result = await window.API.nodeViews.resolve("inventory", "stock-register");
+                const sources = result?.data?.sources || result?.sources;
+                if (!sources?.items || !sources?.movements) throw new Error("Node returned incomplete stock data");
+                const selectedItem = document.getElementById("itemFilter")?.value || "";
+                allItems = (sources.items.items || []).filter(item => !item.status || String(item.status).toLowerCase() === "active").map(item => ({
+                    ...item,
+                    item_name: item.item_name || item.name || "",
+                    quantity: item.quantity ?? item.quantity_on_hand ?? item.current_stock ?? 0,
+                    current_stock: item.current_stock ?? item.quantity_on_hand ?? item.quantity ?? 0,
+                }));
+                allMovements = (sources.movements.items || []).map(row => ({
+                    ...row,
+                    movement_date: row.transaction_date || row.movement_date || "",
+                    movement_type: row.transaction_type || row.movement_type || "",
+                    movement_category: row.reference_type || row.movement_category || "",
+                    unit: row.unit_of_measure || row.unit || "",
+                    unit_price: row.unit_cost ?? row.unit_price ?? 0,
+                    reference_no: row.reference_id ?? row.reference_no ?? "",
+                }));
                 this.populateItemFilter();
+                const itemFilter = document.getElementById("itemFilter");
+                if (itemFilter && [...itemFilter.options].some(option => option.value === selectedItem)) itemFilter.value = selectedItem;
                 this.populateStockFormItems();
-            } catch (e) {
-                console.error("Items load error:", e);
+                this.applyFilters();
+                this.renderStats();
+            } catch (error) {
+                console.error("Node stock register failed:", error);
+                showToast("Failed to load fresh stock data", "error");
             }
         },
+
+        refreshData() { return this.loadAll(); },
 
         populateItemFilter() {
             const sel = document.getElementById("itemFilter");
@@ -83,29 +102,13 @@
             ["stock_in_item", "stock_out_item"].forEach(selId => {
                 const sel = document.getElementById(selId);
                 if (!sel) return;
+                const selected = sel.value;
                 sel.innerHTML = '<option value="">Select Item</option>' +
                     allItems.map(i =>
                         `<option value="${esc(i.id)}" data-qty="${esc(i.quantity ?? i.current_stock ?? 0)}">${esc(i.item_name || i.name)} (Qty: ${i.quantity ?? i.current_stock ?? 0})</option>`
                     ).join("");
+                if ([...sel.options].some(option => option.value === selected)) sel.value = selected;
             });
-        },
-
-        // ── Movements ─────────────────────────────────────────────────────────
-        async loadMovements(params = {}) {
-            try {
-                const res = await window.API.inventory.listMovements(params);
-                allMovements = Array.isArray(res) ? res : (res?.movements || res?.data || []);
-                filteredMovements = [...allMovements];
-                currentPage = 1;
-                this.renderStats();
-                this.renderTable();
-            } catch (e) {
-                console.error("Movements load error:", e);
-                showToast("Failed to load stock movements", "error");
-                allMovements = [];
-                filteredMovements = [];
-                this.renderTable();
-            }
         },
 
         // ── Stats ──────────────────────────────────────────────────────────────
@@ -115,7 +118,7 @@
 
             const todayIn  = allMovements.filter(m => m.movement_date?.startsWith(todayDate) && m.movement_type === "in").length;
             const todayOut = allMovements.filter(m => m.movement_date?.startsWith(todayDate) && m.movement_type === "out").length;
-            const monthAdj = allMovements.filter(m => m.movement_date?.startsWith(thisMonth) && m.movement_type === "adjustment").length;
+            const monthAdj = allMovements.filter(m => m.movement_date?.startsWith(thisMonth) && m.movement_category === "adjustment").length;
 
             setText("stockInToday",      todayIn);
             setText("stockOutToday",     todayOut);
@@ -194,7 +197,10 @@
             filteredMovements = allMovements.filter(m => {
                 const text = JSON.stringify(m).toLowerCase();
                 if (search && !text.includes(search)) return false;
-                if (typeFilter && m.movement_type !== typeFilter) return false;
+                if (typeFilter === "stock_in" && m.movement_type !== "in") return false;
+                if (typeFilter === "stock_out" && m.movement_type !== "out") return false;
+                if (typeFilter === "adjustment" && m.movement_category !== "adjustment") return false;
+                if (typeFilter === "transfer" && m.movement_category !== "transfer") return false;
                 if (itemId && String(m.item_id) !== itemId) return false;
                 const mDate = m.movement_date?.split("T")[0] || "";
                 if (dateFrom && mDate < dateFrom) return false;
@@ -226,13 +232,10 @@
             const data = {
                 item_id:       getVal("stock_in_item"),
                 quantity:      parseFloat(getVal("stock_in_quantity")) || 0,
-                unit_price:    parseFloat(getVal("stock_in_unit_price")) || 0,
-                source:        getVal("stock_in_source"),
-                movement_date: getVal("stock_in_date") || todayStr(),
-                supplier:      getVal("stock_in_supplier"),
-                reference_no:  getVal("stock_in_reference"),
-                notes:         getVal("stock_in_notes"),
-                movement_type: "in",
+                unit_cost:     parseFloat(getVal("stock_in_unit_price")) || 0,
+                transaction_date: getVal("stock_in_date") || todayStr(),
+                adjustment_type: "increase",
+                reason:        [getVal("stock_in_source"), getVal("stock_in_supplier"), getVal("stock_in_reference"), getVal("stock_in_notes")].filter(Boolean).join(" | "),
             };
             if (!data.item_id) { showToast("Please select an item", "warning"); return; }
             if (!data.quantity || data.quantity <= 0) { showToast("Quantity must be greater than 0", "warning"); return; }
@@ -243,8 +246,7 @@
                 await window.API.inventory.adjustStock(data);
                 showToast("Stock in recorded successfully");
                 bootstrap.Modal.getInstance(document.getElementById("stockInModal"))?.hide();
-                await this.loadMovements();
-                await this.loadItems();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to record stock in", "error");
             } finally {
@@ -272,10 +274,10 @@
             const data = {
                 item_id:       getVal("stock_out_item"),
                 quantity:      parseFloat(getVal("stock_out_quantity") || document.getElementById("stock_out_qty")?.value || "0") || 0,
+                transaction_date: getVal("stock_out_date") || todayStr(),
                 notes:         getVal("stock_out_notes") || "",
-                movement_date: getVal("stock_out_date") || todayStr(),
-                destination:   getVal("stock_out_destination") || "",
-                movement_type: "out",
+                adjustment_type: "decrease",
+                reason:        [getVal("stock_out_reason"), getVal("stock_out_destination"), getVal("stock_out_reference"), getVal("stock_out_notes")].filter(Boolean).join(" | "),
             };
             if (!data.item_id) { showToast("Please select an item", "warning"); return; }
             if (!data.quantity || data.quantity <= 0) { showToast("Quantity must be greater than 0", "warning"); return; }
@@ -289,8 +291,7 @@
                 await window.API.inventory.adjustStock(data);
                 showToast("Stock out recorded successfully");
                 bootstrap.Modal.getInstance(document.getElementById("stockOutModal"))?.hide();
-                await this.loadMovements();
-                await this.loadItems();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to record stock out", "error");
             } finally {

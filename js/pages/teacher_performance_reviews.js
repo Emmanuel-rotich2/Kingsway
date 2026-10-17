@@ -7,6 +7,7 @@ const TeacherPerformanceReviewsController = {
     reviews: [],
     teachers: [],
     subjects: [],
+    referenceCache: null,
     currentFilters: {
         search: '',
         filter: '',
@@ -29,7 +30,18 @@ const TeacherPerformanceReviewsController = {
         }
 
         this.bindEvents();
+        await this.loadReferencesComposed();
         await this.loadInitialData();
+    },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("academic", "teacher-performance-reviews-references");
+            this.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Teacher performance reviews Node view failed; using direct reads:", error);
+            this.referenceCache = null;
+        }
     },
 
     async loadInitialData() {
@@ -42,7 +54,7 @@ const TeacherPerformanceReviewsController = {
 
     async loadReviews() {
         try {
-            this.reviews = await window.API.staff.getPerformanceReviews({}) || [];
+            this.reviews = await (this.referenceCache?.reviews !== undefined ? this.referenceCache.reviews : window.API.staff.getPerformanceReviews({})) || [];
             this.render();
         } catch (error) {
             console.error('Error loading performance reviews:', error);
@@ -52,7 +64,7 @@ const TeacherPerformanceReviewsController = {
 
     async loadTeachers() {
         try {
-            this.teachers = await window.API.staff.getTeachers({}) || [];
+            this.teachers = await (this.referenceCache?.teachers !== undefined ? this.referenceCache.teachers : window.API.staff.getTeachers({})) || [];
         } catch (error) {
             console.error('Error loading teachers:', error);
         }
@@ -60,7 +72,7 @@ const TeacherPerformanceReviewsController = {
 
     async loadSubjects() {
         try {
-            this.subjects = await window.API.academic.listSubjects() || [];
+            this.subjects = await (this.referenceCache?.subjects !== undefined ? this.referenceCache.subjects : window.API.academic.listSubjects()) || [];
             this.populateFilterDropdown();
         } catch (error) {
             console.error('Error loading subjects:', error);
@@ -242,3 +254,4 @@ const TeacherPerformanceReviewsController = {
 
 document.addEventListener('DOMContentLoaded', () => TeacherPerformanceReviewsController.init());
 window.TeacherPerformanceReviewsController = TeacherPerformanceReviewsController;
+window.APIRealtime?.register?.("teacher_performance_reviews", { refresh: async () => { TeacherPerformanceReviewsController.referenceCache = null; await TeacherPerformanceReviewsController.loadReferencesComposed(); await TeacherPerformanceReviewsController.loadInitialData(); } }, ["staff", "academic"]);

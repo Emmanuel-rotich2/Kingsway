@@ -39,6 +39,7 @@ const CurriculumCBCController = (() => {
         attachListeners();
         await loadReferences();
         await loadData();
+        window.APIRealtime?.register?.('curriculum_cbc', { refresh: async () => { await loadTeacherScope(); await loadReferences(); await loadData(1); } }, ['academic']);
     }
 
     // Resolve the current user's curriculum assignment scope (server-authoritative).
@@ -78,9 +79,18 @@ const CurriculumCBCController = (() => {
 
     async function loadReferences() {
         try {
+            // Aggregate the two context-free reference reads through one
+            // authorized Node view; fall back to direct PHP reads on failure.
+            let composed = {};
+            try {
+                const response = await window.API.nodeViews.resolve('academic', 'curriculum-cbc-reference');
+                composed = response?.data?.sources || response?.sources || {};
+            } catch (err) {
+                console.warn('Curriculum CBC reference Node view failed; using direct reads:', err);
+            }
             const [las, strands] = await Promise.all([
-                window.API.apiCall('/academic/learning-areas', 'GET').catch(() => []),
-                window.API.apiCall('/academic/strands', 'GET').catch(() => []),
+                composed.learningAreas !== undefined ? composed.learningAreas : window.API.apiCall('/academic/learning-areas', 'GET').catch(() => []),
+                composed.strands !== undefined ? composed.strands : window.API.apiCall('/academic/strands', 'GET').catch(() => []),
             ]);
             refs.learningAreas = Array.isArray(las?.data || las) ? (las?.data || las) : [];
             refs.strands = Array.isArray(strands?.data || strands) ? (strands?.data || strands) : [];

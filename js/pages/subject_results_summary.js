@@ -15,6 +15,19 @@ const subjectResultsController = (() => {
         currentAcademicYear: null,
         currentTerm: null
     };
+    let referenceCache = null;
+
+    // Aggregate the context-free filter references through one authorized Node
+    // view; subjects (teacher-scoped) and results (filtered) stay direct.
+    async function loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve('academic', 'subject-results-references');
+            referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn('Subject results reference Node view failed; using direct reads:', error);
+            referenceCache = null;
+        }
+    }
 
     function toast(msg, type = 'info') {
         const el = document.getElementById('resultsToast');
@@ -61,7 +74,7 @@ const subjectResultsController = (() => {
 
     async function loadYears() {
         try {
-            const response = await apiCall('academic/years-list');
+            const response = referenceCache?.years ?? (await apiCall('academic/years-list'));
             state.years = response || [];
             const select = document.getElementById('yearFilter');
             if (select) {
@@ -81,7 +94,7 @@ const subjectResultsController = (() => {
 
     async function loadTerms() {
         try {
-            const response = await apiCall('academic/terms-list');
+            const response = referenceCache?.terms ?? (await apiCall('academic/terms-list'));
             state.terms = response || [];
             const select = document.getElementById('termFilter');
             if (select) {
@@ -123,7 +136,7 @@ const subjectResultsController = (() => {
 
     async function loadClasses() {
         try {
-            const response = await apiCall('academic/classes-list');
+            const response = referenceCache?.classes ?? (await apiCall('academic/classes-list'));
             state.classes = response || [];
             const select = document.getElementById('classFilter');
             if (select) {
@@ -381,8 +394,10 @@ const subjectResultsController = (() => {
         document.getElementById('resultsLoading').style.display = 'none';
         document.getElementById('resultsContent').style.display = 'block';
 
+        await loadReferencesComposed();
         await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]);
         bindEvents();
+        window.APIRealtime?.register?.('subject_results_summary', { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadYears(), loadTerms(), loadSubjects(), loadClasses()]); } }, ['academic']);
     }
 
     return { init };

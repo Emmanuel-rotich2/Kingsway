@@ -195,6 +195,13 @@ class PaymentsController extends BaseController
         return $this->handleResponse($this->api->processKcbMpesaExpressCallback($data, $headers));
     }
 
+    /** POST /api/payments/payhero-callback */
+    public function postPayheroCallback($id = null, $data = [], $segments = [])
+    {
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        return $this->handleResponse($this->api->processPayheroCallback($data, $headers));
+    }
+
     /**
      * POST /api/payments/mpesa-result
      * Generic M-Pesa result sink (transaction status, account balance,
@@ -484,6 +491,52 @@ class PaymentsController extends BaseController
             return $this->mpesaActionResult($guard, null);
         }
         return $this->mpesaActionResult($guard, $this->api->triggerKcbMpesaExpress($data));
+    }
+
+    /** POST /api/payments/payhero-status */
+    public function postPayheroStatus($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerPayheroStatus($data));
+    }
+
+    /** POST /api/payments/payhero-channel */
+    public function postPayheroChannel($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerPayheroChannelRegister($data));
+    }
+
+    /** GET /api/payments/payhero-channels */
+    public function getPayheroChannels($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard === 'unauthorized') {
+            return $this->unauthorized('Authentication required');
+        }
+        if ($guard === 'forbidden') {
+            return $this->forbidden('Insufficient permissions');
+        }
+        return $this->handleResponse($this->api->getPayheroChannels());
+    }
+
+    /** GET /api/payments/payhero-bank-paybills */
+    public function getPayheroBankPaybills($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard === 'unauthorized') {
+            return $this->unauthorized('Authentication required');
+        }
+        if ($guard === 'forbidden') {
+            return $this->forbidden('Insufficient permissions');
+        }
+        return $this->handleResponse($this->api->getPayheroBankPaybills());
     }
 
     public function postMpesaStkQuery($id = null, $data = [], $segments = [])

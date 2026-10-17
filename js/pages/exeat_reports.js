@@ -1,93 +1,107 @@
 /**
- * exeat_reports.js — Exeat Reports Controller (standalone page).
- * Leave request summary by status and dormitory.
+ * Exeat Reports Controller
+ * Student exeat/leave reports and tracking.
  */
 const exeatReportsController = {
-  state: { requests: [] },
+  state: { students: [], exeatTypes: [], statuses: [], report: null, referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-  fmtDate(v) {
-    if (!v) return '\u2014';
-    const dt = new Date(String(v).replace(' ', 'T'));
-    if (isNaN(dt)) return this.esc(v);
-    return dt.toLocaleDateString();
-  },
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
 
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.requests || r?.exeats || r || []); },
-
-  badgeClass(s) {
-    return { approved: 'bg-success', pending: 'bg-warning text-dark', rejected: 'bg-danger', checked_out: 'bg-primary', checked_in: 'bg-secondary' }[s] || 'bg-secondary';
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "exeat-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exeat Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async load() {
-    const body = document.getElementById('xrBody');
-    document.getElementById('xrKpis').innerHTML = '';
-    document.getElementById('xrStatusBody').innerHTML = '<tr><td colspan="3" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/boarding/exeats');
-      this.state.requests = this.norm(r);
+      const cache = this.state.referenceCache;
+      const [students, types, statuses] = await Promise.all([
+        cache?.students !== undefined ? cache.students : this.API('GET', '/api/students/get-all', null, { limit: '500', status: 'active' }),
+        cache?.exeatTypes !== undefined ? cache.exeatTypes : this.API('GET', '/api/attendance/permission-types'),
+        cache?.statuses !== undefined ? cache.statuses : this.API('GET', '/api/students/boarding-meta'),
+      ]);
+      const exeatTypesRaw = this.norm(types);
+      const statusesRaw = this.norm(statuses);
+      const exeatTypeList = Array.isArray(exeatTypesRaw) ? exeatTypesRaw : (exeatTypesRaw?.permission_types || []);
+      const statusList = Array.isArray(statusesRaw) ? statusesRaw : (statusesRaw?.exeat_statuses || []);
+      this.state.students = this.norm(students);
+      this.state.exeatTypes = exeatTypeList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
+      this.state.statuses = statusList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
+      this.populateFilters();
+      await this.loadReport();
+    } catch (e) { console.error(e); }
+  },
+
+  populateFilters() {
+    const s = document.getElementById('exStudent');
+    const t = document.getElementById('exType');
+    const st = document.getElementById('exStatus');
+    s.innerHTML = '<option value="">All Students</option>' + this.state.students.map(x => `<option value="${x.id}">${this.esc(x.admission_no || '')} ${this.esc(x.first_name || '')} ${this.esc(x.last_name || '')}</option>`).join('');
+    t.innerHTML = '<option value="">All Types</option>' + this.state.exeatTypes.map(x => `<option value="${x.id}">${this.esc(x.name || x.exeat_type)}</option>`).join('');
+    st.innerHTML = '<option value="">All Statuses</option>' + this.state.statuses.map(x => `<option value="${x.id}">${this.esc(x.name || x.status)}</option>`).join('');
+  },
+
+  async loadReport() {
+    const params = new URLSearchParams();
+    if (document.getElementById('exStudent')?.value) params.set('student_id', document.getElementById('exStudent').value);
+    if (document.getElementById('exType')?.value) params.set('type_id', document.getElementById('exType').value);
+    if (document.getElementById('exStatus')?.value) params.set('status_id', document.getElementById('exStatus').value);
+
+    try {
+      const response = await this.API('GET', '/api/reports/exeats', null, params);
+      this.state.report = response?.data || response || {};
       this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+    } catch (e) { console.error(e); }
   },
 
   render() {
-    const req = this.state.requests;
-    const total = req.length;
-    document.getElementById('xrKpis').innerHTML = [
-      { label: 'Total Leave Requests', value: total, icon: 'bi-list', color: 'primary' },
-      { label: 'Approved', value: req.filter(x => x.status === 'approved').length, icon: 'bi-check2-circle', color: 'success' },
-      { label: 'Pending', value: req.filter(x => x.status === 'pending').length, icon: 'bi-hourglass-split', color: 'warning' },
-      { label: 'Rejected', value: req.filter(x => x.status === 'rejected').length, icon: 'bi-x-circle', color: 'danger' },
-    ].map(k => `
-      <div class="col-xl-3 col-md-6"><div class="border rounded-3 p-3 bg-white">
-        <div class="d-flex justify-content-between align-items-center">
-          <div><div class="small text-muted">${this.esc(k.label)}</div><div class="fs-4 fw-bold">${this.esc(k.value)}</div></div>
-          <i class="bi ${k.icon} fs-3 text-${k.color}"></i>
-        </div>
-      </div></div>`).join('');
-
-    const groups = {};
-    req.forEach(x => { groups[x.status || 'unknown'] = (groups[x.status || 'unknown'] || 0) + 1; });
-    const statusBody = document.getElementById('xrStatusBody');
-    const keys = Object.keys(groups);
-    if (!keys.length) { statusBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No leave requests found.</td></tr>'; }
-    else {
-      statusBody.innerHTML = keys.map(k => `<tr>
-        <td><span class="badge ${this.badgeClass(k)}">${this.esc(k)}</span></td>
-        <td class="small fw-semibold">${this.esc(groups[k])}</td>
-        <td style="width: 200px;">
-          <div class="progress" style="height: 8px;"><div class="progress-bar" style="width:${this.esc(total ? (groups[k] / total) * 100 : 0)}%"></div></div>
-        </td>
-      </tr>`).join('');
-    }
-
-    const body = document.getElementById('xrBody');
-    if (!req.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No leave requests found.</td></tr>'; return; }
-    body.innerHTML = req.slice(0, 100).map(r => `<tr>
-      <td class="small">${this.esc(r.admission_no || '\u2014')}</td>
-      <td class="small fw-semibold">${this.esc(r.student_name || '\u2014')}</td>
-      <td class="small">${this.esc(r.dormitory_name || '\u2014')}</td>
-      <td class="small">${this.esc(r.permission_type_name || '\u2014')}</td>
-      <td class="small">${this.fmtDate(r.start_date)}</td>
-      <td class="small">${this.fmtDate(r.end_date)}</td>
-      <td><span class="badge ${this.badgeClass(r.status)}">${this.esc(r.status || '\u2014')}</span></td>
+    const r = this.state.report;
+    const body = document.getElementById('exBody');
+    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No exeat records.</td></tr>'; return; }
+    body.innerHTML = r.map(x => `<tr>
+      <td class="small">${this.esc(x.admission_no || '—')}</td>
+      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
+      <td class="small">${this.esc(x.exeat_type || '—')}</td>
+      <td class="small">${this.esc(x.leave_at || '—')}</td>
+      <td class="small">${this.esc(x.expected_return || '—')}</td>
+      <td class="small"><span class="badge bg-${x.status === 'approved' ? 'success' : x.status === 'pending' ? 'warning' : 'danger'}">${this.esc(x.status || '—')}</span></td>
+      <td class="small">${this.esc(x.destination || '—')}</td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="exeatReportsController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "exeat-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exeat Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("exeat_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "students"]);
   },
 };
 
 window.exeatReportsController = exeatReportsController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => exeatReportsController.init().catch(() => {}));
-} else {
-  exeatReportsController.init().catch(() => {});
-}
+document.addEventListener('DOMContentLoaded', () => exeatReportsController.init().catch(() => {}));

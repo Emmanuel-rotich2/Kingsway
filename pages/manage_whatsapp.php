@@ -4,7 +4,37 @@
  * HTML structure only - logic in js/pages/manage_whatsapp.js
  */
 ?>
-<div class="card shadow-sm">
+<style>
+  .kw-wa {
+    --wa-green: #008069;
+    --kw-wa-hdr: #008069;
+    --wa-teal: #00a884;
+    --wa-bg: #efeae2;
+    --kw-wa-border: #d1d7db;
+    border: none;
+    overflow: hidden;
+  }
+  .kw-wa .kw-wa-header {
+    background: #008069;
+    color: #fff;
+    border-radius: 12px 12px 0 0;
+    padding: 14px 18px;
+  }
+  .kw-wa .kw-wa-header h4 { font-weight: 500; }
+  .kw-wa .kw-wa-body { background: #f0f2f5; }
+  .kw-wa .kw-wa-stat { border: none; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(11,20,26,.1); }
+  .kw-wa .kw-wa-stat .card-body { padding: .85rem 1rem; }
+  .kw-wa .kw-wa-stat h3 { font-weight: 600; }
+  .kw-wa .form-control, .kw-wa .form-select { border-radius: 8px; }
+  .kw-wa #messagesTable thead th { background: #f0f2f5; color: #54656f; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #e9edef; }
+  .kw-wa #messagesTable td { vertical-align: middle; }
+  .kw-wa .btn-success { background-color: #008069; border-color: #008069; }
+  .kw-wa .btn-outline-success { color: #008069; border-color: #008069; }
+  .kw-wa .kw-wa-search .form-control,
+  .kw-wa .kw-wa-search .form-select { border-radius: 20px; }
+  .kw-wa-compose textarea#messageBody { background: #efeae2; border-radius: 12px; }
+</style>
+<div class="card shadow-sm kw-wa">
     <div class="card-header bg-gradient bg-success text-white">
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-whatsapp"></i> WhatsApp Messaging</h4>
@@ -54,7 +84,7 @@
         </div>
 
         <!-- Filters -->
-        <div class="row mb-3 g-2 align-items-end">
+        <div class="row mb-3 g-2 align-items-end kw-wa-search">
             <div class="col-md-3">
                 <input type="text" class="form-control form-control-sm" id="searchFilter" placeholder="Search messages...">
             </div>
@@ -90,11 +120,15 @@
                     <option value="students">Students</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
                 <input type="date" class="form-control form-control-sm" id="dateFilter">
             </div>
-            <div class="col-md-1">
-                <button class="btn btn-outline-secondary btn-sm w-100" id="clearFiltersBtn" title="Clear filters"><i class="bi bi-x-circle"></i></button>
+            <div class="col-md-2">
+                <div class="btn-group btn-group-sm w-100">
+                    <button class="btn btn-outline-secondary" id="clearFiltersBtn" title="Clear filters"><i class="bi bi-x-circle"></i></button>
+                    <button class="btn btn-outline-success" id="exportWaBtn" title="Export CSV"><i class="bi bi-filetype-csv"></i> CSV</button>
+                    <button class="btn btn-outline-dark" id="printWaBtn" title="Print"><i class="bi bi-printer"></i></button>
+                </div>
             </div>
         </div>
 
@@ -125,7 +159,7 @@
 </div>
 
 <!-- Compose Modal -->
-<div class="modal fade" id="composeModal" tabindex="-1">
+<div class="modal fade kw-wa-compose" id="composeModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
@@ -167,8 +201,14 @@
                                     <option value="selected_parents">Selected Parents</option>
                                     <option value="selected_vendors">Selected Vendors</option>
                                     <option value="all_vendors">All Vendors</option>
+                                    <option value="custom_selection">Custom Selection (mix learners, parents, staff, classes…)</option>
                                     <option value="custom_numbers">Custom Numbers</option>
                                 </select>
+                            </div>
+
+                            <div id="recipientPickerDiv" class="mb-3" style="display:none;">
+                                <label class="form-label">Select Recipients</label>
+                                <div id="recipientPicker"></div>
                             </div>
 
                             <div id="recipientSelector" class="mb-3" style="display:none;">
@@ -220,7 +260,13 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label fw-semibold">Message <span class="text-danger">*</span></label>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <label class="form-label fw-semibold mb-0">Message <span class="text-danger">*</span></label>
+                                    <div class="dropdown">
+                                        <button class="btn btn-link btn-sm p-0 dropdown-toggle" type="button" data-bs-toggle="dropdown">Insert variable</button>
+                                        <ul class="dropdown-menu dropdown-menu-end" id="messageVariableMenu"></ul>
+                                    </div>
+                                </div>
                                 <textarea class="form-control" id="messageBody" rows="6" required></textarea>
                                 <small class="text-muted"><span id="charCount">0</span> characters</small>
                             </div>

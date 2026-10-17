@@ -7,8 +7,10 @@ use App\API\Services\AuthSessionService;
 use App\API\Services\OTPDeliveryService;
 use App\API\Services\NotificationService;
 use App\API\Services\DownloadService;
+use App\API\Services\payments\CollectionFallbackService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbMpesaExpressService;
+use App\API\Services\payments\PayheroPaymentService;
 use App\API\Services\payments\FinancialAccountService;
 use App\API\Services\ServiceContractBroker;
 use App\API\Services\ReadReplicaService;
@@ -2383,51 +2385,49 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Amount exceeds outstanding balance', 400);
             }
 
-            // Provider is a system decision, not a parent choice. The parent
-            // portal pays fees through KCB Buni M-Pesa Express by default;
-            // an explicit override is still honoured for staff-surface callers.
-            $provider = strtolower(trim((string) ($data['provider'] ?? 'buni')));
-            if (!in_array($provider, ['daraja', 'buni'], true)) {
+            // Provider is a system decision, not a parent choice. Rails are
+            // DB-driven (payment_collection_routes.priority) and attempted in
+            // order: Buni first, PayHero next, Daraja last — failing over only
+            // while no provider has accepted the request. An explicit override
+            // is still honoured for staff-surface callers.
+            $provider = strtolower(trim((string) ($data['provider'] ?? 'auto')));
+            if (!in_array($provider, ['auto', 'buni', 'daraja', 'payhero'], true)) {
                 return $this->errorResponse('Unsupported payment provider', 400);
             }
 
-            if ($provider === 'buni') {
-                $buniAccount = (new FinancialAccountService($this->db))->requireFor(0, 'fees', 'buni_ipn');
-                $result = (new KcbMpesaExpressService())->initiate([
-                    'phone_number' => $phone,
-                    'amount' => $amount,
-                    'invoice_number' => $student['admission_no'],
-                    'description' => 'School fees',
-                    'org_short_code' => (string)$buniAccount['account_identifier'],
-                    'callback_url' => rtrim((string) (defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : BASE_URL), '/') . '/api/payments/kcb-mpesa-express-callback',
-                ]);
-                if (!empty($result['accepted'])) {
-                    return $this->successResponse([
-                        'provider' => 'buni',
-                        'checkout_request_id' => $result['checkout_request_id'] ?? null,
-                        'merchant_request_id' => $result['merchant_request_id'] ?? null,
-                        'message' => 'KCB Buni M-Pesa prompt sent. Check your phone and enter your PIN.',
-                    ]);
-                }
-                return $this->errorResponse($result['message'] ?? 'Failed to initiate Buni payment', 400);
-            }
+            $result = (new CollectionFallbackService($this->db))->initiate('fees', [
+                'amount' => $amount,
+                'phone' => $phone,
+                'reference' => $student['admission_no'],
+                'customer_name' => trim((string) ($parent['name'] ?? '')),
+                'description' => 'School fees',
+                'provider_code' => ['buni' => 'kcb_buni', 'daraja' => 'mpesa_daraja', 'payhero' => 'payhero'][$provider] ?? '',
+            ]);
 
-            $result = (new MpesaPaymentService())->initiateSTKPush(
-                $student['admission_no'], $phone, $amount,
-                'Parent Portal Payment - ' . $student['admission_no']
-            );
+            if (!empty($result['accepted'])) {
+                $providerLabels = [
+                    'kcb_buni' => 'buni',
+                    'payhero' => 'payhero',
+                    'mpesa_daraja' => 'daraja',
+                ];
+                $messages = [
+                    'kcb_buni' => 'KCB Buni M-Pesa prompt sent. Check your phone and enter your PIN.',
+                    'payhero' => 'M-Pesa prompt sent. Check your phone and enter your PIN.',
+                    'mpesa_daraja' => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
+                ];
+                $providerResult = $result['result']['provider'] ?? [];
 
-            if (!empty($result['success'])) {
-                $resultData = $result['data'] ?? [];
                 return $this->successResponse([
-                    'checkout_request_id' => $resultData['checkout_request_id'] ?? null,
-                    'merchant_request_id'  => $resultData['merchant_request_id'] ?? null,
-                    'provider'             => 'daraja',
-                    'message'             => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
+                    'provider' => $providerLabels[$result['provider_code']] ?? $result['provider_code'],
+                    'checkout_request_id' => $result['request_id'],
+                    'merchant_request_id' => $providerResult['merchant_request_id'] ?? null,
+                    'reference' => $result['provider_code'] === 'payhero' ? $result['request_id'] : null,
+                    'fallback_used' => !empty($result['fallback_used']),
+                    'message' => $messages[$result['provider_code']] ?? 'Payment prompt sent.',
                 ]);
             }
 
-            return $this->errorResponse($result['message'] ?? 'Failed to initiate M-Pesa payment', 400);
+            return $this->errorResponse($result['message'] ?: 'Failed to initiate M-Pesa payment', 400);
         } catch (\RuntimeException $e) {
             // FinancialAccountService::requireFor() raises RuntimeException when
             // no verified school account covers this purpose+channel yet. That
@@ -2520,7 +2520,7 @@ class ParentPortalManager extends BaseAPI
                 );
                 $intent = $transport->initiate([
                     'entitlement_id' => (int) $entitlement['id'],
-                    'channel' => 'daraja_mpesa',
+                    'channel' => 'auto',
                     'amount' => $amount,
                     'phone' => $phone,
                     'financial_account_id' => 0,
@@ -2534,7 +2534,7 @@ class ParentPortalManager extends BaseAPI
                         'status' => $intent['status'] ?? null,
                         'reference' => $intent['idempotency_reference'] ?? null,
                         'provider_request_id' => $intent['provider_request_id'] ?? null,
-                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
+                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['provider_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
                         'message' => 'M-Pesa STK Push sent. Check your phone and enter your PIN.',
                     ],
                 ], 'Transport payment initiated');
@@ -2547,12 +2547,15 @@ class ParentPortalManager extends BaseAPI
                     [],
                     $this->db
                 );
+                // Uniforms are paid into the school's Co-operative bank
+                // account: rails are DB-driven (priority puts PayHero first,
+                // Daraja follows) and fail over only at initiation time.
                 $intent = $uniforms->initiateAccumulated([
                     'student_id' => $studentId,
                     'parent_id' => $this->parentId,
                     'amount' => $amount,
                     'phone' => $phone,
-                    'channel' => 'daraja_mpesa',
+                    'channel' => 'auto',
                     'financial_account_id' => 0,
                 ], (int) $this->user_id);
 
@@ -2564,7 +2567,7 @@ class ParentPortalManager extends BaseAPI
                         'status' => $intent['status'] ?? null,
                         'reference' => $intent['idempotency_reference'] ?? null,
                         'provider_request_id' => $intent['provider_request_id'] ?? null,
-                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
+                        'checkout_request_id' => $intent['checkout_request_id'] ?? $intent['provider_request_id'] ?? $intent['data']['checkout_request_id'] ?? null,
                         'message' => 'M-Pesa STK Push sent for the uniform balance. Check your phone and enter your PIN.',
                     ],
                 ], 'Uniform balance payment initiated');
@@ -2786,6 +2789,9 @@ class ParentPortalManager extends BaseAPI
         if (str_contains($haystack, 'must be selected')) {
             return 'No collection account is configured for this payment type yet.';
         }
+        if (str_contains($haystack, 'no active online collection rail')) {
+            return 'No collection account is configured for this payment type yet.';
+        }
         return 'The payment could not be initiated. Please review your phone number and amount.';
     }
 
@@ -2805,12 +2811,114 @@ class ParentPortalManager extends BaseAPI
             $mpesa = new MpesaPaymentService();
             $status = $mpesa->queryTransactionStatus($checkoutRequestId);
             $raw = $status['data'] ?? null;
-
-            return $this->successResponse($raw);
+            if (!empty($raw)) {
+                return $this->successResponse($raw);
+            }
         } catch (Exception $e) {
-            \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return $this->errorResponse('An internal error occurred.', 500);
+            // The id may belong to PayHero (its reference doubles as the
+            // polling id); fall through to the PayHero lookup below.
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] Daraja status lookup failed: ' . $e->getMessage());
         }
+
+        try {
+            $payhero = new PayheroPaymentService($this->db);
+            if ($payhero->isConfigured()) {
+                $status = $payhero->queryStatus($checkoutRequestId);
+                if (!empty($status['ok'])) {
+                    $mapped = [
+                        'provider' => 'payhero',
+                        'status' => strtolower((string) ($status['status'] ?? '')),
+                        'reference' => $status['reference'] ?? $checkoutRequestId,
+                    ];
+                    if (!empty($status['successful'])) {
+                        return $this->successResponse(array_merge($mapped, [
+                            'ResultCode' => '0',
+                            'ResultDesc' => 'Payment confirmed',
+                        ]));
+                    }
+                    if (!empty($status['failed'])) {
+                        return $this->successResponse(array_merge($mapped, [
+                            'ResultCode' => '1',
+                            'ResultDesc' => 'Payment failed or was cancelled',
+                        ]));
+                    }
+                    return $this->successResponse($mapped);
+                }
+            }
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] PayHero status lookup failed: ' . $e->getMessage());
+        }
+
+        // KCB Buni has no public status API in this integration; its outcome
+        // arrives via the callback. Read the local provider records updated by
+        // that callback so the portal can stop polling as soon as money landed.
+        try {
+            $local = $this->localPaymentStatus($checkoutRequestId);
+            if ($local !== null) {
+                return $this->successResponse($local);
+            }
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] Local status lookup failed: ' . $e->getMessage());
+        }
+
+        return $this->errorResponse('An internal error occurred.', 500);
+    }
+
+    /**
+     * Provider records updated by callbacks: transport/uniform intents keyed
+     * by provider_request_id, and Daraja STK rows keyed by checkout_request_id.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function localPaymentStatus(string $checkoutRequestId): ?array
+    {
+        if ($checkoutRequestId === '') {
+            return null;
+        }
+
+        $terminal = ['confirmed', 'failed', 'cancelled', 'reversed'];
+
+        foreach (['transport_payment_intents', 'uniform_payment_intents'] as $table) {
+            $stmt = $this->db->prepare("SELECT status, provider_transaction_id FROM $table WHERE provider_request_id = ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$checkoutRequestId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                continue;
+            }
+            $status = strtolower((string) $row['status']);
+            $mapped = [
+                'provider' => 'buni',
+                'status' => $status,
+                'reference' => $row['provider_transaction_id'] ?: $checkoutRequestId,
+            ];
+            if ($status === 'confirmed') {
+                return array_merge($mapped, ['ResultCode' => '0', 'ResultDesc' => 'Payment confirmed']);
+            }
+            if (in_array($status, $terminal, true)) {
+                return array_merge($mapped, ['ResultCode' => '1', 'ResultDesc' => 'Payment failed or was cancelled']);
+            }
+            return $mapped;
+        }
+
+        $stmt = $this->db->prepare('SELECT status, mpesa_code FROM mpesa_transactions WHERE checkout_request_id = ? ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$checkoutRequestId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $status = strtolower((string) $row['status']);
+        $mapped = [
+            'provider' => 'daraja',
+            'status' => $status,
+            'reference' => $row['mpesa_code'] ?: $checkoutRequestId,
+        ];
+        if (in_array($status, ['processed', 'reconciled'], true)) {
+            return array_merge($mapped, ['ResultCode' => '0', 'ResultDesc' => 'Payment confirmed']);
+        }
+        if ($status === 'failed') {
+            return array_merge($mapped, ['ResultCode' => '1', 'ResultDesc' => 'Payment failed or was cancelled']);
+        }
+        return $mapped;
     }
 
     // ========================================================================

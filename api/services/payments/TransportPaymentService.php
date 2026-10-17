@@ -28,23 +28,39 @@ class TransportPaymentService
         $entitlementId = (int)($data['entitlement_id'] ?? 0);
         $channel = strtolower(trim((string)($data['channel'] ?? '')));
         $amount = (float)($data['amount'] ?? 0);
-        $allowed = ['daraja_mpesa', 'buni_mpesa', 'c2b_mpesa', 'bank_transfer', 'cash', 'cheque'];
+        $allowed = ['auto', 'daraja_mpesa', 'buni_mpesa', 'c2b_mpesa', 'bank_transfer', 'cash', 'cheque'];
         if (!$entitlementId || !in_array($channel, $allowed, true) || $amount <= 0) {
             throw new RuntimeException('entitlement_id, a valid channel and a positive amount are required');
         }
         $e = $this->entitlements->getEntitlement($entitlementId);
         if (!$e) throw new RuntimeException('Transport entitlement not found');
-        $account = $this->accounts->requireFor((int)($data['financial_account_id'] ?? 0), 'transport', $this->channelCode($channel));
+        $financialAccountId = (int)($data['financial_account_id'] ?? 0);
         $reference = trim((string)($data['idempotency_reference'] ?? ''));
         if ($reference === '') $reference = 'TRN-' . date('YmdHis') . '-' . bin2hex(random_bytes(4));
         $phone = preg_replace('/\D+/', '', (string)($data['phone_number'] ?? $data['phone'] ?? ''));
-        $status = in_array($channel, ['cash', 'bank_transfer', 'cheque'], true) ? 'manual_review' : 'pending';
+
+        // `auto` walks the DB-driven rail list (priority order, e.g. Buni ->
+        // PayHero -> Daraja) and fails over only at initiation time; explicit
+        // channels keep their single configured account.
+        $candidates = [];
+        if ($channel === 'auto') {
+            $candidates = (new CollectionRailResolver($this->db))->candidates('transport', $financialAccountId);
+            if ($candidates === []) throw new RuntimeException('No active online collection rail is configured for transport.');
+            $intentChannel = $this->intentChannel($candidates[0]['provider_code']);
+            $accountId = $candidates[0]['financial_account_id'];
+            $status = 'pending';
+        } else {
+            $account = $this->accounts->requireFor($financialAccountId, 'transport', $this->channelCode($channel));
+            $intentChannel = $channel;
+            $accountId = (int)$account['id'];
+            $status = in_array($channel, ['cash', 'bank_transfer', 'cheque'], true) ? 'manual_review' : 'pending';
+        }
 
         $stmt = $this->db->prepare("INSERT INTO transport_payment_intents
             (entitlement_id,student_id,financial_account_id,channel,amount,phone_number,idempotency_reference,status,request_payload,created_by)
             VALUES (?,?,?,?,?,?,?,?,?, ?)");
         $payload = ['channel' => $channel, 'amount' => $amount, 'phone_number' => $phone ?: null];
-        $stmt->execute([$entitlementId, (int)$e['student_id'], (int)$account['id'], $channel, $amount, $phone ?: null, $reference, $status, json_encode($payload), $userId]);
+        $stmt->execute([$entitlementId, (int)$e['student_id'], $accountId, $intentChannel, $amount, $phone ?: null, $reference, $status, json_encode($payload), $userId]);
         $intentId = (int)$this->db->lastInsertId();
         try {
             $routingReference='TRN-' . $intentId;
@@ -52,8 +68,25 @@ class TransportPaymentService
                 ->execute([$routingReference, (new ReferenceNormalizer())->reference($routingReference), 'transport', (int)$e['student_id'], $intentId]);
         } catch (\Throwable $routingError) { \App\API\Services\Logger::legacyError('[TransportPaymentService] routing reference registration failed: '.$routingError->getMessage()); }
 
-        if ($channel === 'daraja_mpesa') {
-            $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$account['id']);
+        if ($channel === 'auto') {
+            $result = (new CollectionFallbackService($this->db))->initiate('transport', [
+                'amount' => $amount,
+                'phone' => $phone,
+                'reference' => 'TRN-' . $intentId,
+                'description' => 'Transport payment',
+                'financial_account_id' => $financialAccountId,
+            ]);
+            $this->updateProviderResult($intentId, $result, $result['request_id']);
+            if (empty($result['accepted'])) {
+                throw new RuntimeException($result['message'] ?: 'No configured collection rail accepted the transport payment.');
+            }
+            // The rail that accepted owns the money: pin the intent to its
+            // channel + receiving account so the callback reconciles there.
+            $acceptedChannel = $this->intentChannel((string)$result['provider_code']);
+            $this->db->prepare('UPDATE transport_payment_intents SET channel=?, financial_account_id=? WHERE id=?')
+                ->execute([$acceptedChannel, (int)$result['financial_account_id'], $intentId]);
+        } elseif ($channel === 'daraja_mpesa') {
+            $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$accountId);
             $this->updateProviderResult($intentId, $result, $result['data']['checkout_request_id'] ?? $result['checkout_request_id'] ?? null);
         } elseif ($channel === 'buni_mpesa') {
             $base = defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : (defined('BASE_URL') ? BASE_URL : '');
@@ -69,6 +102,11 @@ class TransportPaymentService
             $this->updateProviderResult($intentId, $result, $requestId);
         }
         return $this->getIntent($intentId);
+    }
+
+    private function intentChannel(string $providerCode): string
+    {
+        return ['kcb_buni' => 'buni_mpesa', 'payhero' => 'payhero_mpesa', 'mpesa_daraja' => 'daraja_mpesa'][$providerCode] ?? $providerCode;
     }
 
     public function confirmManual(int $intentId, int $userId): array

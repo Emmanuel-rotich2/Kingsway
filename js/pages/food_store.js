@@ -12,6 +12,17 @@ const FoodStoreController = {
     categories: [],
     locations: [],
     suppliers: [],
+    referenceCache: null,
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-store-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Store Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async init() {
@@ -21,8 +32,17 @@ const FoodStoreController = {
       return;
     }
     this.bindEvents();
+    await this.loadReferencesComposed();
     await this.loadReferenceData();
     await this.loadData();
+    window.APIRealtime?.register?.("food_store", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.loadReferenceData();
+        await this.loadData();
+      }
+    }, ["inventory"]);
   },
 
   bindEvents() {
@@ -55,20 +75,18 @@ const FoodStoreController = {
 
   async loadReferenceData() {
     try {
-      const cat =
-        (await window.API.inventory.listCategories().catch(() => null)) || {};
+      const cache = this.state.referenceCache;
+      const cat = cache?.categories !== undefined ? cache.categories : (await window.API.inventory.listCategories().catch(() => null)) || {};
       this.state.categories = Array.isArray(cat.categories) ? cat.categories : [];
 
-      const loc =
-        (await window.API.inventory
-          .listLocations({ limit: 200 })
-          .catch(() => null)) || {};
+      const loc = cache?.locations !== undefined ? cache.locations : (await window.API.inventory
+        .listLocations({ limit: 200 })
+        .catch(() => null)) || {};
       this.state.locations = Array.isArray(loc.locations) ? loc.locations : [];
 
-      const sup =
-        (await window.API.inventory
-          .listSuppliers({ limit: 200 })
-          .catch(() => null)) || {};
+      const sup = cache?.suppliers !== undefined ? cache.suppliers : (await window.API.inventory
+        .listSuppliers({ limit: 200 })
+        .catch(() => null)) || {};
       this.state.suppliers = Array.isArray(sup.suppliers) ? sup.suppliers : [];
 
       this.populateReferenceSelects();
@@ -130,10 +148,10 @@ const FoodStoreController = {
   async loadData() {
     try {
       this.showTableLoading();
-      const res =
-        (await window.API.inventory
-          .listItems({ limit: 200, status: "active" })
-          .catch(() => null)) || {};
+      const cache = this.state.referenceCache;
+      const res = cache?.items !== undefined ? cache.items : (await window.API.inventory
+        .listItems({ limit: 200, status: "active" })
+        .catch(() => null)) || {};
       const rows = Array.isArray(res.items) ? res.items : [];
       this.state.allItems = rows.map((i) => this.mapItem(i));
       this.state.items = [...this.state.allItems];
@@ -474,6 +492,35 @@ const FoodStoreController = {
     alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
     document.body.appendChild(alert);
     setTimeout(() => alert.remove(), 4000);
+  },
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-store-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Store Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
+  async init() {
+    await window.AuthContext?.ready();
+    if (!window.AuthContext?.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
+      return;
+    }
+    this.bindEvents();
+    await this.loadReferencesComposed();
+    await this.loadReferenceData();
+    await this.loadData();
+    window.APIRealtime?.register?.("food_store", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.loadReferenceData();
+        await this.loadData();
+      }
+    }, ["inventory"]);
   },
 };
 

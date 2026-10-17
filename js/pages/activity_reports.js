@@ -1,91 +1,90 @@
 /**
- * activity_reports.js — Activity Reports Controller (standalone page).
- * Co-curricular activity analytics.
+ * Activity Reports Controller
+ * Shows participation, attendance, and engagement reports for activities.
+ * All reads through Node gateway for pooling, caching, aggregation.
  */
 const activityReportsController = {
-  state: { stats: {}, upcoming: [], list: [] },
+  state: { activities: [], participants: [], types: [], referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.upcoming || r?.activities || r?.list || r || []); },
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.activities || r || []); },
 
-  badgeClass(s) {
-    return { planned: 'bg-secondary', ongoing: 'bg-primary', completed: 'bg-success', cancelled: 'bg-danger' }[s] || 'bg-secondary';
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "activity-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Activity Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async load() {
-    const ub = document.getElementById('arUpcoming');
-    const lb = document.getElementById('arList');
-    document.getElementById('arKpis').innerHTML = '';
-    ub.innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-    lb.innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    const body = document.getElementById('arBody');
+    body.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const [statsRes, upRes, listRes] = await Promise.all([
-        this.API('GET', '/activities/statistics/get').catch(() => ({})),
-        this.API('GET', '/activities/upcoming/list', null, { limit: 10 }).catch(() => []),
-        this.API('GET', '/activities', null, { limit: 100 }).catch(() => []),
+      const cache = this.state.referenceCache;
+      const [acts, parts, types] = await Promise.all([
+        cache?.activities !== undefined ? cache.activities : this.API('GET', '/api/activities/list'),
+        cache?.participants !== undefined ? cache.participants : this.API('GET', '/api/activities/participants-list'),
+        cache?.types !== undefined ? cache.types : this.API('GET', '/api/activities/categories-list'),
       ]);
-      this.state.stats = statsRes?.data || statsRes || {};
-      this.state.upcoming = this.norm(upRes);
-      this.state.list = this.norm(listRes);
+      this.state.activities = this.norm(acts);
+      this.state.participants = this.norm(parts);
+      this.state.types = this.norm(types);
       this.render();
-    } catch (e) { ub.innerHTML = `<tr><td colspan="5" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+    } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
   },
 
   render() {
-    const s = this.state.stats;
-    const kpis = [
-      { label: 'Total Activities', value: s.total_activities ?? '—', icon: 'bi-calendar-event', color: 'primary' },
-      { label: 'Planned', value: s.planned ?? '—', icon: 'bi-hourglass-split', color: 'secondary' },
-      { label: 'Ongoing', value: s.ongoing ?? '—', icon: 'bi-play-circle', color: 'info' },
-      { label: 'Completed', value: s.completed ?? '—', icon: 'bi-check2-circle', color: 'success' },
-      { label: 'Cancelled', value: s.cancelled ?? '—', icon: 'bi-x-circle', color: 'danger' },
-    ];
-    document.getElementById('arKpis').innerHTML = kpis.map(k => `
-      <div class="col-xl-3 col-md-6"><div class="border rounded-3 p-3 bg-white">
-        <div class="d-flex justify-content-between align-items-center">
-          <div><div class="small text-muted">${this.esc(k.label)}</div><div class="fs-4 fw-bold">${this.esc(k.value)}</div></div>
-          <i class="bi ${k.icon} fs-3 text-${k.color}"></i>
-        </div>
-      </div></div>`).join('');
+    const acts = this.state.activities;
+    const stats = document.getElementById('arStats');
+    stats.innerHTML = [
+      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Activities</div><div class="fs-4 fw-bold">${this.esc(this.state.activities.length)}</div></div></div>`,
+      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Participants</div><div class="fs-4 fw-bold">${this.esc(this.state.participants.length)}</div></div></div>`,
+      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Activity Types</div><div class="fs-4 fw-bold">${this.esc(this.state.types.length)}</div></div></div>`,
+      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Upcoming</div><div class="fs-4 fw-bold text-primary">${this.esc(this.state.activities.filter(a => new Date(a.start_date || a.date) >= new Date()).length)}</div></div></div>`,
+    ].join('');
 
-    const ub = document.getElementById('arUpcoming');
-    if (!this.state.upcoming.length) { ub.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No upcoming activities.</td></tr>'; }
-    else {
-      ub.innerHTML = this.state.upcoming.map(a => `<tr>
-        <td class="small fw-semibold">${this.esc(a.title || '\u2014')}</td>
-        <td class="small">${this.esc(a.category_name || '\u2014')}</td>
-        <td class="small">${this.esc(a.start_date || '\u2014')}</td>
-        <td class="small">${a.days_until_start != null ? this.esc(a.days_until_start) + 'd' : '\u2014'}</td>
-        <td class="small text-center">${this.esc(a.participant_count ?? 0)}</td>
-      </tr>`).join('');
-    }
+    const body = document.getElementById('arBody');
+    if (!this.state.activities.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No activities found.</td></tr>'; return; }
+    body.innerHTML = this.state.activities.map(a => `<tr>
+      <td class="small fw-semibold">${this.esc(a.name || `#${a.id}`)}</td>
+      <td class="small text-muted">${this.esc(a.type_name || '—')}</td>
+      <td class="small">${this.esc(a.start_date ? new Date(a.start_date).toLocaleDateString() : '—')}</td>
+      <td class="small">${this.esc(a.end_date ? new Date(a.end_date).toLocaleDateString() : '—')}</td>
+      <td class="small text-center">${this.esc(a.participant_count || 0)}</td>
+      <td class="small"><span class="badge bg-${a.status === 'active' ? 'success' : a.status === 'completed' ? 'secondary' : 'warning'}">${this.esc(a.status || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="activityReportsController.viewDetails(${a.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
 
-    const lb = document.getElementById('arList');
-    if (!this.state.list.length) { lb.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No activities found.</td></tr>'; }
-    else {
-      lb.innerHTML = this.state.list.map(a => `<tr>
-        <td class="small fw-semibold">${this.esc(a.title || '\u2014')}</td>
-        <td class="small">${this.esc(a.category_name || '\u2014')}</td>
-        <td><span class="badge ${this.badgeClass(a.status)}">${this.esc(a.status || '\u2014')}</span></td>
-        <td class="small text-center">${this.esc(a.active_participants ?? a.participant_count ?? 0)}</td>
-        <td class="small">${this.esc(a.start_date || '\u2014')}</td>
-      </tr>`).join('');
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "activity-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Activity Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
   },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("activity_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "activities"]);
   },
 };
 
 window.activityReportsController = activityReportsController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => activityReportsController.init().catch(() => {}));
-} else {
-  activityReportsController.init().catch(() => {});
-}
+document.addEventListener('DOMContentLoaded', () => activityReportsController.init().catch(() => {}));

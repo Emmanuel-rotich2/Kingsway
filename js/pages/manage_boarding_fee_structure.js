@@ -3,7 +3,7 @@
  * Accountant manages grade/student-type fee amounts per year and term.
  */
 const manageBoardingFeeStructureController = {
-  state: { bundles: [], years: [], levels: [], types: [], terms: [], classes: [], editing: null, currentTerms: [], rows: [] },
+  state: { bundles: [], years: [], levels: [], types: [], terms: [], classes: [], editing: null, currentTerms: [], rows: [], referenceCache: null },
   TYPE_NAME: 'BOARD',
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
@@ -41,14 +41,25 @@ const manageBoardingFeeStructureController = {
     return t ? Number(t.id) : null;
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "manage-boarding-fee-structure-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Manage boarding fee structure Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async loadReference() {
     try {
+      const cache = this.state.referenceCache;
       const [years, levels, types, terms, classes] = await Promise.all([
-        this.API('GET', 'academic/years/list'),
-        this.API('GET', 'academic/levels-list'),
-        this.API('GET', 'finance/student-types-list'),
-        this.API('GET', 'academic/terms-list'),
-        this.API('GET', 'academic/classes-list', null, { limit: 200 }),
+        cache?.years !== undefined ? cache.years : this.API('GET', 'academic/years/list'),
+        cache?.levels !== undefined ? cache.levels : this.API('GET', 'academic/levels-list'),
+        cache?.studentTypes !== undefined ? cache.studentTypes : this.API('GET', 'finance/student-types-list'),
+        cache?.terms !== undefined ? cache.terms : this.API('GET', 'academic/terms-list'),
+        cache?.classes !== undefined ? cache.classes : this.API('GET', 'academic/classes-list', null, { limit: 200 }),
       ]);
       this.state.years = this.norm(years);
       this.state.levels = this.norm(levels);
@@ -208,8 +219,10 @@ const manageBoardingFeeStructureController = {
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    await this.loadReferencesComposed();
     await this.loadReference();
     await this.loadGrid();
+    window.APIRealtime?.register?.("manage_boarding_fee_structure", { refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.loadReference(); await this.loadGrid(); } }, ["finance", "boarding"]);
   },
 };
 

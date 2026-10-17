@@ -1,13 +1,9 @@
-/**
- * food_stock_levels.js — Food Stock Levels Controller (standalone page).
- * Current food/catering inventory stock positions.
- */
 const foodStockLevelsController = {
-  state: { items: [] },
+  state: { items: [], referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.data || r?.items || r || []); },
 
@@ -25,11 +21,22 @@ const foodStockLevelsController = {
     return 'bg-success';
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "food-stock-levels-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Stock Levels Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load() {
     const body = document.getElementById('fslBody');
     body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/catering/food-stock', null, { limit: 200 });
+      const cache = this.state.referenceCache;
+      const r = cache?.items !== undefined ? cache.items : await this.API('GET', '/catering/food-stock', null, { limit: 200 });
       this.state.items = this.norm(r);
       this.render();
     } catch (e) { body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
@@ -66,16 +73,36 @@ const foodStockLevelsController = {
     }).join('');
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("inventory", "food-stock-levels-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Stock Levels Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("food_stock_levels", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory", "catering"]);
   },
 };
 
-window.foodStockLevelsController = foodStockLevelsController;
+const foodStockLevelsControllerInstance = foodStockLevelsController;
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodStockLevelsController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => foodStockLevelsControllerInstance.init().catch(() => {}));
 } else {
-  foodStockLevelsController.init().catch(() => {});
+  foodStockLevelsControllerInstance.init().catch(() => {});
 }
+
+window.foodStockLevelsController = foodStockLevelsControllerInstance;

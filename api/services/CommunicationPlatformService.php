@@ -18,11 +18,13 @@ class CommunicationPlatformService
 {
     private PDO $db;
     private TemplateLoader $legacyTemplates;
+    private CommunicationTemplateRenderer $renderer;
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, ?CommunicationTemplateRenderer $renderer = null)
     {
         $this->db = $db;
         $this->legacyTemplates = ServiceContractBroker::contract('App\API\Modules\communications\templates\TemplateLoader');
+        $this->renderer = $renderer ?? new CommunicationTemplateRenderer();
     }
 
     public function queueForStudentParents(
@@ -127,7 +129,7 @@ class CommunicationPlatformService
         $stmt = $this->db->prepare("SELECT id FROM communication_template_versions WHERE template_id = ? AND version_no = 1");
         $stmt->execute([$catalogId]);
         $versionId = (int) $stmt->fetchColumn();
-        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, body, provider_name, provider_template_id) VALUES (?, 'whatsapp', '', 'africastalking', ?) ON DUPLICATE KEY UPDATE provider_template_id = VALUES(provider_template_id)")->execute([$versionId, $providerTemplateId]);
+        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, body, provider_name, provider_template_id) VALUES (?, 'whatsapp', '', ?, ?) ON DUPLICATE KEY UPDATE provider_template_id = VALUES(provider_template_id)")->execute([$versionId, defined('SMS_PROVIDER') ? constant('SMS_PROVIDER') : 'sms', $providerTemplateId]);
         $stmt = $this->db->prepare("SELECT id FROM communication_template_channels WHERE template_version_id = ? AND channel = 'whatsapp'");
         $stmt->execute([$versionId]);
         $channelId = (int) $stmt->fetchColumn();
@@ -226,11 +228,9 @@ class CommunicationPlatformService
         if (!$template) {
             throw new \InvalidArgumentException("Communication template not found: {$code}/{$channel}");
         }
-        foreach ($variables as $key => $value) {
-            $template['body'] = str_replace('{{' . $key . '}}', (string) $value, $template['body']);
-            if ($template['subject'] !== null) {
-                $template['subject'] = str_replace('{{' . $key . '}}', (string) $value, $template['subject']);
-            }
+        $template['body'] = $this->renderer->render($template['body'], $variables, $channel);
+        if ($template['subject'] !== null) {
+            $template['subject'] = $this->renderer->render($template['subject'], $variables, $channel);
         }
         return $template;
     }

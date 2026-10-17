@@ -4,13 +4,9 @@ const resetDefaultPasswordController = {
         // parent vs staff copy + whether to resume straight to the OTP step.
         try {
             const token = document.getElementById('rdpToken')?.value || new URLSearchParams(location.search).get('token') || '';
-            // Public page — no JWT exists yet, so use a plain fetch (same
-            // convention as js/core/public_site.js) rather than apiCall().
-            const base = String(window.APP_BASE || '').replace(/\/+$/, '');
-            const http = await fetch(base + '/api/public/setup-invitation?token=' + encodeURIComponent(token), {
-                headers: { Accept: 'application/json' }, credentials: 'same-origin',
-            });
-            const body = await http.json().catch(() => null);
+            const body = await window.API.callAPI(
+                '/public/setup-invitation', 'GET', null, { token }, { checkPermission: false },
+            );
             const flags = body?.data || body || {};
             const isParent = !!flags.is_parent_invitation;
             const resumeOtp = !!flags.resume_staff_invitation_otp;

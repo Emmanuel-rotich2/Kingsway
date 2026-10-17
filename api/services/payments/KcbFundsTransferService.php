@@ -10,6 +10,10 @@ use Exception;
  * This class owns transport and authentication only. Payment/disbursement
  * persistence remains in DisbursementManager and callback processing remains
  * in PaymentsAPI so a provider retry cannot create a second business payment.
+ *
+ * Transport runs on the Python platform relay first with a PHP stream
+ * fallback via PaymentGatewayTransport; curl is never used because this
+ * shared host's PHP runtime does not load the curl extension.
  */
 class KcbFundsTransferService
 {
@@ -61,13 +65,11 @@ class KcbFundsTransferService
             return $cached['token'];
         }
 
-        $response = $this->requestAbsolute($this->tokenEndpoint, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query(['grant_type' => 'client_credentials']),
-            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_USERPWD => $this->consumerKey . ':' . $this->consumerSecret,
-            CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'],
-        ]);
+        $response = $this->requestAbsolute($this->tokenEndpoint, 'POST', [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/x-www-form-urlencoded',
+            'Authorization' => 'Basic ' . base64_encode($this->consumerKey . ':' . $this->consumerSecret),
+        ], http_build_query(['grant_type' => 'client_credentials']));
 
         $token = (string) ($response['access_token'] ?? '');
         if ($token === '') {
@@ -89,11 +91,7 @@ class KcbFundsTransferService
     public function requestJson(string $path, array $payload, array $headers = []): array
     {
         $requestHeaders = array_merge($this->jsonHeaders($this->getAccessToken()), $headers);
-        return $this->request($path, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_HTTPHEADER => $requestHeaders,
-        ]);
+        return $this->request($path, 'POST', $this->headerMap($requestHeaders), (string) json_encode($payload));
     }
 
     /**
@@ -144,11 +142,7 @@ class KcbFundsTransferService
             $path = defined('KCB_FUNDS_TRANSFER_PATH')
                 ? (string) KCB_FUNDS_TRANSFER_PATH
                 : '/fundstransfer/1.0.0/api/v1/transfer';
-            $response = $this->request($path, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode($payload),
-                CURLOPT_HTTPHEADER => $this->jsonHeaders($this->getAccessToken()),
-            ]);
+            $response = $this->request($path, 'POST', $this->headerMap($this->jsonHeaders($this->getAccessToken())), (string) json_encode($payload));
 
             $this->logTransaction($accountNumber, $amount, $response);
 
@@ -258,102 +252,98 @@ class KcbFundsTransferService
     public function revokeAccessToken(): array
     {
         $token = $this->getAccessToken();
-        $this->requestAbsoluteAllowEmpty($this->revokeEndpoint, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query(['token' => $token, 'token_type_hint' => 'access_token']),
-            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-            CURLOPT_USERPWD => $this->consumerKey . ':' . $this->consumerSecret,
-            CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'],
-        ]);
+        $this->requestAbsoluteAllowEmpty($this->revokeEndpoint, 'POST', [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/x-www-form-urlencoded',
+            'Authorization' => 'Basic ' . base64_encode($this->consumerKey . ':' . $this->consumerSecret),
+        ], http_build_query(['token' => $token, 'token_type_hint' => 'access_token']));
         $cacheKey = hash('sha256', $this->baseUrl . '|' . $this->consumerKey);
         unset(self::$tokenCache[$cacheKey]);
         return ['revoked' => true, 'revoked_at' => gmdate('c')];
     }
 
-    private function request(string $path, array $options): array
+    /**
+     * Transport-backed request against the configured Buni base URL.
+     *
+     * @param array<string,string> $headers Header name => value map.
+     * @throws Exception
+     */
+    private function request(string $path, string $method, array $headers, ?string $body = null): array
     {
         $url = $this->baseUrl . '/' . ltrim($path, '/');
-        $ch = curl_init($url);
-        $defaults = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ];
         if ($this->apiKey !== '') {
             // Buni is backed by WSO2 API Manager; its API-key scheme uses
             // the standard `apikey` header, not a database/API key payload.
-            $options[CURLOPT_HTTPHEADER][] = 'apikey: ' . $this->apiKey;
+            $headers['apikey'] = $this->apiKey;
         }
-        curl_setopt_array($ch, $options + $defaults);
-        $body = curl_exec($ch);
-        $error = curl_error($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($body === false) {
-            throw new Exception('KCB request failed: ' . $error);
-        }
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw new Exception('KCB returned a non-JSON response (HTTP ' . $httpCode . ').');
-        }
-        if ($httpCode < 200 || $httpCode >= 300) {
-            throw new Exception('KCB returned HTTP ' . $httpCode . '.');
-        }
-        return $decoded;
+        return $this->sendJson($url, $method, $headers, $body, 'KCB request');
     }
 
-    private function requestAbsolute(string $url, array $options): array
+    /**
+     * @param array<string,string> $headers Header name => value map.
+     * @throws Exception
+     */
+    private function requestAbsolute(string $url, string $method, array $headers, ?string $body = null): array
     {
-        $ch = curl_init($url);
-        $defaults = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ];
-        curl_setopt_array($ch, $options + $defaults);
-        $body = curl_exec($ch);
-        $error = curl_error($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($body === false) {
-            throw new Exception('KCB request failed: ' . $error);
-        }
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw new Exception('KCB returned a non-JSON response (HTTP ' . $httpCode . ').');
-        }
-        if ($httpCode < 200 || $httpCode >= 300) {
-            throw new Exception('KCB returned HTTP ' . $httpCode . '.');
-        }
-        return $decoded;
+        return $this->sendJson($url, $method, $headers, $body, 'KCB request');
     }
 
-    private function requestAbsoluteAllowEmpty(string $url, array $options): void
+    private function requestAbsoluteAllowEmpty(string $url, string $method, array $headers, ?string $body = null): void
     {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, $options + [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ]);
-        $body = curl_exec($ch);
-        $error = curl_error($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-        if ($body === false) {
-            throw new Exception('KCB token revocation failed: ' . $error);
+        $result = PaymentGatewayTransport::send($method, $url, $headers, $body, 30);
+        if ($result['error'] !== '' || $result['http_code'] <= 0) {
+            throw new Exception(
+                'KCB token revocation failed: ' .
+                ($result['error'] !== '' ? $result['error'] : 'no response from provider')
+            );
         }
-        if ($httpCode < 200 || $httpCode >= 300) {
-            throw new Exception('KCB token revocation returned HTTP ' . $httpCode . '.');
+        if ($result['http_code'] < 200 || $result['http_code'] >= 300) {
+            throw new Exception('KCB token revocation returned HTTP ' . $result['http_code'] . '.');
         }
+    }
+
+    /**
+     * @param array<string,string> $headers Header name => value map.
+     * @throws Exception
+     */
+    private function sendJson(string $url, string $method, array $headers, ?string $body, string $label): array
+    {
+        $result = PaymentGatewayTransport::send($method, $url, $headers, $body);
+        if ($result['error'] !== '' || $result['http_code'] <= 0) {
+            throw new Exception(
+                $label . ' failed: ' .
+                ($result['error'] !== '' ? $result['error'] : 'no response from provider')
+            );
+        }
+        if (!is_array($result['data'])) {
+            throw new Exception('KCB returned a non-JSON response (HTTP ' . $result['http_code'] . ').');
+        }
+        if ($result['http_code'] < 200 || $result['http_code'] >= 300) {
+            throw new Exception('KCB returned HTTP ' . $result['http_code'] . '.');
+        }
+        return $result['data'];
+    }
+
+    /**
+     * Accept both "Name: value" header lines and name => value maps.
+     *
+     * @param array<int|string,string> $headers
+     * @return array<string,string>
+     */
+    private function headerMap(array $headers): array
+    {
+        $map = [];
+        foreach ($headers as $key => $value) {
+            if (is_int($key)) {
+                $parts = explode(':', (string) $value, 2);
+                if (count($parts) === 2) {
+                    $map[trim($parts[0])] = trim($parts[1]);
+                }
+                continue;
+            }
+            $map[trim((string) $key)] = trim((string) $value);
+        }
+        return $map;
     }
 
     /** Flatten provider envelopes while preserving the first occurrence of a key. */

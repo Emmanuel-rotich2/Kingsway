@@ -1,81 +1,104 @@
 /**
- * health_reports.js — Health Reports Controller (standalone page).
- * School health overview and sick bay activity.
+ * Health Reports Controller
+ * Health incidents, clinic visits, and wellness reports.
  */
 const healthReportsController = {
-  state: { summary: {}, visits: [] },
+  state: { classes: [], streams: [], categories: [], report: null, referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-  fmtDate(v) {
-    if (!v) return '\u2014';
-    const dt = new Date(String(v).replace(' ', 'T'));
-    if (isNaN(dt)) return this.esc(v);
-    return dt.toLocaleString();
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "health-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Health Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.visits || r || []); },
 
   async load() {
-    const body = document.getElementById('hrBody');
-    document.getElementById('hrKpis').innerHTML = '';
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const [sumRes, visRes] = await Promise.all([
-        this.API('GET', '/health/summary').catch(() => ({})),
-        this.API('GET', '/health/sick-bay').catch(() => []),
+      const cache = this.state.referenceCache;
+      const [cls, strms, cats] = await Promise.all([
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
+        cache?.categories !== undefined ? cache.categories : this.API('GET', '/api/students/health-meta'),
       ]);
-      this.state.summary = sumRes?.data || sumRes || {};
-      this.state.visits = this.norm(visRes);
-      this.renderKpis();
-      this.renderVisits();
-    } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+      this.state.classes = this.norm(cls);
+      this.state.streams = this.norm(strms);
+      const categoriesRaw = this.norm(cats);
+      const categoryList = Array.isArray(categoriesRaw) ? categoriesRaw : (categoriesRaw?.health_categories || []);
+      this.state.categories = categoryList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
+      this.populateFilters();
+      await this.loadReport();
+    } catch (e) { console.error(e); }
   },
 
-  renderKpis() {
-    const s = this.state.summary;
-    const kpis = [
-      { label: 'Active Sick Bay', value: s.active_sick_bay ?? '—', icon: 'bi-hospital', color: 'danger' },
-      { label: 'Visits Today', value: s.visits_today ?? '—', icon: 'bi-calendar-check', color: 'primary' },
-      { label: 'Hospital Referrals', value: s.referred ?? '—', icon: 'bi-ambulance', color: 'warning' },
-      { label: 'Students With Records', value: s.students_with_records ?? '—', icon: 'bi-folder2-open', color: 'info' },
-      { label: 'Vaccinations Due (30d)', value: s.vaccinations_due ?? '—', icon: 'bi-eyedropper', color: 'success' },
-    ];
-    document.getElementById('hrKpis').innerHTML = kpis.map(k => `
-      <div class="col-xl-3 col-md-6"><div class="border rounded-3 p-3 bg-white">
-        <div class="d-flex justify-content-between align-items-center">
-          <div><div class="small text-muted">${this.esc(k.label)}</div><div class="fs-4 fw-bold">${this.esc(k.value)}</div></div>
-          <i class="bi ${k.icon} fs-3 text-${k.color}"></i>
-        </div>
-      </div></div>`).join('');
+  populateFilters() {
+    const c = document.getElementById('hrClass');
+    const s = document.getElementById('hrStream');
+    const cat = document.getElementById('hrCategory');
+    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
+    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
+    cat.innerHTML = '<option value="">All Categories</option>' + this.state.categories.map(x => `<option value="${x.id}">${this.esc(x.name || x.category)}</option>`).join('');
   },
 
-  renderVisits() {
+  async loadReport() {
+    const params = new URLSearchParams();
+    if (document.getElementById('hrClass')?.value) params.set('class_id', document.getElementById('hrClass').value);
+    if (document.getElementById('hrStream')?.value) params.set('stream_id', document.getElementById('hrStream').value);
+    if (document.getElementById('hrCategory')?.value) params.set('category_id', document.getElementById('hrCategory').value);
+
+    try {
+      const response = await this.API('GET', '/api/reports/health', null, params);
+      this.state.report = response?.data || response || {};
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  render() {
+    const r = this.state.report;
     const body = document.getElementById('hrBody');
-    if (!this.state.visits.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No sick bay visits found.</td></tr>'; return; }
-    body.innerHTML = this.state.visits.map(v => `<tr>
-      <td class="small">${this.esc(v.admission_no || '\u2014')}</td>
-      <td class="small fw-semibold">${this.esc(`${v.first_name || ''} ${v.last_name || ''}`.trim() || '\u2014')}</td>
-      <td class="small">${this.esc(v.class_name || '\u2014')}</td>
-      <td class="small">${this.esc(v.complaint || '\u2014')}</td>
-      <td class="small">${this.fmtDate(v.visit_time || v.visit_date)}</td>
-      <td>${v.referred_to_hospital ? '<span class="badge bg-danger">Yes</span>' : '<span class="badge bg-secondary">No</span>'}</td>
-      <td class="small text-muted">${this.esc(v.action_taken || '\u2014')}</td>
+    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No health data.</td></tr>'; return; }
+    body.innerHTML = r.map(x => `<tr>
+      <td class="small">${this.esc(x.admission_no || '—')}</td>
+      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
+      <td class="small">${this.esc(x.class_name || '—')}</td>
+      <td class="small">${this.esc(x.category_name || '—')}</td>
+      <td class="small">${this.esc(x.visit_date || '—')}</td>
+      <td class="small"><span class="badge bg-${x.severity === 'high' ? 'danger' : x.severity === 'medium' ? 'warning' : 'info'}">${this.esc(x.severity || '—')}</span></td>
+      <td class="small">${this.esc(x.treatment || '—')}</td>
     </tr>`).join('');
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "health-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Health Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("health_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "health"]);
   },
 };
 
 window.healthReportsController = healthReportsController;
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => healthReportsController.init().catch(() => {}));
-} else {
-  healthReportsController.init().catch(() => {});
-}
+document.addEventListener('DOMContentLoaded', () => healthReportsController.init().catch(() => {}));

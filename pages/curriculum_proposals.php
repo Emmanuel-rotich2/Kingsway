@@ -12,7 +12,7 @@
   </section>
 
   <div class="card border-0 shadow-sm mb-4"><div class="card-body">
-    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap"><div><strong id="scopeTitle">Loading teaching scope…</strong><div class="text-muted small">Your access follows class and learning-area assignments for the selected academic year.</div></div><select class="form-select form-select-sm w-auto" id="yearFilter"></select></div>
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap"><div><strong id="scopeTitle">Loading teaching scope…</strong><div class="text-muted small">Your access follows class and learning-area assignments for the selected academic year.</div></div><select class="form-select form-select-sm w-auto" id="yearFilter" data-filter="year"></select></div>
     <div id="scopeChips" class="mt-2"></div>
   </div></div>
 
@@ -22,7 +22,7 @@
   </ul>
   <div class="tab-content">
     <section class="tab-pane fade show active" id="proposalPane">
-      <div class="d-flex gap-2 flex-wrap mb-3"><select class="form-select form-select-sm w-auto" id="statusFilter"><option value="">All statuses</option><option value="submitted">Awaiting review</option><option value="draft">Draft</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select class="form-select form-select-sm w-auto" id="entityFilter"><option value="">All curriculum items</option><option value="learning_area">Learning areas</option><option value="strand">Strands</option><option value="sub_strand">Sub-strands</option></select></div>
+      <div class="d-flex gap-2 flex-wrap mb-3"><select class="form-select form-select-sm w-auto" id="statusFilter" data-filter="status"><option value="">All statuses</option><option value="submitted">Awaiting review</option><option value="draft">Draft</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select class="form-select form-select-sm w-auto" id="entityFilter"><option value="">All curriculum items</option><option value="learning_area">Learning areas</option><option value="strand">Strands</option><option value="sub_strand">Sub-strands</option></select></div>
       <div class="row g-3" id="proposalCards"></div>
     </section>
     <section class="tab-pane fade" id="historyPane">

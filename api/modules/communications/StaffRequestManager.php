@@ -123,7 +123,7 @@ class StaffRequestManager
     {
         // Load mail and SMS service
         $mail = new \App\API\Services\MessageService($this->db);
-        $sms = new \App\API\Services\SMS\SMSGateway();
+        $sms = new \App\API\Services\sms\SMSGateway();
         // Fetch recipients (e.g. admin/IT/maintenance)
         $recipients = $this->getNotificationRecipients($data['type']);
         $subject = "New Staff Request: " . $data['subject'];
@@ -135,7 +135,7 @@ class StaffRequestManager
     private function notifyRequestUpdated($id, $data)
     {
         $mail = new \App\API\Services\MessageService($this->db);
-        $sms = new \App\API\Services\SMS\SMSGateway();
+        $sms = new \App\API\Services\sms\SMSGateway();
         // Fetch requester email/phone from persons (staff has no email/phone columns)
         $stmt = $this->db->prepare("SELECT email, phone FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " WHERE staff_id = (SELECT created_by FROM internal_conversations WHERE id = ?) LIMIT 1");
         $stmt->execute([$id]);

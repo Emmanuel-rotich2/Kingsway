@@ -9,6 +9,7 @@ const PerformanceTrendsController = {
     classes: [],
     subjects: [],
     charts: {},
+    referenceCache: null,
   },
 
   async init() {
@@ -18,7 +19,19 @@ const PerformanceTrendsController = {
       return;
     }
     this.bindEvents();
+    await this.loadReferencesComposed();
     await this.loadFilters();
+    window.APIRealtime?.register?.("performance_trends", { refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.loadFilters(); } }, ["academic"]);
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "performance-trends-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Performance trends Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
 
   bindEvents() {
@@ -36,10 +49,11 @@ const PerformanceTrendsController = {
 
   async loadFilters() {
     try {
+      const cache = this.state.referenceCache;
       const [yearsRes, classesRes, subjectsRes] = await Promise.all([
-        window.API.academic.getAllAcademicYears(),
-        window.API.academic.listClasses(),
-        window.API.academic.listLearningAreas(),
+        cache?.years !== undefined ? cache.years : window.API.academic.getAllAcademicYears(),
+        cache?.classes !== undefined ? cache.classes : window.API.academic.listClasses(),
+        cache?.subjects !== undefined ? cache.subjects : window.API.academic.listLearningAreas(),
       ]);
 
       this.state.years = yearsRes || [];

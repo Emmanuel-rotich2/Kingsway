@@ -16,6 +16,7 @@ use App\Config\DashboardRouter;
 use App\API\Services\PolicyEngine;
 use App\API\Services\Logger;
 use App\API\Services\TestAccountAccessService;
+use App\API\Services\CommunicationTemplateRenderer;
 use Firebase\JWT\JWT;
 
 class AuthAPI extends BaseAPI
@@ -27,6 +28,7 @@ class AuthAPI extends BaseAPI
     private $userPermissionManager;
     private $communicationsApi;
     private AuthSessionService $authSessionService;
+    private CommunicationTemplateRenderer $renderer;
 
     // New database-driven services
     private ?SystemConfigService $configService = null;
@@ -49,6 +51,7 @@ class AuthAPI extends BaseAPI
         $this->userPermissionManager = $this->contract('App\API\Modules\users\UserPermissionManager', $this->db);
         $this->communicationsApi = $this->contract('App\API\Modules\communications\CommunicationsAPI');
         $this->authSessionService = new AuthSessionService($this->db);
+        $this->renderer = new CommunicationTemplateRenderer();
 
         // Sidebar navigation is file-driven through SidebarConfigReader.
     }
@@ -1930,13 +1933,9 @@ class AuthAPI extends BaseAPI
         }
     }
 
-    private function parseTemplate($template, $data)
+    private function parseTemplate($template, $data, string $channel = 'email')
     {
-        $parsed = $template;
-        foreach ($data as $key => $value) {
-            $parsed = str_replace('{{' . $key . '}}', $value, $parsed);
-        }
-        return $parsed;
+        return $this->renderer->render($template, $data, $channel);
     }
 
     /**

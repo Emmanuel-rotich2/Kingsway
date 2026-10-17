@@ -62,41 +62,27 @@
                 return;
             }
             this.bindEvents();
+            window.APIRealtime?.register?.("manageRequisitions", this, ["inventory", "requisitions"]);
             this.loadAll();
         },
 
         async loadAll() {
-            await Promise.all([this.loadRequisitions(), this.loadInventoryItems()]);
-        },
-
-        // ── Inventory items for requisition form ──────────────────────────────
-        async loadInventoryItems() {
             try {
-                const res = await window.API.inventory.listItems();
-                allInventoryItems = Array.isArray(res) ? res : (res?.items || res?.data || []);
-            } catch (e) {
-                console.error("Inventory items load error:", e);
-            }
-        },
-
-        // ── Requisitions list ─────────────────────────────────────────────────
-        async loadRequisitions() {
-            try {
-                const res = await window.API.inventory.listRequisitions();
-                allRequisitions = Array.isArray(res) ? res : (res?.requisitions || res?.data || []);
-                filteredRequisitions = [...allRequisitions];
-                currentPage = 1;
-                this.renderStats();
-                this.renderTable();
+                const result = await window.API.nodeViews.resolve("inventory", "requisition-workspace");
+                const sources = result?.data?.sources || result?.sources;
+                if (!sources?.items || !sources?.requisitions) throw new Error("Node returned incomplete requisition data");
+                allInventoryItems = (sources.items.items || []).filter(item => !item.status || String(item.status).toLowerCase() === "active");
+                allRequisitions = sources.requisitions.items || [];
                 this.populateDepartmentFilter();
-            } catch (e) {
-                console.error("Requisitions load error:", e);
-                showToast("Failed to load requisitions", "error");
-                allRequisitions = [];
-                filteredRequisitions = [];
-                this.renderTable();
+                this.applyFilters();
+                this.renderStats();
+            } catch (error) {
+                console.error("Node requisition workspace failed:", error);
+                showToast("Failed to load fresh requisition data", "error");
             }
         },
+
+        refreshData() { return this.loadAll(); },
 
         // ── Stats ──────────────────────────────────────────────────────────────
         renderStats() {
@@ -121,7 +107,7 @@
             const page  = filteredRequisitions.slice(start, start + PAGE_SIZE);
 
             tbody.innerHTML = page.map((req, idx) => {
-                const itemCount = Array.isArray(req.items) ? req.items.length : (req.item_count || "--");
+                const itemCount = Array.isArray(req.items) ? req.items.length : (req.items_count || req.item_count || "--");
                 const totalVal  = Array.isArray(req.items)
                     ? req.items.reduce((s, i) => s + (parseFloat(i.total_price || 0) || (parseFloat(i.quantity || 0) * parseFloat(i.unit_price || 0))), 0)
                     : (req.total_value || 0);
@@ -181,9 +167,11 @@
         populateDepartmentFilter() {
             const sel = document.getElementById("departmentFilter");
             if (!sel) return;
+            const selected = sel.value;
             const departments = [...new Set(allRequisitions.map(r => r.department).filter(Boolean))].sort();
             sel.innerHTML = '<option value="">All Departments</option>' +
                 departments.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join("");
+            if ([...sel.options].some(option => option.value === selected)) sel.value = selected;
         },
 
         // ── Filters ────────────────────────────────────────────────────────────
@@ -312,7 +300,7 @@
                 await window.API.inventory.createRequisition(data);
                 showToast("Requisition submitted successfully");
                 bootstrap.Modal.getInstance(document.getElementById("requisitionModal"))?.hide();
-                await this.loadRequisitions();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || "Failed to submit requisition", "error");
             } finally {
@@ -354,7 +342,7 @@
                     <div class="col-md-6">
                         <table class="table table-sm table-borderless">
                             <tr><th class="text-muted" style="width:40%">Status</th><td>${statusBadge(req.status)}</td></tr>
-                            <tr><th class="text-muted">Requested By</th><td>${esc(req.requested_by || req.created_by || "--")}</td></tr>
+                    <tr><th class="text-muted">Requested By</th><td>${esc(req.requested_by_name || req.requested_by || req.created_by || "--")}</td></tr>
                             <tr><th class="text-muted">Date</th><td>${esc((req.created_at || "").split("T")[0] || "--")}</td></tr>
                             <tr><th class="text-muted">Required By</th><td>${esc(req.required_by || "--")}</td></tr>
                         </table>
@@ -382,7 +370,7 @@
                                     <td>${i + 1}</td>
                                     <td>${esc(item.item_name || item.name || "--")}</td>
                                     <td>${Number(item.quantity || 0).toLocaleString()}</td>
-                                    <td>${esc(item.unit || "--")}</td>
+                                    <td>${esc(item.unit || item.unit_of_measure || "--")}</td>
                                     <td>${currency(item.unit_price || 0)}</td>
                                     <td class="fw-bold">${currency(lineTotal)}</td>
                                     <td class="text-muted small">${esc(item.description || item.notes || "--")}</td>
@@ -420,13 +408,13 @@
 
         async _updateStatus(id, status, notes = "") {
             try {
-                await window.API.inventory.updateRequisitionStatus(id, status);
+                await window.API.inventory.updateRequisitionStatus(id, status, notes);
                 showToast(`Requisition ${status}`);
                 ["viewRequisitionModal"].forEach(mid => {
                     const m = document.getElementById(mid);
                     if (m) bootstrap.Modal.getInstance(m)?.hide();
                 });
-                await this.loadRequisitions();
+                await this.loadAll();
             } catch (e) {
                 showToast(e.message || `Failed to ${status} requisition`, "error");
             }

@@ -1,0 +1,65 @@
+app:
+  name: "kingsway-realtime-gateway"
+  env: "production"
+  port: 3000
+  host: "0.0.0.0"
+  instanceId: ""
+
+storage:
+  root: "/home/prof_angera/realtime_app/storage"
+  cache: "cache.sqlite"
+  bus: "bus/"
+  logs: "logs/"
+
+sse:
+  maxConnections: 5000
+  userMaxConnections: 5
+  heartbeatMs: 20000
+  queueLimit: 50
+  slowClientTimeoutMs: 5000
+  presenceTtlMs: 45000
+  capabilityTtlMinutes: 4
+
+cache:
+  memoryMaxEntries: 10000
+  defaultTtlSeconds: 300
+  sqlitePragma: "journal_mode=WAL; synchronous=NORMAL; busy_timeout=5000"
+
+internalHttp:
+  php:
+    baseUrl: "http://127.0.0.1"
+    hostHeader: "www.kingswaypreparatoryschool.sc.ke"
+    timeoutMs: 30000
+    poolSize: 20
+  python:
+    baseUrl: "http://127.0.0.1:8077"
+    hostHeader: "ai.kingswaypreparatoryschool.sc.ke"
+    timeoutMs: 120000
+    poolSize: 5
+
+security:
+  jwtSecret: ""
+  jwtIssuer: "kingsway-prep-school"
+  jwtAudience: "kingsway-staff"
+  workerSecret: ""
+  webOrigins:
+    - "https://www.kingswaypreparatoryschool.sc.ke"
+    - "https://realtime.kingswaypreparatoryschool.sc.ke"
+  publishAllowIps:
+    - "127.0.0.1"
+    - "::1"
+
+metrics:
+  prefix: "kingsway_"
+  collectDefault: true
+
+logging:
+  level: "info"
+  pretty: false
+  redactionPaths:
+    - "req.headers.authorization"
+    - "req.headers.x-kingsway-worker-secret"
+    - "req.headers.cookie"
+    - "*.password"
+    - "*.token"
+    - "*.secret"

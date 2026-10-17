@@ -11,6 +11,7 @@ const TimetableController = {
     teachers: [],
     rooms: [],
     timeSlots: [],
+    referenceCache: null,
     viewType: "class",
     teacherScope: null,
     streams: [],
@@ -57,6 +58,7 @@ const TimetableController = {
     this.bindEvents();
     await Promise.all([this.loadFilters(), this.loadTimeSlots()]);
     if (this.state.isTeacher && !this.state.isLeadership) await this.loadTimetable();
+    window.APIRealtime?.register?.("timetable", { refresh: async () => { await Promise.all([this.loadFilters(), this.loadTimeSlots()]); if (this.state.isTeacher && !this.state.isLeadership) await this.loadTimetable(); } }, ["academic", "schedules"]);
   },
 
   isLowerPrimaryClassTeacher() {
@@ -126,11 +128,22 @@ const TimetableController = {
     }
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "timetable-references");
+      this.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Timetable reference Node view failed; using direct reads:", error);
+      this.referenceCache = null;
+    }
+  },
+
   async loadFilters() {
     if (this.state.isTeacher && !this.state.isLeadership) return;
+    await this.loadReferencesComposed();
     try {
       const [classesRes] = await Promise.all([
-        window.API.academic.listClasses(),
+        this.referenceCache?.classes !== undefined ? this.referenceCache.classes : window.API.academic.listClasses(),
       ]);
 
       if (classesRes) {
@@ -140,7 +153,7 @@ const TimetableController = {
 
       // Load teachers
       try {
-        const tRes = await window.API.academic.getTeachers();
+        const tRes = this.referenceCache?.teachers !== undefined ? this.referenceCache.teachers : await window.API.academic.getTeachers();
         this.state.teachers = tRes || [];
         this.populateSelect("#selectTeacher", this.state.teachers, "id", (t) =>
           `${t.first_name || ""} ${t.last_name || ""}`.trim(),
@@ -151,7 +164,7 @@ const TimetableController = {
 
       // Load rooms
       try {
-        const rRes = await window.API.schedules.getRooms();
+        const rRes = this.referenceCache?.rooms !== undefined ? this.referenceCache.rooms : await window.API.schedules.getRooms();
         this.state.rooms = rRes || [];
         this.populateSelect("#selectRoom", this.state.rooms, "id", "name");
       } catch (e) {

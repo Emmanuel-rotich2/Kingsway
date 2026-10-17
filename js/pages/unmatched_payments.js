@@ -244,3 +244,4 @@ document.addEventListener("DOMContentLoaded", () =>
 );
 
 window.UnmatchedPaymentsController = UnmatchedPaymentsController;
+window.APIRealtime?.register?.("unmatched_payments", UnmatchedPaymentsController, ["finance", "payments"]);

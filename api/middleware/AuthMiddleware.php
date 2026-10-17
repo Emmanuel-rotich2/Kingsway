@@ -59,6 +59,7 @@ class AuthMiddleware
             'payments/mpesa-c2b-confirmation',
             'payments/mpesa-stk-callback',
             'payments/kcb-mpesa-express-callback',
+            'payments/payhero-callback',
             'payments/mpesa-result',
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
@@ -66,6 +67,10 @@ class AuthMiddleware
             'payments/kcb-account-notification',
             'payments/kcb-till-notification',
             'payments/bank-webhook',
+            // Public, read-only entry points: invitation flags are token-scoped;
+            // learner card verification applies its own public/staff view policy.
+            'public/setup-invitation',
+            'public/student-verification',
             'public/uniform-catalog',
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',
@@ -168,6 +173,13 @@ class AuthMiddleware
             return;
         }
 
+        // Node's internal PHP liveness probe has no user data and validates
+        // X-Kingsway-Worker-Secret inside NodeController. Keep it exact and GET-only.
+        if (preg_match('#(?:^|/)api/node/internal-health/?$#', $pathOnly)
+            && strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'GET') {
+            return;
+        }
+
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
             if ($endpoint === 'mcp') {
@@ -179,6 +191,16 @@ class AuthMiddleware
                 // they share the same controller/resource URL.
                 if (
                     str_starts_with($endpoint, 'website/') &&
+                    strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
+                ) {
+                    continue;
+                }
+                if (
+                    in_array($endpoint, [
+                        'public/setup-invitation',
+                        'public/student-verification',
+                        'public/uniform-catalog',
+                    ], true) &&
                     strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET'
                 ) {
                     continue;
@@ -486,6 +508,16 @@ class AuthMiddleware
         }
 
         return null;
+    }
+
+    /**
+     * Expose the canonical request header to authenticated bridge controllers.
+     * Authentication middleware and downstream private relays must inspect
+     * the same SAPI/proxy-normalized header value.
+     */
+    public static function getAuthorizationHeader(): ?string
+    {
+        return self::resolveBearerHeader();
     }
 
     /**

@@ -1,6 +1,7 @@
 <?php
 // layouts/app_layout.php
 // Stateless authenticated application layout.
+// Supports ?fragment=1 to return only the main content (for soft navigation)
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -15,6 +16,9 @@ $route = is_string($route) ? trim($route) : 'loading';
 $route = $route === 'loading'
     ? $route
     : DashboardRouter::normalizeDashboardKey($route);
+
+// Detect fragment mode (soft navigation)
+$isFragment = isset($_GET['fragment']) && $_GET['fragment'] === '1';
 
 $isCanonicalRoute =
     $route === 'loading' ||
@@ -58,6 +62,7 @@ $user_id = null;
 $sidebar_items = [];
 ?>
 
+<?php if (!$isFragment): ?>
 <div class="app-shell" id="app-shell">
     <a href="#main-content-area" class="visually-hidden-focusable skip-link">
         Skip to main content
@@ -86,6 +91,8 @@ $sidebar_items = [];
                 class="container-fluid app-content-inner"
                 id="main-content-segment"
             >
+<?php endif; ?>
+
                 <?php if ($route === 'loading'): ?>
                     <section class="app-loading-state" aria-live="polite">
                         <div class="spinner-border text-success" role="status">
@@ -128,9 +135,12 @@ $sidebar_items = [];
                     })();
                     </script>
                 <?php endif; ?>
+
+<?php if (!$isFragment): ?>
             </div>
         </main>
 
         <?php include __DIR__ . '/../components/global/footer.php'; ?>
     </div>
 </div>
+<?php endif; ?>

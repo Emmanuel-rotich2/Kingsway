@@ -329,12 +329,12 @@ class StockMovementsManager extends BaseAPI
     public function adjustStock($data, $userId)
     {
         try {
-            $this->db->beginTransaction();
-
             // Validate
-            if (empty($data['item_id']) || empty($data['adjustment_type']) || empty($data['quantity'])) {
-                $this->db->rollBack();
+            if (empty($data['item_id']) || empty($data['adjustment_type']) || empty($data['quantity']) || !is_numeric($data['quantity']) || (float) $data['quantity'] <= 0) {
                 return formatResponse(false, null, 'Missing required fields');
+            }
+            if (!in_array($data['adjustment_type'], ['increase', 'decrease'], true)) {
+                return formatResponse(false, null, 'Invalid adjustment type');
             }
 
             // Record the adjustment
@@ -347,15 +347,13 @@ class StockMovementsManager extends BaseAPI
                 'unit_cost' => $data['unit_cost'] ?? 0,
                 'location_id' => $data['location_id'] ?? null,
                 'notes' => $data['reason'] ?? 'Stock adjustment',
+                'transaction_date' => $data['transaction_date'] ?? date('Y-m-d H:i:s'),
                 'update_quantity' => true
             ], $userId);
 
             if (!$result['success']) {
-                $this->db->rollBack();
                 return $result;
             }
-
-            $this->db->commit();
 
             return formatResponse(true, [
                 'transaction_id' => $result['data']['transaction_id'],

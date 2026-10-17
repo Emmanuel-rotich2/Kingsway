@@ -38,7 +38,7 @@ class InternalMessagingManager
     public function listConversations(int $userId): array
     {
         $sql = "SELECT c.id, c.title, c.conversation_type, c.created_by,
-                       c.last_message_at, c.participant_count,
+                       c.participant_count,
                        cp.unread_count, cp.last_read_at, cp.is_muted,
                        (SELECT CONCAT_WS(' ', sp.first_name, sp.last_name)
                           FROM " . ReadReplicaService::qualifiedRef("person_directory") . " sp
@@ -167,11 +167,12 @@ class InternalMessagingManager
             $senderName = $this->senderDisplayName($userId);
             $this->db->beginTransaction();
 
+            $conversationType = count($validRecipients) > 1 ? 'group' : 'one_on_one';
             $this->db->prepare(
                 "INSERT INTO internal_conversations
                     (title, conversation_type, created_by, is_locked)
-                 VALUES (?, 'one_on_one', ?, 0)"
-            )->execute([$title, $userId]);
+                 VALUES (?, ?, ?, 0)"
+            )->execute([$title, $conversationType, $userId]);
             $conversationId = (int)$this->db->lastInsertId();
 
             $this->addParticipant($conversationId, $userId);
@@ -201,6 +202,7 @@ class InternalMessagingManager
             \App\API\Services\Logger::legacyError('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'data' => null, 'error' => 'An internal error occurred.'];
         }
+        $this->publishConversationEvents($validRecipients, $conversationId, $messageId, $userId, false);
 
         return $this->getConversation($userId, $conversationId);
     }
@@ -247,6 +249,7 @@ class InternalMessagingManager
             \App\API\Services\Logger::legacyError('[InternalMessagingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return ['success' => false, 'data' => null, 'error' => 'An internal error occurred.'];
         }
+        $this->publishConversationEvents($others, $conversationId, $messageId, $userId, true);
 
         return $this->getConversation($userId, $conversationId);
     }
@@ -260,19 +263,23 @@ class InternalMessagingManager
      */
     public function searchRecipients(int $userId, string $term = ''): array
     {
-        $sql = "SELECT u.id, u.username, u.status,
-                       CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
-                       p.email, p.photo_url,
-                       GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS roles
-                  FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+        $sql = "SELECT pd.user_id AS id, pd.username, u.status,
+                       CONCAT_WS(' ', pd.first_name, pd.last_name) AS full_name,
+                       pd.email, pd.photo_url,
+                       (SELECT GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ', ')
+                          FROM user_roles ur
+                          JOIN roles r ON r.id = ur.role_id
+                         WHERE ur.user_id = pd.user_id) AS roles
+                  FROM " . ReadReplicaService::qualifiedRef("person_directory") . " pd
+                  JOIN users u ON u.id = pd.user_id
                  WHERE u.status = 'active'
-                   AND u.id <> :user_id
+                   AND pd.user_id <> :user_id
                    AND (
-                       CONCAT_WS(' ', p.first_name, p.last_name) LIKE :term1
-                    OR p.email LIKE :term2
-                    OR u.username LIKE :term3
+                       CONCAT_WS(' ', pd.first_name, pd.last_name) LIKE :term1
+                    OR pd.email LIKE :term2
+                    OR pd.username LIKE :term3
                    )
-                 GROUP BY u.id
+                 GROUP BY pd.user_id
                  ORDER BY full_name ASC
                  LIMIT 25";
 
@@ -363,6 +370,36 @@ class InternalMessagingManager
             ]);
     }
 
+    /**
+     * Push a scoped realtime event to each conversation participant after the
+     * database transaction has committed. Realtime is an enhancement layer:
+     * publishing never throws and never affects delivery bookkeeping.
+     *
+     * @param int[] $recipientIds
+     */
+    private function publishConversationEvents(array $recipientIds, int $conversationId, int $messageId, int $senderId, bool $isReply): void
+    {
+        if (empty($recipientIds)) {
+            return;
+        }
+        try {
+            foreach ($recipientIds as $recipientId) {
+                \App\API\Services\RealtimeGatewayPublisher::publish(
+                    $isReply ? 'MESSAGE_REPLY' : 'MESSAGE_RECEIVED',
+                    'users:' . (int) $recipientId,
+                    [
+                        'conversation_id' => $conversationId,
+                        'message_id' => $messageId,
+                        'sender_id' => $senderId,
+                        'targets' => ['conversations'],
+                    ]
+                );
+            }
+        } catch (\Throwable $ignored) {
+            // The publisher already journals its own failures.
+        }
+    }
+
     private function markSenderRead(int $conversationId, int $userId, int $messageId): void
     {
         $this->db->prepare(
@@ -423,8 +460,8 @@ class InternalMessagingManager
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->db->prepare(
             "SELECT CONCAT_WS(' ', pd.first_name, pd.last_name) AS full_name
-               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-              WHERE u.id IN ($placeholders)
+               FROM " . ReadReplicaService::qualifiedRef("person_directory") . " pd
+              WHERE pd.user_id IN ($placeholders)
               ORDER BY full_name ASC"
         );
         $stmt->execute($ids);

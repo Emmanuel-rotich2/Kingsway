@@ -1,538 +1,102 @@
 /**
  * Enrollment Reports Controller
- * Comprehensive admissions and enrollment reporting dashboard
+ * Student enrollment, class placement, and transition reports.
  */
-
-
 const enrollmentReportsController = {
-    applications: [],
-    charts: {},
-    initialized: false,
-    dom: {},
+  state: { classes: [], streams: [], years: [], report: null, referenceCache: null },
 
-    init: async function() {
-        if (this.initialized) return;
-        this.initialized = true;
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-        try {
-            await window.AuthContext?.ready();
-            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
-                await window.AuthContext?.ready();
-                if (!window.AuthContext.isAuthenticated()) {
-                    console.warn("enrollmentReportsController: Not authenticated, redirecting to login");
-                    window.location.href = `${window.APP_BASE || ""}/index.php`;
-                    return;
-                }
-            } else {
-                console.warn("enrollmentReportsController: AuthContext not available");
-            }
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
 
-            this.cacheDom();
-            this.setupEventListeners();
-            await this.loadReportData();
-
-        } catch (error) {
-            console.error("Failed to initialize Enrollment Reports Controller:", error);
-            this.showError("Failed to load enrollment reports");
-        }
-    },
-
-    apiCall: function(endpoint, method = "GET", data = null) {
-        if (window.API && typeof window.API.callAPI === "function") {
-            return window.API.callAPI(endpoint, method, data);
-        }
-
-        if (window.API && typeof window.API.apiCall === "function") {
-            return window.API.apiCall(endpoint, method, data);
-        }
-
-        throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
-    },
-
-    isSuccessfulResponse: function(response) {
-        if (!response) return false;
-        if (response.success === false || response.status === false) return false;
-        if (response.success === true || response.status === true) return true;
-        // Accept responses with queues, data, or any meaningful content
-        return response.queues !== undefined || response.data !== undefined || Object.keys(response).length > 0;
-    },
-
-    unwrapPayload: function(response) {
-        // Handle both response.data and direct response objects
-        if (response && response.data) {
-            return response.data;
-        }
-        // If response has queues directly, return the whole response
-        if (response && response.queues) {
-            return response;
-        }
-        return response || {};
-    },
-
-    extractList: function(response) {
-        const payload = this.unwrapPayload(response);
-        if (Array.isArray(payload)) {
-            return payload;
-        }
-        if (payload.data && Array.isArray(payload.data)) {
-            return payload.data;
-        }
-        if (payload.items && Array.isArray(payload.items)) {
-            return payload.items;
-        }
-        if (payload.list && Array.isArray(payload.list)) {
-            return payload.list;
-        }
-        return [];
-    },
-
-    notify: function(type, message) {
-        if (typeof window.showNotification === "function") {
-            window.showNotification(type, message);
-            return;
-        }
-
-        if (window.API && typeof window.API.showNotification === "function") {
-            window.API.showNotification(message, type);
-            return;
-        }
-
-        console.log(`[${type.toUpperCase()}] ${message}`);
-    },
-
-    escapeHtml: function(text) {
-        if (!text) return "";
-        const div = document.createElement("div");
-        div.textContent = text;
-        return div.innerHTML;
-    },
-
-    cacheDom: function() {
-        this.dom = {
-            reportsTableBody: document.getElementById("reportsTableBody"),
-            filterAcademicYear: document.getElementById("filterAcademicYear"),
-            filterTerm: document.getElementById("filterTerm"),
-            filterReportType: document.getElementById("filterReportType"),
-            filterDateFrom: document.getElementById("filterDateFrom"),
-            filterDateTo: document.getElementById("filterDateTo"),
-            statusChart: document.getElementById("statusChart"),
-            classChart: document.getElementById("classChart"),
-            genderChart: document.getElementById("genderChart"),
-            trendChart: document.getElementById("trendChart"),
-            statTotalApplications: document.getElementById("statTotalApplications"),
-            statApproved: document.getElementById("statApproved"),
-            statWaitlisted: document.getElementById("statWaitlisted"),
-            statEnrolled: document.getElementById("statEnrolled"),
-        };
-    },
-    
-    loadReportData: async function() {
-        if (this.dom.reportsTableBody) {
-            this.dom.reportsTableBody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="text-center py-4">
-                        <div class="spinner-border text-info" role="status"></div>
-                        <div class="mt-2 text-muted">Loading report data...</div>
-                    </td>
-                </tr>
-            `;
-        }
-
-        try {
-            const response = await this.apiCall('/admission/queues', 'GET');
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load report data.");
-            }
-
-            const payload = this.unwrapPayload(response);
-
-            const queues = payload?.queues || response?.queues || {};
-            // Stage queues are projections of the same applications. Use the
-            // canonical queue to prevent one learner being counted repeatedly.
-            const canonical = Array.isArray(queues.all_applications)
-                ? queues.all_applications
-                : Object.entries(queues).reduce((rows, [queueName, items]) => {
-                    if (queueName !== 'all_applications' && Array.isArray(items)) {
-                        items.forEach(app => rows.push({ ...app, queue_name: queueName }));
-                    }
-                    return rows;
-                }, []);
-            const seen = new Set();
-            const allApplications = canonical.filter(app => {
-                const key = String(app.id || app.application_no || '');
-                if (!key || seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            });
-
-            this.applications = allApplications;
-            this.updateSummaryCards();
-            this.renderReportsTable();
-            this.initCharts();
-        } catch (error) {
-            console.error('Failed to load report data:', error);
-            this.showError('Failed to load report data');
-        }
-    },
-    
-    updateSummaryCards: function() {
-        const total = this.applications.length;
-        const approved = this.applications.filter(app => app.status === 'placement_offered' || app.status === 'fees_pending').length;
-        const waitlisted = this.applications.filter(app => app.status === 'waitlisted').length;
-        const enrolled = this.applications.filter(app => app.status === 'enrolled').length;
-
-        if (this.dom.statTotalApplications) this.dom.statTotalApplications.textContent = total;
-        if (this.dom.statApproved) this.dom.statApproved.textContent = approved;
-        if (this.dom.statWaitlisted) this.dom.statWaitlisted.textContent = waitlisted;
-        if (this.dom.statEnrolled) this.dom.statEnrolled.textContent = enrolled;
-    },
-    
-    renderReportsTable: function() {
-        const tbody = this.dom.reportsTableBody;
-        if (!tbody) return;
-
-        if (this.applications.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="text-center py-4">
-                        <div class="text-muted">
-                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                            No applications found
-                        </div>
-                    </td>
-                </tr>
-            `;
-            return;
-        }
-
-        tbody.innerHTML = this.applications.map(app => {
-            const statusBadge = this.getStatusBadge(app.status);
-
-            return `
-                <tr>
-                    <td><strong>${app.application_no || '—'}</strong></td>
-                    <td>${app.applicant_name || 'Unknown'}</td>
-                    <td>${app.grade_applying_for || '—'}</td>
-                    <td>${this.formatGender(app.gender)}</td>
-                    <td>${statusBadge}</td>
-                    <td>${this.formatDate(app.created_at)}</td>
-                    <td><span class="badge bg-secondary">${app.current_stage || '—'}</span></td>
-                </tr>
-            `;
-        }).join('');
-    },
-    
-    getStatusBadge: function(status) {
-        const badges = {
-            'submitted': '<span class="badge bg-secondary">Submitted</span>',
-            'documents_pending': '<span class="badge bg-warning">Documents Pending</span>',
-            'documents_verified': '<span class="badge bg-info">Documents Verified</span>',
-            'placement_offered': '<span class="badge bg-primary">Placement Offered</span>',
-            'fees_pending': '<span class="badge bg-warning">Fees Pending</span>',
-            'enrolled': '<span class="badge bg-success">Enrolled</span>',
-            'cancelled': '<span class="badge bg-danger">Cancelled</span>'
-        };
-        return badges[status] || '<span class="badge bg-secondary">' + status + '</span>';
-    },
-    
-    formatGender: function(gender) {
-        const genders = {
-            'male': 'Male',
-            'female': 'Female',
-            'other': 'Other'
-        };
-        return genders[gender] || gender || '—';
-    },
-    
-    formatDate: function(dateString) {
-        if (!dateString) return '—';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric'
-        });
-    },
-    
-    initCharts: function() {
-        // Check if Chart.js is available
-        if (typeof Chart === 'undefined') {
-            console.warn('Chart.js not available, skipping chart initialization');
-            return;
-        }
-        
-        this.destroyCharts();
-        
-        // Status Distribution Chart
-        if (this.dom.statusChart) {
-            const statusData = this.getStatusDistribution();
-            this.charts.status = new Chart(this.dom.statusChart, {
-                type: 'doughnut',
-                data: {
-                    labels: statusData.labels,
-                    datasets: [{
-                        data: statusData.values,
-                        backgroundColor: [
-                            '#6c757d',
-                            '#ffc107',
-                            '#17a2b8',
-                            '#198754',
-                            '#fd7e14',
-                            '#0d6efd',
-                            '#dc3545'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
-                }
-            });
-        }
-        
-        // Class Distribution Chart
-        if (this.dom.classChart) {
-            const classData = this.getClassDistribution();
-            this.charts.class = new Chart(this.dom.classChart, {
-                type: 'bar',
-                data: {
-                    labels: classData.labels,
-                    datasets: [{
-                        label: 'Applications',
-                        data: classData.values,
-                        backgroundColor: '#0d6efd'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                stepSize: 1
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        
-        // Gender Distribution Chart
-        if (this.dom.genderChart) {
-            const genderData = this.getGenderDistribution();
-            this.charts.gender = new Chart(this.dom.genderChart, {
-                type: 'pie',
-                data: {
-                    labels: genderData.labels,
-                    datasets: [{
-                        data: genderData.values,
-                        backgroundColor: ['#0d6efd', '#e91e63', '#9c27b0']
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
-                }
-            });
-        }
-        
-        // Monthly Trend Chart
-        if (this.dom.trendChart) {
-            const trendData = this.getMonthlyTrend();
-            this.charts.trend = new Chart(this.dom.trendChart, {
-                type: 'line',
-                data: {
-                    labels: trendData.labels,
-                    datasets: [{
-                        label: 'Applications',
-                        data: trendData.values,
-                        borderColor: '#198754',
-                        backgroundColor: 'rgba(25, 135, 84, 0.1)',
-                        fill: true,
-                        tension: 0.4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                stepSize: 1
-                            }
-                        }
-                    }
-                }
-            });
-        }
-    },
-    
-    getStatusDistribution: function() {
-        const statusCounts = {};
-        this.applications.forEach(app => {
-            const status = app.status || 'unknown';
-            statusCounts[status] = (statusCounts[status] || 0) + 1;
-        });
-        
-        return {
-            labels: Object.keys(statusCounts),
-            values: Object.values(statusCounts)
-        };
-    },
-    
-    getClassDistribution: function() {
-        const classCounts = {};
-        this.applications.forEach(app => {
-            const grade = app.grade_applying_for || 'unknown';
-            classCounts[grade] = (classCounts[grade] || 0) + 1;
-        });
-        
-        // Sort by grade
-        const sortedClasses = Object.keys(classCounts).sort();
-        
-        return {
-            labels: sortedClasses,
-            values: sortedClasses.map(cls => classCounts[cls])
-        };
-    },
-    
-    getGenderDistribution: function() {
-        const genderCounts = { male: 0, female: 0, other: 0 };
-        this.applications.forEach(app => {
-            const gender = app.gender || 'other';
-            if (genderCounts[gender] !== undefined) {
-                genderCounts[gender]++;
-            } else {
-                genderCounts.other++;
-            }
-        });
-        
-        return {
-            labels: ['Male', 'Female', 'Other'],
-            values: [genderCounts.male, genderCounts.female, genderCounts.other]
-        };
-    },
-    
-    getMonthlyTrend: function() {
-        const monthCounts = {};
-        this.applications.forEach(app => {
-            if (app.created_at) {
-                const date = new Date(app.created_at);
-                const monthKey = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-                monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
-            }
-        });
-        
-        // Sort by date
-        const sortedMonths = Object.keys(monthCounts).sort((a, b) => new Date(a) - new Date(b));
-        
-        return {
-            labels: sortedMonths,
-            values: sortedMonths.map(month => monthCounts[month])
-        };
-    },
-    
-    destroyCharts: function() {
-        Object.values(this.charts).forEach(chart => {
-            if (chart && typeof chart.destroy === 'function') {
-                chart.destroy();
-            }
-        });
-        this.charts = {};
-    },
-    
-    setupEventListeners: function() {
-        // Filter changes
-        if (this.dom.filterAcademicYear) {
-            this.dom.filterAcademicYear.addEventListener('change', () => this.applyFilters());
-        }
-        if (this.dom.filterTerm) {
-            this.dom.filterTerm.addEventListener('change', () => this.applyFilters());
-        }
-        if (this.dom.filterReportType) {
-            this.dom.filterReportType.addEventListener('change', () => this.applyFilters());
-        }
-        if (this.dom.filterDateFrom) {
-            this.dom.filterDateFrom.addEventListener('change', () => this.applyFilters());
-        }
-        if (this.dom.filterDateTo) {
-            this.dom.filterDateTo.addEventListener('change', () => this.applyFilters());
-        }
-    },
-    
-    applyFilters: function() {
-        // Re-render data with filters applied
-        this.renderReportsTable();
-        this.initCharts();
-    },
-    
-    refreshData: function() {
-        this.loadReportData();
-    },
-    
-    exportReport: function() {
-        // Export functionality would be implemented here
-        showNotification('info', 'Report export functionality would be implemented with dedicated API endpoint');
-    },
-    
-    showError: function(message) {
-        if (this.dom.reportsTableBody) {
-            this.dom.reportsTableBody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="text-center py-4">
-                        <div class="text-danger">
-                            <i class="bi bi-exclamation-triangle fs-1 d-block mb-2"></i>
-                            ${message}
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "enrollment-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Enrollment Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
+  },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const [cls, strms, years] = await Promise.all([
+        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
+        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
+        cache?.years !== undefined ? cache.years : this.API('GET', '/api/academic/years/list'),
+      ]);
+      this.state.classes = this.norm(cls);
+      this.state.streams = this.norm(strms);
+      this.state.years = this.norm(years);
+      this.populateFilters();
+      await this.loadReport();
+    } catch (e) { console.error(e); }
+  },
+
+  populateFilters() {
+    const c = document.getElementById('erClass');
+    const s = document.getElementById('erStream');
+    const y = document.getElementById('erYear');
+    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
+    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
+    y.innerHTML = '<option value="">All Years</option>' + this.state.years.map(x => `<option value="${x.id}">${this.esc(x.year_name || x.year_code)}</option>`).join('');
+  },
+
+  async loadReport() {
+    const params = new URLSearchParams();
+    if (document.getElementById('erClass')?.value) params.set('class_id', document.getElementById('erClass').value);
+    if (document.getElementById('erStream')?.value) params.set('stream_id', document.getElementById('erStream').value);
+    if (document.getElementById('erYear')?.value) params.set('year_id', document.getElementById('erYear').value);
+
+    try {
+      const response = await this.API('GET', '/api/reports/enrollment', null, params);
+      this.state.report = response?.data || response || {};
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  render() {
+    const r = this.state.report;
+    const body = document.getElementById('erBody');
+    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No enrollment data.</td></tr>'; return; }
+    body.innerHTML = r.map(x => `<tr>
+      <td class="small">${this.esc(x.admission_no || '—')}</td>
+      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
+      <td class="small">${this.esc(x.class_name || '—')}</td>
+      <td class="small">${this.esc(x.stream_name || '—')}</td>
+      <td class="small">${this.esc(x.admission_date || '—')}</td>
+      <td class="small">${this.esc(x.student_type || '—')}</td>
+      <td class="small">${this.esc(x.status || '—')}</td>
+    </tr>`).join('');
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "enrollment-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Enrollment Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("enrollment_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "admissions"]);
+  },
 };
 
 window.enrollmentReportsController = enrollmentReportsController;
-
-function initWhenAPIReady() {
-    const hasApi =
-        window.API &&
-        (
-            typeof window.API.callAPI === "function" ||
-            typeof window.API.apiCall === "function"
-        );
-
-    if (hasApi) {
-        window.enrollmentReportsController.init();
-        return;
-    }
-
-    setTimeout(initWhenAPIReady, 100);
-}
-
-document.addEventListener("DOMContentLoaded", function () {
-    initWhenAPIReady();
-});
+document.addEventListener('DOMContentLoaded', () => enrollmentReportsController.init().catch(() => {}));

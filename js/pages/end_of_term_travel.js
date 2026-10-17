@@ -54,6 +54,7 @@ const endOfTermTravelController = {
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     await this.load();
+    window.APIRealtime?.register?.("end_of_term_travel", this, ["boarding"]);
   },
 };
 

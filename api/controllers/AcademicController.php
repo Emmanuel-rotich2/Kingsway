@@ -201,7 +201,7 @@ class AcademicController extends BaseController
         $scope = $this->curriculumScopeService->resolve((int) $this->getUserId(), $this->getUserRoleIds(), $yearId ?: null);
         $pdo = $this->db->getConnection();
         $context = $this->contract(\App\API\Services\AcademicContextService::class);
-        $scopeService = new \App\API\Modules\students\StudentScopeService($pdo);
+        $scopeService = $this->contract(\App\API\Modules\students\StudentScopeService::class, $pdo);
 
         // Read shapes stay in services; this controller only formats them.
         $years = $context->yearsForPicker();
@@ -1055,7 +1055,7 @@ return $this->serverError('An internal error occurred.');
         $sourceFormat = (string) ($payload['source_format'] ?? '');
         if (!$examPeriodId || !is_array($rows) || !is_array($mapping)) return $this->badRequest('exam_period_id, rows and mapping are required');
         try {
-            $service = new \App\API\Services\NationalTimetableService($this->db->getConnection(), (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
+            $service = $this->contract(\App\API\Services\NationalTimetableService::class, $this->db->getConnection(), (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
             $result = $service->saveReviewedTimetable($examPeriodId, $rows, $mapping, $filename, $sourceFormat);
             return $this->success($result, $result['warnings'] ? 'Timetable saved with warnings. Review them before generating sittings.' : 'National timetable saved.');
         } catch (\RuntimeException $e) {
@@ -1076,7 +1076,7 @@ return $this->serverError('An internal error occurred.');
         $examPeriodId = (int) ($data['exam_period_id'] ?? $_GET['exam_period_id'] ?? 0);
         if (!$examPeriodId) return $this->badRequest('exam_period_id is required');
         try {
-            $service = new \App\API\Services\NationalTimetableService($this->db->getConnection(), 0);
+            $service = $this->contract(\App\API\Services\NationalTimetableService::class, $this->db->getConnection(), 0);
             return $this->success($service->papersForPeriod($examPeriodId), 'National timetable loaded.');
         } catch (\PDOException $e) {
             return $this->databaseFailure($e, 'national timetable read', 'Unable to load the national timetable.');
@@ -1096,7 +1096,7 @@ return $this->serverError('An internal error occurred.');
         $examPeriodId = (int) ($payload['exam_period_id'] ?? $id ?? 0);
         if (!$examPeriodId) return $this->badRequest('exam_period_id is required');
         try {
-            $service = new \App\API\Services\NationalTimetableService($this->db->getConnection(), (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
+            $service = $this->contract(\App\API\Services\NationalTimetableService::class, $this->db->getConnection(), (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
             $result = $service->generateSittings($examPeriodId);
             return $this->success($result, $result['sittings_created'] . ' sittings created from the KNEC timetable.');
         } catch (\RuntimeException $e) {
@@ -1118,7 +1118,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Academic access is required.');
         }
         try {
-            $scope = new \App\API\Services\GradingScopeService($this->db->getConnection());
+            $scope = $this->contract(\App\API\Services\GradingScopeService::class, $this->db->getConnection());
             $termId = (int) ($data['term_id'] ?? $_GET['term_id'] ?? 0);
             return $this->success([
                 'systems' => $scope->systemsWithBands(),
@@ -1146,7 +1146,7 @@ return $this->serverError('An internal error occurred.');
             if (!$termId || !$systemId) return $this->badRequest('academic_year_term_id and grading_system_id are required');
             $classId = !empty($payload['class_id']) ? (int) $payload['class_id'] : null;
             $areaId = !empty($payload['learning_area_id']) ? (int) $payload['learning_area_id'] : null;
-            $scope = new \App\API\Services\GradingScopeService($this->db->getConnection());
+            $scope = $this->contract(\App\API\Services\GradingScopeService::class, $this->db->getConnection());
             $binding = $scope->bind($termId, $classId, $areaId, $systemId, (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
             return $this->success(['binding' => $binding, 'bindings' => $scope->bindingsForTerm($termId)], 'Grading system bound. New exam periods will snapshot it; existing periods keep their snapshots.');
         } catch (\PDOException $e) {
@@ -1164,7 +1164,7 @@ return $this->serverError('An internal error occurred.');
         $examPeriodId = (int) ($data['exam_period_id'] ?? $_GET['exam_period_id'] ?? $id ?? 0);
         if (!$examPeriodId) return $this->badRequest('exam_period_id is required');
         try {
-            $service = new \App\API\Services\KnecUploadTrackingService($this->db->getConnection());
+            $service = $this->contract(\App\API\Services\KnecUploadTrackingService::class, $this->db->getConnection());
             return $this->success(['uploads' => $service->listForPeriod($examPeriodId)], 'KNEC upload trail loaded.');
         } catch (\PDOException $e) {
             return $this->databaseFailure($e, 'kne upload trail', 'Unable to load the upload trail.');
@@ -1181,7 +1181,7 @@ return $this->serverError('An internal error occurred.');
         if (!$this->userHasAny(['academic_manage'], [1, 4], ['system administrator', 'school administrator'])) return $this->forbidden('Only the School Administrator may record a KNEC upload.');
         $payload = is_array($data) ? $data : [];
         try {
-            $service = new \App\API\Services\KnecUploadTrackingService($this->db->getConnection());
+            $service = $this->contract(\App\API\Services\KnecUploadTrackingService::class, $this->db->getConnection());
             $record = $service->recordUpload($payload, (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
             return $this->created($record, 'KNEC upload recorded.');
         } catch (\RuntimeException $e) {
@@ -1206,7 +1206,7 @@ return $this->serverError('An internal error occurred.');
         $instrument = strtoupper(trim((string) ($data['instrument'] ?? $_GET['instrument'] ?? '')));
         if (!$studentId || !in_array($instrument, ['KPSEA', 'KJSEA'], true)) return $this->badRequest('student_id and instrument (KPSEA or KJSEA) are required');
         try {
-            $service = new \App\API\Services\CompositeScoreService($this->db->getConnection());
+            $service = $this->contract(\App\API\Services\CompositeScoreService::class, $this->db->getConnection());
             return $this->success($service->computeForStudent($studentId, $instrument, (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0)), 'Composite computed.');
         } catch (\RuntimeException $e) {
             $code = (int) $e->getCode();
@@ -1279,7 +1279,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Academic leadership access is required.');
         }
         try {
-            $policy = new \App\API\Services\AssessmentPolicyService($this->db->getConnection());
+            $policy = $this->contract(\App\API\Services\AssessmentPolicyService::class, $this->db->getConnection());
             return $this->success($policy->summary(), 'Assessment policy loaded.');
         } catch (\PDOException $e) {
             return $this->databaseFailure($e, 'assessment policy', 'Unable to load the assessment policy.');
@@ -4450,7 +4450,7 @@ return $this->serverError('An internal error occurred.');
      */
     private function studentTeacherContacts(int $studentId, bool $classTeacherOnly = false): array
     {
-        $data = (new \App\API\Modules\students\StudentScopeService($this->db->getConnection()))->teacherContactsForStudent($studentId, $classTeacherOnly);
+        $data = ($this->contract(\App\API\Modules\students\StudentScopeService::class, $this->db->getConnection()))->teacherContactsForStudent($studentId, $classTeacherOnly);
         return is_array($data) ? $data : [];
     }
 
@@ -5017,7 +5017,7 @@ return $this->serverError('An internal error occurred.');
         if ((in_array(7, $roles, true) || strpos($roleName, 'class teacher') !== false)
             && !array_intersect($roles, [1, 2, 3, 4, 5, 6, 10, 63])) {
             $userId = (int) ($this->user['id'] ?? 0);
-            if (!(new \App\API\Modules\students\StudentScopeService($this->db->getConnection()))->teacherCanViewStudent($studentId, $userId)) {
+            if (!($this->contract(\App\API\Modules\students\StudentScopeService::class, $this->db->getConnection()))->teacherCanViewStudent($studentId, $userId)) {
                 return $this->forbidden('You can only view portfolios for your assigned learners');
             }
         }

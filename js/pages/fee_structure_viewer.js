@@ -28,11 +28,22 @@ class FeeStructureViewerController {
 
     this.currentStructures = [];
     this.currentAggregated = [];
+    this.state = { referenceCache: null };
   }
 
   /**
    * Initialize the controller
    */
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "fee-structure-viewer-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Fee structure viewer Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  }
+
   static async init() {
     const pageBody = document.getElementById('activeFeeMatrix');
     if (pageBody?.dataset.feeStructureViewerInitialized === '1') {
@@ -45,6 +56,7 @@ class FeeStructureViewerController {
     const controller = new FeeStructureViewerController();
     window.viewerController = controller;
     controller.setupEventListeners();
+    await controller.loadReferencesComposed();
     await controller.loadDropdowns();
     await controller.loadFeeStructures();
     const roleValues = [
@@ -62,6 +74,14 @@ class FeeStructureViewerController {
       document.getElementById('headteacherFeeReviewCard')?.remove();
     }
     controller.initializeChart();
+    window.APIRealtime?.register?.("fee_structure_viewer", {
+      refresh: async () => {
+        controller.state.referenceCache = null;
+        await controller.loadReferencesComposed();
+        await controller.loadDropdowns();
+        await controller.loadFeeStructures();
+      },
+    }, ["academic", "finance"]);
     return controller;
     })();
     try {
@@ -244,16 +264,17 @@ class FeeStructureViewerController {
    */
   async loadDropdowns() {
     try {
+      const cache = this.state.referenceCache;
       const [
         yearsResponse,
         levelsResponse,
         studentTypesResponse,
         termsResponse,
       ] = await Promise.all([
-        API.academic.getAllAcademicYears().catch(() => []),
-        API.academic.listLevels().catch(() => []),
-        API.finance.listStudentTypes().catch(() => []),
-        API.academic.listTerms().catch(() => []),
+        cache?.years !== undefined ? cache.years : API.academic.getAllAcademicYears().catch(() => []),
+        cache?.levels !== undefined ? cache.levels : API.academic.listLevels().catch(() => []),
+        cache?.studentTypes !== undefined ? cache.studentTypes : API.finance.listStudentTypes().catch(() => []),
+        cache?.terms !== undefined ? cache.terms : API.academic.listTerms().catch(() => []),
       ]);
 
       this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];

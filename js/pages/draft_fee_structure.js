@@ -48,6 +48,7 @@ const draftFeeStructureController = {
         selectedStudentType: 1,
         dirty: false,
         bundleIdCounter: 0,
+        referenceCache: null,
         // The rejected itemized fee catalog was removed. The approved school
         // fee matrix is represented by the single normalized technical code.
         feeCode: 'SCHOOL_FEES',
@@ -63,12 +64,30 @@ const draftFeeStructureController = {
             return;
         }
 
+        await this.loadReferencesComposed();
         await Promise.all([
             this.loadMeta(),
             this.loadGrid(),
         ]);
 
         this.setupEventListeners();
+        window.APIRealtime?.register?.("draft_fee_structure", {
+            refresh: async () => {
+                this.state.referenceCache = null;
+                await this.loadReferencesComposed();
+                await Promise.all([this.loadMeta(), this.loadGrid()]);
+            },
+        }, ["academic", "finance"]);
+    },
+
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("finance", "draft-fee-structure-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Draft fee structure Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
+        }
     },
 
     setupEventListeners() {
@@ -85,11 +104,12 @@ const draftFeeStructureController = {
 
     async loadMeta() {
         try {
+            const cache = this.state.referenceCache;
             const [gradesRes, yearsRes, typesRes, termsRes] = await Promise.all([
-                window.API.academic.listClasses(),
-                window.API.academic.listYears(),
-                window.API.finance.listStudentTypes(),
-                window.API.academic.listTerms(),
+                cache?.classes !== undefined ? cache.classes : window.API.academic.listClasses(),
+                cache?.years !== undefined ? cache.years : window.API.academic.listYears(),
+                cache?.studentTypes !== undefined ? cache.studentTypes : window.API.finance.listStudentTypes(),
+                cache?.terms !== undefined ? cache.terms : window.API.academic.listTerms(),
             ]);
 
             this.grades = this.unwrapList(gradesRes).map(g => ({

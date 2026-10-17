@@ -3,7 +3,7 @@
  * Overview of transport billing/collections: per-route monthly ledger and overall arrears.
  */
 const transportFeesController = {
-  state: { routes: [], stops: [], items: [] },
+  state: { routes: [], stops: [], items: [], referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
@@ -33,11 +33,22 @@ const transportFeesController = {
     yearSel.value = String(now.getFullYear());
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("finance", "transport-fees-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Transport fees Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async loadRoutes() {
     try {
+      const cache = this.state.referenceCache;
       const [r, stopResponse] = await Promise.all([
-        this.API('GET', 'transport/all-routes'),
-        this.API('GET', 'transport/all-stops'),
+        cache?.routes !== undefined ? cache.routes : this.API('GET', 'transport/all-routes'),
+        cache?.stops !== undefined ? cache.stops : this.API('GET', 'transport/all-stops'),
       ]);
       const routes = r?.data || r?.items || [];
       this.state.stops = stopResponse?.data || stopResponse?.items || [];
@@ -164,7 +175,8 @@ const transportFeesController = {
     const select = document.getElementById('transportEntStudent');
     if (!select || select.dataset.loaded) return;
     try {
-      const response = await window.API.students.getAll({ limit: 500, status: 'active' });
+      const cache = this.state.referenceCache;
+      const response = cache?.students !== undefined ? cache.students : await window.API.students.getAll({ limit: 500, status: 'active' });
       const students = response?.data || [];
       select.innerHTML = '<option value="">Select learner</option>' + students.map(s => `<option value="${s.id}">${this.esc(`${s.admission_no || ''} — ${s.first_name || ''} ${s.last_name || ''}`)}</option>`).join('');
       select.dataset.loaded = '1';
@@ -199,19 +211,31 @@ const transportFeesController = {
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
     this.initFilters();
     this.loadEntitlementStudents();
     this.loadTransportAccounts();
     await this.loadRoutes();
     this.setupEventListeners();
     this.loadData();
+    window.APIRealtime?.register?.("transport_fees", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.loadRoutes();
+        this.loadEntitlementStudents();
+        this.loadTransportAccounts();
+        this.loadData();
+      }
+    }, ["finance", "students", "transport"]);
   },
 
   async loadTransportAccounts() {
     const select = document.getElementById('transportEntFinancialAccount');
     if (!select) return;
     try {
-      const response = await window.API.finance.getFinancialAccounts();
+      const cache = this.state.referenceCache;
+      const response = cache?.accounts !== undefined ? cache.accounts : await window.API.finance.getFinancialAccounts();
       const accounts = ((response?.data || response)?.accounts || []).filter(a => a.status === 'active' && String(a.purposes || '').split(',').includes('transport'));
       select.innerHTML = accounts.length ? '<option value="">Select receiving account</option>' + accounts.map(a => `<option value="${Number(a.id)}">${this.esc(a.account_name)} · ${this.esc(a.account_identifier)}</option>`).join('') : '<option value="">No authorized transport account configured</option>';
     } catch (_) { select.innerHTML = '<option value="">Unable to load receiving accounts</option>'; }

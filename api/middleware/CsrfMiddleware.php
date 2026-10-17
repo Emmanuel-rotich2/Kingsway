@@ -42,6 +42,7 @@ class CsrfMiddleware
         'payments/mpesa-c2b-confirmation',
         'payments/mpesa-stk-callback',
         'payments/kcb-mpesa-express-callback',
+        'payments/payhero-callback',
         'payments/mpesa-result',
         'payments/kcb-validation',
         'payments/kcb-transfer-callback',

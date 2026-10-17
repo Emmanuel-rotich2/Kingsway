@@ -65,7 +65,7 @@ final class AiBehaviorProfiler
     {
         $candidates = $directory !== null
             ? [$directory]
-            : [dirname(__DIR__, 2) . '/storage/buffers/ai_behavior', sys_get_temp_dir() . '/kingsway_local_buffers'];
+            : [StorageRoot::path('php/ai_behavior'), sys_get_temp_dir() . '/kingsway_local_buffers'];
         foreach ($candidates as $candidate) {
             try {
                 // The @ is scoped to this fallback seam: the buffer signals

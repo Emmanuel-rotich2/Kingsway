@@ -9,7 +9,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import ssl
+from pathlib import Path
 from threading import Event, Thread
 import urllib.error
 import urllib.request
@@ -20,10 +22,15 @@ from .automations import AutomationEngine
 from .batch_contracts import BATCH_FAMILY_CONTRACTS, is_batch_family_enabled
 from .read_models import ReadModelError, ReadModelRefresher, PolarsReadModelRefresher
 from .realtime import RealtimePublisher
+from .sms_provider import DEFAULT_BASE_URL, SmsProvider, SmsProviderError
 
 PYTHON_JOB_TYPES = {
     "reads.projection.refresh",
     "automation.run",
+    # PHP stages one bounded batch per bulk messaging send; the Python worker
+    # owns the provider transport (TALKSASA) and reports per-recipient rows
+    # back for PHP to apply to the communications ledger.
+    "communications.sms_batch",
     # Registered for the shared queue contract. These remain non-claimable
     # until PHP exposes job-specific reauthorization, bounded input and
     # validated artifact/result handling for each family.
@@ -105,8 +112,16 @@ class PythonQueueWorker:
         # gateway outage never slows the loop or fails a job.
         self.realtime = RealtimePublisher(config)
 
+    @staticmethod
+    def _notification_scope(payload: dict[str, Any]) -> str | None:
+        try:
+            operator_id = int(payload.get("user_id") or payload.get("operator_id") or 0)
+        except (TypeError, ValueError):
+            return None
+        return f"users:{operator_id}" if operator_id > 0 else None
+
     def _notify_progress(
-        self, job_id: int, progress: int, status: str = "running"
+        self, job_id: int, progress: int, scope: str | None, status: str = "running"
     ) -> None:
         """Report intermediate progress for a long job.
 
@@ -117,10 +132,12 @@ class PythonQueueWorker:
         Reported only for jobs that are expected to run long. Emitting one frame
         per batch row for a fast job is pure noise on the SSE stream.
         """
+        if not scope:
+            return
         try:
             self.realtime.publish(
                 "JOB_PROGRESS",
-                "all",
+                scope,
                 {
                     "job_id": job_id,
                     "progress": max(0, min(100, int(progress))),
@@ -131,21 +148,25 @@ class PythonQueueWorker:
         except Exception:
             pass
 
-    def _notify_complete(self, job_id: int) -> None:
+    def _notify_complete(self, job_id: int, scope: str | None) -> None:
+        if not scope:
+            return
         try:
             self.realtime.publish(
                 "JOB_COMPLETE",
-                "all",
+                scope,
                 {"job_id": job_id, "status": "completed", "domain": "queue"},
             )
         except Exception:
             pass
 
-    def _notify_failed(self, job_id: int) -> None:
+    def _notify_failed(self, job_id: int, scope: str | None) -> None:
+        if not scope:
+            return
         try:
             self.realtime.publish(
                 "JOB_FAILED",
-                "all",
+                scope,
                 {"job_id": job_id, "status": "failed", "domain": "queue"},
             )
         except Exception:
@@ -169,19 +190,25 @@ class PythonQueueWorker:
             types.append(job_type)
             heartbeat_stop = Event()
             heartbeat_thread: Thread | None = None
+            scope: str | None = None
+            progress_holder: dict[str, int] = {}
             try:
                 if job_id < 1 or job_type not in PYTHON_JOB_TYPES:
                     raise QueueWorkerError("Unregistered Python job type")
                 payload = job.get("payload") or {}
-                self._notify_progress(job_id, 0, "running")
+                scope = self._notification_scope(payload)
+                self._notify_progress(job_id, 0, scope, "running")
 
                 def heartbeat() -> None:
                     while not heartbeat_stop.wait(120):
                         try:
-                            self.bridge.post(
-                                "/api/realtime/python-job-heartbeat",
-                                {"job_id": job_id, "attempts": claimed_attempts},
-                            )
+                            beat: dict[str, Any] = {
+                                "job_id": job_id,
+                                "attempts": claimed_attempts,
+                            }
+                            if progress_holder:
+                                beat["progress"] = dict(progress_holder)
+                            self.bridge.post("/api/realtime/python-job-heartbeat", beat)
                         except Exception:
                             # The next heartbeat or completion will expose
                             # a lost lease; never log tokens or job payloads.
@@ -218,7 +245,7 @@ class PythonQueueWorker:
                             },
                         },
                     )
-                    self._notify_complete(job_id)
+                    self._notify_complete(job_id, scope)
                     succeeded += 1
                 elif job_type == "automation.run":
                     envelope = (
@@ -249,7 +276,93 @@ class PythonQueueWorker:
                             "result": wire_result,
                         },
                     )
-                    self._notify_complete(job_id)
+                    self._notify_complete(job_id, scope)
+                    succeeded += 1
+                elif job_type == "communications.sms_batch":
+                    envelope = (
+                        self.bridge.post(
+                            "/api/realtime/python-job-input",
+                            {"job_id": job_id, "attempts": claimed_attempts},
+                        ).get("data")
+                        or {}
+                    )
+                    recipient_rows = envelope.get("recipients") or []
+                    if not recipient_rows:
+                        raise QueueWorkerError("SMS batch input contains no recipients")
+                    provider_config = envelope.get("provider") or {}
+                    provider = SmsProvider(
+                        api_key=str(provider_config.get("api_key") or ""),
+                        base_url=str(provider_config.get("api_url") or "")
+                        or DEFAULT_BASE_URL,
+                        sender_id=str(provider_config.get("sender_id") or "TALKSASA"),
+                    )
+                    progress_holder["processed"] = 0
+                    progress_holder["total"] = len(recipient_rows)
+
+                    def on_batch_progress(processed: int, total_count: int) -> None:
+                        progress_holder["processed"] = int(processed)
+                        progress_holder["total"] = int(total_count)
+                        self._notify_progress(
+                            job_id,
+                            int(processed * 100 / max(1, total_count)),
+                            scope,
+                            "running",
+                        )
+
+                    rows = provider.send_batch(
+                        recipient_rows,
+                        str(envelope.get("message") or ""),
+                        sms_type=str(envelope.get("mode") or "sms"),
+                        sender_id=provider_config.get("sender_id"),
+                        media_url=envelope.get("media_url"),
+                        language=envelope.get("language"),
+                        gender=envelope.get("gender"),
+                        recipient_format=envelope.get("recipient_format"),
+                        schedule_time=envelope.get("schedule_time"),
+                        on_progress=on_batch_progress,
+                    )
+                    batch_ref = str(
+                        envelope.get("batch_ref") or payload.get("batch_ref") or ""
+                    )
+                    if batch_ref == "":
+                        raise QueueWorkerError("SMS batch reference is missing")
+                    results_file = f"sms_{batch_ref}.jsonl"
+                    results_dir = (
+                        Path(self.config.storage_dir) / "communications" / "sms_batches"
+                    )
+                    results_dir.mkdir(parents=True, exist_ok=True)
+                    target = results_dir / results_file
+                    temporary = target.with_name(results_file + ".tmp")
+                    with open(temporary, "w", encoding="utf-8") as handle:
+                        for row in rows:
+                            handle.write(json.dumps(row, separators=(",", ":")) + "\n")
+                    os.replace(temporary, target)
+                    sent = sum(1 for row in rows if row.get("ok"))
+                    failed = len(rows) - sent
+                    failures = [
+                        {
+                            "endpoint_id": int(row.get("endpoint_id") or 0),
+                            "error": str(row.get("error") or "")[:300],
+                        }
+                        for row in rows
+                        if not row.get("ok")
+                    ][:50]
+                    self.bridge.post(
+                        "/api/realtime/python-job-complete",
+                        {
+                            "job_id": job_id,
+                            "attempts": claimed_attempts,
+                            "result": {
+                                "batch_ref": batch_ref,
+                                "total": len(rows),
+                                "sent": sent,
+                                "failed": failed,
+                                "failures": failures,
+                                "results_file": f"communications/sms_batches/{results_file}",
+                            },
+                        },
+                    )
+                    self._notify_complete(job_id, scope)
                     succeeded += 1
                 elif job_type in BATCH_FAMILY_CONTRACTS:
                     # Fail closed if a deployment accidentally activates a
@@ -278,7 +391,7 @@ class PythonQueueWorker:
                     raise QueueWorkerError(
                         "Python job failed and PHP could not record the failure"
                     ) from finalize_error
-                self._notify_failed(job_id)
+                self._notify_failed(job_id, scope)
                 failed += 1
             finally:
                 heartbeat_stop.set()

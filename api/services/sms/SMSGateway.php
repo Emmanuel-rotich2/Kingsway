@@ -1,57 +1,197 @@
 <?php
+
 namespace App\API\Services\sms;
 
-
+/**
+ * SMSGateway — provider-agnostic messaging capability surface.
+ *
+ * Owns transport only: SMS, WhatsApp, Voice, MMS, Hashed SMS, Campaigns,
+ * account/profile, contact groups, contacts and message history. Business
+ * orchestration and database writes live in SMSService.
+ *
+ * To switch messaging provider, update the provider block in configuration
+ * and this file's HttpSmsProvider endpoint/payload/response mapping. No other
+ * file changes are required — the rest of the system talks to this surface.
+ */
 class SMSGateway
 {
-    // Public method to send WhatsApp message using the provider
-    public function sendWhatsApp($to, $message, $media = null)
-    {
-        if (method_exists($this->provider, 'sendWhatsApp')) {
-            return $this->provider->sendWhatsApp($to, $message, $media);
-        }
-        throw new \Exception('WhatsApp sending not supported by this provider');
-    }
     private $config;
     private $provider;
 
     public function __construct($config = [])
     {
-        // Always load from config.php if not provided
         $defaults = [
-            'provider' => defined('SMS_PROVIDER') ? SMS_PROVIDER : 'africastalking',
-            'api_key' => defined('SMS_API_KEY') ? SMS_API_KEY : '',
-            'username' => defined('SMS_USERNAME') ? SMS_USERNAME : '',
-            'appname' => defined('SMS_APPNAME') ? SMS_APPNAME : '',
-            'sender_id' => defined('SMS_SENDER_ID') ? SMS_SENDER_ID : '',
-            'shortcode' => defined('SMS_SHORTCODE') ? SMS_SHORTCODE : '',
-            'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
-            'whatsapp_api_url' => defined('SMS_WHATSAPP_API_URL') ? SMS_WHATSAPP_API_URL : 'https://chat.africastalking.com',
-            'account_sid' => defined('TWILIO_ACCOUNT_SID') ? TWILIO_ACCOUNT_SID : '',
-            'auth_token' => defined('TWILIO_AUTH_TOKEN') ? TWILIO_AUTH_TOKEN : '',
-            'from' => defined('TWILIO_FROM') ? TWILIO_FROM : '',
+            'provider'         => defined('SMS_PROVIDER') ? constant('SMS_PROVIDER') : 'talksasa',
+            'api_key'          => defined('SMS_API_KEY') ? constant('SMS_API_KEY') : '',
+            'username'         => defined('SMS_USERNAME') ? constant('SMS_USERNAME') : '',
+            'appname'          => defined('SMS_APPNAME') ? constant('SMS_APPNAME') : '',
+            'sender_id'        => defined('SMS_SENDER_ID') ? constant('SMS_SENDER_ID') : '',
+            'shortcode'        => defined('SMS_SHORTCODE') ? constant('SMS_SHORTCODE') : '',
+            'api_url'          => defined('SMS_API_URL') ? constant('SMS_API_URL') : 'https://bulksms.talksasa.com/api/v3/',
+            'wa_number'        => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
+            'voice_language'   => defined('SMS_VOICE_LANGUAGE') ? constant('SMS_VOICE_LANGUAGE') : 'en-gb',
+            'voice_gender'     => defined('SMS_VOICE_GENDER') ? constant('SMS_VOICE_GENDER') : 'female',
         ];
         $this->config = array_merge($defaults, $config);
         $this->provider = $this->initializeProvider();
     }
 
+    public function providerName(): string
+    {
+        return (string) ($this->config['provider'] ?? '');
+    }
+
+    public function senderId(): string
+    {
+        $sender = trim((string) ($this->config['sender_id'] ?? ''));
+        if ($sender !== '') {
+            return $sender;
+        }
+        $shortcode = trim((string) ($this->config['shortcode'] ?? ''));
+        if ($shortcode !== '') {
+            return $shortcode;
+        }
+        return (string) ($this->config['username'] ?? '');
+    }
+
+    // ── Outbound messaging ──────────────────────────────────────────────────
+
     public function send($to, $message)
     {
-        return $this->provider->sendMessage($to, $message);
+        return $this->providerCall('sendMessage', [$to, (string) $message]);
+    }
+
+    public function sendBulk($to, $message, $scheduleTime = null, $dltTemplateId = null)
+    {
+        if (method_exists($this->provider, 'sendBulk')) {
+            return $this->provider->sendBulk($to, (string) $message, $scheduleTime, $dltTemplateId);
+        }
+        return $this->providerCall('sendMessage', [$to, (string) $message]);
+    }
+
+    public function sendWhatsApp($to, $message, $media = null)
+    {
+        return $this->providerCall('sendWhatsApp', [$to, (string) $message, $media]);
+    }
+
+    public function sendVoice($to, $message, $language = null, $gender = null)
+    {
+        $language = $language ?: (string) ($this->config['voice_language'] ?? 'en-gb');
+        $gender = $gender ?: (string) ($this->config['voice_gender'] ?? 'female');
+        return $this->providerCall('sendVoice', [$to, (string) $message, $language, $gender]);
+    }
+
+    public function sendMMS($to, $message, $mediaUrl)
+    {
+        return $this->providerCall('sendMMS', [$to, (string) $message, $mediaUrl]);
+    }
+
+    public function sendHashed($recipient, $message, $recipientFormat = 'hashed')
+    {
+        return $this->providerCall('sendHashed', [$recipient, (string) $message, $recipientFormat]);
+    }
+
+    public function sendCampaign($contactListIds, $message, $scheduleTime = null, $dltTemplateId = null)
+    {
+        return $this->providerCall('sendCampaign', [$contactListIds, (string) $message, $scheduleTime, $dltTemplateId]);
+    }
+
+    public function queueStatus($queueUid)
+    {
+        return $this->providerCall('queueStatus', [$queueUid]);
+    }
+
+    // ── Account ─────────────────────────────────────────────────────────────
+
+    public function balance()
+    {
+        return $this->providerCall('balance', []);
+    }
+
+    public function profile()
+    {
+        return $this->providerCall('profile', []);
+    }
+
+    // ── Contact groups ──────────────────────────────────────────────────────
+
+    public function listGroups()
+    {
+        return $this->providerCall('listGroups', []);
+    }
+
+    public function createGroup($name)
+    {
+        return $this->providerCall('createGroup', [$name]);
+    }
+
+    public function showGroup($groupId)
+    {
+        return $this->providerCall('showGroup', [$groupId]);
+    }
+
+    public function updateGroup($groupId, $name)
+    {
+        return $this->providerCall('updateGroup', [$groupId, $name]);
+    }
+
+    public function deleteGroup($groupId)
+    {
+        return $this->providerCall('deleteGroup', [$groupId]);
+    }
+
+    // ── Contacts ────────────────────────────────────────────────────────────
+
+    public function listContacts($groupId)
+    {
+        return $this->providerCall('listContacts', [$groupId]);
+    }
+
+    public function storeContact($groupId, $phone, $firstName = '', $lastName = '')
+    {
+        return $this->providerCall('storeContact', [$groupId, $phone, $firstName, $lastName]);
+    }
+
+    public function showContact($groupId, $uid)
+    {
+        return $this->providerCall('showContact', [$groupId, $uid]);
+    }
+
+    public function updateContact($groupId, $uid, $phone, $firstName = '', $lastName = '')
+    {
+        return $this->providerCall('updateContact', [$groupId, $uid, $phone, $firstName, $lastName]);
+    }
+
+    public function deleteContact($groupId, $uid)
+    {
+        return $this->providerCall('deleteContact', [$groupId, $uid]);
+    }
+
+    // ── Messages ────────────────────────────────────────────────────────────
+
+    public function listMessages()
+    {
+        return $this->providerCall('listMessages', []);
+    }
+
+    public function getMessage($uid)
+    {
+        return $this->providerCall('getMessage', [$uid]);
+    }
+
+    // ── Internals ───────────────────────────────────────────────────────────
+
+    private function providerCall(string $method, array $args)
+    {
+        if (!method_exists($this->provider, $method)) {
+            throw new \Exception('Messaging provider does not support ' . $method);
+        }
+        return $this->provider->$method(...$args);
     }
 
     private function initializeProvider()
     {
-        switch ($this->config['provider']) {
-            case 'africastalking':
-                return new AfricasTalkingProvider($this->config);
-            case 'twilio':
-                return new TwilioProvider($this->config);
-            case 'talksasa':
-                return new TalksasaProvider($this->config);
-            default:
-                throw new \Exception('Unsupported SMS provider');
-        }
+        return new HttpSmsProvider($this->config);
     }
 }
 
@@ -60,9 +200,15 @@ interface SMSProvider
     public function sendMessage($to, $message);
 }
 
-
-class TalksasaProvider implements SMSProvider
+/**
+ * HTTP messaging provider. Endpoint paths, request payload and response
+ * parsing for the configured provider live entirely in this class so the
+ * school can switch provider by editing this one file plus configuration.
+ */
+class HttpSmsProvider implements SMSProvider
 {
+    use SmsProviderTransport;
+
     private $config;
     private $baseUrl;
     private $apiKey;
@@ -71,371 +217,216 @@ class TalksasaProvider implements SMSProvider
     public function __construct($config)
     {
         $this->config = $config;
-        $this->baseUrl = rtrim((string) ($this->config['api_url'] ?? 'https://bulksms.talksasa.com/api/v3/'), '/');
-        $this->apiKey = $this->config['api_key'] ?? '';
-        $this->senderId = $this->config['sender_id'] ?? 'TALK-SASA';
+        $this->baseUrl = rtrim((string) ($config['api_url'] ?? 'https://bulksms.talksasa.com/api/v3/'), '/');
+        $this->apiKey = (string) ($config['api_key'] ?? '');
+        $sender = trim((string) ($config['sender_id'] ?? ''));
+        if ($sender === '') {
+            $sender = trim((string) ($config['shortcode'] ?? ''));
+        }
+        if ($sender === '') {
+            $sender = trim((string) ($config['username'] ?? ''));
+        }
+        $this->senderId = $sender;
     }
 
     public function sendMessage($to, $message)
     {
-        $url = $this->baseUrl . '/sms/send';
-
-        $body = [
-            'phone' => $to,
-            'message' => $message,
-            'sender_id' => $this->senderId
-        ];
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $this->apiKey,
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ]);
-
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($error) {
-            throw new \Exception("Talksasa SMS send failed: $error");
-        }
-
-        $data = json_decode($response, true);
-        if ($data['status'] ?? $data['result'] ?? null !== 'success') {
-            return true;
-        }
-
-        $msg = $data['message'] ?? $data['error'] ?? 'Unknown error';
-        throw new \Exception("Talksasa SMS send failed: $msg");
+        return $this->wrapSend($this->request('POST', '/sms/send', $this->sendBody($to, $message, 'plain')));
     }
-}
 
-class AfricasTalkingProvider implements SMSProvider
-{
-    private $config;
-    private $at; // Africa's Talking SDK instance
-
-    public function __construct($config)
+    public function sendBulk($to, $message, $scheduleTime = null, $dltTemplateId = null)
     {
-        $this->config = $config;
-        $this->at = null;
+        return $this->wrapSend($this->request('POST', '/sms/send', $this->sendBody($to, $message, 'plain', $scheduleTime, $dltTemplateId)));
     }
 
-    public function sendMessage($to, $message)
-    {
-        // Use Africa's Talking PHP SDK
-        $this->initAfricasTalking();
-
-        $options = [
-            'to' => $to,
-            'message' => $message
-        ];
-
-        // Get configured sender IDs - try both alphanumeric and shortcode
-        $senderId = $this->config['sender_id'] ?? null;
-        $shortCode = $this->config['shortcode'] ?? null;
-
-        // Build list of sender IDs to try (alphanumeric first, then shortcode)
-        $senderIds = [];
-        if (!empty($senderId)) {
-            $senderIds[] = $senderId;
-        }
-        if (!empty($shortCode) && $shortCode !== $senderId) {
-            $senderIds[] = $shortCode;
-        }
-
-        // Track overall success across all attempts
-        $anySucceeded = false;
-        $attemptedIds = [];
-
-        // If no sender IDs configured, try without 'from' parameter
-        if (empty($senderIds)) {
-            $result = $this->attemptSend($to, $message, $options);
-            return $result === true;
-        }
-
-        // Try each sender ID with fallback
-        foreach ($senderIds as $index => $from) {
-            $optionsWithFrom = $options;
-            $optionsWithFrom['from'] = $from;
-            $attemptedIds[] = $from;
-
-            // Log the request
-            $this->logSmsRequest($to, $message, $optionsWithFrom, "Attempt " . ($index + 1) . " with '$from'");
-
-            $result = $this->attemptSend($to, $message, $optionsWithFrom);
-            $this->logSmsResponse($to, "Attempt " . ($index + 1) . " result: " . ($result ? "TRUE" : "FALSE"));
-
-            // If this attempt succeeded, mark it
-            if ($result === true) {
-                $anySucceeded = true;
-                $this->logSmsResponse($to, "✓ SUCCESS on attempt " . ($index + 1) . " with sender: $from");
-                break;
-            }
-        }
-
-        // Log final result
-        if (!$anySucceeded) {
-            $this->logSmsResponse($to, "✗ All sender IDs failed. Tried: " . implode(", ", $attemptedIds));
-        } else {
-            $this->logSmsResponse($to, "✓ Message sent successfully");
-        }
-
-        return $anySucceeded;
-    }
-
-    private function attemptSend($to, $message, $options)
-    {
-        try {
-            // Fresh SDK instance for each send to avoid connection state issues
-            $sms = $this->at->sms();
-            $result = $sms->send($options);
-
-            // Log the response for debugging
-            $this->logSmsResponse($to, $result);
-
-            // Check the actual response for errors
-            // Africa's Talking SDK returns an array with 'status' and 'data' keys
-            $msgData = null;
-
-            // Handle array response (most common from SDK)
-            if (is_array($result)) {
-                if (!isset($result['data']) || !isset($result['data']->SMSMessageData)) {
-                    return false;
-                }
-                $msgData = $result['data']->SMSMessageData;
-            }
-            // Handle object response (fallback)
-            elseif (is_object($result)) {
-                if (!property_exists($result, 'SMSMessageData')) {
-                    return false;
-                }
-                $msgData = $result->SMSMessageData;
-            } else {
-                return false;
-            }
-
-            // Now we have SMSMessageData, check for errors
-            if ($msgData) {
-                // Check for error messages
-                if (property_exists($msgData, 'Message')) {
-                    $errorMsg = $msgData->Message;
-                    // Only treat InvalidSenderId as error, not success messages
-                    if ($errorMsg === 'InvalidSenderId') {
-                        $this->logSmsResponse($to, "ERROR: InvalidSenderId");
-                        return false;
-                    }
-                }
-
-                // Check if recipients array exists and has items
-                if (property_exists($msgData, 'Recipients') && is_array($msgData->Recipients)) {
-                    $recipients = $msgData->Recipients;
-
-                    if (empty($recipients)) {
-                        $this->logSmsResponse($to, "ERROR: No valid recipients");
-                        return false;
-                    }
-
-                    // Check each recipient's status code
-                    $foundSuccess = false;
-                    foreach ($recipients as $recipient) {
-                        if (property_exists($recipient, 'statusCode')) {
-                            $statusCode = $recipient->statusCode;
-                            // Success codes: 100 (Processed), 101 (Sent), 102 (Queued)
-                            if ($statusCode >= 100 && $statusCode <= 102) {
-                                $foundSuccess = true;
-                                $this->logSmsResponse($to, "✓ Recipient {$recipient->number} statusCode: $statusCode");
-                                break;
-                            }
-                        }
-                    }
-
-                    if ($foundSuccess) {
-                        return true;
-                    } else {
-                        $this->logSmsResponse($to, "ERROR: No valid status codes in recipients");
-                        return false;
-                    }
-                }
-            }
-
-            return false;
-        } catch (\Exception $e) {
-            \App\API\Services\Logger::legacyError('[SMSGateway] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return false;
-        }
-    }
-
-    private function logSmsResponse($to, $result)
-    {
-        $logFile = __DIR__ . '/../../../logs/sms_responses.log';
-        $timestamp = date('Y-m-d H:i:s');
-        $resultStr = is_string($result) ? $result : json_encode($result);
-        $logMessage = "[$timestamp] To: $to | Response: " . $resultStr . "\n";
-        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
-    }
-
-    private function logSmsRequest($to, $message, $options, $attempt = "")
-    {
-        $logFile = __DIR__ . '/../../../logs/sms_responses.log';
-        $timestamp = date('Y-m-d H:i:s');
-        $attemptStr = !empty($attempt) ? " | $attempt" : "";
-        $logMessage = "[$timestamp] REQUEST - To: $to | Options: " . json_encode($options) . " | Message: " . substr($message, 0, 50) . "...$attemptStr\n";
-        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
-    }
-
-    /**
-     * Send MMS using Africa's Talking
-     * @param string $to
-     * @param string $message
-     * @param string $mediaUrl
-     * @return mixed
-     */
-    public function sendMMS($to, $message, $mediaUrl)
-    {
-        $this->initAfricasTalking();
-        $sms = $this->at->sms();
-        $from = $this->config['from'] ?? null;
-        $result = $sms->send([
-            'to' => $to,
-            'message' => $message,
-            'from' => $from,
-            'mediaUrl' => $mediaUrl
-        ]);
-        return $result;
-    }
-
-    /**
-     * Send WhatsApp message using Africa's Talking
-     * @param string $to
-     * @param string $message
-     * @return mixed
-     */
-    /**
-     * Send WhatsApp message using Africa's Talking HTTP API
-     * @param string $to
-     * @param string $message
-     * @param array|null $media (optional)
-     * @return mixed
-     */
     public function sendWhatsApp($to, $message, $media = null)
     {
-        $url = rtrim((string) ($this->config['whatsapp_api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
-        $apiKey = $this->config['api_key'];
-        $username = $this->config['username'];
-        $waNumber = $this->config['wa_number'] ?? null;
+        $body = $this->sendBody($to, $message, 'whatsapp');
+        if (is_array($media) && !empty($media['url'])) {
+            $body['media_url'] = (string) $media['url'];
+        } elseif (is_string($media) && $media !== '') {
+            $body['media_url'] = $media;
+        }
+        return $this->wrapSend($this->request('POST', '/sms/send', $body));
+    }
+
+    public function sendVoice($to, $message, $language = 'en-gb', $gender = 'female')
+    {
+        $body = $this->sendBody($to, $message, 'voice');
+        $body['language'] = $language;
+        $body['gender'] = $gender;
+        return $this->wrapSend($this->request('POST', '/sms/send', $body));
+    }
+
+    public function sendMMS($to, $message, $mediaUrl)
+    {
+        $body = $this->sendBody($to, $message, 'mms');
+        $body['media_url'] = $mediaUrl;
+        return $this->wrapSend($this->request('POST', '/sms/send', $body));
+    }
+
+    public function sendHashed($recipient, $message, $recipientFormat = 'hashed')
+    {
+        return $this->wrapSend($this->request('POST', '/sms/send-hashed', [
+            'recipient' => $recipient,
+            'recipient_format' => $recipientFormat,
+            'sender_id' => $this->senderId,
+            'message' => $message,
+        ]));
+    }
+
+    public function sendCampaign($contactListIds, $message, $scheduleTime = null, $dltTemplateId = null)
+    {
         $body = [
-            'username' => $username,
-            'waNumber' => $waNumber,
-            'phoneNumber' => $to,
-            'body' => ['message' => $message]
+            'recipient' => $contactListIds,
+            'sender_id' => $this->senderId,
+            'type' => 'plain',
+            'message' => (string) $message,
         ];
-        if ($media && is_array($media)) {
-            $body['body'] = array_merge($body['body'], $media);
+        if ($scheduleTime !== null && $scheduleTime !== '') {
+            $body['schedule_time'] = $scheduleTime;
         }
-        $headers = [
-            'apiKey: ' . $apiKey,
-            'Content-Type: application/json',
-            'Accept: application/json'
-        ];
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
-        if ($error) {
-            throw new \Exception("WhatsApp sending failed: $error");
+        if ($dltTemplateId !== null && $dltTemplateId !== '') {
+            $body['dlt_template_id'] = $dltTemplateId;
         }
-        return json_decode($response, true);
+        return $this->wrapSend($this->request('POST', '/sms/campaign', $body));
     }
 
-    private function initAfricasTalking()
+    public function queueStatus($queueUid)
     {
-        if ($this->at === null) {
-            // Use Composer autoload
-            require_once __DIR__ . '/../../../vendor/autoload.php';
-
-            $username = $this->config['username'] ?? 'sandbox';
-            $apiKey = $this->config['api_key'] ?? '';
-
-            // Validate credentials
-            if (empty($apiKey)) {
-                throw new \Exception("SMS API Key is not configured. Check SMS_API_KEY in config.php");
-            }
-            if (empty($username)) {
-                throw new \Exception("SMS Username is not configured. Check SMS_USERNAME in config.php");
-            }
-
-            // Initialize Africa's Talking SDK
-            $this->at = new \AfricasTalking\SDK\AfricasTalking($username, $apiKey);
-
-            // Log initialization details
-            $isSandbox = ($username === 'sandbox');
-            $endpoint = $isSandbox ? 'https://api.sandbox.africastalking.com' : 'https://api.africastalking.com';
-            $apiKeyMasked = substr($apiKey, 0, 10) . '...' . substr($apiKey, -10);
-            $this->logSmsRequest('', "SDK initialized", [
-                'username' => $username,
-                'api_key' => $apiKeyMasked,
-                'environment' => $isSandbox ? 'SANDBOX' : 'PRODUCTION',
-                'endpoint' => $endpoint,
-                'sender_id' => $this->config['sender_id'] ?? 'NOT_SET',
-                'shortcode' => $this->config['shortcode'] ?? 'NOT_SET'
-            ], "Initialization");
-        }
-    }
-}
-
-class TwilioProvider implements SMSProvider
-{
-    private $config;
-
-    public function __construct($config)
-    {
-        $this->config = $config;
+        return $this->request('GET', '/sms/queue/' . rawurlencode((string) $queueUid));
     }
 
-    public function sendMessage($to, $message)
+    public function balance()
     {
-        // Implementation for Twilio API
-        $url = "https://api.twilio.com/2010-04-01/Accounts/{$this->config['account_sid']}/Messages.json";
-        $auth = base64_encode("{$this->config['account_sid']}:{$this->config['auth_token']}");
+        return $this->request('GET', '/balance');
+    }
 
-        $headers = [
-            'Authorization: Basic ' . $auth,
-            'Content-Type: application/x-www-form-urlencoded'
-        ];
+    public function profile()
+    {
+        return $this->request('GET', '/me');
+    }
 
-        $data = [
-            'To' => $to,
-            'From' => $this->config['from'],
-            'Body' => $message
-        ];
+    public function listGroups()
+    {
+        return $this->request('GET', '/contacts');
+    }
 
-        // Send request using cURL
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    public function createGroup($name)
+    {
+        return $this->request('POST', '/contacts', ['name' => $name]);
+    }
 
-        $response = curl_exec($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
+    public function showGroup($groupId)
+    {
+        return $this->request('POST', '/contacts/' . rawurlencode((string) $groupId) . '/show');
+    }
 
-        if ($error) {
-            throw new \Exception("SMS sending failed: $error");
+    public function updateGroup($groupId, $name)
+    {
+        return $this->request('PATCH', '/contacts/' . rawurlencode((string) $groupId), ['name' => $name]);
+    }
+
+    public function deleteGroup($groupId)
+    {
+        return $this->request('DELETE', '/contacts/' . rawurlencode((string) $groupId));
+    }
+
+    public function listContacts($groupId)
+    {
+        return $this->request('POST', '/contacts/' . rawurlencode((string) $groupId) . '/all');
+    }
+
+    public function storeContact($groupId, $phone, $firstName = '', $lastName = '')
+    {
+        $body = ['phone' => $phone];
+        if ($firstName !== '') {
+            $body['first_name'] = $firstName;
         }
+        if ($lastName !== '') {
+            $body['last_name'] = $lastName;
+        }
+        return $this->request('POST', '/contacts/' . rawurlencode((string) $groupId) . '/store', $body);
+    }
 
-        return json_decode($response, true);
+    public function showContact($groupId, $uid)
+    {
+        return $this->request('POST', '/contacts/' . rawurlencode((string) $groupId) . '/search/' . rawurlencode((string) $uid));
+    }
+
+    public function updateContact($groupId, $uid, $phone, $firstName = '', $lastName = '')
+    {
+        $body = ['phone' => $phone];
+        if ($firstName !== '') {
+            $body['first_name'] = $firstName;
+        }
+        if ($lastName !== '') {
+            $body['last_name'] = $lastName;
+        }
+        return $this->request('PATCH', '/contacts/' . rawurlencode((string) $groupId) . '/update/' . rawurlencode((string) $uid), $body);
+    }
+
+    public function deleteContact($groupId, $uid)
+    {
+        return $this->request('DELETE', '/contacts/' . rawurlencode((string) $groupId) . '/delete/' . rawurlencode((string) $uid));
+    }
+
+    public function listMessages()
+    {
+        return $this->request('GET', '/sms');
+    }
+
+    public function getMessage($uid)
+    {
+        return $this->request('GET', '/sms/' . rawurlencode((string) $uid));
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    private function sendBody($to, $message, string $type, $scheduleTime = null, $dltTemplateId = null): array
+    {
+        $body = [
+            'recipient' => $to,
+            'sender_id' => $this->senderId,
+            'type' => $type,
+            'message' => (string) $message,
+        ];
+        if ($scheduleTime !== null && $scheduleTime !== '') {
+            $body['schedule_time'] = $scheduleTime;
+        }
+        if ($dltTemplateId !== null && $dltTemplateId !== '') {
+            $body['dlt_template_id'] = $dltTemplateId;
+        }
+        return $body;
+    }
+
+    /**
+     * Convert a normalised transport response into the legacy send contract
+     * (['status','data']) used across the communications stack, throwing on
+     * failure so callers keep their existing error handling.
+     */
+    private function wrapSend(array $response): array
+    {
+        if (!($response['ok'] ?? false)) {
+            throw new \Exception('Message send failed: ' . ($response['message'] ?? 'unknown provider error'));
+        }
+        return [
+            'status' => $response['status'] !== '' ? $response['status'] : 'success',
+            'data' => $response['data'],
+        ];
+    }
+
+    /**
+     * Single transport primitive for all provider calls.
+     *
+     * Everything executes through the Python platform relay first, with the
+     * shared stream transport as the resilience path (never curl — this host
+     * does not load the curl extension). See SmsProviderTransport.
+     *
+     * @return array{ok: bool, http: int, status: string, data: mixed, message: string, raw: string}
+     */
+    private function request(string $method, string $path, ?array $body = null): array
+    {
+        return $this->providerTransport($this->config, strtoupper($method), $path, $body);
     }
 }

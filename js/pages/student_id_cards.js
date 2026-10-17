@@ -1,8 +1,7 @@
 /**
  * Student ID Cards Controller
- * Complete ID card management system
+ * Complete ID card management system - uses Node-composed data via window.API
  */
-
 
 const StudentIdCardsController = {
     students: [],
@@ -23,7 +22,6 @@ const StudentIdCardsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-
         try {
             await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
@@ -40,98 +38,12 @@ const StudentIdCardsController = {
             this.cacheDom();
             this.renderTableHeader();
             this.setupEventListeners();
-            await this.loadMetadata();
-            await this.loadStudents();
+            await this.refresh();
 
         } catch (error) {
             console.error("Failed to initialize Student ID Cards Controller:", error);
             this.showError(error.message || "Failed to initialize ID cards page.");
         }
-    },
-
-    apiCall: function(endpoint, method = "GET", data = null) {
-        if (window.API && typeof window.API.callAPI === "function") {
-            return window.API.callAPI(endpoint, method, data);
-        }
-
-        if (window.API && typeof window.API.apiCall === "function") {
-            return window.API.apiCall(endpoint, method, data);
-        }
-
-        throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
-    },
-
-    isSuccessfulResponse: function(response) {
-        if (!response) return false;
-        if (response.success === false || response.status === false) return false;
-        if (response.success === true || response.status === true) return true;
-        return response.data !== undefined || response.queues !== undefined || Object.keys(response).length > 0;
-    },
-
-    unwrapPayload: function(response) {
-        if (response && response.data) {
-            return response.data;
-        }
-        if (response && response.queues) {
-            return response;
-        }
-        return response || {};
-    },
-
-    extractPagination: function(response) {
-        const pending = [response];
-        const seen = new Set();
-        while (pending.length) {
-            const current = pending.shift();
-            if (!current || typeof current !== 'object' || seen.has(current)) continue;
-            seen.add(current);
-            if (current.pagination && typeof current.pagination === 'object') return current.pagination;
-            if (current.data && typeof current.data === 'object') pending.push(current.data);
-            if (current.raw && typeof current.raw === 'object') pending.push(current.raw);
-        }
-        return {};
-    },
-
-    extractList: function(response) {
-        const payload = this.unwrapPayload(response);
-        if (Array.isArray(payload)) {
-            return payload;
-        }
-        if (payload.data && Array.isArray(payload.data)) {
-            return payload.data;
-        }
-        if (payload.items && Array.isArray(payload.items)) {
-            return payload.items;
-        }
-        if (payload.list && Array.isArray(payload.list)) {
-            return payload.list;
-        }
-        return [];
-    },
-
-    notify: function(type, message) {
-        if (typeof window.showNotification === "function") {
-            window.showNotification(type, message);
-            return;
-        }
-
-        if (window.API && typeof window.API.showNotification === "function") {
-            window.API.showNotification(message, type);
-            return;
-        }
-
-        console.log(`[${type.toUpperCase()}] ${message}`);
-    },
-
-    escapeHtml: function(text) {
-        if (!text) return "";
-        const div = document.createElement("div");
-        div.textContent = text;
-        return div.innerHTML;
-    },
-
-    escapeAttr: function(text) {
-        return this.escapeHtml(text).replace(/`/g, "&#96;");
     },
 
     cacheDom: function() {
@@ -149,7 +61,6 @@ const StudentIdCardsController = {
             filterStudentStatus: document.getElementById("filterStudentStatus"),
             filterCardStatus: document.getElementById("filterCardStatus"),
             searchStudents: document.getElementById("searchStudents"),
-            applyFiltersBtn: document.getElementById("applyFiltersBtn"),
             resetFiltersBtn: document.getElementById("resetFiltersBtn"),
 
             selectAll: document.getElementById("selectAll"),
@@ -193,22 +104,30 @@ const StudentIdCardsController = {
 
             // History
             historyContent: document.getElementById("historyContent"),
+
+            // Stable PHP-owned table container; this controller owns rendering.
+            tableContainer: document.getElementById("idCardTablePrintArea"),
         };
     },
 
     setupEventListeners: function() {
-        this.safeListen("refreshBtn", "click", () => this.loadStudents());
+        this.safeListen("refreshBtn", "click", () => this.refresh());
         this.safeListen("generateSelectedBtn", "click", () => this.generateSelected());
         this.safeListen("printSelectedBtn", "click", () => this.printSelected());
         this.safeListen("printListBtn", "click", () => this.printStudentList());
         this.safeListen("exportBtn", "click", () => this.exportData());
 
-        this.safeListen("applyFiltersBtn", "click", () => this.loadStudents());
         this.safeListen("resetFiltersBtn", "click", () => this.resetFilters());
         this.safeListen("idCardPageSize", "change", (event) => {
-            this.pagination.limit = Math.max(1, parseInt(event.target.value, 10) || 25);
+            this.pagination.limit = parseInt(event.target.value, 10) || 25;
             this.pagination.page = 1;
-            this.loadStudents();
+            this.updatePagination({
+                page: 1,
+                limit: this.pagination.limit,
+                total: this.students?.length || 0,
+                pages: Math.ceil((this.students?.length || 0) / this.pagination.limit)
+            });
+            this.renderTableFromAllStudents();
         });
         this.safeListen("idCardPaginationControls", "click", (event) => {
             const button = event.target.closest("[data-page-delta]");
@@ -217,21 +136,19 @@ const StudentIdCardsController = {
 
         this.safeListen("filterClass", "change", () => {
             this.updateStreamsFilter();
-            this.pagination.page = 1;
-            this.loadStudents();
+            this.applyFilters();
         });
 
-        ["filterAcademicYear", "filterStream", "filterGender", "filterStudentStatus", "filterCardStatus"].forEach(id => {
-            this.safeListen(id, "change", () => {
-                this.pagination.page = 1;
-                this.loadStudents();
-            });
+        this.safeListen("filterAcademicYear", "change", () => {
+            this.updateStreamsFilter();
+            this.applyFilters();
         });
 
-        this.safeListen("searchStudents", "input", this.debounce(() => {
-            this.pagination.page = 1;
-            this.loadStudents();
-        }, 400));
+        ["filterStream", "filterGender", "filterStudentStatus", "filterCardStatus"].forEach(id => {
+            this.safeListen(id, "change", () => this.applyFilters());
+        });
+
+        this.safeListen("searchStudents", "input", this.debounce(() => this.applyFilters(), 200));
 
         this.safeListen("selectAll", "change", (e) => this.toggleSelectAll(e.target.checked));
         this.safeListen("headerCheckbox", "change", (e) => this.toggleSelectAll(e.target.checked));
@@ -277,7 +194,7 @@ const StudentIdCardsController = {
     },
 
     safeListen: function(id, event, handler) {
-        const element = document.getElementById(id);
+        const element = this.dom[id] || document.getElementById(id);
         if (!element) {
             console.warn(`Missing element #${id}; listener skipped.`);
             return;
@@ -285,20 +202,23 @@ const StudentIdCardsController = {
         element.addEventListener(event, handler);
     },
 
-    loadMetadata: async function() {
+    loadMetadata: async function(metadata = null) {
+        if (this.metadataLoaded) return;
         try {
-            const response = await this.apiCall('/students/id-card-meta', 'GET');
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load metadata.");
+            let data = metadata;
+            if (!data) {
+                const response = await this.apiCall('/students/id-card-meta', 'GET');
+                if (!this.isSuccessfulResponse(response)) {
+                    throw new Error(response?.message || "Failed to load metadata.");
+                }
+                data = this.unwrapPayload(response);
             }
-
-            const data = this.unwrapPayload(response);
             this.metadata.academicYears = data.academic_years || [];
             this.metadata.classes = data.classes || [];
             this.metadata.streams = data.streams || [];
             this.metadata.schoolProfile = data.school_profile || {};
             this.metadata.permissions = data.permissions || {};
+            this.metadataLoaded = true;
 
             this.populateSelect(this.dom.filterAcademicYear, this.metadata.academicYears, "All Years");
             this.populateSelect(this.dom.filterClass, this.metadata.classes, "All Classes");
@@ -309,81 +229,82 @@ const StudentIdCardsController = {
         }
     },
 
-    loadStudents: async function() {
-        this.setLoading(true);
-        this.dom.errorState.classList.add("d-none");
-        this.dom.forbiddenState.classList.add("d-none");
-
-        try {
-            const params = this.getFilterParams();
-            const response = await this.apiCall(`/students/id-cards?${params.toString()}`, 'GET');
-
-            if (response.success === false) {
-                if (response.message && response.message.includes("permission")) {
-                    this.dom.forbiddenState.classList.remove("d-none");
-                    this.dom.tableBody.innerHTML = '';
-                    return;
-                }
-                throw new Error(response?.message || "Failed to load students");
-            }
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load students.");
-            }
-
-            const students = this.extractList(response);
-            this.students = students;
-            const pagination = this.extractPagination(response);
-            this.pagination = {
-                page: Math.max(1, Number(pagination.page) || this.pagination.page || 1),
-                limit: Math.max(1, Number(pagination.limit) || this.pagination.limit || 25),
-                total: Math.max(0, Number(pagination.total) || 0),
-                pages: Math.max(0, Number(pagination.pages) || 0),
-            };
-            if (this.dom.pageSize) this.dom.pageSize.value = String(this.pagination.limit);
-            this.renderSummary();
-            this.renderTable();
-            this.renderPagination();
-        } catch (error) {
-            console.error('Failed to load students:', error);
-            this.dom.errorState.textContent = error.message || "Failed to load students";
-            this.dom.errorState.classList.remove("d-none");
-            this.dom.tableBody.innerHTML = '';
-            this.pagination.total = 0;
-            this.pagination.pages = 0;
-            this.renderPagination();
-        } finally {
-            this.setLoading(false);
+    refresh: function() {
+        if (this.dataLoadPromise) {
+            this.refreshAgain = true;
+            return this.dataLoadPromise;
         }
+
+        this.setLoading(true);
+        this.dom.errorState?.classList.add('d-none');
+        this.dataLoadPromise = (async () => {
+            try {
+                let data = null;
+                do {
+                    this.refreshAgain = false;
+                    let sources;
+                    try {
+                        const response = await window.API.nodeViews.resolve(
+                            'students',
+                            'id-cards',
+                        );
+                        const envelope = response?.data ? response : response || {};
+                        data = envelope.data || {};
+                        sources = data.sources || {};
+                    } catch (gatewayError) {
+                        // Node composes these same registered, authorized PHP
+                        // reads. Keep the page usable during a gateway outage.
+                        console.warn('ID card composition unavailable; using PHP API:', gatewayError);
+                        const [cardsResponse, metaResponse] = await Promise.all([
+                            this.apiCall('/students/id-cards', 'GET'),
+                            this.apiCall('/students/id-card-meta', 'GET'),
+                        ]);
+                        if (!this.isSuccessfulResponse(cardsResponse) || !this.isSuccessfulResponse(metaResponse)) {
+                            throw gatewayError;
+                        }
+                        sources = {
+                            cards: this.unwrapPayload(cardsResponse),
+                            meta: this.unwrapPayload(metaResponse),
+                        };
+                        data = { sources };
+                    }
+
+                    await this.loadMetadata(sources.meta || null);
+                    this.onTableRendered(Array.isArray(sources.cards) ? sources.cards : []);
+                    this.applyFilters();
+                } while (this.refreshAgain);
+                return data;
+            } catch (error) {
+                console.error('Failed to load student ID card data:', error);
+                this.showError(error.message || 'Failed to load student ID card data.');
+                return null;
+            } finally {
+                this.setLoading(false);
+                this.dataLoadPromise = null;
+                this.refreshAgain = false;
+            }
+        })();
+        return this.dataLoadPromise;
     },
 
-    getFilterParams: function() {
-        const params = new URLSearchParams();
-        params.set("page", String(this.pagination.page || 1));
-        params.set("limit", String(this.pagination.limit || 25));
-
-        const filters = {
-            academic_year: this.dom.filterAcademicYear?.value || "",
-            class_id: this.dom.filterClass?.value || "",
-            stream_id: this.dom.filterStream?.value || "",
-            gender: this.dom.filterGender?.value || "",
-            student_status: this.dom.filterStudentStatus?.value || "",
-            card_status: this.dom.filterCardStatus?.value || "",
-            search: this.dom.searchStudents?.value.trim() || "",
-        };
-
-        Object.entries(filters).forEach(([key, val]) => {
-            if (val !== "") params.set(key, val);
-        });
-
-        return params;
-    },
-
-    changePage: function(delta) {
+changePage: function(delta) {
         const target = this.pagination.page + delta;
-        if (target < 1 || target > this.pagination.pages) return;
+        if (target < 1 || (this.pagination.pages && target > this.pagination.pages)) return;
         this.pagination.page = target;
-        this.loadStudents();
+        this.renderTableFromAllStudents();
+        this.renderPagination();
+    },
+
+    updatePagination: function(pagination) {
+        if (!pagination) return;
+        this.pagination = {
+            page: Math.max(1, Number(pagination.page) || 1),
+            limit: Math.max(1, Number(pagination.limit) || 25),
+            total: Math.max(0, Number(pagination.total) || 0),
+            pages: Math.max(0, Number(pagination.pages) || 0),
+        };
+        if (this.dom.pageSize) this.dom.pageSize.value = String(this.pagination.limit);
+        this.renderPagination();
     },
 
     renderPagination: function() {
@@ -412,11 +333,29 @@ const StudentIdCardsController = {
     },
 
     updateStreamsFilter: function() {
+        const selectedStream = this.dom.filterStream?.value || "";
         const classId = this.dom.filterClass?.value || "";
-        const filtered = classId
-            ? this.metadata.streams.filter(s => String(s.class_id) === String(classId))
-            : this.metadata.streams;
-        this.populateSelect(this.dom.filterStream, filtered, "All Streams");
+        const selectedYear = this.dom.filterAcademicYear?.value || "";
+        const currentYear = this.metadata.academicYears.find(year => String(year.is_current) === "1");
+        const effectiveYear = selectedYear || currentYear?.id || this.metadata.academicYears[0]?.id || "";
+        const filtered = this.metadata.streams.filter(stream => {
+            const matchesYear = !effectiveYear || String(stream.academic_year_id) === String(effectiveYear);
+            const matchesClass = !classId || String(stream.class_id) === String(classId);
+            return matchesYear && matchesClass;
+        });
+        const uniqueStreams = new Map();
+        filtered.forEach(stream => {
+            const name = String(stream.stream_name || '').trim();
+            const key = name.toLocaleLowerCase();
+            if (name && !uniqueStreams.has(key)) {
+                uniqueStreams.set(key, { value: name, label: name });
+            }
+        });
+        const streamOptions = Array.from(uniqueStreams.values());
+        this.populateSelect(this.dom.filterStream, streamOptions, "All Streams");
+        if (selectedStream && streamOptions.some(stream => stream.value === selectedStream)) {
+            this.dom.filterStream.value = selectedStream;
+        }
     },
 
     populateSelect: function(select, items, placeholder) {
@@ -430,10 +369,9 @@ const StudentIdCardsController = {
         });
     },
 
-    renderSummary: function() {
-        const summary = this.calculateSummary();
-
-        if (this.dom.statTotalStudents) this.dom.statTotalStudents.textContent = this.pagination.total;
+    updateSummaryCards: function(summary) {
+        if (!summary) return;
+        if (this.dom.statTotalStudents) this.dom.statTotalStudents.textContent = summary.totalStudents;
         if (this.dom.statWithIDs) this.dom.statWithIDs.textContent = summary.withIDs;
         if (this.dom.statWithoutIDs) this.dom.statWithoutIDs.textContent = summary.withoutIDs;
         if (this.dom.statPrinted) this.dom.statPrinted.textContent = summary.printed;
@@ -443,26 +381,105 @@ const StudentIdCardsController = {
         if (this.dom.statReplaced) this.dom.statReplaced.textContent = summary.replaced;
     },
 
-    calculateSummary: function() {
-        return {
-            total: this.students.length,
-            withIDs: this.students.filter(s => s.card_status && s.card_status !== 'not_generated').length,
-            withoutIDs: this.students.filter(s => !s.card_status || s.card_status === 'not_generated').length,
-            printed: this.students.filter(s => s.card_status === 'printed').length,
-            issued: this.students.filter(s => s.card_status === 'issued').length,
-            lost: this.students.filter(s => s.card_status === 'lost').length,
-            expired: this.students.filter(s => s.card_status === 'expired').length,
-            replaced: this.students.filter(s => s.card_status === 'replaced').length,
+    onTableRendered: function(rows) {
+        this.selectedStudents.clear();
+        if (this.dom.headerCheckbox) this.dom.headerCheckbox.checked = false;
+
+        // Retain the complete Node response; filter changes derive a visible
+        // subset locally and do not issue another request.
+        this.allStudents = rows;
+        this.students = rows;
+    },
+
+    applyFilters: function() {
+        const normalize = (item) => String(item ?? '').trim().toLocaleLowerCase();
+        const academicYear = normalize(this.dom.filterAcademicYear?.value);
+        const classId = normalize(this.dom.filterClass?.value);
+        const streamName = normalize(this.dom.filterStream?.value);
+        const gender = normalize(this.dom.filterGender?.value);
+        const studentStatus = normalize(this.dom.filterStudentStatus?.value);
+        const cardStatus = normalize(this.dom.filterCardStatus?.value);
+        const search = normalize(this.dom.searchStudents?.value);
+
+        this.students = (this.allStudents || []).filter((student) => {
+            if (academicYear && normalize(student.academic_year_id) !== academicYear) return false;
+            if (classId && normalize(student.class_id) !== classId) return false;
+            if (streamName && normalize(student.stream_name) !== streamName) return false;
+            if (gender && normalize(student.gender) !== gender) return false;
+            if (studentStatus && normalize(student.student_status) !== studentStatus) return false;
+
+            const hasCard = Boolean(student.card_id || student.card_number);
+            const status = normalize(student.card_status) || (hasCard ? 'generated' : 'not_generated');
+            if (cardStatus && status !== cardStatus) return false;
+
+            if (search) {
+                const searchable = [
+                    student.admission_no,
+                    student.first_name,
+                    student.middle_name,
+                    student.last_name,
+                    student.card_number,
+                ].map(normalize).join(' ');
+                if (!searchable.includes(search)) return false;
+            }
+            return true;
+        });
+
+        const summary = {
+            totalStudents: this.students.length,
+            withIDs: 0,
+            withoutIDs: 0,
+            printed: 0,
+            issued: 0,
+            lost: 0,
+            expired: 0,
+            replaced: 0,
         };
+        this.students.forEach((student) => {
+            const hasCard = Boolean(student.card_id || student.card_number);
+            const status = normalize(student.card_status) || (hasCard ? 'generated' : 'not_generated');
+            if (hasCard) summary.withIDs++;
+            else summary.withoutIDs++;
+            if (status === 'printed') summary.printed++;
+            if (status === 'issued') summary.issued++;
+            if (status === 'lost') summary.lost++;
+            if (status === 'expired') summary.expired++;
+            if (status === 'replaced') summary.replaced++;
+        });
+        this.updateSummaryCards(summary);
+
+        this.selectedStudents.clear();
+        if (this.dom.headerCheckbox) this.dom.headerCheckbox.checked = false;
+
+        // Calculate pagination from total rows
+        const limit = this.pagination.limit || 25;
+        const total = this.students.length;
+
+        this.pagination = {
+            page: 1,
+            limit,
+            total: total,
+            pages: Math.ceil(total / limit)
+        };
+
+        if (this.dom.pageSize) this.dom.pageSize.value = String(this.pagination.limit);
+        this.renderPagination();
+        this.renderTableFromAllStudents();
     },
 
-    getFullName: function(student) {
-        const names = [student.first_name, student.middle_name, student.last_name].filter(n => n);
-        return names.join(' ') || 'Unknown';
-    },
+    renderTableFromAllStudents: function() {
+        const { page, limit } = this.pagination;
+        const start = (page - 1) * limit;
+        const end = start + limit;
+        const pageRows = this.students.slice(start, end);
 
-    renderTable: function() {
-        if (!this.students.length) {
+        // Clear and re-add checkbox listeners for current page
+        document.querySelectorAll('.student-checkbox').forEach(cb => {
+            cb.removeEventListener('change', this.checkboxHandler);
+        });
+
+        // Render only current page rows
+        if (!pageRows.length) {
             this.dom.tableBody.innerHTML = `
                 <tr>
                     <td colspan="11" class="text-center py-4">
@@ -475,7 +492,7 @@ const StudentIdCardsController = {
             return;
         }
 
-        this.dom.tableBody.innerHTML = this.students.map(student => {
+        this.dom.tableBody.innerHTML = pageRows.map(student => {
             const studentId = student.id || student.student_id;
             const fullName = this.getFullName(student);
             const actions = this.getRowActions(student);
@@ -497,7 +514,11 @@ const StudentIdCardsController = {
             `;
         }).join('');
 
-        // Add checkbox listeners
+        // Add checkbox listeners for current page
+        this.addCheckboxListeners();
+    },
+
+    addCheckboxListeners: function() {
         document.querySelectorAll('.student-checkbox').forEach(cb => {
             cb.addEventListener('change', (e) => {
                 const id = parseInt(e.target.dataset.id);
@@ -508,6 +529,11 @@ const StudentIdCardsController = {
                 }
             });
         });
+    },
+
+    getFullName: function(student) {
+        const names = [student.first_name, student.middle_name, student.last_name].filter(n => n);
+        return names.join(' ') || 'Unknown';
     },
 
     getRowActions: function(student) {
@@ -577,7 +603,7 @@ const StudentIdCardsController = {
         this.dom.filterCardStatus.value = "";
         this.dom.searchStudents.value = "";
         this.updateStreamsFilter();
-        this.loadStudents();
+        this.applyFilters();
     },
 
     setLoading: function(loading) {
@@ -588,6 +614,56 @@ const StudentIdCardsController = {
         this.dom.errorState.textContent = message;
         this.dom.errorState.classList.remove("d-none");
     },
+
+    // ===== API CALLS (direct to PHP for mutations) =====
+
+    apiCall: function(endpoint, method = "GET", data = null) {
+        if (window.API && typeof window.API.callAPI === "function") {
+            return window.API.callAPI(endpoint, method, data);
+        }
+        if (window.API && typeof window.API.apiCall === "function") {
+            return window.API.apiCall(endpoint, method, data);
+        }
+        throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
+    },
+
+    isSuccessfulResponse: function(response) {
+        if (!response) return false;
+        if (response.success === false || response.status === false) return false;
+        if (response.success === true || response.status === true) return true;
+        return response.data !== undefined || response.queues !== undefined || Object.keys(response).length > 0;
+    },
+
+    unwrapPayload: function(response) {
+        if (response && response.data) return response.data;
+        if (response && response.queues) return response;
+        return response || {};
+    },
+
+    notify: function(type, message) {
+        if (typeof window.showNotification === "function") {
+            window.showNotification(message, type);
+            return;
+        }
+        if (window.API && typeof window.API.showNotification === "function") {
+            window.API.showNotification(message, type);
+            return;
+        }
+        console.log(`[${type.toUpperCase()}] ${message}`);
+    },
+
+    escapeHtml: function(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    },
+
+    escapeAttr: function(text) {
+        return this.escapeHtml(text).replace(/`/g, "&#96;");
+    },
+
+    // ===== CARD OPERATIONS =====
 
     generateCard: async function(formData) {
         const studentId = document.getElementById('generateStudentId').value;
@@ -610,7 +686,7 @@ const StudentIdCardsController = {
                 if (modal) modal.hide();
             }
 
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to generate card:', error);
             this.notify("error", error.message || "Failed to generate ID card");
@@ -639,7 +715,7 @@ const StudentIdCardsController = {
         try {
             const response = await this.apiCall(`/students/id-card-mark-printed/${student.card_id}`, 'POST', {});
             this.notify("success", "Card marked as printed");
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to mark printed:', error);
             this.notify("error", error.message || "Failed to mark card as printed");
@@ -677,7 +753,7 @@ const StudentIdCardsController = {
         try {
             const response = await this.apiCall(`/students/id-card-mark-lost/${student.card_id}`, 'POST', {});
             this.notify("success", "Card marked as lost");
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to mark lost:', error);
             this.notify("error", error.message || "Failed to mark card as lost");
@@ -726,8 +802,6 @@ const StudentIdCardsController = {
         try {
             const response = await this.apiCall(`/students/id-card-history/${studentId}`, 'GET');
             const data = this.unwrapPayload(response);
-
-            // Render history in modal
             this.dom.historyContent.innerHTML = this.renderHistory(data);
 
             if (typeof bootstrap !== "undefined" && this.dom.historyModal) {
@@ -771,6 +845,8 @@ const StudentIdCardsController = {
         `;
     },
 
+    // ===== BULK OPERATIONS (via Node.js gateway jobs) =====
+
     generateSelected: async function() {
         if (this.selectedStudents.size === 0) {
             this.notify("warning", "Please select students first");
@@ -778,7 +854,6 @@ const StudentIdCardsController = {
         }
 
         try {
-            // Show generation modal with options
             this.showBulkGenerateModal();
         } catch (error) {
             console.error('Failed to show bulk generation modal:', error);
@@ -787,7 +862,6 @@ const StudentIdCardsController = {
     },
 
     showBulkGenerateModal: function() {
-        // Create or update bulk generation modal
         let modal = document.getElementById('bulkGenerateModal');
         if (!modal) {
             const modalHTML = `
@@ -848,47 +922,45 @@ const StudentIdCardsController = {
     },
 
     generateBulkPDF: async function() {
-        try {
-            const includeFront = document.getElementById('bulkIncludeFront').checked;
-            const includeBack = document.getElementById('bulkIncludeBack').checked;
-            const printMode = document.getElementById('bulkPrintMode').value;
+        const includeFront = document.getElementById('bulkIncludeFront').checked;
+        const includeBack = document.getElementById('bulkIncludeBack').checked;
+        const printMode = document.getElementById('bulkPrintMode').value;
 
-            if (!includeFront && !includeBack) {
-                this.notify("warning", "Please select at least one card side");
-                return;
+        if (!includeFront && !includeBack) {
+            this.notify("warning", "Please select at least one card side");
+            return;
+        }
+
+        const printerMode = printMode === 'a4_sheet' ? 'a4_pdf' : 'direct_card';
+        const side = (!includeFront && includeBack) ? 'back' : (includeFront && !includeBack ? 'front' : 'both');
+
+        try {
+            const batch = await window.BulkPrint.enqueue(
+                'student_id_cards',
+                { student_ids: Array.from(this.selectedStudents) },
+                { printerMode, side }
+            );
+
+            const modal = document.getElementById('bulkGenerateModal');
+            if (modal && typeof bootstrap !== "undefined") {
+                const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                if (bootstrapModal) bootstrapModal.hide();
             }
 
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
-                student_ids: Array.from(this.selectedStudents),
-                print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
+            this.notify("info", `Bulk ID card generation started for ${this.selectedStudents.size} students. Processing in background…`);
+
+            const result = await window.BulkPrint.poll(batch.batch_id, {
+                onProgress: (progress) => {
+                    if (progress.progress_pct && progress.progress_pct % 10 === 0) {
+                        this.notify("info", `Bulk ID cards: ${progress.progress_pct}%`);
+                    }
+                },
             });
 
-            const data = this.unwrapPayload(response);
-            
-            if (data && data.pdf_url) {
-                this.notify("success", `Bulk PDF generated for ${data.student_count} students`);
-                
-                // Close modal
-                const modal = document.getElementById('bulkGenerateModal');
-                if (modal && typeof bootstrap !== "undefined") {
-                    const bootstrapModal = bootstrap.Modal.getInstance(modal);
-                    if (bootstrapModal) bootstrapModal.hide();
-                }
+            window.BulkPrint?.openArtifact(result);
+            this.notify("success", `Bulk ID cards ready`);
+            this.refresh();
 
-                // Keep generated school PDFs inside the application viewer.
-                if (window.PrintManager?.openDocument) {
-                    window.PrintManager.openDocument(data.pdf_url, { title: 'Student ID cards' });
-                } else {
-                    window.KingswayFileLifecycle?.open?.(data.pdf_url);
-                }
-                
-                // Reload students to update status
-                await this.loadStudents();
-            } else {
-                this.notify("error", response.message || "Failed to generate bulk PDF");
-            }
         } catch (error) {
             console.error('Failed to generate bulk PDF:', error);
             this.notify("error", error.message || "Failed to generate bulk PDF");
@@ -915,16 +987,12 @@ const StudentIdCardsController = {
 
             this.renderCardPreview(data);
 
-            // Show modal - create new instance if needed
             if (typeof bootstrap !== "undefined" && this.dom.previewModal) {
                 let modal = bootstrap.Modal.getInstance(this.dom.previewModal);
                 if (!modal) {
                     modal = new bootstrap.Modal(this.dom.previewModal);
                 }
                 modal.show();
-            } else {
-                console.error('Bootstrap or preview modal not available');
-                this.notify("error", "Modal component not available");
             }
         } catch (error) {
             console.error('Failed to load card preview:', error);
@@ -1036,7 +1104,6 @@ const StudentIdCardsController = {
 
     resolveAssetUrl: function(path, fallback = "") {
         if (!path) return fallback;
-
         const value = String(path).trim();
         if (/^data:image\//i.test(value)) return value;
         if (/^https?:\/\//i.test(value) || value.startsWith("//")) {
@@ -1044,7 +1111,6 @@ const StudentIdCardsController = {
             return value;
         }
         if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return fallback;
-
         const appBase = window.APP_BASE || "";
         return `${appBase}/${value.replace(/^\/+/, "")}`;
     },
@@ -1055,43 +1121,33 @@ const StudentIdCardsController = {
         if (Number.isNaN(date.getTime())) return String(value);
         return date.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
     },
+
     printSingleCard: async function() {
         if (!this.currentPreviewStudentId) {
             this.notify("warning", "No card preview is available.");
             return;
         }
 
-        const selectedMode =
-            document.getElementById("printModeDirect")?.value
-            || "direct_card";
-        const side =
-            document.getElementById("printSideSelect")?.value
-            || "both";
-        const printerMode = selectedMode === "a4_sheet"
-            ? "a4_pdf"
-            : selectedMode;
+        const selectedMode = document.getElementById("printModeDirect")?.value || "direct_card";
+        const side = document.getElementById("printSideSelect")?.value || "both";
+        const printerMode = selectedMode === "a4_sheet" ? "a4_pdf" : selectedMode;
 
         try {
             await window.PrintManager.printSingleStudentIdCard(
                 this.currentPreviewStudentId,
-                {
-                    printerMode,
-                    side,
-                    filename: `student_id_${this.currentPreviewStudentId}`,
-                },
+                { printerMode, side, filename: `student_id_${this.currentPreviewStudentId}` }
             );
             this.notify("success", "Student ID-card PDF is ready.");
         } catch (error) {
             console.error("Student ID-card printing failed:", error);
-            this.notify(
-                "error",
-                error.message || "Unable to print the student ID card.",
-            );
+            this.notify("error", error.message || "Unable to print the student ID card.");
         }
     },
+
     downloadSingleCard: async function() {
         return this.printSingleCard();
     },
+
     printSelected: async function() {
         const studentIds = Array.from(this.selectedStudents);
 
@@ -1100,51 +1156,28 @@ const StudentIdCardsController = {
             return;
         }
 
-        const includeFront =
-            document.getElementById("bulkIncludeFront")?.checked
-            ?? true;
-        const includeBack =
-            document.getElementById("bulkIncludeBack")?.checked
-            ?? true;
+        const includeFront = document.getElementById("bulkIncludeFront")?.checked ?? true;
+        const includeBack = document.getElementById("bulkIncludeBack")?.checked ?? true;
 
         if (!includeFront && !includeBack) {
             this.notify("warning", "Select at least one card side.");
             return;
         }
 
-        const selectedMode =
-            document.getElementById("bulkPrintMode")?.value
-            || "a4_sheet";
-        const printerMode = selectedMode === "a4_sheet"
-            ? "a4_pdf"
-            : selectedMode;
-        const side = includeFront && includeBack
-            ? "both"
-            : (includeFront ? "front" : "back");
+        const selectedMode = document.getElementById("bulkPrintMode")?.value || "a4_sheet";
+        const printerMode = selectedMode === "a4_sheet" ? "a4_pdf" : selectedMode;
+        const side = includeFront && includeBack ? "both" : (includeFront ? "front" : "back");
 
         try {
             this.setPrintBusy(true, `Preparing ID cards for ${studentIds.length} selected student(s)…`);
             await window.PrintManager.printBulkStudentIdCards(
                 studentIds,
-                {
-                    printerMode,
-                    side,
-                    chunkSize: 100,
-                    filename: `student_id_cards_${new Date()
-                        .toISOString()
-                        .slice(0, 10)}`,
-                },
+                { printerMode, side, chunkSize: 100, filename: `student_id_cards_${new Date().toISOString().slice(0, 10)}` }
             );
-            this.notify(
-                "success",
-                `ID-card PDF ready for ${studentIds.length} student(s).`,
-            );
+            this.notify("success", `ID-card PDF ready for ${studentIds.length} student(s).`);
         } catch (error) {
             console.error("Bulk ID-card printing failed:", error);
-            this.notify(
-                "error",
-                error.message || "Unable to generate ID cards.",
-            );
+            this.notify("error", error.message || "Unable to generate ID cards.");
         } finally {
             this.setPrintBusy(false);
         }
@@ -1156,12 +1189,6 @@ const StudentIdCardsController = {
             button.setAttribute("aria-busy", busy ? "true" : "false");
         });
     },
-
-    /**
-     * Open server-rendered print HTML in a dedicated print window and trigger
-     * the browser/system print dialog. The OS printer driver handles the job,
-     * including any installed ID-card printer selected by the user.
-     */
 
     exportData: function() {
         if (!this.students.length) {
@@ -1189,7 +1216,6 @@ const StudentIdCardsController = {
     },
 
     showGenerateModal: function() {
-        // Populate academic years and show modal
         this.populateSelect(document.getElementById('generateAcademicYear'), this.metadata.academicYears, "Select Year");
         document.getElementById('generateIssueDate').value = new Date().toISOString().split('T')[0];
         document.getElementById('generateExpiryYear').value = new Date().getFullYear() + 2;
@@ -1223,7 +1249,6 @@ const StudentIdCardsController = {
 
     ensureStudentQrCode: async function(studentId) {
         if (!studentId) return null;
-
         const response = await this.apiCall('/students/qr-code-generate-enhanced', 'POST', { student_id: studentId });
         const payload = this.unwrapPayload(response);
         return payload.data || payload;
@@ -1265,7 +1290,7 @@ const StudentIdCardsController = {
                 if (modal) modal.hide();
             }
 
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to mark issued:', error);
             this.notify("error", error.message || "Failed to mark card as issued");
@@ -1288,7 +1313,7 @@ const StudentIdCardsController = {
                 if (modal) modal.hide();
             }
 
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to renew card:', error);
             this.notify("error", error.message || "Failed to renew card");
@@ -1312,7 +1337,7 @@ const StudentIdCardsController = {
                 if (modal) modal.hide();
             }
 
-            await this.loadStudents();
+            this.refresh();
         } catch (error) {
             console.error('Failed to replace card:', error);
             this.notify("error", error.message || "Failed to replace card");
@@ -1329,20 +1354,16 @@ const StudentIdCardsController = {
 };
 
 window.StudentIdCardsController = StudentIdCardsController;
+window.APIRealtime?.register?.('studentIdCards', StudentIdCardsController, ['students']);
 
 function initWhenAPIReady() {
-    const hasApi =
-        window.API &&
-        (
-            typeof window.API.callAPI === "function" ||
-            typeof window.API.apiCall === "function"
-        );
+    const hasApi = window.API &&
+        (typeof window.API.callAPI === "function" || typeof window.API.apiCall === "function");
 
     if (hasApi) {
         window.StudentIdCardsController.init();
         return;
     }
-
     setTimeout(initWhenAPIReady, 100);
 }
 

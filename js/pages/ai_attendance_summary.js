@@ -78,6 +78,6 @@
     } catch (error) { window.showNotification?.(error.message || 'Unable to queue lateness review', 'danger'); }
     finally { if (button) button.disabled = false; }
   };
-  const init = () => { document.getElementById('queueAiAttendanceSummary')?.addEventListener('click', queue); document.getElementById('queueAiAttendanceLateness')?.addEventListener('click', queueLateness); render(); };
+  const init = () => { document.getElementById('queueAiAttendanceSummary')?.addEventListener('click', queue); document.getElementById('queueAiAttendanceLateness')?.addEventListener('click', queueLateness); window.RealtimeJobWake?.onDomain('ai', render);; render(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true }); else init();
 })();

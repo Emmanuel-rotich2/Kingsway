@@ -13,18 +13,20 @@ use LogicException;
  *   (gRPC-style service contract layer) -> REAL Business Logic (Footnote:
  *   AcademicAPI / FinanceAPI / inline service classes) -> Database
  *
- * Every business-logic class reachable from controllers is listed in the
- * governed-service inventory below. Controllers MUST obtain governed
- * services through ServiceContractBroker::contract() (wired as the
- * BaseController::contract() accessor) — never through bare "new X(...)".
- * The scripts/contract_coverage.php lint fails loudly in development when a
+ * Controllers MUST obtain governed services through
+ * ServiceContractBroker::contract() (wired as the BaseController::contract()
+ * accessor) — never through bare "new X(...)". The
+ * scripts/contract_coverage.php lint fails loudly in development when a
  * controller bypasses the accessor, so the "MUST apply to all controllers"
  * rule is enforced mechanically, not just documented.
  *
- * The catalogue also exposes remote-facing contract ids ('id' entries)
- * that the ServiceContractBroker::call() path uses for JSON-RPC / MCP /
- * background-queue execution — dual access to the SAME business logic with
- * zero duplication.
+ * The governed inventory is AUTO-DISCOVERED from the Composer PSR-4 source
+ * map (App\API\Services\ -> api/services/, App\API\Modules\ -> api/modules/):
+ * every concrete, instantiable class in those namespaces is governed. Adding
+ * a new service no longer requires editing this file. Semantic contract ids
+ * (the remote-facing JSON-RPC / MCP / queue entries with auth + schema
+ * descriptors) remain explicitly registered below, because they cannot be
+ * inferred from a class name.
  */
 class ServiceContractRegistry
 {
@@ -34,6 +36,18 @@ class ServiceContractRegistry
     /** @var array<string, array>|null FQCN -> governed-service definition */
     private static $governed = null;
 
+    /**
+     * PSR-4 prefixes that hold governed business logic, mapped to their
+     * on-disk roots relative to the project root. Kept in sync with
+     * composer.json "autoload.psr-4".
+     *
+     * @var array<string, string>
+     */
+    private const GOVERNED_SOURCE_ROOTS = [
+        'App\\API\\Services\\' => 'api/services',
+        'App\\API\\Modules\\'  => 'api/modules',
+    ];
+
     public static function boot(): void
     {
         if (self::$registry !== null) {
@@ -42,260 +56,11 @@ class ServiceContractRegistry
         self::$registry = [];
         self::$governed = [];
 
-        // Core governed services (extended as controllers are wired).
-        self::govern('App\\API\\Modules\\academic\\AcademicAPI', 'academic', 'academic.api');
-        self::govern('App\\API\\Services\\ExamPeriodService', 'academic', 'academic.examperiodservice');
-        self::govern('App\\API\\Services\\AssessmentResultsService', 'academic', 'academic.assessmentresultsservice');
-        self::govern('App\\API\\Modules\\finance\\FinanceAPI', 'finance', 'finance.api');
-        self::govern('App\\API\\Modules\\attendance\\AttendanceAPI', 'attendance', 'attendance.api');
-        self::govern('App\\API\\Modules\\reports\\ReportsAPI', 'reports', 'reports.api');
-        self::govern('App\\API\\Modules\\system\\SystemAPI', 'system', 'system.api');
-        self::govern('App\\API\\Services\\AiCapabilityMatrix', 'system', 'system.aicapabilitymatrix');
-        self::govern('App\\API\\Services\\PublicAiAssistantService', 'public', 'public.aiassistant');
-        self::govern('App\\API\\Services\\ResearchAiAssistantService', 'research', 'research.aiassistant');
-        self::govern('App\\API\\Services\\ResearchSourceCatalog', 'research', 'research.sourcecatalog');
-        self::govern('App\\API\\Services\\SystemSecuritySignalsService', 'system', 'system.securitysignals');
-        self::govern('App\\API\\Services\\AiProviderGateway', 'system', 'system.aiprovidergateway');
-        self::govern('App\\API\\Services\\AiReadinessReportService', 'system', 'system.aireadiness');
-        self::govern('App\\API\\Services\\TimetablePlanningConversationService', 'schedules', 'schedules.timetableplanningconversation');
+        // 1) Auto-discover the governed-service inventory from source.
+        self::discoverGoverned();
 
-        // Full governed inventory: every business-logic class controllers may
-
-        // instantiate (controller-facing governed set). Controllers MUST obtain
-
-        // these via BaseController::contract() — never bare "new X(...)".
-
-        // Keep the canonical API-class aliases (academic/finance/attendance/
-
-        // reports/system) defined first so aliasMap() keeps them stable.
-
-
-        self::govern('App\API\Modules\auth\AuthAPI', 'auth', 'auth.authapi');
-        self::govern('App\API\Modules\admission\StudentAdmissionWorkflow', 'admission', 'admission.studentadmissionworkflow');
-        self::govern('App\API\Modules\admission\AdmissionAdminManager', 'admission', 'admission.admissionadminmanager');
-        self::govern('App\API\Modules\admission\AdmissionPolicy', 'admission', 'admission.admissionpolicy');
-        self::govern('App\API\Modules\students\StudentPromotionService', 'students', 'students.studentpromotionservice');
-        self::govern('App\API\Modules\students\AwardCertificateService', 'students', 'students.awardcertificateservice');
-        self::govern('App\API\Modules\students\StudentsAPI', 'students', 'students.studentsapi');
-        self::govern('App\API\Modules\students\StudentProfileManager', 'students', 'students.studentprofilemanager');
-        self::govern('App\API\Modules\students\FamilyGroupsManager', 'students', 'students.familygroupsmanager');
-        self::govern('App\API\Modules\students\StudentIDCardService', 'students', 'students.studentidcardservice');
-        self::govern('App\API\Modules\students\StudentTransferService', 'students', 'students.studenttransferservice');
-        self::govern('App\API\Modules\students\StudentInsightsService', 'students', 'students.studentinsightsservice');
-        self::govern('App\API\Modules\students\StudentService', 'students', 'students.studentservice');
-        self::govern('App\API\Modules\students\StudentLeadershipService', 'students', 'students.studentleadershipservice');
-        self::govern('App\API\Modules\students\StudentParentService', 'students', 'students.studentparentservice');
-        self::govern('App\API\Modules\students\StudentIDCardGenerator', 'students', 'students.studentidcardgenerator');
-        self::govern('App\API\Modules\schedules\SchedulesAPI', 'schedules', 'schedules.schedulesapi');
-        self::govern('App\API\Modules\health\HealthAPI', 'health', 'health.healthapi');
-        self::govern('App\API\Modules\boarding\BoardingManager', 'boarding', 'boarding.boardingmanager');
-        self::govern('App\API\Modules\inventory\UniformSalesManager', 'inventory', 'inventory.uniformsalesmanager');
-        self::govern('App\API\Modules\inventory\SuppliersManager', 'inventory', 'inventory.suppliersmanager');
-        self::govern('App\API\Modules\inventory\InventoryAPI', 'inventory', 'inventory.inventoryapi');
-        self::govern('App\API\Modules\activities\SportsManager', 'activities', 'activities.sportsmanager');
-        self::govern('App\API\Modules\activities\ActivitiesAPI', 'activities', 'activities.activitiesapi');
-        self::govern('App\API\Modules\reports\MealReportManager', 'reports', 'reports.mealreportmanager');
-        self::govern('App\API\Modules\counseling\CounselingAPI', 'counseling', 'counseling.counselingapi');
-        self::govern('App\API\Modules\maintenance\MaintenanceAPI', 'maintenance', 'maintenance.maintenanceapi');
-        self::govern('App\API\Modules\website\WebsiteManager', 'website', 'website.websitemanager');
-        self::govern('App\API\Modules\users\UsersAPI', 'users', 'users.usersapi');
-        self::govern('App\API\Modules\users\RoleManager', 'users', 'users.rolemanager');
-        self::govern('App\API\Modules\users\UserPermissionManager', 'users', 'users.userpermissionmanager');
-        self::govern('App\API\Modules\users\PermissionManager', 'users', 'users.permissionmanager');
-        self::govern('App\API\Modules\users\UserRoleManager', 'users', 'users.userrolemanager');
-        self::govern('App\API\Modules\finance\FeeManager', 'finance', 'finance.feemanager');
-        self::govern('App\API\Modules\academic\AcademicCalendarService', 'academic', 'academic.academiccalendarservice');
-        self::govern('App\API\Modules\communications\CommunicationsManager', 'communications', 'communications.communicationsmanager');
-        self::govern('App\API\Modules\communications\templates\TemplateLoader', 'communications', 'communications.templateloader');
-        self::govern('App\API\Modules\system\SystemConfigAPI', 'system', 'system.systemconfigapi');
-        self::govern('App\API\Modules\system\DashboardRegistryManager', 'system', 'system.dashboardregistrymanager');
-        self::govern('App\API\Modules\system\SystemAdminManager', 'system', 'system.systemadminmanager');
-        self::govern('App\API\Modules\system\MediaManager', 'system', 'system.mediamanager');
-        self::govern('App\API\Modules\academic\AcademicYearManager', 'academic', 'academic.academicyearmanager');
-        self::govern('App\API\Modules\academic\AcademicManager', 'academic', 'academic.academicmanager');
-        self::govern('App\API\Modules\academic\AcademicCurriculumService', 'academic', 'academic.academiccurriculumservice');
-        self::govern('App\API\Modules\academic\AcademicReportService', 'academic', 'academic.academicreportservice');
-        self::govern('App\API\Modules\academic\AcademicYearService', 'academic', 'academic.academicyearservice');
-        self::govern('App\API\Modules\academic\AcademicExamService', 'academic', 'academic.academicexamservice');
-        self::govern('App\API\Modules\academic\AcademicCohortProjectionService', 'academic', 'academic.academiccohortprojectionservice');
-        self::govern('App\API\Modules\chaplaincy\ChaplaincyAPI', 'chaplaincy', 'chaplaincy.chaplaincyapi');
-        self::govern('App\API\Modules\library\LibraryAPI', 'library', 'library.libraryapi');
-        self::govern('App\API\Modules\payments\PaymentsAPI', 'payments', 'payments.paymentsapi');
-        self::govern('App\API\Modules\transport\StudentTransportEntitlementManager', 'transport', 'transport.studenttransportentitlementmanager');
-        self::govern('App\API\Modules\transport\TransportAPI', 'transport', 'transport.transportapi');
-        self::govern('App\API\Modules\attendance\AttendancePermissionService', 'attendance', 'attendance.attendancepermissionservice');
-        self::govern('App\API\Modules\attendance\AttendanceStaffService', 'attendance', 'attendance.attendancestaffservice');
-        self::govern('App\API\Modules\attendance\AttendanceManager', 'attendance', 'attendance.attendancemanager');
-        self::govern('App\API\Modules\attendance\AttendanceStudentService', 'attendance', 'attendance.attendancestudentservice');
-        self::govern('App\API\Modules\parent\ParentPortalManager', 'parent', 'parent.parentportalmanager');
-        self::govern('App\API\Modules\finance\ExpenseManager', 'finance', 'finance.expensemanager');
-        self::govern('App\API\Modules\finance\TransportBillingManager', 'finance', 'finance.transportbillingmanager');
-        self::govern('App\API\Modules\finance\FinanceService', 'finance', 'finance.financeservice');
-        self::govern('App\API\Modules\finance\AllowanceTemplateAPI', 'finance', 'finance.allowancetemplateapi');
-        self::govern('App\API\Modules\finance\PaymentReconciliationAPI', 'finance', 'finance.paymentreconciliationapi');
-        self::govern('App\API\Modules\staff\StaffLeaveManager', 'staff', 'staff.staffleavemanager');
-        self::govern('App\API\Modules\staff\StaffAPI', 'staff', 'staff.staffapi');
-        self::govern('App\API\Modules\staff\StaffPayrollManager', 'staff', 'staff.staffpayrollmanager');
-        self::govern('App\API\Modules\staff\StaffOnboardingManager', 'staff', 'staff.staffonboardingmanager');
-        self::govern('App\API\Modules\staff\StaffIDCardGenerator', 'staff', 'staff.staffidcardgenerator');
-        self::govern('App\API\Modules\staff\StaffPerformanceManager', 'staff', 'staff.staffperformancemanager');
-        self::govern('App\API\Modules\communications\CommunicationsAPI', 'communications', 'communications.communicationsapi');
-        self::govern('App\API\Modules\communications\StaffMeetingManager', 'communications', 'communications.staffmeetingmanager');
-        self::govern('App\API\Modules\students\PromotionManager', 'students', 'students.promotionmanager');
-        self::govern('App\API\Modules\students\PortfolioManager', 'students', 'students.portfoliomanager');
-        self::govern('App\API\Modules\Import\DataImporter', 'import', 'import.dataimporter');
-        self::govern('App\API\Services\auth\DeviceSessionManager', 'auth', 'auth.devicesessionmanager');
-        self::govern('App\API\Services\InternTeacherAnalyticsService', '', 'internteacheranalyticsservice');
-        self::govern('App\API\Services\TeacherCurriculumScopeService', '', 'teachercurriculumscopeservice');
-        self::govern('App\API\Services\catalog\CatalogStockService', 'catalog', 'catalog.catalogstockservice');
-        self::govern('App\API\Services\catalog\CatalogCommerceService', 'catalog', 'catalog.catalogcommerceservice');
-        self::govern('App\API\Services\TeacherAnalyticsService', '', 'teacheranalyticsservice');
-        self::govern('App\API\Services\StaffRecordsService', '', 'staffrecordsservice');
-        self::govern('App\API\Services\CurriculumProposalService', '', 'curriculumproposalservice');
-        self::govern('App\API\Services\OperatingModeService', '', 'operatingmodeservice');
-        self::govern('App\API\Services\SchoolAdminAnalyticsService', '', 'schooladminanalyticsservice');
-        self::govern('App\API\Services\UploadService', '', 'uploadservice');
-        self::govern('App\API\Services\AttendanceRegisterService', '', 'attendanceregisterservice');
-        self::govern('App\API\Services\FinanceCrudService', '', 'financecrudservice');
-        self::govern('App\API\Services\IpAccessControlService', '', 'ipaccesscontrolservice');
-        self::govern('App\API\Services\SystemCommsConfigService', '', 'systemcommsconfigservice');
-        self::govern('App\API\Services\AnnouncementBulletinService', '', 'announcementbulletinservice');
-        self::govern('App\API\Services\EmailProfileService', '', 'emailprofileservice');
-        self::govern('App\API\Services\EmailInboxService', '', 'emailinboxservice');
-        self::govern('App\API\Services\StaffAppointmentsService', '', 'staffappointmentsservice');
-        self::govern('App\API\Services\StaffMigrationService', '', 'staffmigrationservice');
-        self::govern('App\API\Services\SystemAdministrationService', '', 'systemadministrationservice');
-        self::govern('App\API\Services\AcademicContextService', '', 'academiccontextservice');
-        self::govern('App\API\Services\DirectorAnalyticsService', '', 'directoranalyticsservice');
-        self::govern('App\API\Services\DeputyAcademicAnalyticsService', '', 'deputyacademicanalyticsservice');
-        self::govern('App\API\Services\OTPDeliveryService', '', 'otpdeliveryservice');
-        self::govern('App\API\Services\EnvironmentPhaseService', '', 'environmentphaseservice');
-        self::govern('App\API\Services\AutomationRegistry', '', 'automationregistry');
-        self::govern('App\API\Services\AutomationBridge', '', 'automationbridge');
-        self::govern('App\API\Services\ReadProjectionBridge', '', 'readprojectionbridge');
-        self::govern('App\API\Services\automations\AutomationArtifacts', '', 'automationartifacts');
-        self::govern('App\API\Services\HeadteacherAnalyticsService', '', 'headteacheranalyticsservice');
-        self::govern('App\API\Services\payments\SupplierDisbursementService', 'payments', 'payments.supplierdisbursementservice');
-        self::govern('App\API\Services\payments\TransportPaymentService', 'payments', 'payments.transportpaymentservice');
-        self::govern('App\API\Services\payments\UniformPaymentService', 'payments', 'payments.uniformpaymentservice');
-        self::govern('App\API\Services\payments\PaymentRoutingService', 'payments', 'payments.paymentroutingservice');
-        self::govern('App\API\Services\payments\StudentFundTransferService', 'payments', 'payments.studentfundtransferservice');
-        self::govern('App\API\Services\payments\StatutoryRemittanceService', 'payments', 'payments.statutoryremittanceservice');
-        self::govern('App\API\Services\payments\KcbTransferReconciliationService', 'payments', 'payments.kcbtransferreconciliationservice');
-        self::govern('App\API\Services\payments\KcbFundsTransferService', 'payments', 'payments.kcbfundstransferservice');
-        self::govern('App\API\Services\payments\UniformCatalogService', 'payments', 'payments.uniformcatalogservice');
-        self::govern('App\API\Services\payments\ParentRefundService', 'payments', 'payments.parentrefundservice');
-        self::govern('App\API\Services\TeacherScopeService', '', 'teacherscopeservice');
-        self::govern('App\API\Services\TeacherSpecializationService', 'staff', 'staff.teacherspecializations');
-        self::govern('App\API\Services\DelegationService', '', 'delegationservice');
-        self::govern('App\API\Services\TestDataManagementService', '', 'testdatamanagementservice');
-        self::govern('App\API\Services\SubjectTeacherAnalyticsService', '', 'subjectteacheranalyticsservice');
-        self::govern('App\API\Services\ReportCardReleaseService', '', 'reportcardreleaseservice');
-        self::govern('App\API\Services\DeputyDisciplineAnalyticsService', '', 'deputydisciplineanalyticsservice');
-        self::govern('App\API\Services\StaffDomainAccessService', '', 'staffdomainaccessservice');
-        self::govern('App\API\Services\StaffGateAttendanceService', '', 'staffgateattendanceservice');
-        self::govern('App\API\Services\CommunicationOutboxService', '', 'communicationoutboxservice');
-        self::govern('App\API\Services\sms\TalksasaContactSyncService', '', 'talksasacontactsyncservice');
-        self::govern('App\API\Services\StaffLifecycleService', '', 'stafflifecycleservice');
-        self::govern('App\API\Services\AnalyticsExportAuditService', '', 'analyticsexportauditservice');
-        self::govern('App\API\Services\PasskeyService', '', 'passkeyservice');
-        self::govern('App\API\Services\AuthSessionService', '', 'authsessionservice');
-        self::govern('App\API\Services\TwoFactorService', '', 'twofactorservice');
-        self::govern('App\API\Services\NotificationService', '', 'notificationservice');
-        self::govern('App\API\Services\SystemAdminAnalyticsService', '', 'systemadminanalyticsservice');
-        self::govern('App\API\Services\FinancialReconciliationService', '', 'financialreconciliationservice');
-        self::govern('App\API\Services\ClassTeacherAnalyticsService', '', 'classteacheranalyticsservice');
-        self::govern('App\API\Services\StaffTeachingAssignmentService', '', 'staffteachingassignmentservice');
-        self::govern('App\API\Services\AiDraftService', '', 'aidraftservice');
-        self::govern('App\API\Services\TimetablePlanningConversationService', '', 'timetableplanningconversationservice');
-        self::govern('App\API\Services\AiAnalyticsInsightService', '', 'aianalyticsinsightservice');
-        self::govern('App\API\Services\AiWorkflowService', '', 'aiworkflowservice');
-        self::govern('App\API\Services\AiInsightOrchestrator', '', 'aiinsightorchestrator');
-        self::govern('App\API\Services\NlqQueryService', '', 'nlqqueryservice');
-        self::govern('App\API\Services\AiAgentService', '', 'aiagentservice');
-        self::govern('App\API\Services\AiPythonBridge', '', 'aipythonbridge');
-        self::govern('App\API\Services\SystemOperationsReviewService', '', 'systemoperationsreviewservice');
-        self::govern('App\API\Services\DataQualityService', '', 'dataqualityservice');
-
-        self::register([
-            'id' => 'system.info',
-            'summary' => 'Read-only application and environment status (contract-layer mirror of system.info).',
-            'auth' => null,
-            'schema' => [],
-            'mode' => 'sync',
-            'handler' => static function (array $params, array $ctx): array {
-                return [
-                    'app' => 'Kingsway Preparatory School',
-                    'layer' => 'ServiceContractBroker (gRPC-style contract layer)',
-                    'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
-                    'database' => 'KingsWayAcademy',
-                    'authenticated_user' => (int) ($ctx['user_id'] ?? 0),
-                ];
-            },
-        ]);
-
-        self::register([
-            'id' => 'academic.api',
-            'summary' => 'Grants the AcademicAPI governed service through the contract layer.',
-            'auth' => null,
-            'schema' => [],
-            'mode' => 'sync',
-            'service' => 'App\\API\\Modules\\academic\\AcademicAPI',
-            'method' => 'getTermTransitionContext',
-        ]);
-
-        self::register([
-            'id' => 'finance.api',
-            'summary' => 'Grants the FinanceAPI governed service through the contract layer.',
-            'auth' => null,
-            'schema' => [],
-            'mode' => 'sync',
-            'service' => 'App\\API\\Modules\\finance\\FinanceAPI',
-            'method' => 'getFinancialSummaryReport',
-        ]);
-
-        self::register([
-            'id' => 'attendance.api',
-            'summary' => 'Grants the AttendanceAPI governed service through the contract layer.',
-            'auth' => 'permission:attendance.view',
-            'schema' => [],
-            'mode' => 'sync',
-            'service' => 'App\\API\\Modules\\attendance\\AttendanceAPI',
-            'method' => 'getStaffAttendanceSummary',
-        ]);
-
-        self::register([
-            'id' => 'system.api',
-            'summary' => 'System Administrator: governed SystemAPI grant contract.',
-            'auth' => 'role:System Administrator',
-            'schema' => [],
-            'mode' => 'sync',
-            'service' => 'App\\API\\Modules\\system\\SystemAPI',
-            'method' => 'listAlbums',
-        ]);
-
-        self::register([
-            'id' => 'admission.api.advance_after_payment',
-            'summary' => 'Cross-module governed boundary: advance an admission application after a confirmed payment.',
-            'auth' => null,
-            'schema' => [
-                'required' => ['application_id'],
-                'additionalProperties' => false,
-                'properties' => [
-                    'application_id' => ['type' => 'int', 'min' => 1],
-                ],
-            ],
-            'result' => [
-                'required' => ['advanced', 'application_id'],
-                'properties' => [
-                    'advanced' => ['type' => 'bool'],
-                    'application_id' => ['type' => 'int'],
-                ],
-            ],
-            'mode' => 'sync',
-            'service' => 'App\\API\\Modules\\admission\\StudentAdmissionWorkflow',
-            'method' => 'advanceApplicationAfterConfirmedPayment',
-        ]);
+        // 2) Explicit remote-facing contract catalogue (auth + schema).
+        self::registerCanonicalContracts();
     }
 
     /**
@@ -412,5 +177,275 @@ class ServiceContractRegistry
             });
         }
         return $byGroup;
+    }
+
+    /**
+     * Discover every concrete governed class under the PSR-4 source roots and
+     * register it with a deterministic group / canonical contract id.
+     */
+    private static function discoverGoverned(): void
+    {
+        $root = dirname(__DIR__, 2);
+
+        // Collect [fqcn, group, contract, apiPriority] tuples first so the
+        // insertion order can be made deterministic (canonical *API facades
+        // first per group, so ServiceContractBroker::aliasMap() stays stable).
+        $found = [];
+        foreach (self::GOVERNED_SOURCE_ROOTS as $prefix => $relative) {
+            $dir = $root . DIRECTORY_SEPARATOR . $relative;
+            if (!is_dir($dir)) {
+                continue;
+            }
+            foreach (self::phpFilesIn($dir) as $path) {
+                $rel = substr($path, strlen($dir) + 1);
+                $rel = substr($rel, 0, -4); // strip ".php"
+                $fqcn = $prefix . str_replace(DIRECTORY_SEPARATOR, '\\', $rel);
+
+                $short = substr($fqcn, (int) strrpos($fqcn, '\\') + 1);
+                if (!self::declaresConcreteClass($path, $short)) {
+                    continue;
+                }
+
+                [$group, $contract] = self::deriveMeta($fqcn);
+                $found[$fqcn] = [
+                    'group' => $group,
+                    'contract' => $contract,
+                    'priority' => self::isApiFacade($short, $group) ? 1 : 0,
+                ];
+            }
+        }
+
+        uksort($found, static function (string $a, string $b) use ($found): int {
+            $ga = $found[$a]['group'];
+            $gb = $found[$b]['group'];
+            if ($ga !== $gb) {
+                return strcmp($ga, $gb);
+            }
+            if ($found[$a]['priority'] !== $found[$b]['priority']) {
+                return $found[$b]['priority'] <=> $found[$a]['priority'];
+            }
+            return strcmp($a, $b);
+        });
+
+        foreach ($found as $fqcn => $meta) {
+            self::$governed[$fqcn] = [
+                'group' => $meta['group'],
+                'contract' => $meta['contract'],
+            ];
+        }
+    }
+
+    /**
+     * Derive the logical group and canonical contract id for a governed FQCN.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private static function deriveMeta(string $fqcn): array
+    {
+        $pos = strrpos($fqcn, '\\');
+        $short = $pos === false ? $fqcn : substr($fqcn, $pos + 1);
+        $lower = strtolower($short);
+
+        if (strpos($fqcn, 'App\\API\\Modules\\') === 0) {
+            $rest = substr($fqcn, strlen('App\\API\\Modules\\'));
+            $group = strtolower(explode('\\', $rest)[0]);
+            return [$group, $group . '.' . $lower];
+        }
+
+        if (strpos($fqcn, 'App\\API\\Services\\') === 0) {
+            $rest = substr($fqcn, strlen('App\\API\\Services\\'));
+            $parts = explode('\\', $rest);
+            if (count($parts) > 1) {
+                $group = strtolower($parts[0]);
+                return [$group, $group . '.' . $lower];
+            }
+            return ['', $lower];
+        }
+
+        return ['', $lower];
+    }
+
+    /**
+     * A canonical grant façade: the class name matches "<Group>API".
+     */
+    private static function isApiFacade(string $short, string $group): bool
+    {
+        if ($group === '') {
+            return false;
+        }
+        return strcasecmp($short, ucfirst($group) . 'API') === 0;
+    }
+
+    /**
+     * Recursively list PHP files under a directory.
+     *
+     * @return list<string>
+     */
+    private static function phpFilesIn(string $dir): array
+    {
+        $files = [];
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if ($file->isFile() && strtolower($file->getExtension()) === 'php') {
+                    $files[] = $file->getPathname();
+                }
+            }
+        } catch (\Throwable $e) {
+            return $files;
+        }
+        sort($files);
+        return $files;
+    }
+
+    /**
+     * True when the file declares a concrete (non-abstract) class with the
+     * expected short name and is therefore safe to govern/instantiate.
+     */
+    private static function declaresConcreteClass(string $path, string $expectedShort): bool
+    {
+        $source = @file_get_contents($path);
+        if ($source === false || $source === '') {
+            return false;
+        }
+
+        $tokens = @token_get_all($source);
+        $count = count($tokens);
+        for ($i = 0; $i < $count; $i++) {
+            $token = $tokens[$i];
+            if (!is_array($token) || $token[0] !== T_CLASS) {
+                continue;
+            }
+
+            // Skip "new class {}" and "Foo::class".
+            $prev = self::previousSignificant($tokens, $i);
+            if ($prev === T_NEW || $prev === T_DOUBLE_COLON) {
+                continue;
+            }
+
+            // Abstract declarations are not instantiable.
+            if ($prev === T_ABSTRACT) {
+                continue;
+            }
+
+            // Confirm the declared name matches the PSR-4 filename.
+            for ($j = $i + 1; $j < $count; $j++) {
+                $next = $tokens[$j];
+                if (is_array($next) && $next[0] === T_WHITESPACE) {
+                    continue;
+                }
+                if (is_array($next) && $next[0] === T_STRING) {
+                    return $next[1] === $expectedShort;
+                }
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Token id of the previous significant token, or 0 when none.
+     */
+    private static function previousSignificant(array $tokens, int $index): int
+    {
+        for ($i = $index - 1; $i >= 0; $i--) {
+            $token = $tokens[$i];
+            if (is_array($token)
+                && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            return is_array($token) ? $token[0] : 0;
+        }
+        return 0;
+    }
+
+    /**
+     * Explicit remote-facing contract catalogue: these carry auth + schema
+     * descriptors and cannot be inferred from a class name.
+     */
+    private static function registerCanonicalContracts(): void
+    {
+        self::register([
+            'id' => 'system.info',
+            'summary' => 'Read-only application and environment status (contract-layer mirror of system.info).',
+            'auth' => null,
+            'schema' => [],
+            'mode' => 'sync',
+            'handler' => static function (array $params, array $ctx): array {
+                return [
+                    'app' => 'Kingsway Preparatory School',
+                    'layer' => 'ServiceContractBroker (gRPC-style contract layer)',
+                    'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'database' => 'KingsWayAcademy',
+                    'authenticated_user' => (int) ($ctx['user_id'] ?? 0),
+                ];
+            },
+        ]);
+
+        self::register([
+            'id' => 'academic.api',
+            'summary' => 'Grants the AcademicAPI governed service through the contract layer.',
+            'auth' => null,
+            'schema' => [],
+            'mode' => 'sync',
+            'service' => 'App\\API\\Modules\\academic\\AcademicAPI',
+            'method' => 'getTermTransitionContext',
+        ]);
+
+        self::register([
+            'id' => 'finance.api',
+            'summary' => 'Grants the FinanceAPI governed service through the contract layer.',
+            'auth' => null,
+            'schema' => [],
+            'mode' => 'sync',
+            'service' => 'App\\API\\Modules\\finance\\FinanceAPI',
+            'method' => 'getFinancialSummaryReport',
+        ]);
+
+        self::register([
+            'id' => 'attendance.api',
+            'summary' => 'Grants the AttendanceAPI governed service through the contract layer.',
+            'auth' => 'permission:attendance.view',
+            'schema' => [],
+            'mode' => 'sync',
+            'service' => 'App\\API\\Modules\\attendance\\AttendanceAPI',
+            'method' => 'getStaffAttendanceSummary',
+        ]);
+
+        self::register([
+            'id' => 'system.api',
+            'summary' => 'System Administrator: governed SystemAPI grant contract.',
+            'auth' => 'role:System Administrator',
+            'schema' => [],
+            'mode' => 'sync',
+            'service' => 'App\\API\\Modules\\system\\SystemAPI',
+            'method' => 'listAlbums',
+        ]);
+
+        self::register([
+            'id' => 'admission.api.advance_after_payment',
+            'summary' => 'Cross-module governed boundary: advance an admission application after a confirmed payment.',
+            'auth' => null,
+            'schema' => [
+                'required' => ['application_id'],
+                'additionalProperties' => false,
+                'properties' => [
+                    'application_id' => ['type' => 'int', 'min' => 1],
+                ],
+            ],
+            'result' => [
+                'required' => ['advanced', 'application_id'],
+                'properties' => [
+                    'advanced' => ['type' => 'bool'],
+                    'application_id' => ['type' => 'int'],
+                ],
+            ],
+            'mode' => 'sync',
+            'service' => 'App\\API\\Modules\\admission\\StudentAdmissionWorkflow',
+            'method' => 'advanceApplicationAfterConfirmedPayment',
+        ]);
     }
 }

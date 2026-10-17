@@ -134,5 +134,6 @@
   async function review(decision){try{await api('curriculum-proposals-review','POST',{proposal_id:Number(el('reviewProposalId').value),decision,review_notes:el('reviewNotes').value.trim()});bootstrap.Modal.getInstance(el('reviewModal'))?.hide();window.showNotification?.(`Proposal ${decision}.`,'success');await Promise.all([loadProposals(),loadHistory()]);}catch(e){window.showNotification?.(e.message||'Review could not be recorded.','error');}}
   function diffText(before,after,action){if(action==='create')return `New: ${after.code||''} ${after.name||''}`.trim();if(action==='remove')return `Retire: ${before.code||''} ${before.name||''}`.trim();return Object.keys(after).filter(k=>String(after[k]??'')!==String(before[k]??'')).map(k=>`${k}: ${before[k]??'—'} → ${after[k]??'—'}`).join('\n')||'No field changes';}
   function statusColor(status){return {submitted:'warning',draft:'secondary',approved:'success',rejected:'danger',withdrawn:'dark'}[status]||'secondary';}
+  window.APIRealtime?.register?.('curriculum_proposals',{refresh:()=>Promise.all([loadContext(),loadProposals(),loadHistory()])},['academic']);
   document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();

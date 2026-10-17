@@ -14,8 +14,11 @@ use Exception;
  * - Shared helpers: timestamps (Africa/Nairobi), STK Push password,
  *   SecurityCredential (from config or generated from the M-Pesa cert), and
  *   transaction-date formatting.
- * - Single curl request() used by every API so behaviour (timeouts, SSL,
- *   JSON, error decoding) is consistent.
+ * - Single request() transport used by every API so behaviour (timeouts,
+ *   JSON decoding, error visibility) is consistent. Provider HTTP exchanges
+ *   run on the Python platform relay first with a PHP stream fallback via
+ *   PaymentGatewayTransport; curl is never used because this shared host's
+ *   PHP runtime does not load the curl extension.
  *
  * No database access lives here — this class is pure M-Pesa communication.
  */
@@ -153,11 +156,9 @@ class MpesaApiClient
         $url = $this->getBaseUrl() . '/oauth/v1/generate?grant_type=client_credentials';
         $basic = base64_encode($this->consumerKey . ':' . $this->consumerSecret);
 
-        $response = $this->curl($url, [
-            CURLOPT_HTTPHEADER => [
-                'Authorization: Basic ' . $basic,
-                'Content-Type: application/json',
-            ],
+        $response = $this->request('GET', $url, [
+            'Authorization' => 'Basic ' . $basic,
+            'Content-Type' => 'application/json',
         ]);
 
         $httpCode = $response['http_code'];
@@ -189,29 +190,21 @@ class MpesaApiClient
     public function post(string $path, array $payload): array
     {
         $token = $this->getAccessToken();
+        $encoded = (string) json_encode($payload);
+        $headers = [
+            'Content-Type' => 'application/json',
+            'Authorization' => 'Bearer ' . $token,
+        ];
 
-        $response = $this->curl($this->getBaseUrl() . $path, [
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($payload),
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $token,
-            ],
-        ]);
+        $response = $this->request('POST', $this->getBaseUrl() . $path, $headers, $encoded);
 
         $data = $response['data'];
         if ($response['http_code'] === 401) {
             // Token invalidated server-side — clear cache and retry once.
             self::$tokenCache = null;
             $token = $this->getAccessToken();
-            $response = $this->curl($this->getBaseUrl() . $path, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => json_encode($payload),
-                CURLOPT_HTTPHEADER => [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $token,
-                ],
-            ]);
+            $headers['Authorization'] = 'Bearer ' . $token;
+            $response = $this->request('POST', $this->getBaseUrl() . $path, $headers, $encoded);
             $data = $response['data'];
         }
 
@@ -229,41 +222,30 @@ class MpesaApiClient
     }
 
     /**
-     * Raw curl helper — never touches the filesystem/DB, always returns both
-     * the HTTP status and the decoded body.
+     * Single transport helper — never touches the filesystem/DB, always
+     * returns both the HTTP status and the decoded body. Provider HTTP
+     * exchanges run on the Python platform relay first with a PHP stream
+     * fallback; curl is never used because this host's PHP runtime does not
+     * load the curl extension.
+     *
+     * @param array<string,string> $headers Header name => value map.
+     * @return array{http_code:int,data:array,raw:string}
+     * @throws Exception on connection-level failure
      */
-    private function curl(string $url, array $options): array
+    private function request(string $method, string $url, array $headers, ?string $body = null): array
     {
-        $ch = curl_init($url);
-        $defaults = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER => false,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
-        ];
-        foreach ($defaults as $k => $v) {
-            if (!array_key_exists($k, $options)) {
-                $options[$k] = $v;
-            }
-        }
-        curl_setopt_array($ch, $options);
-
-        $body = curl_exec($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $errno = curl_errno($ch);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($body === false || $errno !== 0) {
-            throw new Exception('M-Pesa network error (' . $errno . '): ' . $error);
+        $result = PaymentGatewayTransport::send($method, $url, $headers, $body);
+        if ($result['error'] !== '' || $result['http_code'] <= 0) {
+            throw new Exception(
+                'M-Pesa network error: ' .
+                ($result['error'] !== '' ? $result['error'] : 'no response from provider')
+            );
         }
 
-        $decoded = json_decode($body, true);
         return [
-            'http_code' => $httpCode,
-            'data' => is_array($decoded) ? $decoded : ['raw' => $body],
+            'http_code' => $result['http_code'],
+            'data' => is_array($result['data']) ? $result['data'] : ['raw' => $result['body']],
+            'raw' => $result['body'],
         ];
     }
 }

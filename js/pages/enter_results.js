@@ -5,6 +5,19 @@
  */
 const enterResultsController = (() => {
   let students = [];
+  let referenceCache = null;
+
+  // Aggregate the context-free dropdown references through one authorized
+  // Node view; the class roster stays a class-scoped direct read.
+  async function loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.resolve("academic", "enter-results-references");
+      referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (e) {
+      console.warn("Enter results reference Node view failed; using direct reads:", e);
+      referenceCache = null;
+    }
+  }
 
   async function init() {
     await window.AuthContext?.ready();
@@ -12,7 +25,9 @@ const enterResultsController = (() => {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+    await loadReferencesComposed();
     await Promise.all([loadClasses(), loadSubjects(), loadYears()]);
+    window.APIRealtime?.register?.("enter_results", { refresh: async () => { await loadReferencesComposed(); await Promise.all([loadClasses(), loadSubjects(), loadYears()]); } }, ["academic"]);
     document
       .getElementById("resultsForm")
       ?.addEventListener("submit", handleSubmit);
@@ -20,7 +35,7 @@ const enterResultsController = (() => {
 
   async function loadClasses() {
     try {
-      const r = await API.academic.listClasses().catch(() => null);
+      const r = referenceCache?.classes ?? (await API.academic.listClasses().catch(() => null));
       const items = r?.data || r || [];
       const sel = document.getElementById("classSelect");
       if (!sel) return;
@@ -39,10 +54,10 @@ const enterResultsController = (() => {
 
   async function loadSubjects() {
     try {
-      const r = await API.academic
+      const r = referenceCache?.subjects ?? (await API.academic
         .listLearningAreas()
         .catch(() => API.academic.getCustom({ action: "subjects" }))
-        .catch(() => null);
+        .catch(() => null));
       const items = r?.data || r || [];
       const sel = document.getElementById("subjectSelect");
       if (!sel) return;
@@ -61,7 +76,7 @@ const enterResultsController = (() => {
 
   async function loadYears() {
     try {
-      const r = await API.academic.getAllAcademicYears().catch(() => null);
+      const r = referenceCache?.years ?? (await API.academic.getAllAcademicYears().catch(() => null));
       const items = r?.data || r || [];
       const sel = document.getElementById("yearSelect");
       if (!sel) return;

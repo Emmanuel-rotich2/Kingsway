@@ -132,8 +132,9 @@
             <div class="col-md-2">
                 <select id="genderFilter" class="form-select" onchange="studentsManagementController.filterByGender(this.value)">
                     <option value="">All Genders</option>
-                    <option value="M">Male</option>
-                    <option value="F">Female</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
                 </select>
             </div>
             <div class="col-md-2">

@@ -228,8 +228,13 @@ const SystemAdministratorDashboardController = {
     ];
 
     try {
+      const prefetched = await this.loadComposedSources();
       const results = await Promise.allSettled(
-        requests.map((request) => request.run()),
+        requests.map((request) => (
+          prefetched && Object.prototype.hasOwnProperty.call(prefetched, request.key)
+            ? Promise.resolve(prefetched[request.key])
+            : request.run()
+        )),
       );
 
       results.forEach((result, index) => {
@@ -287,6 +292,47 @@ const SystemAdministratorDashboardController = {
     } finally {
       this.state.loading = false;
       if (!options.silent) this.setBusy(false);
+    }
+  },
+
+  async loadComposedSources() {
+    try {
+      if (!window.API?.nodeViews?.read) {
+        return null;
+      }
+      const composed = await window.API.nodeViews.read(
+        "dashboards",
+        "system-administrator-references",
+        {},
+      );
+      const sources = composed?.data?.sources || composed?.sources || null;
+      if (!sources || typeof sources !== "object" || Object.keys(sources).length === 0) {
+        return null;
+      }
+
+      const mapped = {
+        auth: sources.auth_events,
+        sessions: sources.active_sessions,
+        uptime: sources.uptime,
+        errors: sources.health_errors,
+        warnings: sources.health_warnings,
+        apiLoad: sources.api_load,
+      };
+
+      const present = {};
+      Object.entries(mapped).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          present[key] = value;
+        }
+      });
+
+      return Object.keys(present).length ? present : null;
+    } catch (error) {
+      console.warn(
+        "[SystemAdministratorDashboardController] Composed view unavailable; using direct API.",
+        error,
+      );
+      return null;
     }
   },
 

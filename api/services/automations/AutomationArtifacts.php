@@ -8,6 +8,7 @@ use App\API\Includes\FileLogger;
 use App\API\Services\AutomationBridge;
 use App\API\Services\AutomationRegistry;
 use App\API\Services\JobQueue;
+use App\API\Services\StorageRoot;
 use PDO;
 use RuntimeException;
 
@@ -27,15 +28,14 @@ use RuntimeException;
  *               call the engine, store the artifact with a SHA-256 checksum,
  *               journal the whole lifecycle to the file journals.
  *
- * Artifacts are derivative working files, never official records: they live
- * under storage/automations/ (access-denied at the webserver by
- * storage/.htaccess) and every event is in the file journals, never a log
- * table.
+ * Artifacts are derivative working files, never official records: new files
+ * live beneath STORAGE_ROOT/php/automations and every event is in file
+ * journals, never a log table.
  */
 final class AutomationArtifacts
 {
-    private const INPUT_DIR = 'storage/automations/in';
-    private const OUTPUT_DIR = 'storage/automations/out';
+    private const INPUT_DIR = 'automations/in';
+    private const OUTPUT_DIR = 'automations/out';
     private const MAX_INPUT_JSON_BYTES = 6 * 1024 * 1024;
 
     private ?AutomationBridge $bridge;
@@ -235,7 +235,11 @@ final class AutomationArtifacts
     /** Path of the input file for one artifact identity. */
     public function inputPath(string $artifactId): string
     {
-        return $this->root() . '/' . self::INPUT_DIR . '/' . $artifactId . '.json';
+        if (preg_match('/^[a-f0-9]{32}$/', $artifactId) !== 1) {
+            throw new RuntimeException('Invalid automation artifact identifier.');
+        }
+        $path = $this->root() . '/' . self::INPUT_DIR . '/' . $artifactId . '.json';
+        return is_file($path) ? $path : $this->legacyPath('in', $artifactId, 'json');
     }
 
     /** @return array<int,string> the operator's effective permission codes */
@@ -340,7 +344,11 @@ final class AutomationArtifacts
     /** @return array<string,mixed>|null */
     public function artifactStatus(string $artifactId): ?array
     {
+        if (preg_match('/^[a-f0-9]{32}$/', $artifactId) !== 1) return null;
         $path = $this->root() . '/' . self::OUTPUT_DIR . '/' . $artifactId . '.meta.json';
+        if (!is_file($path) && $this->storageRoot === null) {
+            $path = $this->legacyPath('out', $artifactId, 'meta.json');
+        }
         if (!is_file($path)) {
             return null;
         }
@@ -356,8 +364,12 @@ final class AutomationArtifacts
 
     public function outputPath(string $artifactId, string $format): string
     {
+        if (preg_match('/^[a-f0-9]{32}$/', $artifactId) !== 1) {
+            throw new RuntimeException('Invalid automation artifact identifier.');
+        }
         $extension = $format === 'json' ? 'json' : 'csv';
-        return $this->root() . '/' . self::OUTPUT_DIR . '/' . $artifactId . '.' . $extension;
+        $path = $this->root() . '/' . self::OUTPUT_DIR . '/' . $artifactId . '.' . $extension;
+        return is_file($path) ? $path : $this->legacyPath('out', $artifactId, $extension);
     }
 
     /** @return array<string,mixed>|null meta for a job whose payload is known */
@@ -370,27 +382,32 @@ final class AutomationArtifacts
     /** Delete stale queued source documents and expired artifacts lazily. */
     private function purgeExpired(): void
     {
-        $base = $this->root() . '/storage/automations';
-        foreach ([$base . '/in', $base . '/out'] as $directory) {
-            if (!is_dir($directory)) continue;
-            foreach (glob($directory . '/*') ?: [] as $path) {
-                if (!is_file($path)) continue;
-                if (str_ends_with($path, '.meta.json')) {
-                    $meta = json_decode((string)@file_get_contents($path), true);
-                    if (is_array($meta) && ($meta['automation'] ?? '') === AutomationRegistry::EXAM_DOCUMENT_PREVIEW
-                        && !empty($meta['expires_at']) && strtotime((string)$meta['expires_at']) <= time()) {
-                        $id = (string)($meta['artifact_id'] ?? '');
-                        if (preg_match('/^[a-f0-9]{32}$/', $id)) @unlink($this->outputPath($id, (string)($meta['format'] ?? 'csv')));
-                        @unlink($path);
-                        continue;
+        $bases = [$this->root() . '/automations'];
+        if ($this->storageRoot === null) {
+            $bases[] = dirname(__DIR__, 3) . '/storage/automations';
+        }
+        foreach ($bases as $base) {
+            foreach ([$base . '/in', $base . '/out'] as $directory) {
+                if (!is_dir($directory)) continue;
+                foreach (glob($directory . '/*') ?: [] as $path) {
+                    if (!is_file($path)) continue;
+                    if (str_ends_with($path, '.meta.json')) {
+                        $meta = json_decode((string)@file_get_contents($path), true);
+                        if (is_array($meta) && ($meta['automation'] ?? '') === AutomationRegistry::EXAM_DOCUMENT_PREVIEW
+                            && !empty($meta['expires_at']) && strtotime((string)$meta['expires_at']) <= time()) {
+                            $id = (string)($meta['artifact_id'] ?? '');
+                            if (preg_match('/^[a-f0-9]{32}$/', $id)) @unlink($this->outputPath($id, (string)($meta['format'] ?? 'csv')));
+                            @unlink($path);
+                            continue;
+                        }
                     }
-                }
-                if (str_ends_with($directory, '/in')) {
-                    $input = json_decode((string)@file_get_contents($path), true);
-                    $mtime = filemtime($path);
-                    if (is_array($input) && ($input['_automation_id'] ?? '') === AutomationRegistry::EXAM_DOCUMENT_PREVIEW
-                        && $mtime !== false && $mtime < time() - 3600) @unlink($path);
-                    elseif ($mtime !== false && $mtime < time() - 86400) @unlink($path);
+                    if (str_ends_with($directory, '/in')) {
+                        $input = json_decode((string)@file_get_contents($path), true);
+                        $mtime = filemtime($path);
+                        if (is_array($input) && ($input['_automation_id'] ?? '') === AutomationRegistry::EXAM_DOCUMENT_PREVIEW
+                            && $mtime !== false && $mtime < time() - 3600) @unlink($path);
+                        elseif ($mtime !== false && $mtime < time() - 86400) @unlink($path);
+                    }
                 }
             }
         }
@@ -401,21 +418,31 @@ final class AutomationArtifacts
         if ($this->storageRoot !== null) {
             return rtrim($this->storageRoot, '/');
         }
-        return dirname(__DIR__, 3);
+        return StorageRoot::path('php');
+    }
+
+    private function legacyPath(string $area, string $artifactId, string $extension): string
+    {
+        $safeId = preg_match('/^[a-f0-9]{32}$/', $artifactId) === 1 ? $artifactId : '';
+        return dirname(__DIR__, 3) . '/storage/automations/' . $area . '/' . $safeId . '.' . $extension;
     }
 
     private function write(string $path, string $contents): void
     {
         $dir = dirname($path);
-        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new RuntimeException('The automation storage directory could not be prepared.');
         }
-        if (@file_put_contents($path, $contents, LOCK_EX) === false) {
+        $temporaryPath = $path . '.tmp.' . bin2hex(random_bytes(8));
+        if (@file_put_contents($temporaryPath, $contents, LOCK_EX) === false) {
             throw new RuntimeException('The automation artifact could not be stored.');
         }
-        // The queue's writer (web) and the next reader (CLI) may be different
-        // users on shared hosting, so artifacts must be world-readable. They
-        // are still protected by storage/.htaccess from direct HTTP access.
-        @chmod($path, 0644);
+        @chmod($temporaryPath, 0600);
+        if (!@rename($temporaryPath, $path)) {
+            @unlink($temporaryPath);
+            throw new RuntimeException('The automation artifact could not be finalized.');
+        }
+        @chmod($dir, 0700);
+        @chmod($path, 0600);
     }
 }

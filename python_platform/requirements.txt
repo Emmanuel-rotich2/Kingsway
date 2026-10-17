@@ -17,3 +17,4 @@ zipstream-ng==1.8.0
 segno==1.6.6
 qrcode==8.2
 pyarrow==21.0.0
+psutil>=5.9.0

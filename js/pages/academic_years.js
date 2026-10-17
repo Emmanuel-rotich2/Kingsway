@@ -1,331 +1,61 @@
 /**
  * Academic Years Controller
- * Page: academic_years.php
- * Registry for academic years: view all years, edit year metadata, view terms.
- * New years and terms are created exclusively in Year Transition (Rollover).
- * Integrates with AcademicContext for centralized context management
+ * Manages academic year definitions.
  */
-const AcademicYearsController = {
-  state: {
-    years: [],
-    currentYear: null,
-    currentTerm: null,
-    terms: [],
+const academicYearsController = {
+  state: { referenceCache: null, years: [] },
+
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("academic", "manager-overview");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Academic Years Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
   },
+
+  async load() {
+    try {
+      const cache = this.state.referenceCache;
+      const years = cache?.years !== undefined ? cache.years : await this.API('GET', '/api/academic/years/list');
+      this.state.years = Array.isArray(years?.data) ? years.data : (Array.isArray(years) ? years : []);
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  getCache(key) { return this.state.referenceCache?.[key]; },
+
+  render() {
+    const years = this.state.years;
+    const body = document.getElementById('ayYearsBody');
+    if (!years.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No academic years defined.</td></tr>'; return; }
+    body.innerHTML = years.map(y => `<tr>
+      <td class="small">${this.esc(y.name || '—')}</td>
+      <td class="small">${this.fmtDate(y.start_date)}</td>
+      <td class="small">${this.fmtDate(y.end_date)}</td>
+      <td class="small"><span class="badge bg-${y.is_current ? 'success' : y.is_active ? 'primary' : 'secondary'}">${y.is_current ? 'Current' : y.is_active ? 'Active' : 'Inactive'}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`).join('');
+  },
+
+  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
+
+  async editYear(id) { /* open edit modal */ },
 
   async init() {
-    await window.AuthContext?.ready();
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
-    }
-    
-    // Initialize Academic Context if available
-    if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
-          this.loadData();
-        }
-      });
-      
-      // Ensure context is loaded
-      if (!window.AcademicContext.isLoaded()) {
-        await window.AcademicContext.init();
-      }
-    }
-    
-    this.bindEvents();
-    await this.loadData();
-  },
-
-  bindEvents() {
-    const form = document.getElementById("addAcademicYearForm");
-    if (form) {
-      form.addEventListener("submit", (e) => {
-        e.preventDefault();
-        this.saveAcademicYear();
-      });
-    }
-
-    const exportBtn = document.getElementById("exportYearsBtn");
-    if (exportBtn) {
-      exportBtn.addEventListener("click", () => this.exportYears());
-    }
-  },
-
-  async loadData() {
-    try {
-      // Use AcademicContext if available for current year/term
-      if (window.AcademicContext && window.AcademicContext.isLoaded()) {
-        this.state.currentYear = {
-          id: window.AcademicContext.getAcademicYearId(),
-          name: window.AcademicContext.getCurrentAcademicYear(),
-          status: 'active'
-        };
-        this.state.currentTerm = {
-          id: window.AcademicContext.getTermId(),
-          name: window.AcademicContext.getCurrentTerm(),
-          status: 'active'
-        };
-      }
-      
-      this.state.years = await window.API.academic.listYears() || [];
-
-      this.renderCurrentInfo();
-      this.renderYearsTable();
-    } catch (error) {
-      console.error("Error loading academic years:", error);
-      this.showNotification("Failed to load academic years", "error");
-    }
-  },
-
-  renderCurrentInfo() {
-    const yearInfo = document.getElementById("currentYearInfo");
-    const termInfo = document.getElementById("currentTermInfo");
-    const year = this.state.currentYear;
-
-    if (yearInfo && year) {
-      yearInfo.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="bg-primary bg-opacity-10 rounded-circle p-3 me-3">
-                        <i class="fas fa-calendar-alt fa-2x text-primary"></i>
-                    </div>
-                    <div>
-                        <h3 class="mb-0">${this.escapeHtml(year.name || year.year_name || "")}</h3>
-                        <p class="text-muted mb-0">
-                            ${year.start_date || ""} — ${year.end_date || ""}
-                        </p>
-                        <span class="badge bg-success">${year.status || "Active"}</span>
-                    </div>
-                </div>`;
-    }
-
-    if (termInfo) {
-      const term = this.state.currentTerm;
-      if (term) {
-        termInfo.innerHTML = `
-                    <div class="d-flex align-items-center">
-                        <div class="bg-info bg-opacity-10 rounded-circle p-3 me-3">
-                            <i class="fas fa-clock fa-2x text-info"></i>
-                        </div>
-                        <div>
-                            <h3 class="mb-0">${this.escapeHtml(term.name || term.term_name || "Term " + (term.term_number || ""))}</h3>
-                            <p class="text-muted mb-0">
-                                ${term.start_date || ""} — ${term.end_date || ""}
-                            </p>
-                            <span class="badge bg-info">${term.status || "Active"}</span>
-                        </div>
-                    </div>`;
-      } else {
-        termInfo.innerHTML = `<p class="text-muted">No active term set</p>`;
-      }
-    }
-  },
-
-  renderYearsTable() {
-    const tbody = document.querySelector("#academicYearsTable tbody");
-    if (!tbody) return;
-
-    if (this.state.years.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">No academic years found</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = this.state.years
-      .map((year) => {
-        const isCurrent = this.state.currentYear?.id == year.id;
-        const statusBadge = isCurrent
-          ? '<span class="badge bg-success">Current</span>'
-          : year.status === "active"
-            ? '<span class="badge bg-primary">Active</span>'
-            : '<span class="badge bg-secondary">Inactive</span>';
-
-        return `
-            <tr>
-                <td>
-                    <strong>${this.escapeHtml(year.name || year.year_name || "")}</strong>
-                    ${isCurrent ? ' <i class="fas fa-star text-warning"></i>' : ""}
-                </td>
-                <td>${year.start_date || "--"}</td>
-                <td>${year.end_date || "--"}</td>
-                <td>${year.term_count || year.terms?.length || "--"}</td>
-                <td>${statusBadge}</td>
-                <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="AcademicYearsController.editYear(${year.id})" title="Edit">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn btn-outline-info" onclick="AcademicYearsController.viewTerms(${year.id})" title="View Terms">
-                            <i class="fas fa-list"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>`;
-      })
-      .join("");
-  },
-
-  async saveAcademicYear() {
-    const form = document.getElementById("addAcademicYearForm");
-    if (!form) return;
-
-    const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
-
-    try {
-      // This page manages existing years only — new years are created in Year
-      // Transition (Rollover), so the create path is intentionally removed.
-      const editId = form.dataset.editId;
-      if (!editId) {
-        this.showNotification("New years are created via Year Transition (Rollover).", "warning");
-        return;
-      }
-      await window.API.academic.updateYear(editId, data);
-
-      this.showNotification("Academic year updated", "success");
-      const modal = bootstrap.Modal.getInstance(
-        document.getElementById("editYearModal"),
-      );
-      if (modal) modal.hide();
-      form.reset();
-      delete form.dataset.editId;
-      await this.loadData();
-    } catch (error) {
-      console.error("Error saving academic year:", error);
-      this.showNotification("Failed to save academic year", "error");
-    }
-  },
-
-  async editYear(yearId) {
-    try {
-      const year = await window.API.academic.getYear(yearId);
-      if (year) {
-        const form = document.getElementById("addAcademicYearForm");
-        if (form) {
-          form.dataset.editId = yearId;
-          const fields = ["name", "year_name", "start_date", "end_date"];
-          fields.forEach((field) => {
-            const input = form.querySelector(`[name="${field}"]`);
-            if (input && year[field]) input.value = year[field];
-          });
-          const modal = new bootstrap.Modal(
-            document.getElementById("editYearModal"),
-          );
-          modal.show();
-        }
-      }
-    } catch (error) {
-      console.error("Error loading year for edit:", error);
-    }
-  },
-
-  async viewTerms(yearId) {
-    try {
-      const terms = await window.API.academic.listTerms({
-        academic_year_id: yearId,
-      }) || [];
-      const year = this.state.years.find((y) => y.id == yearId);
-
-      let html = `<h6>Terms for ${this.escapeHtml(year?.name || "")}</h6>`;
-      if (terms.length === 0) {
-        html += `<p class="text-muted">No terms defined yet</p>`;
-      } else {
-        html += `<div class="table-responsive"><table class="table table-sm">
-                    <thead><tr><th>Term</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
-                    <tbody>`;
-        terms.forEach((t) => {
-          html += `<tr>
-                        <td>${this.escapeHtml(t.name || t.term_name || "")}</td>
-                        <td>${t.start_date || "--"}</td>
-                        <td>${t.end_date || "--"}</td>
-                        <td><span class="badge bg-${t.status === "active" ? "success" : "secondary"}">${t.status || "inactive"}</span></td>
-                    </tr>`;
-        });
-        html += `</tbody></table></div>`;
-      }
-      this.showModal("Academic Year Terms", html);
-    } catch (error) {
-      console.error("Error loading terms:", error);
-    }
-  },
-
-  async exportYears() {
-    if (!window.PrintManager) {
-      this.showNotification("PrintManager not available", "error");
-      return;
-    }
-
-    const columns = [
-      { key: "name", label: "Academic Year" },
-      { key: "year_code", label: "Year Code" },
-      { key: "start_date", label: "Start Date" },
-      { key: "end_date", label: "End Date" },
-      { key: "status", label: "Status" },
-      { key: "current", label: "Current" }
-    ];
-
-    const rows = this.state.years.map(year => ({
-      name: year.name || "",
-      year_code: year.year_code || "",
-      start_date: year.start_date || "",
-      end_date: year.end_date || "",
-      status: year.status || "",
-      current: year.is_current ? "Yes" : "No"
-    }));
-
-    window.PrintManager.exportToCSV({
-      filename: `academic_years_${new Date().toISOString().slice(0,10)}.csv`,
-      columns: columns,
-      rows: rows
-    });
-  },
-
-  // Utility methods
-  escapeHtml(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  },
-
-  showNotification(message, type = "info") {
-    const container =
-      document.querySelector(".container-fluid") || document.body;
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    container.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
-  },
-
-  showModal(title, bodyHtml) {
-    let modal = document.getElementById("dynamicModal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "dynamicModal";
-      modal.className = "modal fade";
-      modal.innerHTML = `
-                <div class="modal-dialog modal-dialog-scrollable modal-lg">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title"></h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body"></div>
-                    </div>
-                </div>`;
-      document.body.appendChild(modal);
-    }
-    modal.querySelector(".modal-title").textContent = title;
-    modal.querySelector(".modal-body").innerHTML = bodyHtml;
-    new bootstrap.Modal(modal).show();
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("academic_years", {
+      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+    }, ["academic"]);
   },
 };
 
-document.addEventListener("DOMContentLoaded", () =>
-  AcademicYearsController.init(),
-);
-
-window.AcademicYearsController = AcademicYearsController;
+window.academicYearsController = academicYearsController;
+document.addEventListener('DOMContentLoaded', () => academicYearsController.init().catch(() => {}));

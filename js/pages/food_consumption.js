@@ -3,11 +3,11 @@
  * Food usage and waste recorded per item across a date range.
  */
 const foodConsumptionController = {
-  state: { rows: [] },
+  state: { rows: [], referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.data || r?.rows || r || []); },
 
@@ -34,11 +34,22 @@ const foodConsumptionController = {
     return params;
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-consumption-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Consumption Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load() {
     const body = document.getElementById('fcBody');
     body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/reports/food-consumption-trends', null, this.getParams());
+      const cache = this.state.referenceCache;
+      const r = cache?.trends !== undefined ? cache.trends : await this.API('GET', '/reports/food-consumption-trends', null, this.getParams());
       this.state.rows = this.norm(r);
       this.render();
     } catch (e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
@@ -76,17 +87,53 @@ const foodConsumptionController = {
     ['fcFrom', 'fcTo'].forEach(id => document.getElementById(id)?.addEventListener('change', () => this.load()));
   },
 
+  defaults() {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(to.getDate() - 30);
+    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+  },
+
+  getParams() {
+    const params = {};
+    const from = document.getElementById('fcFrom')?.value;
+    const to = document.getElementById('fcTo')?.value;
+    if (from) params.date_from = from;
+    if (to) params.date_to = to;
+    return params;
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-consumption-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Consumption Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("food_consumption", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["catering", "reports"]);
   },
 };
 
-window.foodConsumptionController = foodConsumptionController;
+const foodConsumptionControllerInstance = foodConsumptionController;
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodConsumptionController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => foodConsumptionControllerInstance.init().catch(() => {}));
 } else {
-  foodConsumptionController.init().catch(() => {});
+  foodConsumptionControllerInstance.init().catch(() => {});
 }
+
+window.foodConsumptionController = foodConsumptionControllerInstance;

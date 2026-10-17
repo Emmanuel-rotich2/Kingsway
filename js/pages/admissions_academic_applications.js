@@ -8,6 +8,7 @@ const academicApplicationsController = {
     classes: [],
     placementTests: [],
     initialized: false,
+    state: { referenceCache: null },
 
     init: async function() {
         if (this.initialized) return;
@@ -28,8 +29,17 @@ const academicApplicationsController = {
             }
 
             this.setupEventListeners();
+            await this.loadReferencesComposed();
             await Promise.all([this.loadClasses(), this.loadPlacementTests()]);
             await this.loadApplications();
+            window.APIRealtime?.register?.("admissions_academic_applications", {
+              refresh: async () => {
+                this.state.referenceCache = null;
+                await this.loadReferencesComposed();
+                await Promise.all([this.loadClasses(), this.loadPlacementTests()]);
+                await this.loadApplications();
+              }
+            }, ["admissions", "academic"]);
 
         } catch (error) {
             console.error("Failed to initialize Academic Applications Controller:", error);
@@ -37,9 +47,20 @@ const academicApplicationsController = {
         }
     },
 
+    async loadReferencesComposed() {
+        try {
+            const response = await window.API.nodeViews.resolve("admissions", "academic-applications-references");
+            this.state.referenceCache = response?.data?.sources || response?.sources || {};
+        } catch (error) {
+            console.warn("Academic Applications Node view failed; using direct reads:", error);
+            this.state.referenceCache = null;
+        }
+    },
+
     loadPlacementTests: async function() {
         try {
-            const response = await API.callAPI('/admission/placement-tests', 'GET');
+            const cache = this.state.referenceCache;
+            const response = cache?.placementTests !== undefined ? cache.placementTests : await API.callAPI('/admission/placement-tests', 'GET');
             const payload = response?.data || response || {};
             this.placementTests = payload.tests || payload.placement_tests || [];
         } catch (error) {
@@ -50,7 +71,8 @@ const academicApplicationsController = {
 
     loadClasses: async function() {
         try {
-            const response = await API.callAPI('/admission/placement-classes', 'GET');
+            const cache = this.state.referenceCache;
+            const response = cache?.classes !== undefined ? cache.classes : await API.callAPI('/admission/placement-classes', 'GET');
             const payload = response?.data || response || {};
             this.classes = payload.classes || [];
             this.populateClassDropdown();

@@ -201,14 +201,8 @@ const AdmissionsController = {
       // Setup event listeners
       this.setupEventListeners();
 
-      // Load server-driven admission policy and stage permissions
-      await this.loadPolicyAndStageMatrix();
-
-      // Load reference data for forms
-      await this.loadReferenceData();
-
-      // Load workflow queues
-      await this.loadQueues();
+      window.APIRealtime?.register?.("admissions", this, ["admission"]);
+      await this.refreshData();
 
       // Render initial view
       this.renderTabs();
@@ -220,12 +214,31 @@ const AdmissionsController = {
     }
   },
 
+  async refreshData() {
+    try {
+      const response = await window.API.nodeViews.resolve("admissions", "workspace");
+      const sources = response?.data?.sources || response?.sources || {};
+      const required = ["policy", "stageMatrix", "queues", "placementClasses", "parents", "academicYears", "openTerms"];
+      if (!required.every(key => Object.hasOwn(sources, key))) {
+        throw new Error("Node returned incomplete admissions workspace data");
+      }
+      this._workspaceSources = sources;
+    } catch (error) {
+      console.warn("Admissions composition unavailable; loading through PHP APIs:", error);
+      this._workspaceSources = null;
+    }
+    await Promise.all([
+      this.loadPolicyAndStageMatrix(),
+      this.loadReferenceData(),
+      this.loadQueues(),
+    ]);
+  },
+
   async loadPolicyAndStageMatrix() {
     try {
-      const [policyResponse, matrixResponse] = await Promise.all([
-        API.admission.getPolicy(),
-        API.admission.getStageMatrix(),
-      ]);
+      const [policyResponse, matrixResponse] = this._workspaceSources
+        ? [this._workspaceSources.policy, this._workspaceSources.stageMatrix]
+        : await Promise.all([API.admission.getPolicy(), API.admission.getStageMatrix()]);
 
       this.state.policy = policyResponse?.data || policyResponse || null;
       this.state.stageMatrix = matrixResponse?.data || matrixResponse || null;
@@ -539,7 +552,9 @@ const AdmissionsController = {
   async loadClassOptions() {
     try {
       let classes = [];
-      if (API?.admission?.getPlacementClasses) {
+      if (this._workspaceSources?.placementClasses) {
+        classes = this.unwrapList(this._workspaceSources.placementClasses, 'classes');
+      } else if (API?.admission?.getPlacementClasses) {
         const response = await API.admission.getPlacementClasses();
         classes = this.unwrapList(response, 'classes');
       }
@@ -566,7 +581,7 @@ const AdmissionsController = {
   async loadParents() {
     try {
       if (!API?.students?.getParentsList) return;
-      const response = await API.students.getParentsList();
+      const response = this._workspaceSources?.parents || await API.students.getParentsList();
       const parents = this.unwrapList(response, "parents");
       this.state.referenceData.parents = parents;
       this.populateParentSelect(parents);
@@ -578,7 +593,7 @@ const AdmissionsController = {
   async loadAcademicYears() {
     try {
       if (!API?.students?.getAllAcademicYears) return;
-      const response = await API.students.getAllAcademicYears();
+      const response = this._workspaceSources?.academicYears || await API.students.getAllAcademicYears();
       const years = this.unwrapList(response, "academic_years");
       this.state.referenceData.academicYears = years;
       this.populateAcademicYearSelect(years);
@@ -592,7 +607,7 @@ const AdmissionsController = {
 
   async loadOpenTerms() {
     try {
-      const response = await API.admission.getOpenAdmissionTerms();
+      const response = this._workspaceSources?.openTerms || await API.admission.getOpenAdmissionTerms();
       const terms = this.unwrapList(response, 'terms');
       this.state.referenceData.openTerms = terms;
       const windowSelect = document.getElementById('admissionWindowSelect');
@@ -715,7 +730,7 @@ const AdmissionsController = {
     this.showLoading();
 
     try {
-      const response = await API.admission.getQueues();
+      const response = this._workspaceSources?.queues || await API.admission.getQueues();
       const payload = this.unwrapPayload(response);
 
       if (payload && payload.queues) {

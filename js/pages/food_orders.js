@@ -3,11 +3,11 @@
  * Food/catering supplier purchase order tracking.
  */
 const foodOrdersController = {
-  state: { orders: [], page: 1, pages: 0, total: 0, limit: 20 },
+  state: { orders: [], page: 1, pages: 0, total: 0, limit: 20, referenceCache: null },
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
   fmtDate(v) {
     if (!v) return '\u2014';
@@ -29,11 +29,22 @@ const foodOrdersController = {
     return params;
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-orders-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Orders Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async load(page = 1) {
     const body = document.getElementById('foBody');
     body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
-      const r = await this.API('GET', '/inventory/purchase-orders-list', null, this.getParams(page));
+      const cache = this.state.referenceCache;
+      const r = cache?.suppliers !== undefined ? cache.suppliers : await this.API('GET', '/inventory/purchase-orders-list', null, this.getParams(page));
       const payload = r?.data ?? r ?? {};
       this.state.orders = Array.isArray(payload?.orders) ? payload.orders : (Array.isArray(payload) ? payload : []);
       this.state.page = Number(payload?.pagination?.page || page);
@@ -76,17 +87,37 @@ const foodOrdersController = {
     document.getElementById('foStatus')?.addEventListener('change', () => this.load());
   },
 
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("catering", "food-orders-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Food Orders Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
+    }
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     this.setupEventListeners();
+    await this.loadReferencesComposed();
     await this.load();
+    window.APIRealtime?.register?.("food_orders", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["inventory", "finance"]);
   },
 };
 
-window.foodOrdersController = foodOrdersController;
+const foodOrdersControllerInstance = foodOrdersController;
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => foodOrdersController.init().catch(() => {}));
+  document.addEventListener('DOMContentLoaded', () => foodOrdersControllerInstance.init().catch(() => {}));
 } else {
-  foodOrdersController.init().catch(() => {});
+  foodOrdersControllerInstance.init().catch(() => {});
 }
+
+window.foodOrdersController = foodOrdersControllerInstance;

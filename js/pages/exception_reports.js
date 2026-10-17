@@ -1,144 +1,97 @@
 /**
  * Exception Reports Controller
- * Financial anomalies: unmatched payments, duplicate receipts, policy breaches.
- * API: /finance/exception-report, /payments/unmatched
+ * System exceptions, errors, and anomaly reports.
  */
-
 const exceptionReportsController = {
+  state: { exceptionTypes: [], students: [], report: null, referenceCache: null },
 
-  _data: [],
-  _activeTab: 'all',
-  _activeFilter: 'all',
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  init: async function () {
-    await window.AuthContext?.ready();
-    if (!AuthContext.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || '') + '/index.php';
-      return;
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "exception-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exception Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
-    await Promise.all([this._loadStats(), this._loadData()]);
   },
 
-  _loadStats: async function () {
+  async load() {
     try {
-      const [rException, rUnmatched] = await Promise.allSettled([
-        callAPI('/finance/exception-reports', 'GET'),
-        callAPI('/finance/unmatched-payments', 'GET'),
+      const cache = this.state.referenceCache;
+      const [types, students] = await Promise.all([
+        cache?.exceptionTypes !== undefined ? cache.exceptionTypes : this.API('GET', '/api/finance/exception-reports'),
+        cache?.students !== undefined ? cache.students : this.API('GET', '/api/students/get-all', null, { limit: '500', status: 'active' }),
       ]);
-      const exceptions = this._extract(rException);
-      const unmatched  = this._extract(rUnmatched);
-      const critical   = exceptions.filter(e => (e.severity||'').toLowerCase() === 'critical').length;
-      const high       = exceptions.filter(e => (e.severity||'').toLowerCase() === 'high').length;
-
-      this._set('erStatTotal',     exceptions.length);
-      this._set('erStatUnmatched', unmatched.length);
-      this._set('erStatCritical',  critical);
-      this._set('erStatHigh',      high);
-    } catch (e) { console.warn('Stats failed:', e); }
+      this.state.exceptionTypes = this.norm(types);
+      this.state.students = this.norm(students);
+      this.populateFilters();
+      await this.loadReport();
+    } catch (e) { console.error(e); }
   },
 
-  _loadData: async function () {
-    const tbody = document.getElementById('erTableBody');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
+  populateFilters() {
+    const t = document.getElementById('exType');
+    const s = document.getElementById('exStudent');
+    t.innerHTML = '<option value="">All Types</option>' + this.state.exceptionTypes.map(x => `<option value="${x.id}">${this.esc(x.name || x.exception_type)}</option>`).join('');
+    s.innerHTML = '<option value="">All Students</option>' + this.state.students.map(x => `<option value="${x.id}">${this.esc(x.admission_no || '')} ${this.esc(x.first_name || '')} ${this.esc(x.last_name || '')}</option>`).join('');
+  },
+
+  async loadReport() {
+    const params = new URLSearchParams();
+    if (document.getElementById('exType')?.value) params.set('type_id', document.getElementById('exType').value);
+    if (document.getElementById('exStudent')?.value) params.set('student_id', document.getElementById('exStudent').value);
+
     try {
-      const [rException, rUnmatched] = await Promise.allSettled([
-        callAPI('/finance/exception-reports', 'GET'),
-        callAPI('/finance/unmatched-payments', 'GET'),
-      ]);
-      const exceptions = this._extract(rException).map(e => ({ ...e, _source: 'exception' }));
-      const unmatched  = this._extract(rUnmatched).map(e => ({ ...e, _source: 'unmatched', exception_type: e.exception_type || 'Unmatched Payment', severity: e.severity || 'medium' }));
-      this._data = [...exceptions, ...unmatched];
-      this._render(this._data);
-    } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-danger text-center py-4">Failed to load exception reports.</td></tr>`;
+      const response = await this.API('GET', '/api/reports/exceptions', null, params);
+      this.state.report = response?.data || response || {};
+      this.render();
+    } catch (e) { console.error(e); }
+  },
+
+  render() {
+    const r = this.state.report;
+    const body = document.getElementById('exBody');
+    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No exception records.</td></tr>'; return; }
+    body.innerHTML = r.map(x => `<tr>
+      <td class="small">${this.esc(x.exception_type || '—')}</td>
+      <td class="small fw-semibold">${this.esc(x.student_name || '—')}</td>
+      <td class="small">${this.esc(x.admission_no || '—')}</td>
+      <td class="small">${this.esc(x.description || '—')}</td>
+      <td class="small">${this.esc(x.occurred_at || '—')}</td>
+      <td class="small"><span class="badge bg-${x.severity === 'critical' ? 'danger' : x.severity === 'high' ? 'warning' : 'info'}">${this.esc(x.severity || '—')}</span></td>
+      <td><button class="btn btn-sm btn-outline-primary" onclick="exceptionReportsController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
+    </tr>`).join('');
+  },
+
+  async loadReferencesComposed() {
+    try {
+      const response = await window.API.nodeViews.read("reports", "exception-reports-references");
+      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+    } catch (error) {
+      console.warn("Exception Reports Node view failed; using direct reads:", error);
+      this.state.referenceCache = null;
     }
   },
 
-  _render: function (items) {
-    const tbody = document.getElementById('erTableBody');
-    if (!tbody) return;
-
-    if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted"><i class="bi bi-check-circle fs-3 d-block mb-2 text-success"></i>No exceptions found.</td></tr>';
-      return;
-    }
-
-    const severityCls = { critical: 'danger', high: 'warning', medium: 'info', low: 'secondary' };
-    const statusCls   = { open: 'danger', investigating: 'warning', resolved: 'success', dismissed: 'secondary' };
-
-    tbody.innerHTML = items.map(e => {
-      const severity = (e.severity || 'medium').toLowerCase();
-      const status   = (e.status || 'open').toLowerCase();
-      return `<tr class="${severity==='critical'?'table-danger':severity==='high'?'table-warning':''}">
-        <td>${this._esc(e.reference || e.receipt_number || e.id || '—')}</td>
-        <td>
-          <span class="badge bg-${severityCls[severity]||'secondary'} me-1">${this._esc(severity.toUpperCase())}</span>
-          ${this._esc(e.exception_type || e.type || '—')}
-        </td>
-        <td class="small text-muted" style="max-width:200px;">${this._esc((e.description || e.notes || '—').substring(0,80))}</td>
-        <td class="fw-bold">KES ${Number(e.amount||0).toLocaleString()}</td>
-        <td>${this._esc(e.affected_party || e.student_name || e.payer_name || '—')}</td>
-        <td>${this._esc(e.detected_at || e.created_at || e.transaction_date || '—')}</td>
-        <td>
-          <span class="badge bg-${statusCls[status]||'secondary'}">${this._esc(e.status || 'open')}</span>
-          ${status === 'open' ? `
-            <div class="btn-group btn-group-sm ms-2">
-              <button class="btn btn-outline-secondary" onclick="exceptionReportsController.updateStatus(${e.id},'investigating')" title="Investigate">
-                <i class="bi bi-search"></i>
-              </button>
-              <button class="btn btn-outline-success" onclick="exceptionReportsController.updateStatus(${e.id},'resolved')" title="Resolve">
-                <i class="bi bi-check2"></i>
-              </button>
-              <button class="btn btn-outline-secondary" onclick="exceptionReportsController.updateStatus(${e.id},'dismissed')" title="Dismiss">
-                <i class="bi bi-x-lg"></i>
-              </button>
-            </div>` : ''}
-        </td>
-      </tr>`;
-    }).join('');
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.loadReferencesComposed();
+    await this.load();
+    window.APIRealtime?.register?.("exception_reports", {
+      refresh: async () => {
+        this.state.referenceCache = null;
+        await this.loadReferencesComposed();
+        await this.load();
+      }
+    }, ["reports", "system"]);
   },
-
-  filterBySeverity: function (severity, btn) {
-    this._activeFilter = severity;
-    document.querySelectorAll('#erSeverityTabs .nav-link').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    const filtered = severity === 'all' ? this._data : this._data.filter(e => (e.severity||'medium').toLowerCase() === severity);
-    this._render(filtered);
-  },
-
-  updateStatus: async function (id, status) {
-    const confirmMsg = { resolved: 'Mark this exception as resolved?', dismissed: 'Dismiss this exception?', investigating: 'Mark as investigating?' };
-    if (!(await window.confirmAction('Confirm', confirmMsg[status] || 'Update status?'))) return;
-    try {
-      await callAPI('/finance/exception-reports/' + id, 'PUT', { status });
-      showNotification('Exception status updated.', 'success');
-      await Promise.all([this._loadStats(), this._loadData()]);
-    } catch (e) { showNotification(e.message || 'Update failed.', 'danger'); }
-  },
-
-  exportCSV: function () {
-    if (!this._data.length) { showNotification('No data to export.', 'warning'); return; }
-    const header = ['Reference','Type','Severity','Amount','Affected Party','Detected','Status'];
-    const rows = [header.join(','), ...this._data.map(e => [
-      `"${e.reference||e.id||''}"`, `"${e.exception_type||''}"`, `"${e.severity||''}"`,
-      e.amount||0, `"${e.affected_party||e.student_name||''}"`,
-      `"${e.detected_at||e.created_at||''}"`, `"${e.status||'open'}"`,
-    ].join(','))];
-    KingswayFileLifecycle.exportText(rows.join('\n'), `exception_report_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
-  },
-
-  _extract: function (settled) {
-    if (settled.status !== 'fulfilled') return [];
-    const r = settled.value;
-    if (Array.isArray(r?.data?.data)) return r.data.data;
-    return Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-  },
-
-  _set: (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; },
-  _esc: s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; },
 };
 
-document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());
-
 window.exceptionReportsController = exceptionReportsController;
+document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init().catch(() => {}));
