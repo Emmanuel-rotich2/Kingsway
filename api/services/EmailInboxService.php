@@ -177,23 +177,26 @@ class EmailInboxService
         try {
             $profile = $this->profileService->getCredentials($profileId);
             if (!$profile) {
-                return null;
+                throw new \RuntimeException("Email profile not found for profile ID: $profileId");
             }
 
             return $this->withClient($profile, function (\Webklex\PHPIMAP\Client $client) use ($folder, $uid, $profileId): ?array {
                 $imapFolder = $client->getFolder($folder);
                 if (!$imapFolder) {
-                    return null;
+                    throw new \RuntimeException("IMAP folder '$folder' not found for profile $profileId");
                 }
 
                 $message = $imapFolder->query()->leaveUnread()->getMessageByUid($uid);
 
+                if (!$message) {
+                    throw new \RuntimeException("Message with UID '$uid' not found in folder '$folder' for profile $profileId");
+                }
+
                 return $this->messageToDetail($message, $profileId, $folder);
             });
         } catch (\Throwable $e) {
-            Logger::legacyError('[EmailInbox] ' . $e->getMessage());
-
-            return null;
+            \App\API\Services\Logger::legacyError('[EmailInbox] getMessage failed for profile ' . $profileId . ' folder ' . $folder . ' uid ' . $uid . ': ' . $e->getMessage());
+            throw $e;
         }
     }
 

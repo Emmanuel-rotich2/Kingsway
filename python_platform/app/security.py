@@ -7,9 +7,12 @@ secret; the service is never browser-facing and carries no human sessions.
 from __future__ import annotations
 
 import hmac
+import re
 
 MAX_QUESTION_CHARS = 500
 MAX_PAYLOAD_BYTES = 200_000
+
+_SESSION_ID_RE = re.compile(r"^[a-f0-9]{8,64}$")
 
 
 def bearer_authorized(headers, secret: str) -> bool:
@@ -34,6 +37,27 @@ def ensure_staff_context(context: dict) -> dict:
     permissions = [
         str(p) for p in (context.get("permissions") or []) if isinstance(p, (str, int))
     ]
+    session_id = str(context.get("session_id") or "")
+    if session_id and not _SESSION_ID_RE.match(session_id):
+        session_id = ""
+    user_name = str(context.get("user_name") or "").strip()
+    roles = context.get("roles")
+    role_labels = []
+    if isinstance(roles, list):
+        role_labels = [str(r).strip() for r in roles if str(r).strip()]
+    if not role_labels:
+        role_labels = ["Staff"]
+    scope_labels = context.get("scope_labels")
+    if isinstance(scope_labels, list):
+        scope_labels = [str(s).strip() for s in scope_labels if str(s).strip()]
+    if not scope_labels:
+        _humanized = []
+        for p in context.get("permissions") or []:
+            s = str(p)
+            t = re.sub(r"[^a-zA-Z0-9]", " ", s).strip()
+            if t:
+                _humanized.append(" ".join(w.capitalize() for w in t.split()))
+        scope_labels = _humanized
     return {
         "user_id": user_id,
         "permissions": sorted(set(permissions)),
@@ -41,6 +65,10 @@ def ensure_staff_context(context: dict) -> dict:
         "route": str(context.get("route") or "")[:120],
         "module": str(context.get("module") or "dashboard")[:60],
         "request_id": str(context.get("request_id") or "ai-python")[:100],
+        "session_id": session_id,
+        "user_name": user_name[:120],
+        "roles": role_labels[:10],
+        "scope_labels": scope_labels[:40],
     }
 
 

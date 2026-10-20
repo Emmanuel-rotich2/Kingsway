@@ -100,6 +100,12 @@ final class ReadProjectionSynchronizer
         'fee_collection_monthly_trend' => [
             'idx_month' => ['month'],
         ],
+        'financial_source_trace' => [
+            'idx_source' => ['source_type', 'source_id'],
+            'idx_batch' => ['journal_batch_id'],
+            'idx_batch_number' => ['batch_number'],
+            'idx_created_at' => ['created_at'],
+        ],
         'fee_status_summary' => [
             'idx_year_term_class_stream' => ['academic_year', 'term_number', 'class_id', 'stream_id'],
             'idx_class_stream' => ['class_id', 'stream_id'],
@@ -411,6 +417,7 @@ final class ReadProjectionSynchronizer
         'streams' => ['idx_pk' => ['id']],
         'departments' => ['idx_pk' => ['id']],
         'staff_types' => ['idx_pk' => ['id']],
+        'student_types' => ['idx_pk' => ['id']],
         'inventory_items' => ['idx_pk' => ['id']],
         'inventory_categories' => ['idx_pk' => ['id']],
         'lesson_plans' => ['idx_pk' => ['id']],

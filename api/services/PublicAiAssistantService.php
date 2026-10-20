@@ -39,7 +39,10 @@ final class PublicAiAssistantService
             ];
         }
         $safeCorpus = [];
-        foreach (array_slice($corpus, 0, 40) as $source) {
+        // The caller sends the published site's short factual sections first,
+        // so 60 entries still fit AiPromptPolicy::minimize()'s 15k-character
+        // corpus budget while covering every visitor-facing section.
+        foreach (array_slice($corpus, 0, 60) as $source) {
             if (!is_array($source) || trim((string) ($source['id'] ?? '')) === '' || trim((string) ($source['content'] ?? '')) === '') continue;
             $safeCorpus[] = [
                 'id' => mb_substr(trim((string) $source['id']), 0, 100),

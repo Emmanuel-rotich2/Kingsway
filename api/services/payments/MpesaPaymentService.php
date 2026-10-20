@@ -411,10 +411,6 @@ class MpesaPaymentService
                 }
             }
 
-            if (!$wasAlreadyProcessed) {
-                $this->sendPaymentConfirmationSms((int) $row['id']);
-            }
-
             // Fees STK callbacks enter the same normalized fee ledger as C2B
             // and bank collections. Transport and uniforms reconcile below.
             if (!$wasAlreadyProcessed) {
@@ -438,6 +434,13 @@ class MpesaPaymentService
                     }
                 }
             }
+
+            // Sent after fee routing so the quoted term/annual balances are
+            // post-payment. The notifier de-duplicates against the SMS already
+            // queued by routeIncoming for fee payments.
+            if (!$wasAlreadyProcessed) {
+                $this->sendPaymentConfirmationSms((int) $row['id']);
+            }
             // Transport has its own entitlement ledger. A successful STK
             // callback is the only point at which that ledger may be credited.
             if (!$wasAlreadyProcessed && !empty($checkoutRequestId)) {
@@ -458,19 +461,17 @@ class MpesaPaymentService
     }
 
     /**
-     * Send an SMS to the paying phone confirming the amount received, the
-     * account reference, the current term balance, and the annual balance.
-     * Best-effort: any failure is logged, never thrown.
+     * Queue the parent fee-receipt SMS for an M-Pesa transaction. Delegates to
+     * FeePaymentReceiptNotifier so the guardian on record receives the message
+     * (the payer phone is only a fallback) with term and annual balances read
+     * after the payment was credited. Best-effort: failures are logged only.
      */
     public function sendPaymentConfirmationSms(int $transactionId): void
     {
         try {
             $stmt = $this->getDb()->prepare(
-                "SELECT mt.id, mt.phone_number, mt.amount, mt.bill_ref_number, mt.student_id,
-                        CONCAT(p.first_name, ' ', COALESCE(NULLIF(p.middle_name, ''), ''), ' ', p.last_name) AS student_name
-                 FROM " . ReadReplicaService::qualifiedRef("mpesa_transactions") . " mt
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = mt.student_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                "SELECT mt.id, mt.mpesa_code, mt.phone_number, mt.amount, mt.bill_ref_number, mt.student_id
+                 FROM " . ReadReplicaService::masterRef('mpesa_transactions') . " mt
                  WHERE mt.id = :id LIMIT 1"
             );
             $stmt->execute(['id' => $transactionId]);
@@ -479,114 +480,16 @@ class MpesaPaymentService
                 return;
             }
 
-            $phone = $this->normalizePhone((string) ($row['phone_number'] ?? ''));
-            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
-                \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment SMS skipped: no valid payer phone on tx ' . $transactionId);
-                return;
-            }
-
-            $amount = (float) $row['amount'];
-            $ref    = trim((string) ($row['bill_ref_number'] ?? ''));
-            $name   = trim((string) ($row['student_name'] ?? ''));
-            [$termBalance, $annualBalance] = $this->getStudentFeeBalances($row['student_id'] ? (int) $row['student_id'] : null);
-
-            $money = function ($v) {
-                return 'Ksh ' . number_format((float) ($v ?? 0), 2);
-            };
-
-            $msg = 'Thank you for paying ' . $money($amount) . ' for account ' . $ref . '.';
-            if ($name !== '') {
-                $msg .= ' Student: ' . $name . '.';
-            }
-            if ($termBalance !== null) {
-                $msg .= ' Current term balance: ' . $money($termBalance) . '.';
-            }
-            if ($annualBalance !== null) {
-                $msg .= ' Annual balance: ' . $money($annualBalance) . '.';
-            }
-            $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
-            $msg .= ' Receipt: ' . ($ref !== '' ? 'MPESA-' . $ref : 'available in portal') . '.';
-            if ($portalUrl !== '/parent_portal.php') {
-                $msg .= ' View statement: ' . $portalUrl;
-            }
-            $msg .= ' - Kingsway Preparatory School';
-
-            // Payment notifications use the durable communications outbox.
-            // The worker performs provider delivery and records retries/status;
-            // a webhook must never block on an SMS provider call.
-            $communication = (new \App\API\Modules\communications\CommunicationsManager($this->getDb()))
-                ->createCommunication([
-                    'sender_id' => 1,
-                    'subject' => 'Fee payment received',
-                    'body' => mb_substr($msg, 0, 160),
-                    'type' => 'sms',
-                    'status' => 'sent',
-                    'priority' => 'high',
-                    'recipients' => [$phone],
-                ]);
-            $sent = !empty($communication['id']);
-
-            $this->logWebhook(
-                'payment_sms',
-                [
-                    'to'             => $phone,
-                    'transaction_id' => $transactionId,
-                    'amount'         => $amount,
-                    'bill_ref'       => $ref,
-                    'message'        => $msg,
-                ],
-                $sent ? 'queued' : 'failed'
+            (new FeePaymentReceiptNotifier($this->getDb()))->notify(
+                (int) ($row['student_id'] ?? 0),
+                (float) $row['amount'],
+                trim((string) ($row['bill_ref_number'] ?? '')),
+                'mpesa_daraja',
+                trim((string) ($row['mpesa_code'] ?? '')),
+                (string) ($row['phone_number'] ?? '')
             );
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment SMS failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Resolve the current term balance and the current academic year balance
-     * for a student from the vw_student_fee_balances view.
-     *
-     * @return array{0: float|null, 1: float|null}
-     */
-    private function getStudentFeeBalances(?int $studentId): array
-    {
-        if (!$studentId) {
-            return [null, null];
-        }
-        try {
-            $db = $this->getDb();
-            $current = $db->query(
-                "SELECT academic_year_term_id AS ayt_id, academic_year_id AS ay_id,
-                        year_code AS ay_code
-                 FROM " . ReadReplicaService::qualifiedRef('academic_term') . "
-                 WHERE is_current_year = 1 AND term_period_status = 'current'
-                 LIMIT 1"
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$current) {
-                return [null, null];
-            }
-
-            $term = $db->prepare(
-                "SELECT balance FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
-                 WHERE student_id = :sid AND academic_year_term_id = :ayt LIMIT 1"
-            );
-            $term->execute(['sid' => $studentId, 'ayt' => $current['ayt_id']]);
-            $termBalance = $term->fetchColumn();
-
-            $annual = $db->prepare(
-                "SELECT SUM(balance) FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
-                 WHERE student_id = :sid AND academic_year = :ay_code"
-            );
-            $annual->execute(['sid' => $studentId, 'ay_code' => $current['ay_code']]);
-            $annualBalance = $annual->fetchColumn();
-
-            return [
-                $termBalance !== false ? (float) $termBalance : null,
-                $annualBalance !== false ? (float) $annualBalance : null,
-            ];
-        } catch (Exception $e) {
-            \App\API\Services\Logger::legacyError('[MpesaPaymentService] fee balance lookup failed: ' . $e->getMessage());
-            return [null, null];
         }
     }
 
@@ -804,15 +707,10 @@ class MpesaPaymentService
             'webhook'    => json_encode($callbackData),
         ]);
 
-        $newId = (int) $db->lastInsertId();
-
-        // rowCount() is 1 on fresh insert, 2 on duplicate-key update; only
-        // notify the payer the first time the money is credited.
-        if ($stmt->rowCount() === 1) {
-            $this->sendPaymentConfirmationSms($newId);
-        }
-
-        return $newId;
+        // The receipt SMS is queued by PaymentRoutingService after the routed
+        // allocation credits the fee ledger; sending here would quote
+        // pre-payment balances and duplicate the routed notification.
+        return (int) $db->lastInsertId();
     }
 
     // =========================================================================

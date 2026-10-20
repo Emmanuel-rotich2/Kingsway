@@ -1410,6 +1410,10 @@ class CommunicationsAPI extends BaseAPI
     {
         return $this->manager->listRecipients($communicationId);
     }
+    public function listOptOuts()
+    {
+        return $this->manager->listOptOuts();
+    }
 
     // --- Templates CRUD ---
     public function createTemplate($data)

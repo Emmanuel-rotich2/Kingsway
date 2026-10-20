@@ -130,6 +130,16 @@
 </script>
 <?php asset_script($appBase, 'js/public.js'); ?>
 <?php asset_script($appBase, 'js/pages/public/ai_faq.js'); ?>
+<?php
+$__publicRealtimeOrigin = class_exists(\App\API\Services\RealtimeGatewayPublisher::class)
+    ? \App\API\Services\RealtimeGatewayPublisher::browserStreamBase()
+    : '';
+echo '<script>window.KINGSWAY_REALTIME_ORIGIN = '
+    . json_encode($__publicRealtimeOrigin, JSON_UNESCAPED_SLASHES)
+    . ';</script>';
+?>
+<?php asset_script($appBase, 'js/config/ai-features.js'); ?>
+<?php asset_script($appBase, 'js/public/public-chat.js'); ?>
 <?php if (!empty($pageScript)): ?>
 <!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
      the dynamic sections through window.PublicSite. Falls back to SSR-only output

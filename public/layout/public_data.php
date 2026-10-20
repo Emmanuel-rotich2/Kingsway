@@ -31,7 +31,7 @@ if (!headers_sent()) {
         . "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.com https://cdnjs.cloudflare.com; "
         . "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
         . "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-        . "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; "
+        . "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; "
         . "connect-src 'self' http://localhost:* ws://localhost:*" . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
         . "frame-ancestors 'none'; form-action 'self'"
     );

@@ -6863,12 +6863,12 @@ return errorResponse($e->getMessage(), 400);
                     s.staff_no,
                     p.first_name,
                     p.last_name,
-                    CONCAT(pd.first_name, ' ', pd.last_name) AS full_name,
+                    CONCAT(p.first_name, ' ', p.last_name) AS full_name,
                     s.position,
                     s.staff_type_id,
                     st.name AS staff_type_name
-                FROM " . ReadReplicaService::qualifiedRef("staff") . "
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = s.person_id
+                FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_types") . " st ON st.id = s.staff_type_id
                 WHERE {$whereClause}
                 ORDER BY p.first_name, p.last_name

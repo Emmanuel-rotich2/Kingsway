@@ -419,16 +419,5 @@
 </div>
 
 
-<!-- Dashboard Controller Script -->
+<!-- Dashboard Controller Script (self-initializes via __APP_BOOTED__ / kingsway:ready) -->
 <script src="<?= $appBase ?>/js/dashboards/school_administrative_officer_dashboard.js?v=<?php echo time(); ?>"></script>
-<script>
-    // Initialize the dashboard controller when DOM is ready
-    document.addEventListener('DOMContentLoaded', function () {
-        // Wait for API to be available (loaded in home.php)
-        if (typeof schoolAdministrativeOfficerDashboardController !== 'undefined') {
-            schoolAdministrativeOfficerDashboardController.init();
-        } else {
-            console.error('School Administrative Officer Dashboard Controller not loaded!');
-        }
-    });
-</script>

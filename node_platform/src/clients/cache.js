@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3';
+import sqlite3 from 'sqlite3';
+import { promisify } from 'node:util';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getConfig } from '../config/index.js';
@@ -58,21 +59,50 @@ function createCache() {
 
   const dbPath = config.storage.cache;
   mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
-  const db = new Database(dbPath);
+  
+  // Open database with sqlite3
+  const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE);
+  
+  // Enable WAL mode and other pragmas
   for (const pragma of config.cache.sqlitePragma.split(';').map(s => s.trim()).filter(Boolean)) {
-    db.pragma(pragma);
+    db.exec(`PRAGMA ${pragma}`);
   }
 
-  db.prepare("CREATE TABLE IF NOT EXISTS cache (\n    key TEXT PRIMARY KEY,\n    value TEXT NOT NULL,\n    expires_at INTEGER,\n    created_at INTEGER DEFAULT (strftime('%s', 'now'))\n  )").run();
-  db.prepare("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)").run();
+  // Create table and index
+  db.exec("CREATE TABLE IF NOT EXISTS cache (\n    key TEXT PRIMARY KEY,\n    value TEXT NOT NULL,\n    expires_at INTEGER,\n    created_at INTEGER DEFAULT (strftime('%s', 'now'))\n  )");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)");
 
   const lru = new LRUCache(config.cache.memoryMaxEntries);
   const defaultTtl = config.cache.defaultTtlSeconds;
 
-  let statements = [];
+  // Promisify database methods
+  const dbGet = promisify((sql, params, callback) => db.get(sql, params, callback));
+  const dbRun = (sql, params) =>
+    new Promise((resolve, reject) => {
+      db.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve({ changes: this.changes, lastID: this.lastID });
+      });
+    });
+  const dbAll = promisify((sql, params, callback) => db.all(sql, params, callback));
+  const dbExec = promisify((sql, callback) => db.exec(sql, callback));
+  
+  // Simple query function for one-off queries
+  const dbGetOne = async (sql, ...params) => {
+    const row = await dbGet(sql, params);
+    return row || null;
+  };
 
+  // Prepared statements
+  let statements = [];
+  
   function prepareStatement(sql) {
-    const stmt = db.prepare(sql);
+    const stmt = {
+      get: (...params) => dbGet(sql, params),
+      run: (...params) => dbRun(sql, params),
+      all: (...params) => dbAll(sql, params),
+      finalize: () => {}, // sqlite3 statements are auto-finalized
+    };
     statements.push(stmt);
     return stmt;
   }
@@ -90,12 +120,12 @@ function createCache() {
       return lruVal;
     }
 
-    const row = stmtGet.get(key);
+    const row = await stmtGet.get(key);
     if (!row) return null;
 
     // SQLite stores expiry in Unix seconds; the in-memory cache uses ms.
     if (row.expires_at && Math.floor(Date.now() / 1000) > row.expires_at) {
-      stmtDel.run(key);
+      await stmtDel.run(key);
       return null;
     }
 
@@ -114,18 +144,18 @@ function createCache() {
   async function set(key, value, ttlSeconds = defaultTtl) {
     const serialized = JSON.stringify(value);
     const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : null;
-    stmtSet.run(key, serialized, expiresAt ? Math.floor(expiresAt / 1000) : null);
+    await stmtSet.run(key, serialized, expiresAt ? Math.floor(expiresAt / 1000) : null);
     lru.set(key, value, ttlSeconds);
   }
 
   async function del(key) {
-    stmtDel.run(key);
+    await stmtDel.run(key);
     lru.delete(key);
   }
 
   async function delPattern(pattern) {
     const sqlPattern = pattern.replace(/\*/g, '%');
-    stmtDelPattern.run(sqlPattern);
+    await stmtDelPattern.run(sqlPattern);
     for (const key of lru.map.keys()) {
       if (key.match(pattern.replace(/\*/g, '.*'))) {
         lru.delete(key);
@@ -136,9 +166,13 @@ function createCache() {
   let cleanupInterval = null;
 
   async function cleanup() {
-    const now = Math.floor(Date.now() / 1000);
-    const result = stmtCleanup.run(now);
-    logger.debug({ deleted: result.changes }, 'Cache cleanup');
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const result = await stmtCleanup.run(now);
+      logger.debug({ deleted: result.changes }, 'Cache cleanup');
+    } catch (err) {
+      logger.warn({ err }, 'Cache cleanup failed');
+    }
   }
 
   cleanupInterval = setInterval(cleanup, 60000);
@@ -149,10 +183,12 @@ function createCache() {
     set,
     del,
     delPattern,
-    getStats: () => ({
-      memory: lru.size(),
-      sqlite: db.prepare('SELECT COUNT(*) as count FROM cache').get().count,
-    }),
+    async getStats() {
+      return {
+        memory: lru.size(),
+        sqlite: (await dbGetOne('SELECT COUNT(*) as count FROM cache')).count,
+      };
+    },
     close: () => {
       if (cleanupInterval) {
         clearInterval(cleanupInterval);
@@ -164,7 +200,13 @@ function createCache() {
       }
       statements.length = 0;
       statements = null;
-      db.close();
+      // Close database
+      return new Promise((resolve) => {
+        db.close((err) => {
+          if (err) console.error('Error closing cache database:', err);
+          resolve();
+        });
+      });
     },
   };
 

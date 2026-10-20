@@ -1577,6 +1577,29 @@ viewSpecs.set('dashboards/school-counselor-chaplain-references', {
   aggregations: {},
 });
 
+viewSpecs.set('finance/fee_structures', {
+  view: 'finance/fee_structures',
+  service: 'php',
+  permissions: ['finance_view', 'fee_structure_view', 'fee_structure_manage'],
+  queries: [
+    {
+      key: 'list',
+      endpoint: '/api/finance/fee-structures/list',
+      pagination: {
+        collection: 'fee_structures',
+        pageParam: 'page',
+        limitParam: 'limit',
+        pageSize: 20,
+        maxPages: 100,
+      },
+    },
+    { key: 'detail', endpoint: '/api/finance/fee-structures' },
+    { key: 'extra_charges', endpoint: '/api/finance/extra-charges' },
+    { key: 'bundles', endpoint: '/api/finance/fees-bundle-list' },
+  ],
+  aggregations: {},
+});
+
 // Dashboard: Catering Manager Cook Lead
 viewSpecs.set('dashboards/catering-manager-cook-lead-references', {
   view: 'dashboards/catering-manager-cook-lead-references',

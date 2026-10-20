@@ -56,6 +56,8 @@ $organizationData = [
   <?php /* Load first: silences every console.* call site (incl. inline <script>)
         across public pages and routes warnings/errors to the file logger. */ ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
+  <?php /* Cookie consent - loads early to show banner before user interaction */ ?>
+  <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
@@ -90,6 +92,7 @@ $organizationData = [
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/public.css?v=<?= asset_version('css/public.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/js/public/public-chat.css?v=<?= asset_version('js/public/public-chat.css') ?>">
   <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css?v=<?= asset_version('css/no-script.css') ?>"></noscript>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>

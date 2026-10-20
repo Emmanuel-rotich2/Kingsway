@@ -15,6 +15,7 @@ from typing import Any
 
 from . import agents, guard, output_guard, policy
 from .behavior import BehaviorStore
+from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
@@ -52,6 +53,7 @@ class Orchestrator:
         behavior: BehaviorStore,
         journal: Journal,
         conversation: ConversationStore | None = None,
+        chat_sessions: ChatSessionStore | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
@@ -59,6 +61,7 @@ class Orchestrator:
         self.journal = journal
         # Optional so tests and ephemeral contexts keep working unchanged.
         self.conversation = conversation
+        self.chat_sessions = chat_sessions
         # Provider carries the runtime Config; tolerate stub providers in tests.
         self.config = getattr(provider, "config", None)
 
@@ -76,6 +79,7 @@ class Orchestrator:
         route = context.get("route", "")
         module = context.get("module", "dashboard")
         request_id = context.get("request_id", "")
+        session_id = str(context.get("session_id") or "")
 
         agent = agents.for_route(route)
 
@@ -119,6 +123,16 @@ class Orchestrator:
             )
             return guard.greeting_response(question, agent)
 
+        # Resolve or create chat session
+        session = None
+        if self.chat_sessions is not None:
+            if session_id:
+                session = self.chat_sessions.get_session(user_id, session_id, limit=1)
+            if session is None:
+                session = self.chat_sessions.create(user_id, route)
+            session_id = session["id"]
+            context = {**context, "session_id": session_id}
+
         routing = "route_match"
         if agent is None:
             # Deterministic lexical routing before any provider call: a clear
@@ -148,11 +162,10 @@ class Orchestrator:
 
         started = time.monotonic()
         result = self._run_agent_loop(agent, context, question)
-        self._remember(
-            int(context["user_id"]),
-            str(context.get("route", "")),
-            question,
-            result.get("answer"),
+
+        # Record turn to session
+        self._remember_session(
+            session_id, user_id, route, question, result.get("answer")
         )
 
         self.behavior.observe(
@@ -180,6 +193,14 @@ class Orchestrator:
             },
         )
 
+        # Include session info in response
+        session_payload = {}
+        if session_id:
+            session_payload = {
+                "session_id": session_id,
+                "session_title": session.get("title") if session else "",
+            }
+
         return {
             **result,
             "routing": routing,
@@ -188,6 +209,7 @@ class Orchestrator:
                 "name": agent["name"],
                 "domain": agent["domain"],
             },
+            **session_payload,
         }
 
     def _observe_outcome(
@@ -693,6 +715,7 @@ class Orchestrator:
         route = context.get("route", "")
         module = context.get("module", "dashboard")
         request_id = context.get("request_id", "")
+        session_id = str(context.get("session_id") or "")
         agent = agents.for_route(route)
 
         # Same deterministic pre-flight as the buffered path.
@@ -704,6 +727,16 @@ class Orchestrator:
             result = guard.greeting_response(question, agent)
             yield {"kind": "final", **result}
             return
+
+        # Resolve or create chat session
+        session = None
+        if self.chat_sessions is not None:
+            if session_id:
+                session = self.chat_sessions.get_session(user_id, session_id, limit=1)
+            if session is None:
+                session = self.chat_sessions.create(user_id, route)
+            session_id = session["id"]
+            context = {**context, "session_id": session_id}
 
         routing = "route_match"
         if agent is None:
@@ -737,7 +770,7 @@ class Orchestrator:
             },
         )
 
-        history = self._conversation_turns(user_id, route)
+        history = self._conversation_turns(user_id, route, session_id)
         if not history:
             history = list((context.get("history") or []))[-MAX_HISTORY_TURNS:]
         instruction = (
@@ -777,7 +810,7 @@ class Orchestrator:
         # genuinely data-hungry question get its facts.
         for attempt in range(2):
             messages = [
-                {"role": "system", "content": agents.stream_prompt(agent)},
+                {"role": "system", "content": agents.stream_prompt(agent, context)},
                 {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},
             ]
             # An oversized envelope must be trimmed rather than lose the answer.
@@ -873,7 +906,8 @@ class Orchestrator:
                 return
 
         self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
-        self._remember(user_id, route, question, answer)
+        # Record turn to session
+        self._remember_session(session_id, user_id, route, question, answer)
         self.journal.write(
             "ai_generation",
             {
@@ -887,6 +921,13 @@ class Orchestrator:
                 "request_id": request_id,
             },
         )
+        # Include session info in final response
+        session_payload = {}
+        if session_id:
+            session_payload = {
+                "session_id": session_id,
+                "session_title": session.get("title") if session else "",
+            }
         yield {
             "kind": "final",
             "status": "answered",
@@ -900,9 +941,12 @@ class Orchestrator:
                 "name": agent["name"],
                 "domain": agent["domain"],
             },
+            **session_payload,
         }
 
-    def _conversation_turns(self, user_id: int, route: str) -> list[str]:
+    def _conversation_turns(
+        self, user_id: int, route: str, session_id: str = ""
+    ) -> list[str]:
         """Prior turns flattened to "Q: ... / A: ..." strings.
 
         Flat strings are required: the prompt policy accepts only scalar array
@@ -910,6 +954,12 @@ class Orchestrator:
         The list is also kept short so the total envelope stays well inside the
         approved context budget alongside governed tool results.
         """
+        # Prefer session store if available and session_id provided
+        if self.chat_sessions is not None and session_id:
+            return self.chat_sessions.conversation(
+                user_id, session_id, max_turns=CONVERSATION_PROMPT_TURNS
+            )
+        # Fall back to legacy conversation store
         store = getattr(self, "conversation", None)
         if store is None:
             return []
@@ -927,9 +977,48 @@ class Orchestrator:
                 )
         return lines
 
+    def _remember_session(
+        self,
+        session_id: str,
+        user_id: int,
+        route: str,
+        question: str,
+        answer: dict[str, Any] | None,
+    ) -> None:
+        """Record a turn to the chat session store."""
+        if self.chat_sessions is None or not session_id:
+            # Fall back to legacy store
+            self._remember(user_id, route, question, answer)
+            return
+        if not isinstance(answer, dict):
+            return
+        body = str(answer.get("body") or "")
+        if not body:
+            return
+        try:
+            # Record user message
+            self.chat_sessions.append(user_id, session_id, "user", question)
+            # Record assistant message with meta
+            meta = {
+                "agent_id": answer.get("agent", {}).get("id", ""),
+                "routing": answer.get("routing", ""),
+                "tools_used": answer.get("tools_used", []),
+            }
+            self.chat_sessions.append(
+                user_id,
+                session_id,
+                "assistant",
+                body,
+                agent_id=answer.get("agent", {}).get("id", ""),
+                meta=meta,
+            )
+        except Exception:
+            pass
+
     def _remember(
         self, user_id: int, route: str, question: str, answer: dict[str, Any] | None
     ) -> None:
+        """Legacy conversation store recording (kept for backward compatibility)."""
         store = getattr(self, "conversation", None)
         if store is None or not isinstance(answer, dict):
             return
@@ -1075,10 +1164,11 @@ class Orchestrator:
         request_id = context.get("request_id", "")
         route = context.get("route", "")
         module = context.get("module", "dashboard")
+        session_id = str(context.get("session_id") or "")
         hints = self.behavior.hints(user_id)
         tools = list(agent["tools"])
 
-        system = agents.system_prompt(agent)
+        system = agents.system_prompt(agent, context)
         messages: list[dict[str, str]] = [{"role": "system", "content": system}]
         tool_results: list[str] = []
         tools_used: list[str] = []
@@ -1098,7 +1188,7 @@ class Orchestrator:
             tools_used.append(tool_id)
             tool_results.append(self._compact_result(tool_id, result))
 
-        history = self._conversation_turns(user_id, route)
+        history = self._conversation_turns(user_id, route, session_id)
         instruction = str(context.get("instruction") or "")[:400]
 
         try:

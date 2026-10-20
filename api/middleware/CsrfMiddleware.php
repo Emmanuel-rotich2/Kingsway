@@ -73,6 +73,7 @@ class CsrfMiddleware
         'public/inquiries',
         'public/applications',
         'public/subscribers',
+        'public/leads',
         // Anonymous public FAQ requests have no staff session CSRF token.
         'public/ai-faq',
         'communications/sms-delivery-report',
@@ -96,6 +97,8 @@ class CsrfMiddleware
         'realtime/python-job-heartbeat',
         'realtime/python-job-complete',
         'realtime/python-job-fail',
+        // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
+        'system/send-security-alert',
         // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'dashboard/agent-digest-worker',
         'dashboard/insight-brief-queue',

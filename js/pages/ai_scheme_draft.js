@@ -1,7 +1,99 @@
 (function(){
   const esc=(v)=>{const d=document.createElement('div');d.textContent=String(v??'');return d.innerHTML;};
-  const load=async()=>{const el=document.getElementById('aiSchemeDrafts');if(!el)return;try{const own=await window.API.academic.getAiSchemeDrafts('own');let review={drafts:[]};try{review=await window.API.academic.getAiSchemeDrafts('review');}catch(_){}const drafts=[...(own?.data?.drafts||own?.drafts||[]).map(x=>({...x,__review:false})),...(review?.data?.drafts||review?.drafts||[]).map(x=>({...x,__review:true}))];el.innerHTML=drafts.length?drafts.map(d=>{const x=d.draft||{};const approve=d.__review&&d.status==='pending_approval';return `<div class="col-12"><article class="card border-success-subtle bg-light"><div class="card-body py-2"><div class="d-flex justify-content-between gap-2"><strong>${esc(x.title||'CBC scheme draft')}</strong><span class="badge text-bg-secondary">${esc(d.status||'queued')}</span></div><p class="small mb-2 mt-2">${esc(x.body||'Draft is still being generated.')}</p>${Array.isArray(x.next_steps)&&x.next_steps.length?`<ul class="small mb-2">${x.next_steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:''}${approve?`<button class="btn btn-sm btn-success" data-ai-approve="${Number(d.id)}">Approve for teacher editing</button>`:''}${d.status==='approved'?'<div class="small text-info">Approved as guidance only. Teacher editing and normal academic submission/approval remain required.</div>':''}</div></article></div>`;}).join(''):'<div class="col-12 small text-muted">No assistant drafts yet.</div>';el.querySelectorAll('[data-ai-approve]').forEach(b=>b.addEventListener('click',async()=>{try{await window.API.academic.approveAiSchemeDraft(b.dataset.aiApprove);window.showNotification?.('CBC draft approved for teacher editing','success');await load();}catch(e){window.showNotification?.(e.message||'Unable to approve CBC draft','danger');}}));}catch(e){el.innerHTML='<div class="col-12 small text-warning">Assistant drafts are temporarily unavailable.</div>';}};
-  const queue=async()=>{const classId=document.getElementById('genClass')?.value;const streamId=document.getElementById('genStream')?.value;const areaId=document.getElementById('genLearningArea')?.value;const strandId=document.getElementById('genStrand')?.value;const subId=document.getElementById('genSubStrand')?.value;const intent=window.prompt('Optional teaching intent for this draft:','Create a practical, learner-centred sequence with assessment opportunities.');if(intent===null)return;if(!streamId||!areaId){window.showNotification?.('Select class stream and learning area first','warning');return;}const b=document.getElementById('queueAiSchemeDraft');if(b)b.disabled=true;try{const r=await window.API.academic.queueAiSchemeDraft({class_id:Number(classId),stream_id:Number(streamId),learning_area_id:Number(areaId),strand_id:strandId?Number(strandId):0,sub_strand_id:subId?Number(subId):0,teacher_intent:intent});window.showNotification?.(`CBC scheme draft queued${r?.job_id?` (job ${r.job_id})`:''}`,'info');for(let i=0;i<8;i+=1){await new Promise(resolve=>setTimeout(resolve,i===0?1000:2500));await load();}}catch(e){window.showNotification?.(e.message||'Unable to queue CBC scheme draft','danger');}finally{if(b)b.disabled=false;}};
-  const init=()=>{document.getElementById('queueAiSchemeDraft')?.addEventListener('click',queue);load();};
+  
+  let schemeDraftPanel = null;
+
+  const load=async()=>{
+    const el=document.getElementById('aiSchemeDrafts');
+    if(!el)return;
+    try{
+      const own=await window.API.academic.getAiSchemeDrafts('own');
+      let review={drafts:[]};
+      try{review=await window.API.academic.getAiSchemeDrafts('review');}catch(_){}
+      const drafts=[...(own?.data?.drafts||own?.drafts||[]).map(x=>({...x,__review:false})),...(review?.data?.drafts||review?.drafts||[]).map(x=>({...x,__review:true}))];
+      el.innerHTML=drafts.length?drafts.map(d=>{
+        const x=d.draft||{};
+        const approve=d.__review&&d.status==='pending_approval';
+        return `<div class="col-12"><article class="card border-success-subtle bg-light"><div class="card-body py-2"><div class="d-flex justify-content-between gap-2"><strong>${esc(x.title||'CBC scheme draft')}</strong><span class="badge text-bg-secondary">${esc(d.status||'queued')}</span></div><p class="small mb-2 mt-2">${esc(x.body||'Draft is still being generated.')}</p>${Array.isArray(x.next_steps)&&x.next_steps.length?`<ul class="small mb-2">${x.next_steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ul>`:''}${approve?`<button class="btn btn-sm btn-success" data-ai-approve="${Number(d.id)}">Approve for teacher editing</button>`:''}${d.status==='approved'?'<div class="small text-info">Approved as guidance only. Teacher editing and normal academic submission/approval remain required.</div>':''}</div></article></div>`;
+      }).join(''):'<div class="col-12 small text-muted">No assistant drafts yet.</div>';
+      el.querySelectorAll('[data-ai-approve]').forEach(b=>b.addEventListener('click',async()=>{
+        try{await window.API.academic.approveAiSchemeDraft(b.dataset.aiApprove);window.showNotification?.('CBC draft approved for teacher editing','success');await load();}
+        catch(e){window.showNotification?.(e.message||'Unable to approve CBC draft','danger');}
+      }));
+    }catch(e){
+      el.innerHTML='<div class="col-12 small text-warning">Assistant drafts are temporarily unavailable.</div>';
+    }
+  };
+
+  const queue=async()=>{
+    const classId=document.getElementById('genClass')?.value;
+    const streamId=document.getElementById('genStream')?.value;
+    const areaId=document.getElementById('genLearningArea')?.value;
+    const strandId=document.getElementById('genStrand')?.value;
+    const subId=document.getElementById('genSubStrand')?.value;
+    const intent=window.prompt('Optional teaching intent for this draft:','Create a practical, learner-centred sequence with assessment opportunities.');
+    if(intent===null)return;
+    if(!streamId||!areaId){
+      window.showNotification?.('Select class stream and learning area first','warning');
+      return;
+    }
+    const b=document.getElementById('queueAiSchemeDraft');
+    if(b) b.disabled=true;
+    
+    try{
+      // Show the agent task panel
+      const panelContainer = document.getElementById('aiSchemeDraftPanel');
+      if (panelContainer && window.AgentTaskPanel) {
+        if (window.schemeDraftPanel) {
+          window.schemeDraftPanel.destroy();
+        }
+        window.schemeDraftPanel = new window.AgentTaskPanel({
+          container: panelContainer,
+          question: `Create a CBC scheme of work for class ${classId}, stream ${streamId}, learning area ${areaId}${strandId?`, strand ${strandId}`:''}${subId?`, sub-strand ${subId}`:''}: ${intent}`,
+          route: 'academics',
+          module: 'schemes_of_work',
+          targetComponent: '#schemeDraftEditor',
+          onComplete: (result) => {
+            const body = result?.answer?.body || result?.body || result?.draft || '';
+            const editor = document.getElementById('schemeDraftEditor');
+            if (editor) {
+              editor.value = body;
+              editor.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            window.showNotification?.('Scheme of work draft ready!', 'success');
+            load(); // Refresh drafts list
+          },
+          onError: (error) => {
+            window.showNotification?.(error.message || 'Failed to generate scheme of work', 'danger');
+          }
+        });
+        window.schemeDraftPanel.start();
+      } else {
+        // Fallback to old queue method
+        const r=await window.API.academic.queueAiSchemeDraft({
+          class_id:Number(classId),
+          stream_id:Number(streamId),
+          learning_area_id:Number(areaId),
+          strand_id:strandId?Number(strandId):0,
+          sub_strand_id:subId?Number(subId):0,
+          teacher_intent:intent
+        });
+        window.showNotification?.(`CBC scheme draft queued${r?.job_id?` (job ${r.job_id})`:''}`,'info');
+        for(let i=0;i<8;i+=1){
+          await new Promise(resolve=>setTimeout(resolve,i===0?1000:2500));
+          await load();
+        }
+      }
+    }catch(e){
+      window.showNotification?.(e.message||'Unable to queue CBC scheme draft','danger');
+    }finally{
+      if(b) b.disabled=false;
+    }
+  };
+
+  const init=()=>{
+    document.getElementById('queueAiSchemeDraft')?.addEventListener('click',queue);
+    load();
+  };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();

@@ -110,11 +110,11 @@ class DriverManager
         $stmt = $this->db->prepare(
             "SELECT s.id, s.staff_no, s.position, s.status,
                     p.first_name, p.last_name, p.phone,
-                    (SELECT q.description FROM " . ReadReplicaService::qualifiedRef("staff_qualifications") . "
-                      WHERE q.staff_id = s.id AND q.title = 'Driving License'
-                      ORDER BY q.id DESC LIMIT 1) AS license_number
-             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
-             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                    (SELECT description FROM staff_qualifications
+                      WHERE staff_id = s.id AND title = 'Driving License'
+                      ORDER BY id DESC LIMIT 1) AS license_number
+             FROM staff s
+             JOIN persons p ON p.id = s.person_id
              WHERE s.position = 'Driver'
              ORDER BY p.last_name, p.first_name"
         );

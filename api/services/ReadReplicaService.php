@@ -395,6 +395,7 @@ final class ReadReplicaService
         'persons' => 'vw_persons',
         'student_academic_enrollments' => 'vw_student_academic_enrollments',
         'academic_year_class_streams' => 'vw_academic_year_class_streams',
+        'student_types' => 'vw_student_types',
         'students' => 'vw_students',
         'staff' => 'vw_staff',
         'academic_year_terms' => 'vw_academic_year_terms',
@@ -413,6 +414,7 @@ final class ReadReplicaService
         'boarding_dorm_context' => 'vw_boarding_dorm_context',
         'lesson_plan_context' => 'vw_lesson_plan_context',
         'class_stream_directory' => 'vw_class_stream_directory',
+        'financial_source_trace' => 'vw_financial_source_trace',
     ];
 
     /**
@@ -684,6 +686,7 @@ final class ReadReplicaService
         'student_academic_enrollments' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
         'academic_year_class_streams' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'normal', 'max_age_seconds' => 900],
         'students' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 300],
+        'student_types' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'normal', 'max_age_seconds' => 600],
         'staff' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'staff', 'max_age_seconds' => 600],
         'academic_year_terms' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'normal', 'max_age_seconds' => 900],
         'assessments' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 900],
@@ -701,6 +704,7 @@ final class ReadReplicaService
         'boarding_dorm_context' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'personal', 'max_age_seconds' => 600],
         'lesson_plan_context' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'normal', 'max_age_seconds' => 900],
         'class_stream_directory' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'normal', 'max_age_seconds' => 600],
+        'financial_source_trace' => ['storage_mode' => 'materialized_table', 'sensitivity' => 'financial', 'max_age_seconds' => 600],
     ];
 
     /** Materialized targets use separate names from the legacy pass-through views. */
@@ -794,6 +798,7 @@ final class ReadReplicaService
         'streams' => 'mmv_streams',
         'departments' => 'mmv_departments',
         'staff_types' => 'mmv_staff_types',
+        'student_types' => 'mmv_student_types',
         'inventory_items' => 'mmv_inventory_items',
         'inventory_categories' => 'mmv_inventory_categories',
         'lesson_plans' => 'mmv_lesson_plans',
@@ -979,6 +984,7 @@ final class ReadReplicaService
         'boarding_dorm_context' => 'mmv_boarding_dorm_context',
         'lesson_plan_context' => 'mmv_lesson_plan_context',
         'class_stream_directory' => 'mmv_class_stream_directory',
+        'financial_source_trace' => 'mmv_financial_source_trace',
     ];
 
     /** Fully-qualified source object (master schema resolved at runtime). */
@@ -1219,6 +1225,32 @@ final class ReadReplicaService
             if (!$fresh) {
                 self::$refState[$projection] = $exists ? 'stale' : 'unavailable';
                 if ($policy['storage_mode'] === 'materialized_table') {
+                    // Check if the underlying table exists and fall back to it
+                    $fallbackView = $projection; // Use the original table name as fallback
+                    $fallbackExists = false;
+                    try {
+                        $pdo = \App\Database\Database::getInstance()->getConnection();
+                        $tableCheck = $pdo->prepare(
+                            'SELECT COUNT(*) FROM information_schema.TABLES '
+                            . 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? '
+                            . 'AND TABLE_TYPE = ?'
+                        );
+                        $tableCheck->execute([$replicaSchema, $fallbackView, 'BASE TABLE']);
+                        $fallbackExists = (int) $tableCheck->fetchColumn() > 0;
+                    } catch (\Throwable $e) {
+                        $fallbackExists = false;
+                    }
+                    if ($fallbackExists) {
+                        \App\API\Includes\FileLogger::write('reads', [
+                            'event' => 'projection_read_fallback_to_table',
+                            'projection' => $projection,
+                            'fallback' => $fallbackView,
+                            'request_id' => (string) ($_SERVER['HTTP_X_REQUEST_ID'] ?? $_SERVER['HTTP_X_KINGSWAY_REQUEST_ID'] ?? ''),
+                        ], 'warning');
+                        self::$refCache[$projection] = '`' . str_replace('`', '', $replicaSchema) . '`.`' . $fallbackView . '`';
+                        self::$refState[$projection] = 'materialized_fallback';
+                        return self::$refCache[$projection];
+                    }
                     \App\API\Includes\FileLogger::write('reads', [
                         'event' => 'projection_read_rejected',
                         'projection' => $projection,

@@ -36,7 +36,7 @@ if (!headers_sent()) {
     if ($nodeRealtimeOrigin !== '') {
         $connectSources .= ' ' . $nodeRealtimeOrigin;
     }
-    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
+    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -45,6 +45,7 @@ if (!headers_sent()) {
     <!-- Load first: silences every console.* call and routes warnings/errors to the
          central file logger (never the browser console). -->
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
+    <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
     <meta charset="utf-8">
     <meta
         name="viewport"
@@ -189,6 +190,7 @@ if (!headers_sent()) {
 
 <?php
 echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
+echo '<script>window.KINGSWAY_REALTIME_ORIGIN = ' . json_encode($nodeRealtimeOrigin, JSON_UNESCAPED_SLASHES) . ';</script>';
 // Cache-bust the service worker registration URL: static proxy caches (nginx
 // proxy_cache in dev and production CDNs) can otherwise serve a stale SW
 // script at an unversioned URL for weeks, freezing every browser on an old
@@ -197,6 +199,8 @@ $__swMtime = @filemtime(__DIR__ . '/service-worker.js');
 echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
 $files = [
     'js/api.js',
+    'js/config/ai-features.js',
+    'js/components/agent_task_panel.js',
     'js/core/frontend_logger.js',
     'js/core/soft_navigation.js',
     'js/core/grading_scale.js',

@@ -402,6 +402,12 @@
                                     <ul class="dropdown-menu" id="messageVariableMenu"></ul>
                                 </div>
                             </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="templateSelect">Template <small class="text-muted">(optional)</small></label>
+                                <select class="form-select" id="templateSelect">
+                                    <option value="">No template</option>
+                                </select>
+                            </div>
                             <textarea class="form-control" id="composeBody" rows="10" required></textarea>
                         </div>
                         <div class="col-12">

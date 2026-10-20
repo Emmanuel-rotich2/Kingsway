@@ -6,7 +6,6 @@ namespace App\API\Services\sms;
 
 use App\API\Includes\FileLogger;
 use App\API\Services\JobQueue;
-use App\API\Services\ReadReplicaService;
 use App\API\Services\StorageRoot;
 use App\API\Services\SystemCommsConfigService;
 use App\API\Services\whatsapp\WhatsAppGateway;
@@ -295,7 +294,7 @@ final class SmsBatchService
     {
         $stmt = $pdo->prepare(
             "SELECT e.id, e.address, e.channel, e.attempt_count, r.id AS recipient_row_id
-               FROM " . ReadReplicaService::qualifiedRef('communication_recipient_endpoints') . "
+               FROM communication_recipient_endpoints e
                JOIN communication_recipients r ON r.id = e.communication_recipient_id
               WHERE r.communication_id = ?
               ORDER BY e.id"
