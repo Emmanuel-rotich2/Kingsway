@@ -109,10 +109,11 @@ async function createApp(env = {}) {
     }
 
     if (req.method === 'OPTIONS') {
-      reply.header('access-control-allow-methods', 'GET, POST, OPTIONS');
+      reply.header('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
       reply.header(
         'access-control-allow-headers',
-        'content-type, x-kingsway-sse-token, last-event-id'
+        'content-type, authorization, x-csrf-token, x-request-id, '
+        + 'x-browser-session-id, idempotency-key, x-kingsway-sse-token, last-event-id'
       );
       reply.header('access-control-max-age', '600');
       if (requestOrigin && config.security.webOrigins.includes(requestOrigin)) {
@@ -148,8 +149,6 @@ async function createApp(env = {}) {
       await bus.close();
       await internalClient.close();
       cache.close();
-      // Allow time for better-sqlite3 to finalize statements
-      await new Promise(r => setTimeout(r, 100));
     } catch (error) {
       logger.error({ err: error?.message }, 'drain failed');
     }

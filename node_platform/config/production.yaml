@@ -43,6 +43,7 @@ security:
   jwtAudience: "kingsway-staff"
   workerSecret: ""
   webOrigins:
+    - "https://kingswaypreparatoryschool.sc.ke"
     - "https://www.kingswaypreparatoryschool.sc.ke"
     - "https://realtime.kingswaypreparatoryschool.sc.ke"
   publishAllowIps:
