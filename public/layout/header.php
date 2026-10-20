@@ -92,7 +92,6 @@ $organizationData = [
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/css/public.css?v=<?= asset_version('css/public.css') ?>">
-  <link rel="stylesheet" href="<?= $appBase ?>/js/public/public-chat.css?v=<?= asset_version('js/public/public-chat.css') ?>">
   <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css?v=<?= asset_version('css/no-script.css') ?>"></noscript>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
@@ -215,6 +214,31 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
     <div id="public-ai-history" class="public-ai-history" aria-label="Conversation history"></div>
     <div id="public-ai-answer" class="public-ai-answer" aria-live="polite">
       <p class="small mb-0">Answers use published school information. For anything uncertain, we will refer you to a human assistant.</p>
+    </div>
+    <div id="public-ai-handoff" class="public-ai-handoff mt-2" hidden>
+      <button type="button" id="public-ai-handoff-open" class="btn btn-outline-success btn-sm">
+        <i class="bi bi-person-lines-fill me-1" aria-hidden="true"></i>Talk to admissions
+      </button>
+      <form id="public-ai-handoff-form" class="mt-2" hidden novalidate>
+        <div class="row g-2">
+          <div class="col-sm-6">
+            <input id="public-ai-lead-name" class="form-control form-control-sm" maxlength="120" placeholder="Your name" autocomplete="name" required>
+          </div>
+          <div class="col-sm-6">
+            <input id="public-ai-lead-phone" class="form-control form-control-sm" maxlength="40" placeholder="Phone" autocomplete="tel" required>
+          </div>
+          <div class="col-12">
+            <input id="public-ai-lead-email" type="email" class="form-control form-control-sm" maxlength="190" placeholder="Email (optional)" autocomplete="email">
+          </div>
+          <div class="col-12">
+            <textarea id="public-ai-lead-details" class="form-control form-control-sm" rows="2" maxlength="1000" placeholder="What should we help with?" required></textarea>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center gap-2 mt-2">
+          <span id="public-ai-lead-status" class="small text-muted" role="status"></span>
+          <button type="submit" id="public-ai-lead-submit" class="btn btn-success btn-sm">Send request</button>
+        </div>
+      </form>
     </div>
     <div id="public-ai-suggestions" class="public-ai-suggestions" aria-label="Suggested follow-up questions" hidden></div>
     <form id="public-ai-form" class="public-ai-form" novalidate>
