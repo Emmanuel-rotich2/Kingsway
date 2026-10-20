@@ -12,10 +12,10 @@ storage:
   logs: "logs/"
 
 sse:
-  maxConnections: 5000
-  userMaxConnections: 5
-  heartbeatMs: 20000
-  queueLimit: 50
+  maxConnections: 10000
+  userMaxConnections: 20
+  heartbeatMs: 10000
+  queueLimit: 100
   slowClientTimeoutMs: 5000
   presenceTtlMs: 45000
   capabilityTtlMinutes: 4

@@ -13,8 +13,8 @@ storage:
 
 sse:
   maxConnections: 5000
-  userMaxConnections: 5
-  heartbeatMs: 20000
+  userMaxConnections: 20
+  heartbeatMs: 10000
   queueLimit: 50
   slowClientTimeoutMs: 5000
   presenceTtlMs: 45000
@@ -49,6 +49,27 @@ security:
   publishAllowIps:
     - "127.0.0.1"
     - "::1"
+  internalSecret: ""
+  aiPythonSecret: ""
+  threatDetection:
+    bruteForce:
+      count: 5
+      windowMs: 900000
+      uniqueUsers: 3
+      alertCooldownMs: 1800000
+    credentialStuffing:
+      count: 10
+      windowMs: 3600000
+      alertCooldownMs: 3600000
+    suspiciousQuery:
+      count: 3
+      windowMs: 3600000
+      alertCooldownMs: 3600000
+    offTopic:
+      minLength: 20
+  publicRateLimit:
+    requestsPerMinute: 20
+    burstLimit: 50
 
 metrics:
   prefix: "kingsway_"

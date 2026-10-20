@@ -54,6 +54,12 @@ _CONFIDENTIAL_PATTERNS = tuple(
         # infrastructure / vendor topology
         r"\b(vps|virtual\s+private\s+server|shared\s+hosting|hosting\s+(detail|plan|account)|"
         r"cpanel\s+account|ftp\s+credential|ssh\s+key)\b",
+        # prompt injection attempts
+        r"\b(ignore|skip|disregard)\s+(all|previous|the\s+)?(instructions|system\s+prompt|developer\s+mode|rules)\b",
+        r"\b(system\s+prompt|your\s+prompt|the\s+prompt)\b",
+        r"\b(developer\s+mode|code\s+mode|admin\s+mode)\b",
+        r"\b(roleplay|act\s+as|pretend\s+to\s+be)\b",
+        r"\b(reveal|show|give|tell)\s+(your\s+)?(system\s+)?prompt\b",
     )
 )
 
@@ -128,6 +134,53 @@ _STUDENT_STATUS_RE = re.compile(
     r"staff|teachers?)\b|\btotal\s+(number\s+of\s+)?(students?|learners?|staff)\b",
     re.IGNORECASE,
 )
+
+_PROMPT_INJECTION_PATTERNS = (
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(ignore|skip|disregard)\s+(all|previous|the\s+)?(instructions|system\s+prompt|developer\s+mode|rules)\b",
+        r"\b(system\s+prompt|your\s+prompt|the\s+prompt)\b",
+        r"\b(developer\s+mode|code\s+mode|admin\s+mode)\b",
+        r"\b(roleplay|act\s+as|pretend\s+to\s+be)\b",
+        r"\b(reveal|show|give|tell)\s+(your\s+)?(system\s+)?prompt\b",
+    )
+)
+
+
+def is_prompt_injection(question: str) -> bool:
+    """True when the question attempts prompt injection."""
+    if not isinstance(question, str) or not question.strip():
+        return False
+    return any(pattern.search(question) for pattern in _PROMPT_INJECTION_PATTERNS)
+
+
+def prompt_injection_response(agent: dict | None = None) -> dict:
+    """Deterministic refusal for prompt injection attempts."""
+    return {
+        "status": "refused",
+        "answer": {
+            "body": "I cannot process requests that attempt to override my instructions or inspect my internal configuration. I am designed exclusively to assist with Kingsway Preparatory School operations, academic reports, and educational queries.",
+            "confidence": "high",
+            "next_steps": [
+                "Ask a question about school operations, reports or schedules.",
+                "Request a governed report within your role.",
+                "Contact your administrator if you need broader access.",
+            ],
+            "suggested_questions": [
+                "Which reports can I run?",
+                "Summarise my workspace.",
+                "What is pending my review today?",
+            ],
+        },
+        "tools_used": [],
+        "provider_calls": 0,
+        "routing": "prompt_injection_guard",
+        "agent": {
+            "id": (agent or {}).get("id", "system.agent"),
+            "name": (agent or {}).get("name", "System Co-worker"),
+            "domain": (agent or {}).get("domain", "system"),
+        },
+    }
 
 
 def is_confidential(question: str) -> bool:
@@ -223,6 +276,7 @@ def wants_enrollment_count(question: str) -> bool:
     if not isinstance(question, str):
         return False
     return bool(_STUDENT_STATUS_RE.search(question))
+
 
 def extract_slash(question: str) -> tuple[str, str | None]:
     """Extract a slash command (/recap, /step by step, ...) if present.

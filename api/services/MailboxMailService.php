@@ -65,6 +65,11 @@ final class MailboxMailService
             throw new \InvalidArgumentException('The message body cannot be empty.');
         }
 
+        // Substitute variables (school-wide) before sending
+        $bodyHtml = $this->substituteVariables($bodyHtml);
+        $bodyText = $this->substituteVariables($bodyText);
+        $subject = $this->substituteVariables($subject);
+
         $attachments = $this->normalizeAttachments($input['attachments'] ?? []);
         $outboxId = $this->createOutboxRow($credentials, $userId, $to, $cc, $bcc, $subject, $bodyHtml, $bodyText, $attachments);
 
@@ -389,6 +394,8 @@ final class MailboxMailService
 
     private function buildMailer(array $credentials, array $input, array $attachments, bool $forDraft = false): PHPMailer
     {
+        require_once __DIR__ . '/../../vendor/autoload.php';
+        
         $mail = new PHPMailer(true);
         $mail->CharSet = 'UTF-8';
         $mail->Encoding = 'base64';
@@ -421,12 +428,16 @@ final class MailboxMailService
         $mail->Subject = (string) $input['subject'];
 
         $bodyHtml = (string) $input['body_html'];
+        $bodyText = (string) $input['body_text'];
         $signature = trim((string) ($credentials['signature'] ?? ''));
-        if (!$forDraft && $signature !== '' && stripos($bodyHtml, $signature) === false) {
+
+        // Apply Kingsway branded email template if not already branded
+        if (!$forDraft && stripos($bodyHtml, 'kingsway-branded-email') === false) {
+            $bodyHtml = $this->applyBrandedTemplate($bodyHtml, $input['subject'], $signature, '', $credentials);
+        } else if (!$forDraft && $signature !== '' && stripos($bodyHtml, $signature) === false) {
             $bodyHtml .= '<br><br><div class="kingsway-signature">' . nl2br(htmlspecialchars($signature, ENT_QUOTES)) . '</div>';
         }
 
-        $bodyText = (string) $input['body_text'];
         if ($bodyHtml !== '') {
             $mail->isHTML(true);
             $mail->Body = $bodyHtml;
@@ -446,6 +457,17 @@ final class MailboxMailService
 
         foreach ($attachments as $attachment) {
             $mail->addAttachment($attachment['absolute_path'], $attachment['name'], 'base64', $attachment['mime']);
+        }
+
+        // Embed school logo for branded template
+        if (!$forDraft && stripos($mail->Body, 'cid:kingsway-logo') !== false) {
+            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
+            if (!file_exists($logoPath)) {
+                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
+            }
+            if (file_exists($logoPath)) {
+                $mail->addEmbeddedImage($logoPath, 'kingsway-logo', 'official_school_logo.png', PHPMailer::ENCODING_BASE64, 'image/png');
+            }
         }
 
         return $mail;
@@ -637,5 +659,99 @@ final class MailboxMailService
         $decoded = json_decode($json, true);
 
         return is_array($decoded) ? array_values(array_map('strval', $decoded)) : [];
+    }
+
+    private function applyBrandedTemplate(string $bodyHtml, string $subject, string $signature, string $footer, array $credentials): string
+    {
+        $templatePath = __DIR__ . '/../../modules/communications/templates/branded_email_template.html';
+        if (!file_exists($templatePath)) {
+            return $bodyHtml;
+        }
+
+        $template = file_get_contents($templatePath);
+
+        $schoolDetails = [
+            'school_name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School',
+            'motto'        => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'Knowledge, Discipline, Excellence',
+            'address'      => defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : 'Simotwet, Londiani, Kericho County',
+            'phone'        => defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '+254 700 000 000',
+            'email'        => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingswaypreparatoryschool.sc.ke',
+            'portal_url'   => 'https://kingswaypreparatoryschool.sc.ke',
+            'principal_name' => (string) ($credentials['display_name'] ?? ''),
+        ];
+
+        $profile = $this->emailProfile($subject);
+        $logoSection = '<img src="cid:kingsway-logo" width="70" alt="' . htmlspecialchars($schoolDetails['school_name']) . '" style="display:block;max-width:70px;height:auto;border:0;border-radius:8px;" />';
+
+        $replacements = [
+            '{{subject}}'       => htmlspecialchars($subject),
+            '{{body}}'          => $bodyHtml,
+            '{{signature}}'     => $signature !== '' ? nl2br(htmlspecialchars($signature, ENT_QUOTES)) : '',
+            '{{footer}}'        => $footer !== '' ? nl2br(htmlspecialchars($footer, ENT_QUOTES)) : '',
+            '{{media}}'         => '',
+            '{{date}}'          => date('j F Y'),
+            '{{school_address}}'=> htmlspecialchars($schoolDetails['address']),
+            '{{school_phone}}'  => htmlspecialchars($schoolDetails['phone']),
+            '{{school_email}}'  => htmlspecialchars($schoolDetails['email']),
+            '{{sender_name}}'   => htmlspecialchars($schoolDetails['principal_name']),
+            '{{sender_title}}'  => '',
+            '{{school_logo}}'   => $logoSection,
+            '{{school_name}}'   => htmlspecialchars($schoolDetails['school_name']),
+            '{{school_motto}}'  => htmlspecialchars($schoolDetails['motto']),
+            '{{school_link}}'   => htmlspecialchars($schoolDetails['portal_url'] ?? 'https://kingswaypreparatoryschool.sc.ke'),
+            '{{message_type}}'  => $profile['label'],
+            '{{accent}}'        => $profile['accent'],
+            '{{accent_soft}}'   => $profile['soft'],
+        ];
+
+        return strtr($template, $replacements);
+    }
+
+    private function emailProfile(string $subject): array
+    {
+        $subjectLower = strtolower($subject);
+        if (str_contains($subjectLower, 'fee') || str_contains($subjectLower, 'payment') || str_contains($subjectLower, 'invoice') || str_contains($subjectLower, 'balance')) {
+            return ['label' => 'FEES', 'accent' => '#c0392b', 'soft' => '#fdeaea'];
+        }
+        if (str_contains($subjectLower, 'result') || str_contains($subjectLower, 'exam') || str_contains($subjectLower, 'report') || str_contains($subjectLower, 'grade')) {
+            return ['label' => 'ACADEMICS', 'accent' => '#2c3e50', 'soft' => '#e8eaed'];
+        }
+        if (str_contains($subjectLower, 'welcome') || str_contains($subjectLower, 'admission') || str_contains($subjectLower, 'enroll') || str_contains($subjectLower, 'invitation')) {
+            return ['label' => 'ADMISSIONS', 'accent' => '#27ae60', 'soft' => '#eafaf1'];
+        }
+        if (str_contains($subjectLower, 'event') || str_contains($subjectLower, 'meeting') || str_contains($subjectLower, 'ptc') || str_contains($subjectLower, 'conference')) {
+            return ['label' => 'EVENTS', 'accent' => '#8e44ad', 'soft' => '#f3e8fa'];
+        }
+        if (str_contains($subjectLower, 'discipline') || str_contains($subjectLower, 'behavior') || str_contains($subjectLower, 'incident')) {
+            return ['label' => 'DISCIPLINE', 'accent' => '#e67e22', 'soft' => '#fdf0e0'];
+        }
+        if (str_contains($subjectLower, 'health') || str_contains($subjectLower, 'medical') || str_contains($subjectLower, 'immunization') || str_contains($subjectLower, 'wellness')) {
+            return ['label' => 'HEALTH', 'accent' => '#16a085', 'soft' => '#e8f8f5'];
+        }
+        if (str_contains($subjectLower, 'transport') || str_contains($subjectLower, 'bus') || str_contains($subjectLower, 'route') || str_contains($subjectLower, 'pickup')) {
+            return ['label' => 'TRANSPORT', 'accent' => '#2980b9', 'soft' => '#ebf5fb'];
+        }
+        if (str_contains($subjectLower, 'boarding') || str_contains($subjectLower, 'dormitory') || str_contains($subjectLower, 'hostel')) {
+            return ['label' => 'BOARDING', 'accent' => '#2c3e50', 'soft' => '#e8eaed'];
+        }
+        if (str_contains($subjectLower, 'emergency') || str_contains($subjectLower, 'urgent') || str_contains($subjectLower, 'alert') || str_contains($subjectLower, 'critical')) {
+            return ['label' => 'URGENT', 'accent' => '#c0392b', 'soft' => '#fdeaea'];
+        }
+        return ['label' => 'NOTICE', 'accent' => '#075b35', 'soft' => '#e8f5e9'];
+    }
+
+    private function substituteVariables(string $text): string
+    {
+        if ($text === '' || strpos($text, '@') === false) {
+            return $text;
+        }
+
+        $context = [
+            'school_name' => defined('SCHOOL_NAME') ? (string) SCHOOL_NAME : 'Kingsway Preparatory School',
+            'today'       => date('d M Y'),
+            'year'        => date('Y'),
+        ];
+
+        return (new CommunicationVariableService())->render($text, $context);
     }
 }

@@ -10,6 +10,17 @@ class ControllerRouter
     /** @var float Request start time (microtime) for duration capture. */
     private $start;
 
+    /**
+     * Parsed route context, kept so failure traces (abort paths) still carry
+     * the real method/controller/resource instead of logging as /router.
+     */
+    private $context = [
+        'method' => null,
+        'controller' => null,
+        'resource' => null,
+        'id' => null,
+    ];
+
     public function __construct()
     {
         $this->start = microtime(true);
@@ -60,6 +71,13 @@ class ControllerRouter
                     $resource = implode('-', $segments);
                 }
             }
+
+            $this->context = [
+                'method' => $method,
+                'controller' => $controllerName,
+                'resource' => $resource,
+                'id' => $id,
+            ];
 
             // Load controller class
             $controller = $this->loadController($controllerName);
@@ -337,11 +355,11 @@ class ControllerRouter
     {
         http_response_code($code);
         $this->trace(
-            $_SERVER['REQUEST_METHOD'] ?? 'GET',
-            strtolower(str_replace('Controller', '', basename(str_replace('\\', '/', static::class)))),
-            null,
-            null,
-            ['code' => $code, 'message' => $message]
+            $this->context['method'] ?? ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+            $this->context['controller'],
+            $this->context['resource'],
+            $this->context['id'],
+            ['success' => false, 'code' => $code, 'message' => $message]
         );
         return [
             'success' => false,
@@ -386,6 +404,9 @@ class ControllerRouter
                 'success' => $success,
                 'duration_ms' => $durationMs,
                 'route' => $route,
+                'message' => $success
+                    ? null
+                    : (is_array($result) ? ($result['message'] ?? null) : null),
             ]);
 
             // Universal audit coverage for state-changing API operations.

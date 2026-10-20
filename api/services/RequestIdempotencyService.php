@@ -88,6 +88,25 @@ final class RequestIdempotencyService
         return ['type' => 'in_progress'];
     }
 
+    /**
+     * Release a reservation whose request died before producing a durable
+     * response (fatal error, timeout) or produced a transient 5xx. The next
+     * retry with the same Idempotency-Key can then execute immediately instead
+     * of waiting out the 120-second lease (the source of the "already being
+     * processed" 409 storm), and transient failures are never journalled for
+     * 24-hour replay.
+     */
+    public static function release(PDO $db, string $requestHash, string $ownerToken): void
+    {
+        $stmt = $db->prepare(
+            'UPDATE api_idempotency_keys
+             SET status = \'failed\', lease_until = NULL,
+                 expires_at = DATE_SUB(NOW(), INTERVAL 1 SECOND)
+             WHERE request_hash = ? AND owner_token = ? AND status = \'processing\''
+        );
+        $stmt->execute([$requestHash, $ownerToken]);
+    }
+
     public static function complete(
         PDO $db,
         string $requestHash,

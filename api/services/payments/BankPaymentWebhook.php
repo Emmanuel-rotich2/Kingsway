@@ -524,47 +524,20 @@ $admissionCol = $this->resolveAdmissionColumn();
     }
 
     /**
-     * Send payment confirmation to student/parent
+     * Queue the parent fee-receipt SMS for a bank payment. Delegates to
+     * FeePaymentReceiptNotifier (guardian-first, payer fallback); the
+     * notifier resolves contact phones itself.
      */
     private function sendPaymentConfirmation($student, $amount, $transactionRef, $method)
     {
         try {
-            // Get student contact info - note: students may not have direct phone/email
-            // Contact info is typically stored in parent or student_contacts tables
-            $stmt = $this->db->prepare("
-                SELECT COALESCE(pp.phone, '') as parent_phone, 
-                       COALESCE(pp.email, '') as parent_email
-                FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                WHERE s.id = ?
-                LIMIT 1
-            ");
-            $stmt->execute([$student['id']]);
-            $contact = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$contact) {
-                $contact = ['parent_phone' => '', 'parent_email' => ''];
-            }
-
-            $message = "Payment Received!\n";
-            $message .= "Student: " . $student['first_name'] . ' ' . $student['last_name'] . "\n";
-            $message .= "Admission: " . $student['admission_number'] . "\n";
-            $message .= "Amount: KES " . number_format($amount, 2) . "\n";
-            $message .= "Ref: " . $transactionRef . "\n";
-            $message .= "Method: " . strtoupper($method) . "\n";
-            $message .= "Thank you for your payment.";
-
-            // Send SMS if phone number available
-            if (!empty($contact['parent_phone'])) {
-                // TODO: Integrate with SMS service
-                // sendSMS($contact['parent_phone'], $message);
-            }
-
-            // Send email if available
-            if (!empty($contact['parent_email'])) {
-                // TODO: Integrate with email service
-                // sendEmail($contact['parent_email'], 'Payment Confirmation', $message);
-            }
-
+            (new FeePaymentReceiptNotifier($this->db))->notify(
+                (int) ($student['id'] ?? 0),
+                (float) $amount,
+                (string) $transactionRef,
+                $method === 'bank' ? 'generic_bank' : (string) $method,
+                (string) $transactionRef
+            );
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("Failed to send payment confirmation: " . $e->getMessage());
         }

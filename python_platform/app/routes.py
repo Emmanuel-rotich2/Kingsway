@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import hmac
 import os
 import time
 import uuid
@@ -40,6 +41,7 @@ from .conversation import ConversationStore
 from .config import Config
 from .journal import Journal
 from .orchestrator import Orchestrator
+from .chat_sessions import ChatSessionStore
 from .providers import Provider, ProviderError
 from .security import bearer_authorized, ensure_staff_context, bound_question
 from .automations import AutomationEngine, AutomationError
@@ -50,6 +52,7 @@ from .sms_provider import SmsProviderError, execute as sms_provider_execute
 from .payhero_provider import PayheroProviderError, execute as payhero_provider_execute
 from .payment_gateway import PaymentGatewayError, execute as payment_gateway_execute
 from .email_provider import send_email as smtp_send_email
+from .public_faq import refresh_public_faq
 
 
 def _render_document_html(html: str) -> bytes:
@@ -75,7 +78,10 @@ def create_app(config: Config | None = None) -> Flask:
     provider = Provider(cfg, journal)
     tools = ToolBridge(cfg, journal)
     conversation = ConversationStore(cfg.data_dir, journal)
-    orchestrator = Orchestrator(provider, tools, behavior, journal, conversation)
+    chat_sessions = ChatSessionStore(cfg.data_dir, journal)
+    orchestrator = Orchestrator(
+        provider, tools, behavior, journal, conversation, chat_sessions
+    )
     # One bounded background consumer per WSGI process. Jobs remain durable in
     # PHP's queue; lease fencing prevents duplicate acknowledgements and a
     # cross-process MySQL lock caps expensive projection refreshes.
@@ -126,6 +132,46 @@ def create_app(config: Config | None = None) -> Flask:
         if not bearer_authorized(request.headers, cfg.secret):
             return jsonify({"success": False, "message": "unauthorized"}), 401
         return None
+
+    @app.post("/internal/public-faq/refresh")
+    def public_faq_refresh():
+        """Refresh storage/public/faqs.json from the published school website.
+
+        Called by a single curl crontab line with X-Kingsway-Worker-Secret, so
+        term dates, a new academic year and contact changes reach the public
+        assistant without editing code or the JSON file by hand.
+        """
+        supplied = request.headers.get("X-Kingsway-Worker-Secret", "")
+        worker_authorized = bool(
+            supplied
+            and cfg.php_worker_secret
+            and hmac.compare_digest(supplied, cfg.php_worker_secret)
+        )
+        if not worker_authorized:
+            denied = auth_guard()
+            if denied is not None:
+                return denied
+        try:
+            result = refresh_public_faq(cfg)
+        except Exception as error:  # noqa: BLE001 - bounded maintenance route
+            journal.write(
+                "reads",
+                {
+                    "type": "public_faq_refresh_failed",
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify(
+                {"success": False, "message": "Public FAQ corpus refresh failed"}
+            ), 503
+        journal.write("reads", {"type": "public_faq_refreshed", **result})
+        return jsonify(
+            {
+                "success": True,
+                "data": result,
+                "message": "Public FAQ corpus refreshed",
+            }
+        )
 
     @app.post("/api/sms/execute")
     def sms_execute():
@@ -5952,6 +5998,361 @@ def create_app(config: Config | None = None) -> Flask:
             },
         )
         return response
+
+    @app.get("/api/agents/sessions")
+    def agents_sessions_list():
+        """List chat sessions for the current user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        limit = min(max(int(request.args.get("limit", 30)), 1), 100)
+        sessions = chat_sessions.list_sessions(user_id, limit)
+        return jsonify(
+            {"success": True, "data": sessions, "message": "Sessions retrieved"}
+        )
+
+    @app.post("/api/agents/sessions/create")
+    def agents_sessions_create():
+        """Create a new chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        route = str(payload.get("route") or "")[:120]
+        title = str(payload.get("title") or "")[:80]
+        session = chat_sessions.create(user_id, route, title)
+        return jsonify({"success": True, "data": session, "message": "Session created"})
+
+    @app.post("/api/agents/sessions/get")
+    def agents_sessions_get():
+        """Get a chat session with its messages."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        limit = min(max(int(payload.get("limit", 200)), 1), 500)
+        session = chat_sessions.get_session(user_id, session_id, limit)
+        if session is None:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify(
+            {"success": True, "data": session, "message": "Session retrieved"}
+        )
+
+    @app.post("/api/agents/sessions/delete")
+    def agents_sessions_delete():
+        """Delete a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        ok = chat_sessions.delete_session(user_id, session_id)
+        if not ok:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session deleted"})
+
+    @app.post("/api/agents/sessions/rename")
+    def agents_sessions_rename():
+        """Rename a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        session_id = str(payload.get("session_id") or "")
+        title = str(payload.get("title") or "")
+        if not session_id or not title:
+            return jsonify(
+                {"success": False, "message": "session_id and title required"}
+            ), 422
+        ok = chat_sessions.rename(user_id, session_id, title)
+        if not ok:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session renamed"})
+
+    @app.post("/api/agents/sessions/clear")
+    def agents_sessions_clear():
+        """Clear all chat sessions for the user (DPA erasure)."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        count = chat_sessions.clear(user_id)
+        return jsonify(
+            {
+                "success": True,
+                "data": {"sessions_removed": count},
+                "message": "Sessions cleared",
+            }
+        )
+
+    @app.get("/api/agents/preferences")
+    def agents_preferences_get():
+        """Get chat preferences for the user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        prefs = chat_sessions.get_prefs(user_id)
+        return jsonify(
+            {"success": True, "data": prefs, "message": "Preferences retrieved"}
+        )
+
+    @app.post("/api/agents/preferences")
+    def agents_preferences_set():
+        """Set chat preferences for the user."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        prefs = payload.get("preferences") or {}
+        updated = chat_sessions.set_prefs(user_id, prefs)
+        return jsonify(
+            {"success": True, "data": updated, "message": "Preferences updated"}
+        )
+
+    @app.post("/api/agents/tasks/create")
+    def agents_tasks_create():
+        """Create an async agent task."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        tool = str(payload.get("tool") or "")
+        question = bound_question(payload.get("question"))
+        options = payload.get("options") or {}
+        if not tool or not question:
+            return jsonify(
+                {"success": False, "message": "tool and question required"}
+            ), 422
+        try:
+            # Queue the task via the orchestrator's task queue
+            from app.task_queue import TaskQueue
+
+            task_queue = TaskQueue()
+            task_id = task_queue.enqueue(
+                user_id=context["user_id"],
+                tool=tool,
+                question=question,
+                route=context.get("route", ""),
+                module=context.get("module", "dashboard"),
+                permissions=context["permissions"],
+                options=options,
+                session_id=context.get("session_id", ""),
+            )
+        except Exception as error:  # noqa: BLE001
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_task_create_failed",
+                    "operator_id": context["user_id"],
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify({"success": False, "message": "could not create task"}), 503
+        return jsonify(
+            {
+                "success": True,
+                "data": {"task_id": task_id, "status": "queued"},
+                "message": "Task created",
+            }
+        )
+
+    @app.get("/api/agents/tasks/<task_id>")
+    def agents_tasks_get(task_id: str):
+        """Get task status/result."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        try:
+            from app.task_queue import TaskQueue
+
+            task_queue = TaskQueue()
+            task = task_queue.get(task_id, user_id)
+            if task is None:
+                return jsonify({"success": False, "message": "Task not found"}), 404
+        except Exception as error:  # noqa: BLE001
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_task_get_failed",
+                    "operator_id": user_id,
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify({"success": False, "message": "could not get task"}), 503
+        return jsonify({"success": True, "data": task, "message": "Task retrieved"})
+
+    @app.get("/api/agents/tasks")
+    def agents_tasks_list():
+        """List user's tasks."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        user_id = int(request.args.get("user_id", 0))
+        if user_id < 1:
+            return jsonify({"success": False, "message": "user_id required"}), 422
+        limit = min(max(int(request.args.get("limit", 30)), 1), 100)
+        try:
+            from app.task_queue import TaskQueue
+
+            task_queue = TaskQueue()
+            tasks = task_queue.list(user_id, limit)
+        except Exception as error:  # noqa: BLE001
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_task_list_failed",
+                    "operator_id": user_id,
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify({"success": False, "message": "could not list tasks"}), 503
+        return jsonify({"success": True, "data": tasks, "message": "Tasks retrieved"})
+
+    @app.delete("/api/agents/tasks/<task_id>")
+    def agents_tasks_cancel(task_id: str):
+        """Cancel a queued task."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        try:
+            from app.task_queue import TaskQueue
+
+            task_queue = TaskQueue()
+            ok = task_queue.cancel(task_id, user_id)
+            if not ok:
+                return jsonify(
+                    {"success": False, "message": "Task not found or not cancellable"}
+                ), 404
+        except Exception as error:  # noqa: BLE001
+            journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_task_cancel_failed",
+                    "operator_id": user_id,
+                    "error_class": type(error).__name__,
+                },
+            )
+            return jsonify({"success": False, "message": "could not cancel task"}), 503
+        return jsonify({"success": True, "message": "Task cancelled"})
+
+    @app.post("/api/agents/tasks/<task_id>/stream")
+    def agents_tasks_stream(task_id: str):
+        """Stream task progress via SSE."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+
+        def _event(name: str, data: dict) -> str:
+            return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        def _generate():
+            started = time.monotonic()
+            yield _event("start", {"status": "streaming", "task_id": task_id})
+            try:
+                from app.task_queue import TaskQueue
+
+                task_queue = TaskQueue()
+                # Poll task status and emit updates
+                last_status = None
+                while True:
+                    task = task_queue.get(task_id, user_id)
+                    if task is None:
+                        yield _event("error", {"message": "Task not found"})
+                        break
+                    status = task.get("status", "unknown")
+                    if status != last_status:
+                        yield _event("status", {"text": status})
+                        last_status = status
+                    if status in ("completed", "failed", "cancelled"):
+                        yield _event("final", {"result": task})
+                        break
+                    time.sleep(1)
+                    if time.monotonic() - started > 300:  # 5 min max
+                        yield _event("error", {"message": "Stream timeout"})
+                        break
+            except Exception as error:  # noqa: BLE001
+                journal.write(
+                    "ai_generation",
+                    {
+                        "type": "agent_task_stream_failed",
+                        "operator_id": user_id,
+                        "error_class": type(error).__name__,
+                    },
+                )
+                yield _event("error", {"message": "Stream failed"})
+            yield _event(
+                "done", {"duration_ms": int((time.monotonic() - started) * 1000)}
+            )
+
+        return Response(
+            _generate(),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @app.post("/api/automations/run")
     def automations_run():

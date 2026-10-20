@@ -66,6 +66,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
 <html lang="en">
 <head>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
+    <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><?= htmlspecialchars($parentPageTitle, ENT_QUOTES, 'UTF-8') ?> — Kingsway Parent Portal</title>

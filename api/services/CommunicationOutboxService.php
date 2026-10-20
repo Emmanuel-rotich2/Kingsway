@@ -55,7 +55,7 @@ class CommunicationOutboxService
 
         $endpointStmt = $this->db->prepare(
             "SELECT e.*, r.id AS recipient_row_id, r.recipient_id
-               FROM " . ReadReplicaService::qualifiedRef("communication_recipient_endpoints") . "
+               FROM communication_recipient_endpoints e
                JOIN communication_recipients r ON r.id = e.communication_recipient_id
               WHERE r.communication_id = ? AND e.status IN ('pending','retry')
                 AND (e.next_attempt_at IS NULL OR e.next_attempt_at <= NOW())

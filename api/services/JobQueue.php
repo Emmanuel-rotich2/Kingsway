@@ -607,7 +607,7 @@ final class JobQueue
                      FROM jobs_queue
                      WHERE status = ? AND job_type IN ({$marks})
                        AND updated_at < NOW() - INTERVAL {$leaseMinutes} MINUTE
-                     ORDER BY updated_at ASC LIMIT 50 FOR UPDATE"
+                     ORDER BY updated_at ASC LIMIT 50"
                 );
                 $stmt->execute(array_merge([self::STATUS_PROCESSING], $jobTypes));
                 $staleRows = $stmt->fetchAll(PDO::FETCH_ASSOC);

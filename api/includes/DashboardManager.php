@@ -242,7 +242,7 @@ class DashboardManager
         // Get all menu items assigned to this role
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -427,7 +427,7 @@ class DashboardManager
     {
         $stmt = $this->db->prepare(
             "SELECT smi.*, rsm.custom_order
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1
              ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
@@ -491,8 +491,8 @@ class DashboardManager
     public function getAllMenuRoutesForRole(int $roleId): array
     {
         $stmt = $this->db->prepare(
-            "SELECT smi.url
-             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . "
+            "SELECT smi.*, rsm.custom_order
+             FROM " . ReadReplicaService::qualifiedRef("sidebar_menu_items") . " smi
              JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
              WHERE rsm.role_id = ? AND smi.is_active = 1 AND smi.url IS NOT NULL"
         );

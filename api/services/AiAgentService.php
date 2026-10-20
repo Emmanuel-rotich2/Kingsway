@@ -637,6 +637,47 @@ class AiAgentService
                 }
                 return $this->nlq->ask($pdo, $context, (string) ($toolInput['question'] ?? ''));
 
+            case AiAgentRegistry::TOOL_AGGREGATE:
+                try {
+                    $this->workflows->authorize(NlqQueryService::WORKFLOW, [
+                        'user_id' => $userId,
+                        'permissions' => $permissions,
+                        'audience' => 'staff',
+                    ]);
+                } catch (DomainException $e) {
+                    return ['status' => 'not_authorized', 'message' => 'Governed aggregations need analytics catalogue access.'];
+                }
+                return $this->nlq->aggregate($pdo, $context, (string) ($toolInput['question'] ?? ''), (string) ($toolInput['agg_type'] ?? 'count'));
+
+            case AiAgentRegistry::TOOL_CHART:
+                try {
+                    $this->workflows->authorize(NlqQueryService::WORKFLOW, [
+                        'user_id' => $userId,
+                        'permissions' => $permissions,
+                        'audience' => 'staff',
+                    ]);
+                } catch (DomainException $e) {
+                    return ['status' => 'not_authorized', 'message' => 'Chart generation needs analytics catalogue access.'];
+                }
+                return $this->nlq->generateChart($pdo, $context, (string) ($toolInput['question'] ?? ''), (string) ($toolInput['chart_type'] ?? 'bar'));
+
+            case AiAgentRegistry::TOOL_DRAFT:
+                try {
+                    $this->workflows->authorize(AiDraftService::WORKFLOW, [
+                        'user_id' => $userId,
+                        'permissions' => $permissions,
+                        'audience' => 'staff',
+                    ]);
+                } catch (DomainException $e) {
+                    return ['status' => 'not_authorized', 'message' => 'Draft creation needs communications workflow access.'];
+                }
+                $template = (string) ($toolInput['template'] ?? '');
+                $ctx = (string) ($toolInput['context'] ?? '');
+                if ($template === '') {
+                    return ['status' => 'error', 'message' => 'Template is required.'];
+                }
+                return $this->drafts->createDraft($pdo, $context, $template, $ctx);
+
             case AiAgentRegistry::TOOL_INSIGHT_BRIEF:
                 try {
                     $this->workflows->authorize(AiInsightOrchestrator::WORKFLOW, [

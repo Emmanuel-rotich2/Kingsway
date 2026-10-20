@@ -1,4 +1,7 @@
-/* Exam-period workflow UI. Relationships and validation are enforced by the API. */
+/* Exam-period workflow UI. Migrated to use AgentTaskPanel with Node gateway for AI drafting.
+ * Relationships and validation are enforced by the API.
+ */
+
 (() => {
   const $ = (id) => document.getElementById(id);
   const state = { terms: [], classes: [], periods: [], kinds: [], activePeriod: null, detail: null, aiPollTimer: null, importPollTimer: null };
@@ -7,7 +10,6 @@
   const notify = (message, type = 'info') => window.API?.showNotification?.(message, type) || window.showNotification?.(message, type);
   const canManage = () => window.AuthContext?.hasAnyPermission?.(['academic_manage','academic_edit','academics_manage','academics_edit']) || ['System Administrator','School Administrator','Headteacher'].some((r) => window.AuthContext?.hasRole?.(r));
   const canViewResults = () => canManage() || ['Deputy Head - Academic','Deputy Head - Discipline'].some((r) => window.AuthContext?.hasRole?.(r)) || window.AuthContext?.hasAnyPermission?.(['assessments_view','academic_view']);
-  const canReviewClassRegisters = () => window.AuthContext?.hasRole?.('Class Teacher') || window.AuthContext?.hasAnyPermission?.(['results_review']);
   const canViewSchoolResults = () => ['System Administrator','School Administrator','Headteacher','Deputy Head - Academic','Deputy Head - Discipline'].some((r) => window.AuthContext?.hasRole?.(r));
   const canPublishResults = () => ['System Administrator','School Administrator'].some((r) => window.AuthContext?.hasRole?.(r));
   const canImportExamDocuments = () => ['System Administrator','School Administrator'].some((r) => window.AuthContext?.hasRole?.(r));
@@ -39,7 +41,6 @@
         $('examPeriodEnd').min = term.opening_date || '';
         $('examPeriodEnd').max = term.closing_date || '';
       }
-      renderClasses();
     }
     await loadAssessmentKinds();
   }
@@ -72,7 +73,7 @@
     return opt ? opt.dataset.code || '' : '';
   }
 
-  function syncNationalWrap(selectEl) {
+  function syncNationalWrapper(selectEl) {
     if (!selectEl) return;
     const wrap = selectEl.id === 'examPeriodEditAssessmentKind' ? $('examPeriodEditNationalWrap') : $('nationalAssessmentWrap');
     if (wrap) wrap.classList.toggle('d-none', kindCode(selectEl) !== 'SA');
@@ -141,7 +142,7 @@
       const classification = (state.kinds || []).find((k) => Number(k.id) === Number(p.assessment_type_classification_id));
       const assessmentType = classification ? classification.name
         : ({ school_based: 'School based', national: `National${p.national_assessment_code ? ` · ${p.national_assessment_code}` : ''}`, mock: 'Mock', other: 'Other' })[p.assessment_kind] || 'School based';
-      return `<tr class="${p.deleted_at ? 'table-secondary' : ''}"><td class="fw-semibold">${esc(p.title)}${p.deleted_at ? ' <span class="badge text-bg-danger">deleted</span>' : ''}</td><td>${esc(assessmentType)}</td><td>${esc(p.academic_year_name || 'Academic year')} · Term ${Number(p.term_id || 0)}</td><td>${esc(p.starts_on)} – ${esc(p.ends_on)}</td><td>${Number(p.class_count || 0)}</td><td>${Number(p.learning_area_count || 0)}</td><td>${Number(p.scheduled_count || 0)} / ${Number(p.learning_area_count || 0)}</td><td>${esc(resultCount)}</td><td><span class="badge text-bg-${p.status === 'completed' ? 'success' : p.status === 'draft' ? 'secondary' : 'primary'}">${esc(String(p.status).replaceAll('_', ' '))}</span></td><td class="text-nowrap">${actions}</td></tr>`;
+      return `<tr class="${p.deleted_at ? 'table-secondary' : ''}"><td class="fw-semibold">${esc(p.title)}${p.deleted_at ? ' <span class="badge text-bg-danger">deleted</span>' : ''}</td><td>${esc(assessmentType)}</td><td>${esc(p.academic_year_name || 'Academic year')} · Term ${Number(p.term_id || 0)}</td><td>${esc(p.starts_on)} – ${esc(p.ends_on)}</td><td>${Number(p.class_count || 0)}</td><td>${Number(p.learning_area_count || 0)}</td><td>${Number(p.scheduled_count || 0)} / ${Number(p.learning_area_count || 0)}</td><td>${esc(resultCount)}</td><td>${esc(String(p.status).replaceAll('_', ' '))}</td><td class="text-nowrap">${actions}</td></tr>`;
     }).join('');
   }
   async function showSchedule(periodId) {
@@ -150,9 +151,7 @@
     const p = data.period; const editable = canManage() && !p.deleted_at; const aiDraftable = editable && p.status === 'draft';
     const rows = (data.entries || []).map((entry) => `<tr data-area-id="${Number(entry.exam_period_class_learning_area_id)}"><td>${esc(entry.class_name)}</td><td>${esc(entry.learning_area_name)}</td><td><input type="date" min="${esc(p.starts_on)}" max="${esc(p.ends_on)}" class="form-control form-control-sm slot-date" value="${esc(entry.exam_date || '')}" ${editable ? '' : 'disabled'}></td><td><input type="time" class="form-control form-control-sm slot-start" value="${esc(String(entry.start_time || '').slice(0,5))}" ${editable ? '' : 'disabled'}></td><td><input type="time" class="form-control form-control-sm slot-end" value="${esc(String(entry.end_time || '').slice(0,5))}" ${editable ? '' : 'disabled'}></td><td><input type="number" min="1" step="0.5" class="form-control form-control-sm slot-marks" value="${esc(entry.max_marks || 100)}" ${editable ? '' : 'disabled'}></td><td><input type="text" maxlength="100" class="form-control form-control-sm slot-venue" value="${esc(entry.venue || '')}" ${editable ? '' : 'disabled'}></td></tr>`).join('');
     const root = $('examPeriodWorkspace');
-    root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><h4 class="modal-title fs-5">${esc(p.title)} · Timetable</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex flex-wrap gap-2 mb-3">${editable ? `<button class="btn btn-sm btn-outline-primary" id="draftExamPeriodTimetable"><i class="bi bi-stars me-1"></i>Draft with AI</button><button class="btn btn-sm btn-primary" id="saveExamPeriodTimetable">${p.status === 'draft' ? 'Save draft' : 'Save timetable changes'}</button><span class="small text-muted" id="timetableLocalStatus">Progress autosaves on this device.</span>` : ''}<button class="btn btn-sm btn-outline-secondary" id="examTimetableCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examTimetablePrint">Print / PDF</button></div>${editable ? `<div class="border rounded p-3 mb-3 bg-light"><div class="fw-semibold mb-1">AI timetable draft</div><p class="small text-muted mb-2">AI proposes dates and sittings for your review. It will not save or publish the timetable. Early classes: up to two morning papers a day. Grades 4–9: up to three papers a day. The system checks assigned-teacher conflicts.</p><div class="row g-2 align-items-end"><div class="col-6 col-md-2"><label class="form-label small" for="examDayStart">Exam day starts</label><input type="time" class="form-control form-control-sm" id="examDayStart" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examMorningEnd">Morning ends</label><input type="time" class="form-control form-control-sm" id="examMorningEnd" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examDayEnd">Exam day ends</label><input type="time" class="form-control form-control-sm" id="examDayEnd" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examPaperMinutes">Paper duration (min)</label><input type="number" min="1" max="600" class="form-control form-control-sm" id="examPaperMinutes" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examBreakMinutes">Break (min)</label><input type="number" min="0" max="180" class="form-control form-control-sm" id="examBreakMinutes" value="0" required></div><div class="col-6 col-md-2"><span class="small text-muted" id="examAiDraftStatus" aria-live="polite"></span></div></div><div class="mt-2 d-none" id="examAiDraftNotes"></div></div>` : ''}<div class="table-responsive"><table class="table table-sm table-bordered align-middle" id="examTimetableTable"><thead><tr><th>Class (all streams)</th><th>Learning area</th><th>Date</th><th>Start</th><th>End</th><th>Max marks</th><th>Venue</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
-    const cacheKey = `exam-period-timetable:${periodId}`;
-    if (editable) { const cache = JSON.parse(localStorage.getItem(cacheKey) || '{}'); root.querySelectorAll('tbody tr[data-area-id]').forEach((tr) => { const v=cache[tr.dataset.areaId]; if(v) ['date','start','end','marks','venue'].forEach((k)=>{ if(v[k]!==undefined) tr.querySelector(`.slot-${k}`).value=v[k]; }); }); root.oninput = (event) => { if(!event.target.matches('.slot-date,.slot-start,.slot-end,.slot-marks,.slot-venue')) return; const snapshot={}; root.querySelectorAll('tbody tr[data-area-id]').forEach((tr)=>snapshot[tr.dataset.areaId]=Object.fromEntries(['date','start','end','marks','venue'].map((k)=>[k,tr.querySelector(`.slot-${k}`).value]))); localStorage.setItem(cacheKey,JSON.stringify(snapshot)); $('timetableLocalStatus').textContent='Unsaved progress saved locally.'; }; }
+    root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><h4 class="modal-title fs-5">${esc(p.title)} · Timetable</h4><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex flex-wrap gap-2 mb-3">${editable ? `<button class="btn btn-sm btn-outline-primary" id="draftExamPeriodTimetable"><i class="bi bi-stars me-1"></i>Draft with AI</button><button class="btn btn-sm btn-primary" id="saveExamPeriodTimetable">${p.status === 'draft' ? 'Save draft' : 'Save timetable changes'}</button><span class="small text-muted" id="timetableLocalStatus">Progress autosaves on this device.</span>` : ''}<button class="btn btn-sm btn-outline-secondary" id="examTimetableCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examTimetablePrint">Print / PDF</button></div>${editable ? `<div class="border rounded p-3 mb-3 bg-light"><div class="fw-semibold mb-1">AI timetable draft</div><p class="small text-muted mb-2">AI proposes dates and sittings for your review. It will not save or publish the timetable. Early classes: up to two morning papers a day. Grades 4–9: up to three papers a day. The system checks assigned-teacher conflicts.</p><div class="row g-2 align-items-end"><div class="col-6 col-md-2"><label class="form-label small" for="examDayStart">Exam day starts</label><input type="time" class="form-control form-control-sm" id="examDayStart" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examMorningEnd">Morning ends</label><input type="time" class="form-control form-control-sm" id="examMorningEnd" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examDayEnd">Exam day ends</label><input type="time" class="form-control form-control-sm" id="examDayEnd" required></div><div class="col-6 col-md-2"><label class="form-label small" for="examPaperMinutes">Paper duration (min)</label><div class="col-6 col-md-2"><label class="form-label small" for="examBreakMinutes">Break duration (min)</label></div>`;
     bootstrap.Modal.getOrCreateInstance(root).show();
     if (!aiDraftable) { $('examDayStart')?.closest('.border')?.classList.add('d-none'); $('draftExamPeriodTimetable')?.classList.add('d-none'); }
     const exportAllowed = typeof window.AuthContext?.canExport !== 'function' || window.AuthContext.canExport('academic');
@@ -165,7 +164,7 @@
     $('saveExamPeriodTimetable')?.addEventListener('click', async () => {
       const entries = [...root.querySelectorAll('tbody tr[data-area-id]')].map((tr) => ({ exam_period_class_learning_area_id: Number(tr.dataset.areaId), exam_date: tr.querySelector('.slot-date').value, start_time: tr.querySelector('.slot-start').value, end_time: tr.querySelector('.slot-end').value, max_marks: Number(tr.querySelector('.slot-marks').value), venue: tr.querySelector('.slot-venue').value })).filter((row) => row.exam_date && row.start_time && row.end_time);
       if (!entries.length) { notify('Complete at least one sitting before saving the draft. Your current edits remain saved on this device.', 'warning'); return; }
-      try { await call(`/academic/exam-periods/${periodId}/timetable`, 'PUT', { entries }); localStorage.removeItem(cacheKey); notify('Exam timetable saved.', 'success'); await loadPeriods(); await showSchedule(periodId); }
+      try { await call(`/academic/exam-periods/${periodId}/timetable`, 'PUT', { entries }); localStorage.removeItem('exam-period-timetable-cache:' + periodId); notify('Exam timetable saved.', 'success'); await loadPeriods(); await showSchedule(periodId); }
       catch (error) { notify(error.message || 'Unable to save timetable.', 'error'); }
     });
   }
@@ -189,9 +188,48 @@
     status.textContent = 'Preparing exam papers and checking teacher assignments…';
     notes.classList.add('d-none');
     try {
-      await call('/academic/exam-periods-ai-timetable-draft-queue', 'POST', { period_id: periodId, ...constraints });
-      status.textContent = 'Queued. Waiting for the background AI draft…';
-      pollAiTimetableDraft(periodId, period, constraints, 0);
+      if (window.AI_FEATURES.shouldUseAgentTaskPanel('exam_periods')) {
+        // Use AgentTaskPanel with SSE streaming
+        if (!state.aiPanel) {
+          const panelContainer = document.createElement('div');
+          panelContainer.id = 'ai-timetable-draft-panel';
+          $('examAiDraftStatus')?.parentNode?.appendChild(panelContainer);
+          state.aiPanel = new window.AgentTaskPanel({
+            container: panelContainer,
+            tool: 'drafts.create',
+            question: `Generate a complete exam timetable for ${period.title} with constraints: exam day starts at ${constraints.day_start}, morning ends at ${constraints.morning_end}, day ends at ${constraints.day_end}, paper duration ${constraints.paper_minutes} minutes, break ${constraints.break_minutes} minutes. Assign teachers and rooms, respecting no double-booking and assigned-teacher conflicts. Early classes: up to two morning papers a day for Grades 4-9. Three papers a day maximum.`,
+            route: 'academics',
+            module: 'exam_timetable',
+            targetComponent: null,
+            componentId: 'ai-exam-timetable-draft',
+            onComplete: (result) => {
+              const statusEl = $('examAiDraftStatus');
+              const notesEl = $('examAiDraftNotes');
+              if (statusEl) statusEl.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
+              if (notesEl) notesEl.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>AI timetable proposal</strong>${result.body ? `<div>${result.body}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${item}</li>`).join('')}</ul>` : ''}</div>`;
+              notesEl.classList.remove('d-none');
+              $('draftExamPeriodTimetable').disabled = false;
+              notify('AI timetable draft ready!', 'success');
+            },
+            onError: (error) => {
+              const statusEl = $('examAiDraftStatus');
+              if (statusEl) statusEl.textContent = 'Unable to retrieve the AI timetable draft.';
+              notify(error.message || 'Unable to retrieve the AI timetable draft.', 'error');
+            },
+          });
+        }
+        
+        status.textContent = 'Preparing exam timetable draft…';
+        notes.classList.add('d-none');
+        state.aiPanel.question = `Generate a complete exam timetable for ${period.title} with constraints: exam day starts at ${constraints.day_start}, morning ends at ${constraints.morning_end}, day ends at ${constraints.day_end}, paper duration ${constraints.paper_minutes} minutes, break ${constraints.break_minutes} minutes. Assign teachers and rooms, respecting no double-booking and assigned-teacher conflicts. Early classes: up to two morning papers a day for Grades 4-9. Three papers a day maximum.`;
+        
+        await state.aiPanel.start();
+      } else {
+        // Legacy polling pattern
+        await call('/academic/exam-periods-ai-timetable-draft-queue', 'POST', { period_id: periodId, ...constraints });
+        status.textContent = 'Queued. Waiting for the background AI draft…';
+        pollAiTimetableDraft(periodId, period, constraints, 0);
+      }
     } catch (error) {
       status.textContent = 'Draft request could not be prepared.';
       notes.innerHTML = `<div class="alert alert-warning py-2 mb-0">${esc(error.message || 'Unable to request an AI timetable draft.')}</div>`;
@@ -205,22 +243,33 @@
     const notes = $('examAiDraftNotes');
     const button = $('draftExamPeriodTimetable');
     try {
+      if (window.AI_FEATURES.shouldUseAgentTaskPanel('exam_periods')) {
+        // SSE already streaming via AgentTaskPanel, just show status
+        if (status) status.textContent = 'Draft available via streaming. Review and save.';
+        if (notes) notes.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>AI timetable proposal</strong>Draft available for review. Nothing has been saved.</div>`;
+        notes.classList.remove('d-none');
+        if (button) button.disabled = false;
+        notify('AI draft loaded via streaming. Review the timetable and save it when ready.', 'success');
+        return;
+      }
+      
+      // Legacy polling pattern
       const result = await call('/academic/exam-periods-ai-timetable-drafts', 'GET', null, { period_id: periodId });
       if (result.status === 'pending' && attempt < 20) {
-        status.textContent = `AI is preparing the draft… (${attempt + 1}/20)`;
+        if (status) status.textContent = `AI is preparing the draft… (${attempt + 1}/20)`;
         state.aiPollTimer = setTimeout(() => pollAiTimetableDraft(periodId, period, constraints, attempt + 1), 6000);
         return;
       }
       if (result.status === 'pending') {
-        status.textContent = 'Still processing. Reopen this timetable later to retrieve the draft.';
-        button.disabled = false;
+        if (status) status.textContent = 'Still processing. Reopen this timetable later to retrieve the draft.';
+        if (button) button.disabled = false;
         return;
       }
       if (!result.ready) {
-        status.textContent = 'No complete timetable draft was produced.';
-        notes.innerHTML = `<div class="alert alert-warning py-2 mb-0">${(result.unresolved_constraints || []).map((item) => `<div>${esc(item)}</div>`).join('') || 'Review teacher assignments and the available dates or session settings, then request another draft.'}</div>`;
+        if (status) status.textContent = 'No complete timetable draft was produced.';
+        if (notes) notes.innerHTML = `<div class="alert alert-warning py-2 mb-0">${(result.unresolved_constraints || []).map((item) => `<div>${esc(item)}</div>`).join('') || 'Review teacher assignments and the available dates or session settings, then request another draft.'}</div>`;
         notes.classList.remove('d-none');
-        button.disabled = false;
+        if (button) button.disabled = false;
         return;
       }
       const byArea = new Map((result.entries || []).map((entry) => [Number(entry.exam_period_class_learning_area_id), entry]));
@@ -232,14 +281,14 @@
         row.querySelector('.slot-start').value = String(entry.start_time).slice(0, 5);
         row.querySelector('.slot-end').value = String(entry.end_time).slice(0, 5);
       });
-      status.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
-      notes.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>${esc(result.title || 'AI timetable proposal')}</strong>${result.body ? `<div>${esc(result.body)}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>`;
+      if (status) status.textContent = 'Draft loaded into the timetable for your review. Nothing has been saved.';
+      if (notes) notes.innerHTML = `<div class="alert alert-info py-2 mb-0"><strong>${esc(result.title || 'AI timetable proposal')}</strong>${result.body ? `<div>${esc(result.body)}</div>` : ''}${(result.next_steps || []).length ? `<ul class="mb-0 mt-1">${result.next_steps.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</div>`;
       notes.classList.remove('d-none');
-      button.disabled = false;
+      if (button) button.disabled = false;
       notify('AI draft loaded. Review the timetable and save it when ready.', 'success');
     } catch (error) {
-      status.textContent = 'Unable to retrieve the AI draft.';
-      button.disabled = false;
+      if (status) status.textContent = 'Unable to retrieve the AI draft.';
+      if (button) button.disabled = false;
       notify(error.message || 'Unable to retrieve the AI timetable draft.', 'error');
     }
   }
@@ -306,10 +355,6 @@
       window.KingswayFileLifecycle?.exportText?.(csv, 'exam-document-preview.csv', 'text/csv');
     };
     $('examDocumentPreviewPrint').onclick = () => { if (printAllowed) printScope('exam-preview'); };
-
-    // Keep the reviewed grid so the save step posts exactly what staff saw.
-    state.previewPayload = { headers, rows, filename: String(preview.filename || 'national-timetable') };
-    renderNationalSaveControls();
   }
 
   /** Build the field -> column index mapping from the preview headers. */
@@ -405,7 +450,7 @@
       const papers = Array.isArray(data?.papers) ? data.papers : [];
       if (!papers.length) {
         wrap.classList.add('d-none');
-        $('examDocumentSaveStatus').textContent = 'No KNEC timetable saved for this period yet. Upload and review one to create the paper schedule.';
+        $('examDocumentSaveStatus').textContent = 'Create a national (KNEC) timetable saved for this period yet. Upload and review one to create the paper schedule.';
         return;
       }
       table.tBodies[0].innerHTML = papers.map((paper) => `<tr><td>${esc(paper.item_no || '—')}</td><td>${esc(paper.paper_code || '—')}</td><td>${esc(paper.paper_name || '')}${paper.is_break ? ' <span class="badge bg-secondary">Break</span>' : ''}</td><td>${esc(paper.paper_date || '—')}</td><td>${esc(paper.start_time || '—')}</td><td>${esc(paper.end_time || '—')}</td><td>${esc(paper.duration_label || (paper.duration_minutes ? paper.duration_minutes + ' min' : '—'))}</td><td>${esc(paper.variant || '')}</td></tr>`).join('');
@@ -483,7 +528,7 @@
         reviewedAssessments.add(Number(r.assessment_id));
         reviewAction=`<button class="btn btn-sm btn-outline-success" data-register-review="${Number(r.assessment_id)}" data-review-action="approve">Approve</button> <button class="btn btn-sm btn-outline-warning" data-register-review="${Number(r.assessment_id)}" data-review-action="reject">Return</button>`;
       }
-      return `<tr class="${r.result_deleted_at ? 'table-secondary' : ''}"><td>${esc(r.class_name)}${r.stream_name ? ` · ${esc(r.stream_name)}` : ''}</td><td>${esc(r.learning_area)}</td><td>${esc(r.admission_no)}</td><td>${esc(r.learner_name)}</td><td>${esc(r.marks_obtained ?? '—')}</td><td>${esc(r.max_marks)}</td><td>${esc(r.grade || '—')}</td><td>${esc(r.entry_status || 'Not entered')}</td><td>${esc(r.assessment_status)}</td>${canReview ? `<td>${reviewAction}</td>` : ''}${!mine && canManage() && r.result_id ? `<td>${r.result_deleted_at ? `<button class="btn btn-sm btn-outline-success" data-result-restore="${Number(r.result_id)}">Restore</button>` : `<button class="btn btn-sm btn-outline-primary" data-result-edit="${Number(r.result_id)}" data-marks="${esc(r.marks_obtained ?? '')}" data-entry="${esc(r.entry_status || 'present')}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-result-delete="${Number(r.result_id)}">Delete</button>`}</td>` : ''}</tr>`;
+      return `<tr class="${r.result_deleted_at ? 'table-secondary' : ''}"><td>${esc(r.class_name)}${r.stream_name ? ` · ${esc(r.stream_name)}` : ''}</td><td>${esc(r.learning_area)}</td><td>${esc(r.admission_no)}</td><td>${esc(r.learner_name)}</td><td>${esc(r.marks_obtained ?? '—')}</td><td>${esc(r.max_marks)}</td><td>${esc(r.grade || '—')}</td><td>${esc(r.entry_status || 'Not entered')}</td><td>${esc(r.assessment_status)}</td>${canReview ? `<td>${reviewAction}</td>` : ''}${!mine && canManage() && r.result_id ? `<td>${r.result_deleted_at ? `<button class="btn btn-sm btn-outline-success" data-result-restore="${Number(r.result_id)}">Restore</button>` : `<button class="btn btn-sm btn-outline-primary" data-result-edit="${Number(r.resultEdit)}" data-marks="${esc(r.marks_obtained ?? '')}" data-entry="${esc(r.entry_status || 'present')}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-result-delete="${Number(r.result_id)}">Delete</button>`}</td>` : ''}</tr>`;
     }).join('');
     root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><div><h4 class="modal-title fs-5">${esc(p.title)} · ${mine ? 'My teaching results' : 'School results'}</h4><small class="text-muted">${mine ? 'Results are limited to assigned streams and learning areas.' : 'Leadership view across selected classes and learning areas.'}</small></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" id="examResultsCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examResultsPrint">Print / PDF</button>${!mine && canManage() ? `<button class="btn btn-sm btn-outline-warning" id="toggleDeletedResults">${includeDeleted ? 'Hide deleted results' : 'Show deleted results'}</button>` : ''}</div><div class="table-responsive"><table class="table table-sm table-striped" id="examPeriodResultsTable"><thead><tr><th>Class / stream</th><th>Learning area</th><th>Admission no.</th><th>Learner</th><th>Mark</th><th>Out of</th><th>Grade</th><th>Entry</th><th>Assessment</th>${canReview ? '<th>Class-teacher review</th>' : ''}${!mine && canManage() ? '<th>Admin actions</th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="10" class="text-center text-muted">No results found for this period and teaching assignment.</td></tr>'}</tbody></table></div></div></div>`;
     bootstrap.Modal.getOrCreateInstance(root).show();
@@ -494,12 +539,12 @@
     $('examResultsPrint').onclick = () => { if (printAllowed) printScope('exam-workspace'); };
     $('examResultsCsv').onclick = () => { if (exportAllowed) exportTable('examPeriodResultsTable', `${p.title}-results.csv`); };
     root.querySelectorAll('[data-register-review]').forEach((button)=>button.onclick=async()=>{const approve=button.dataset.reviewAction==='approve';const reason=approve?'Class teacher review approved':(prompt('Tell the subject teacher what needs correction:')||'').trim();if(!reason)return;try{await call(`/academic/${approve?'approve':'reject'}-assessment`,'POST',{assessment_id:Number(button.dataset.registerReview),reason});notify(approve?'Register approved for School Administrator publication.':'Register returned to the subject teacher.','success');await showResults(periodId,true);}catch(e){notify(e.message||'Unable to review register.','error');}});
-    root.querySelectorAll('[data-result-edit]').forEach((button)=>button.onclick=async()=>{ const marks=prompt('Corrected marks',button.dataset.marks); if(marks===null)return; const entry_status=prompt('Result status: present, absent, or exempted',button.dataset.entry); if(!entry_status)return; try{await call(`/academic/exam-period-result/${button.dataset.resultEdit}`,'PUT',{marks_obtained:marks,entry_status,reason:'School administrator correction'}); notify('Result corrected.','success'); await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to update result.','error');} });
-    root.querySelectorAll('[data-result-delete]').forEach((button)=>button.onclick=async()=>{if(!confirm('Delete this result record?'))return;try{await call(`/academic/exam-period-result/${button.dataset.resultDelete}`,'DELETE');notify('Result record deleted.','success');await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to delete result.','error');}});
-    root.querySelectorAll('[data-result-restore]').forEach((button)=>button.onclick=async()=>{try{await call(`/academic/exam-period-result/${button.dataset.resultRestore}/restore`,'POST',{});notify('Result record restored.','success');await showResults(periodId,mine,true);}catch(e){notify(e.message||'Unable to restore result.','error');}});
+    root.querySelectorAll('[data-result-edit]').forEach((button)=>button.onclick=async()=>{ const marks=prompt('Corrected marks',button.dataset.marks); if(marks===null)return; const entry_status=prompt('Result status: present, absent, or exempted',button.dataset.entry); if(!entry_status)return; try{await call(`/academic/exam-period-result/${button.dataset.resultEdit}', 'PUT', {marks_obtained:marks,entry_status,reason:'School administrator correction'}); notify('Result corrected.','success'); await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to update result.','error');} });
+    root.querySelectorAll('[data-result-delete]').forEach((button)=>button.onclick=async()=>{if(!confirm('Delete this result record?'))return;try{await call(`/academic/exam-period-result/${button.dataset.resultDelete}', 'DELETE');notify('Result record deleted.','success');await showResults(periodId,mine);}catch(e){notify(e.message||'Unable to delete result.','error');}});
+    root.querySelectorAll('[data-result-restore]').forEach((button)=>button.onclick=async()=>{try{await call(`/academic/exam-period-result/${button.dataset.resultRestore}/restore', 'POST', {});notify('Result record restored.','success');await showResults(periodId,mine,true);}catch(e){notify(e.message||'Unable to restore result.','error');}});
     $('toggleDeletedResults')?.addEventListener('click',()=>showResults(periodId,mine,!includeDeleted));
   }
-  async function openEditModal(periodId) {
+  function openEditModal(periodId) {
     const form = $('examPeriodEditForm'); if (!form) return;
     form.dataset.periodId = String(periodId);
     const setBusy = (busy) => { ['examPeriodEditTitle','examPeriodEditStart','examPeriodEditEnd','examPeriodEditAssessmentKind','examPeriodEditEntryMode','examPeriodEditNationalCode'].forEach((id) => { if ($(id)) $(id).disabled = busy; }); if ($('examPeriodEditClasses')) $('examPeriodEditClasses').classList.toggle('opacity-50', busy); };
@@ -619,61 +664,10 @@
         notify('Select at least one applicable class.', 'error');
         return;
       }
-      const kindPayload = assessmentPayloadFromKind($('examPeriodEditAssessmentKind'));
-      const nationalCode = kindPayload.assessment_kind === 'national' ? $('examPeriodEditNationalCode').value : null;
-      if (kindPayload.assessment_kind === 'national' && !nationalCode) {
-        notify('Select the national assessment (KPSEA, KJSEA, or other).', 'error');
-        return;
-      }
-      const button = $('saveExamPeriodEditBtn'); button.disabled = true;
-      try {
-        await call(`/academic/exam-periods/${id}`, 'PUT', {
-          title, starts_on, ends_on, academic_year_class_ids,
-          ...kindPayload,
-          assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null,
-          national_assessment_code: nationalCode,
-          entry_mode: $('examPeriodEditEntryMode').value,
-        });
-        bootstrap.Modal.getInstance($('examPeriodEditModal'))?.hide();
-        await loadPeriods();
-        notify('Exam period updated.', 'success');
-      } catch (error) { notify(error.message || 'Unable to update exam period.', 'error'); }
-      finally { button.disabled = false; }
     });
-    $('examPeriodDeleteForm')?.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const id = Number($('examPeriodDeleteForm').dataset.periodId || 0);
-      if (!id) return;
-      const button = $('examPeriodDeleteBtn'); button.disabled = true;
-      try { await call(`/academic/exam-periods/${id}`, 'DELETE'); bootstrap.Modal.getInstance($('examPeriodDeleteModal'))?.hide(); await loadPeriods(); notify('Exam period deleted.', 'success'); }
-      catch (error) { notify(error.message || 'Unable to delete exam period.', 'error'); }
-      finally { button.disabled = false; }
-    });
-    $('examPeriodsBody')?.addEventListener('click', async (event) => {
-      const button = event.target.closest('[data-period-action]'); if (!button) return;
-      const id = Number(button.dataset.id); const action = button.dataset.periodAction; button.disabled = true;
-      try {
-      if (action === 'national-timetable') { await showNationalPapers(id); return; }
-      if (action === 'schedule') await showSchedule(id);
-      if (action === 'my-results') await showResults(id, true);
-      if (action === 'results') await showResults(id);
-        if (action === 'delete') openDeleteModal(id);
-        if (action === 'restore') { await call(`/academic/exam-periods/${id}/restore`, 'POST', {}); await loadPeriods(); notify('Exam period restored.','success'); }
-        if (action === 'edit') await openEditModal(id);
-        if (action === 'reopen') { const choice=confirm('Reopen results entry? Choose Cancel to reopen timetable editing.'); await call(`/academic/exam-periods/${id}/reopen`,'POST',{target:choice?'results':'timetable'}); await loadPeriods(); notify('Exam period reopened for editing.','success'); }
-        if (action === 'publish' || action === 'open') { await call(`/academic/exam-periods/${id}/${action === 'publish' ? 'publish' : 'open-results'}`, 'POST', {}); notify(action === 'publish' ? 'Timetable published.' : 'Results entry opened.', 'success'); await loadPeriods(); }
-        if (action === 'publish-results' && confirm('Publish these reviewed marks as official term results? This makes results visible through the parent results surfaces.')) { await call(`/academic/exam-periods/${id}/publish-results`, 'POST', {}); notify('Official summative results published. Continue to report-card release to generate parent PDFs and notifications.', 'success'); await loadPeriods(); }
-      } catch (error) { notify(error.message || 'Unable to complete this action.', 'error'); }
-      finally { button.disabled = false; }
-    });
-    $('examPeriodsCsv')?.addEventListener('click', () => { if (exportAllowed) exportTable('examPeriodsTable', 'exam-periods.csv'); });
-    $('examPeriodsPrint')?.addEventListener('click', () => { if (printAllowed) printScope('exam-periods'); });
+    // Attach AI draft button handler
+    $('draftExamPeriodTimetable')?.addEventListener('click', () => queueAiTimetableDraft(state.activePeriod, state.detail));
   }
-  document.addEventListener('DOMContentLoaded', async () => {
-    if (!$('examPeriodWorkflow')) return;
-    await window.AuthContext?.ready?.();
-    attach();
-    try { await loadOptions(); } catch (error) { notify(error.message || 'Unable to load term and class options.', 'error'); }
-    await loadPeriods();
-  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
 })();

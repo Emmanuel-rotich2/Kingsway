@@ -20,6 +20,7 @@ use App\API\Services\AiBehaviorProfiler;
 use App\API\Services\AiPythonBridge;
 use App\API\Services\AiProviderException;
 use App\API\Services\AiWorkflowService;
+use Throwable;
 use App\API\Services\AiInsightOrchestrator;
 use App\API\Services\CurriculumPolicyWatchAgent;
 use App\API\Services\SidebarConfigReader;
@@ -144,12 +145,17 @@ class DashboardController extends BaseController
         }
         $context = [
             'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
             'roles' => $this->user['roles'] ?? [],
             'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
             'audience' => 'staff',
             'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
             'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
         ];
+        // Optional session_id from client
+        if (!empty($data['session_id'])) {
+            $context['session_id'] = mb_substr((string) $data['session_id'], 0, 64);
+        }
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
             $context['permissions'] = $permissions;
@@ -230,12 +236,17 @@ class DashboardController extends BaseController
 
         $context = [
             'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
             'roles' => $this->user['roles'] ?? [],
             'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
             'audience' => 'staff',
             'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
             'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
         ];
+        // Optional session_id from client
+        if (!empty($data['session_id'])) {
+            $context['session_id'] = mb_substr((string) $data['session_id'], 0, 64);
+        }
 
         try {
             $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
@@ -259,7 +270,7 @@ class DashboardController extends BaseController
                 );
                 if ($ok) {
                     $this->endEventStream();
-                    return ['stream_flushed' => true];
+                    return null;
                 }
             } catch (\Throwable $e) {
                 // Fall through to the deterministic/governed buffered answer:
@@ -287,7 +298,506 @@ class DashboardController extends BaseController
         }
 
         $this->endEventStream();
-        return ['stream_flushed' => true];
+        return null;
+    }
+
+    /**
+     * GET /api/dashboard/assistant-sessions
+     * List chat sessions for the current staff member.
+     */
+    public function getAssistantSessions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 30);
+        $limit = max(1, min($limit, 100));
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ], 'GET', ['limit' => $limit]);
+        return $this->success($result['data'] ?? [], 'Sessions retrieved');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-session
+     * Create a new chat session.
+     */
+    public function postAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $route = mb_substr((string) ($data['route'] ?? ''), 0, 120);
+        $title = mb_substr((string) ($data['title'] ?? ''), 0, 80);
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/create', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => $route,
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'route' => $route,
+            'title' => $title,
+        ]);
+        return $this->success($result['data'] ?? [], 'Session created');
+    }
+
+    /**
+     * GET /api/dashboard/assistant-session
+     * Get a chat session with its messages.
+     */
+    public function getAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = (string) ($data['session_id'] ?? $_GET['session_id'] ?? '');
+        if ($sessionId === '') {
+            return $this->respond(null, 'session_id required', 422, false);
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 200);
+        $limit = max(1, min($limit, 500));
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/get', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+            'limit' => $limit,
+        ]);
+        if (($result['success'] ?? false) === false) {
+            return $this->respond(null, $result['message'] ?? 'Session not found', 404, false);
+        }
+        return $this->success($result['data'] ?? [], 'Session retrieved');
+    }
+
+    /**
+     * DELETE /api/dashboard/assistant-session
+     * Delete a chat session.
+     */
+    public function deleteAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = (string) ($data['session_id'] ?? '');
+        if ($sessionId === '') {
+            return $this->respond(null, 'session_id required', 422, false);
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/delete', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+        ]);
+        if (($result['success'] ?? false) === false) {
+            return $this->respond(null, $result['message'] ?? 'Session not found', 404, false);
+        }
+        return $this->success([], 'Session deleted');
+    }
+
+    /**
+     * PATCH /api/dashboard/assistant-session
+     * Rename a chat session.
+     */
+    public function patchAssistantSession($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $sessionId = (string) ($data['session_id'] ?? '');
+        $title = (string) ($data['title'] ?? '');
+        if ($sessionId === '' || $title === '') {
+            return $this->respond(null, 'session_id and title required', 422, false);
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/rename', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'session_id' => $sessionId,
+            'title' => $title,
+        ]);
+        if (($result['success'] ?? false) === false) {
+            return $this->respond(null, $result['message'] ?? 'Session not found', 404, false);
+        }
+        return $this->success([], 'Session renamed');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-sessions/clear
+     * Clear all chat sessions for the current user (DPA erasure).
+     */
+    public function postAssistantSessionsClear($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/sessions/clear', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ]);
+        return $this->success($result['data'] ?? [], 'Sessions cleared');
+    }
+
+    /**
+     * GET /api/dashboard/assistant-preferences
+     * Get chat preferences for the current user.
+     */
+    public function getAssistantPreferences($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/preferences', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+        ], 'GET');
+        return $this->success($result['data'] ?? [], 'Preferences retrieved');
+    }
+
+    /**
+     * POST /api/dashboard/assistant-preferences
+     * Set chat preferences for the current user.
+     */
+    public function postAssistantPreferences($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $prefs = $data['preferences'] ?? [];
+        $bridge = $this->contract(AiPythonBridge::class);
+        if (!$bridge->available()) {
+            return $this->serverError('Session service unavailable');
+        }
+        $result = $bridge->call('/api/agents/preferences', [
+            'context' => [
+                'user_id' => $userId,
+                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                'audience' => 'staff',
+                'route' => '',
+                'module' => 'dashboard',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ],
+            'preferences' => $prefs,
+        ]);
+        return $this->success($result['data'] ?? [], 'Preferences updated');
+    }
+
+    /**
+     * POST /api/dashboard/agent-task-create
+     * Create an async agent task (for pages that need polling fallback).
+     * Uses the same auth and resilience pattern as postAgentAssist.
+     */
+    public function postAgentTaskCreate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $tool = (string) ($data['tool'] ?? '');
+        $question = (string) ($data['question'] ?? '');
+        if ($tool === '' || $question === '') {
+            return $this->respond(null, 'tool and question are required', 422, false);
+        }
+        if (mb_strlen($question) > 500) {
+            return $this->respond(null, 'A question of up to 500 characters is required.', 422, false);
+        }
+        $context = [
+            'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => (string) ($data['route'] ?? $_GET['route'] ?? ''),
+            'module' => (string) ($data['module'] ?? $_GET['module'] ?? 'dashboard'),
+        ];
+        if (!empty($data['session_id'])) {
+            $context['session_id'] = mb_substr((string) $data['session_id'], 0, 64);
+        }
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+            $options = (array) ($data['options'] ?? []);
+
+            $bridge = $this->contract(AiPythonBridge::class);
+            if ($bridge->available()) {
+                $result = $bridge->call('/api/agents/tasks/create', [
+                    'context' => $context,
+                    'tool' => $tool,
+                    'question' => $question,
+                    'options' => $options,
+                ]);
+                return $this->success($result['data'] ?? [], 'Task created');
+            }
+
+            $result = $this->contract(AiAgentService::class)->createTask(
+                $this->getDb()->getConnection(),
+                $context,
+                $tool,
+                $question,
+                $options
+            );
+            return $this->success($result, 'Task created');
+        } catch (AiProviderException $e) {
+            try {
+                $result = $this->contract(AiAgentService::class)->createTask(
+                    $this->getDb()->getConnection(),
+                    $context,
+                    $tool,
+                    $question,
+                    $options
+                );
+                return $this->success($result, 'Task created');
+            } catch (\Throwable $inner) {
+                \App\API\Services\Logger::legacyError('[DashboardController] agent task create failed: ' . $inner->getMessage());
+                return $this->serverError('The assistant could not create the task right now');
+            }
+        } catch (DomainException $e) {
+            return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[DashboardController] agent task create failed: ' . $e->getMessage());
+            return $this->serverError('The assistant could not create the task right now');
+        }
+    }
+
+    /**
+     * GET /api/dashboard/agent-task/:id
+     * Get task status/result for the current user.
+     */
+    public function getAgentTask($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = (string) ($id ?? $data['task_id'] ?? $_GET['task_id'] ?? '');
+        if ($taskId === '') {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if ($bridge->available()) {
+            $result = $bridge->call('/api/agents/tasks/' . $taskId, [
+                'context' => [
+                    'user_id' => $userId,
+                    'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                    'audience' => 'staff',
+                    'route' => '',
+                    'module' => 'dashboard',
+                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ],
+            ], 'GET');
+            return $this->success($result['data'] ?? [], 'Task retrieved');
+        }
+        return $this->serverError('Task service unavailable');
+    }
+
+    /**
+     * GET /api/dashboard/agent-tasks
+     * List current user's tasks.
+     */
+    public function getAgentTasks($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $limit = (int) ($data['limit'] ?? $_GET['limit'] ?? 30);
+        $limit = max(1, min($limit, 100));
+        $bridge = $this->contract(AiPythonBridge::class);
+        if ($bridge->available()) {
+            $result = $bridge->call('/api/agents/tasks', [
+                'context' => [
+                    'user_id' => $userId,
+                    'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                    'audience' => 'staff',
+                    'route' => '',
+                    'module' => 'dashboard',
+                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ],
+            ], 'GET', ['limit' => $limit]);
+            return $this->success($result['data'] ?? [], 'Tasks retrieved');
+        }
+        return $this->serverError('Task service unavailable');
+    }
+
+    /**
+     * DELETE /api/dashboard/agent-task-cancel/:id
+     * Cancel a queued task.
+     */
+    public function deleteAgentTaskCancel($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = (string) ($id ?? $data['task_id'] ?? '');
+        if ($taskId === '') {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+        $bridge = $this->contract(AiPythonBridge::class);
+        if ($bridge->available()) {
+            $result = $bridge->call('/api/agents/tasks/' . $taskId, [
+                'context' => [
+                    'user_id' => $userId,
+                    'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                    'audience' => 'staff',
+                    'route' => '',
+                    'module' => 'dashboard',
+                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ],
+            ], 'DELETE');
+            return $this->success($result['data'] ?? [], 'Task cancelled');
+        }
+        return $this->serverError('Task service unavailable');
+    }
+
+    /**
+     * GET /api/dashboard/agent-task-stream/:id
+     * Stream task progress via SSE (same pattern as postAgentAssistStream).
+     */
+    public function getAgentTaskStream($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        $userId = (int) ($this->getUserId() ?? 0);
+        if ($userId < 1) {
+            return $this->unauthorized('A valid session is required');
+        }
+        $taskId = (string) ($id ?? $data['task_id'] ?? $_GET['task_id'] ?? '');
+        if ($taskId === '') {
+            return $this->respond(null, 'task_id required', 422, false);
+        }
+
+        $context = [
+            'user_id' => $userId,
+            'user_name' => trim((string) ($this->user['first_name'] ?? '') . ' ' . ($this->user['last_name'] ?? '')),
+            'roles' => $this->user['roles'] ?? [],
+            'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            'audience' => 'staff',
+            'route' => '',
+            'module' => 'dashboard',
+        ];
+
+        try {
+            $permissions = array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? [])));
+            $context['permissions'] = $permissions;
+            $context['effective_permissions'] = $permissions;
+        } catch (\Throwable $e) {
+            return $this->serverError('The assistant could not answer right now');
+        }
+
+        $this->beginEventStream();
+
+        $bridge = $this->contract(AiPythonBridge::class);
+        if ($bridge->available()) {
+            try {
+                [$ok] = $bridge->streamTask(
+                    $context,
+                    $taskId,
+                    function (string $chunk): void {
+                        $this->writeEventChunk($chunk);
+                    }
+                );
+                if ($ok) {
+                    $this->endEventStream();
+                    return null;
+                }
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError('[DashboardController] agent task stream relay failed: ' . $e->getMessage());
+                $this->writeEventChunk($this->eventChunk('error', [
+                    'message' => 'live streaming unavailable',
+                ]));
+            }
+        }
+
+        $this->writeEventChunk($this->eventChunk('error', [
+            'message' => 'The assistant could not stream the task right now',
+        ]));
+        $this->endEventStream();
+        return null;
     }
 
     /**
@@ -340,6 +850,9 @@ class DashboardController extends BaseController
         if (function_exists('fastcgi_finish_request')) {
             @fastcgi_finish_request();
         }
+        // Exit to prevent ControllerRouter from sending a second response
+        // after the SSE stream has already been fully sent.
+        exit(0);
     }
 
     public function postAgentTool($id = null, $data = [], $segments = [])

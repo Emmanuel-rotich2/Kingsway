@@ -74,6 +74,7 @@ class PaymentRoutingService
             return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,$purpose,'This collection route does not allow the payment channel '.$channelCode,$payload);
         }
         if ($routePurpose && $routePurpose !== $purpose) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'conflict','Routing conflict',$payload);
+        $feePaymentId=null;
         if ($purpose==='transport') {
             $ok=(new TransportPaymentService($this->db))->reconcileIntentReference($reference,$amount,$providerCode,$providerTransactionId);
             if (!$ok) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'transport','Transport reference has no active payment intent',$payload);
@@ -83,12 +84,24 @@ class PaymentRoutingService
         } else {
             $financialAccountId=$this->accountFinancialId($providerId,$accountIdentifier);
             if (!$financialAccountId) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'fees','Fees collection account is not mapped to a financial ledger account',$payload);
-            $this->recordFee($referenceRow['student_id'],$amount,$providerCode,$reference,$providerTransactionId,$payload,$financialAccountId);
+            $feePaymentId=$this->recordFee($referenceRow['student_id'],$amount,$providerCode,$reference,$providerTransactionId,$payload,$financialAccountId);
         }
         if (!empty($referenceRow['id'])) {
             $this->db->prepare("UPDATE payment_routing_references SET status='consumed' WHERE id=? AND status='active'")->execute([(int)$referenceRow['id']]);
         }
         $this->announceFamilyPayment((int)$referenceRow['student_id'], $purpose);
+        if (!empty($feePaymentId)) {
+            // Queue the parent receipt only after the fee ledger has been
+            // credited, so term/annual balances are post-payment.
+            (new FeePaymentReceiptNotifier($this->db))->notify(
+                (int)$referenceRow['student_id'],
+                $amount,
+                $reference,
+                $providerCode,
+                $providerTransactionId,
+                $this->extract($payload,['MSISDN','phone_number','payerPhone','phone','mobile'])
+            );
+        }
         return ['status'=>'processed','purpose'=>$purpose,'student_id'=>(int)$referenceRow['student_id'],'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
     }
 
@@ -163,25 +176,35 @@ class PaymentRoutingService
 
     public function resolveCase(int $id, array $data, int $userId): array
     {
-        $purpose=(string)($data['purpose']??''); $studentId=(int)($data['student_id']??0); $this->db->beginTransaction();
+        $purpose=(string)($data['purpose']??''); $studentId=(int)($data['student_id']??0); $feePaymentId=null; $feeCase=null; $this->db->beginTransaction();
         try {
             $s=$this->db->prepare("SELECT * FROM payment_unmatched_cases WHERE id=? AND status='unmatched' FOR UPDATE"); $s->execute([$id]); $c=$s->fetch(PDO::FETCH_ASSOC); if (!$c) throw new RuntimeException('Unmatched payment case not found');
-            if ($purpose==='fees') { if (!$studentId || !(int)($data['financial_account_id']??0)) throw new RuntimeException('student_id and financial_account_id are required'); $providerTransactionId=(string)($c['provider_transaction_id'] ?: ('UNMATCHED-'.$id)); $this->recordFee($studentId,(float)$c['amount'],$c['provider_code']??'generic_bank',$c['reference_value'] ?: '',$providerTransactionId,json_decode($c['raw_payload'],true)?:[],(int)$data['financial_account_id']); }
+            if ($purpose==='fees') { if (!$studentId || !(int)($data['financial_account_id']??0)) throw new RuntimeException('student_id and financial_account_id are required'); $providerTransactionId=(string)($c['provider_transaction_id'] ?: ('UNMATCHED-'.$id)); $feePaymentId=$this->recordFee($studentId,(float)$c['amount'],$c['provider_code']??'generic_bank',$c['reference_value'] ?: '',$providerTransactionId,json_decode($c['raw_payload'],true)?:[],(int)$data['financial_account_id']); $feeCase=$c; }
             elseif ($purpose==='transport') { $entitlement=(int)($data['entitlement_id']??0); $financialAccountId=(int)($data['financial_account_id']??0); if (!$studentId||!$entitlement||!$financialAccountId) throw new RuntimeException('student_id, entitlement_id and financial_account_id are required'); (new TransportPaymentService($this->db))->reconcileEntitlement($entitlement,$studentId,(float)$c['amount'],$c['provider_code']??'manual',$c['provider_transaction_id'] ?: ('UNMATCHED-'.$id),$financialAccountId); }
             elseif ($purpose==='uniforms') { $saleId=(int)($data['uniform_sale_id']??0); $financialAccountId=(int)($data['financial_account_id']??0); if (!$saleId||!$financialAccountId) throw new RuntimeException('uniform_sale_id and financial_account_id are required'); (new UniformPaymentService($this->db))->recordManualSale($saleId,(float)$c['amount'],$c['provider_transaction_id'] ?: ('UNMATCHED-'.$id),$userId,$financialAccountId); }
             else throw new RuntimeException('purpose must be fees, transport or uniforms');
-            $this->db->prepare("UPDATE payment_unmatched_cases SET status='resolved',purpose_candidate=?,resolved_student_id=?,resolved_by=?,resolved_at=NOW() WHERE id=?")->execute([$purpose,$studentId,$userId,$id]); $this->db->commit(); return ['id'=>$id,'status'=>'resolved','purpose'=>$purpose,'student_id'=>$studentId];
+            $this->db->prepare("UPDATE payment_unmatched_cases SET status='resolved',purpose_candidate=?,resolved_student_id=?,resolved_by=?,resolved_at=NOW() WHERE id=?")->execute([$purpose,$studentId,$userId,$id]); $this->db->commit();
+            if ($feePaymentId && $feeCase) {
+                (new FeePaymentReceiptNotifier($this->db))->notify(
+                    $studentId,
+                    (float)$feeCase['amount'],
+                    (string)($feeCase['reference_value'] ?: ''),
+                    (string)($feeCase['provider_code'] ?: 'generic_bank'),
+                    (string)($feeCase['provider_transaction_id'] ?: '')
+                );
+            }
+            return ['id'=>$id,'status'=>'resolved','purpose'=>$purpose,'student_id'=>$studentId];
         } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
     }
 
-    private function recordFee(int $studentId,float $amount,string $provider,string $reference,string $providerTransactionId,array $payload,int $financialAccountId): void
+    private function recordFee(int $studentId,float $amount,string $provider,string $reference,string $providerTransactionId,array $payload,int $financialAccountId): ?int
     {
         $reference = $this->normalizer->reference($reference);
         // Admission numbers are reusable parent-facing references, not
         // idempotency keys. Use the provider transaction identity so the same
         // learner can make multiple legitimate fee payments.
         $receiptNo = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $provider), 0, 8)) . '-' . strtoupper(substr(hash('sha256', $provider . '|' . $providerTransactionId), 0, 16));
-        $s=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? LIMIT 1'); $s->execute([$receiptNo]); if ($s->fetchColumn()) return;
+        $s=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? LIMIT 1'); $s->execute([$receiptNo]); if ($s->fetchColumn()) return null;
         // student_parents is a 4NF junction table with a composite key;
         // there is intentionally no surrogate id column to order by.
         $p=$this->db->prepare('SELECT parent_id FROM student_parents WHERE student_id=? ORDER BY is_primary_contact DESC,parent_id ASC LIMIT 1'); $p->execute([$studentId]); $parent=$p->fetchColumn() ?: null;
@@ -190,6 +213,7 @@ class PaymentRoutingService
         if (!$paymentId) throw new RuntimeException('Fee payment procedure did not create a payment record.');
         $this->db->prepare('UPDATE payments SET financial_account_id=?,payment_purpose=? WHERE id=?')->execute([$financialAccountId,'fees',$paymentId]);
         $this->posting->postIncoming('payment',$paymentId,$financialAccountId,'fees',(string)$amount,0,$reference);
+        return $paymentId;
     }
 
     private function providerId(string $code): int { $s=$this->db->prepare('SELECT id FROM payment_providers WHERE code=? AND active=1 ORDER BY environment=IF(?="production", "production", "sandbox") DESC,id LIMIT 1'); $env=defined('APP_ENV')?(string)APP_ENV:'sandbox'; $s->execute([$code,$env]); $id=$s->fetchColumn(); if (!$id) throw new RuntimeException('Payment provider is not configured: '.$code); return (int)$id; }

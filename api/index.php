@@ -137,7 +137,7 @@ if (!headers_sent()) {
     header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
-    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com; connect-src \'self\'; frame-ancestors \'none\'');
+    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; connect-src \'self\'; frame-ancestors \'none\'');
     if (($_ENV['APP_ENV'] ?? 'production') === 'production') {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }
@@ -151,6 +151,7 @@ $idempotencyOwnerToken = null;
 $idempotencyDb = null;
 $idempotencyConflict = false;
 $idempotencyInProgress = false;
+$idempotencySettled = false;
 $requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if (in_array($requestMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
     $idempotencyKey = RequestIdempotencyService::keyFromRequest();
@@ -168,6 +169,25 @@ if (in_array($requestMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
             );
             if ($reservation['type'] === 'owner') {
                 $idempotencyOwnerToken = $reservation['owner_token'];
+                // If this request dies (fatal error, timeout, killed worker)
+                // before storing a response, release the reservation so a
+                // retry with the same Idempotency-Key is not answered with a
+                // stale 409 until the 120-second lease lapses.
+                register_shutdown_function(static function () use (
+                    $idempotencyDb,
+                    $idempotencyHash,
+                    $idempotencyOwnerToken,
+                    &$idempotencySettled
+                ) {
+                    if ($idempotencySettled || $idempotencyDb === null || $idempotencyHash === null) {
+                        return;
+                    }
+                    try {
+                        RequestIdempotencyService::release($idempotencyDb, $idempotencyHash, $idempotencyOwnerToken);
+                    } catch (\Throwable $e) {
+                        // Cleanup failures must never surface during shutdown.
+                    }
+                });
             } elseif ($reservation['type'] === 'replay') {
                 http_response_code($reservation['status_code']);
                 $response = $reservation['response'];
@@ -214,6 +234,7 @@ if (!isset($response)) {
 // directly and flushed it, so the JSON envelope must not be appended.
 if (is_array($response) && !empty($response['stream_flushed'])) {
     ob_end_clean();
+    $idempotencySettled = true;
     return;
 }
 
@@ -223,6 +244,7 @@ if (is_array($response) && !empty($response['mcp_raw'])) {
     unset($response['mcp_raw']);
     ob_end_clean();
     echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $idempotencySettled = true;
     return;
 }
 $response = \App\API\Includes\ApiResponse::normalize(
@@ -235,15 +257,28 @@ if (!headers_sent() && !$response['success']) {
 if ($idempotencyDb !== null && $idempotencyHash !== null
     && $idempotencyPayloadHash !== null && $idempotencyOwnerToken !== null
     && !isset($replayed) && !$idempotencyConflict && !$idempotencyInProgress) {
+    $idempotencyStatus = http_response_code() ?: (int) ($response['code'] ?? 200);
     try {
-        RequestIdempotencyService::complete(
-            $idempotencyDb,
-            $idempotencyHash,
-            $idempotencyPayloadHash,
-            $idempotencyOwnerToken,
-            $response,
-            http_response_code() ?: (int) ($response['code'] ?? 200)
-        );
+        // Transient 5xx responses must not be journalled for 24-hour replay:
+        // release the reservation so the client's retry re-executes, instead
+        // of replaying the failure until the key expires.
+        if ($idempotencyStatus >= 500) {
+            RequestIdempotencyService::release(
+                $idempotencyDb,
+                $idempotencyHash,
+                $idempotencyOwnerToken
+            );
+        } else {
+            RequestIdempotencyService::complete(
+                $idempotencyDb,
+                $idempotencyHash,
+                $idempotencyPayloadHash,
+                $idempotencyOwnerToken,
+                $response,
+                $idempotencyStatus
+            );
+        }
+        $idempotencySettled = true;
     } catch (\Throwable $e) {
         \App\API\Services\Logger::warning('idempotency', 'Idempotency response could not be stored', [
             'error' => $e->getMessage(),

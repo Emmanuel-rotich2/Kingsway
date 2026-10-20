@@ -528,6 +528,12 @@ class CommunicationsManager extends FileLifecycleBase
                     if ($address !== '') $rows[] = [(int) $contact['id'], $address];
                     continue;
                 }
+                // Not a contact-directory id: a raw MSISDN (e.g. the payer
+                // phone on a payment) is still a valid direct address.
+                if (\App\API\Services\PhoneNumberNormalizer::normalize($value) !== null) {
+                    $rows[] = [null, $value];
+                    continue;
+                }
             }
             if (ctype_digit($value)) {
                 throw new \InvalidArgumentException('Recipient contact could not be resolved');
@@ -1068,9 +1074,27 @@ class CommunicationsManager extends FileLifecycleBase
     }
     public function listRecipients($communicationId)
     {
-        $sql = "SELECT * FROM communication_recipients WHERE communication_id = :communication_id ORDER BY id ASC";
+        $sql = "SELECT cr.*,
+                       e.id AS endpoint_id, e.channel, e.address, e.status AS endpoint_status,
+                       e.provider_status, e.attempt_count, e.last_attempt_at, e.delivered_at AS endpoint_delivered_at, e.last_error
+                  FROM communication_recipients cr
+             LEFT JOIN communication_recipient_endpoints e
+                    ON e.communication_recipient_id = cr.id
+                 WHERE cr.communication_id = :communication_id
+              ORDER BY cr.id ASC, e.id ASC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':communication_id' => $communicationId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function listOptOuts()
+    {
+        $sql = "SELECT id, name, phone, email, contact_type, provider, notes
+                  FROM contact_directory
+                 WHERE notes LIKE '%[Opted out%'
+              ORDER BY id DESC";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

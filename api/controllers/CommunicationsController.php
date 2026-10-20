@@ -1373,17 +1373,78 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->deleteRecipient($id));
     }
 
-    // --- Templates CRUD ---
+    /** GET /communications/opt-outs — contact_directory rows marked opted-out */
+    public function getOptOuts($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->listOptOuts());
+    }
+
+    // --- Templates CRUD (legacy endpoint /api/communications/template) ---
+    // Transforms new catalog/version/channel structure to legacy flat template format
     public function getTemplate($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
-            return $this->handleResponse($this->api->getTemplate($id));
+            // Single template lookup by channel_id - use new TemplatesAPI
+            $result = $this->templatesApi->getTemplateChannel(['channel_id' => (int) $id]);
+            if (!$result['success'] || empty($result['channel'])) {
+                return $this->notFound('Template not found');
+            }
+            $channel = $result['channel'];
+            // Get parent catalog info
+            $catalogResult = $this->templatesApi->getTemplate(['id' => (int) $channel['catalog_id']]);
+            $catalog = $catalogResult['template'] ?? [];
+            $version = $catalog['versions'][0] ?? [];
+
+            return $this->success([
+                'id' => $channel['channel_id'],
+                'name' => $catalog['name'] ?? '',
+                'template_type' => $channel['channel'],
+                'template_body' => $channel['body'] ?? '',
+                'subject' => $channel['subject'] ?? '',
+                'header' => $channel['header'] ?? '',
+                'footer' => $channel['footer'] ?? '',
+                'body_format' => $channel['body_format'] ?? 'plain',
+                'variables_json' => $channel['media_json'] ?? null,
+                'status' => $version['status'] ?? 'draft',
+                'catalog_id' => $catalog['catalog_id'] ?? 0,
+                'version_id' => $version['version_id'] ?? 0,
+                'code' => $catalog['code'] ?? '',
+                'purpose' => $catalog['purpose'] ?? '',
+            ]);
         }
-        $roles = $this->getUserRoleIds();
-        if (empty(array_intersect($roles, [2, 3, 4]))) {
-            $data['created_by'] = (int) $this->getUserId();
+
+        // Use new TemplatesAPI to get templates from catalog system
+        $result = $this->templatesApi->getTemplates($data);
+        if (!$result['success'] || empty($result['templates'])) {
+            return $this->success([]);
         }
-        return $this->handleResponse($this->api->listTemplates($data));
+
+        // Transform new structure to legacy format expected by frontend
+        $legacyTemplates = [];
+        foreach ($result['templates'] as $catalog) {
+            foreach ($catalog['versions'] ?? [] as $version) {
+                foreach ($version['channels'] ?? [] as $channel) {
+                    $legacyTemplates[] = [
+                        'id' => $channel['channel_id'],
+                        'name' => $catalog['name'] . ' (' . $channel['channel'] . ')',
+                        'template_type' => $channel['channel'],
+                        'template_body' => $channel['body'] ?? '',
+                        'subject' => $channel['subject'] ?? '',
+                        'header' => $channel['header'] ?? '',
+                        'footer' => $channel['footer'] ?? '',
+                        'body_format' => $channel['body_format'] ?? 'plain',
+                        'variables_json' => $channel['media_json'] ?? null,
+                        'status' => $version['status'] ?? 'draft',
+                        'catalog_id' => $catalog['catalog_id'],
+                        'version_id' => $version['version_id'],
+                        'code' => $catalog['code'],
+                        'purpose' => $catalog['purpose'],
+                    ];
+                }
+            }
+        }
+
+        return $this->success($legacyTemplates);
     }
     public function postTemplate($id = null, $data = [], $segments = [])
     {
@@ -1882,7 +1943,13 @@ class CommunicationsController extends BaseController
         try {
             $message = $this->emailInboxService->getMessage($profileId, $folder, $messageId);
             return $this->success(['message' => $message], 'Message retrieved');
-        } catch (Exception $e) {
+        } catch (\RuntimeException $e) {
+            if (str_contains($e->getMessage(), 'not found')) {
+                return $this->notFound($e->getMessage());
+            }
+            \App\API\Services\Logger::legacyError('[CommunicationsController] message read failed: ' . $e->getMessage());
+            return $this->badRequest('Unable to read message: ' . $e->getMessage());
+        } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[CommunicationsController] message read failed: ' . $e->getMessage());
             return $this->badRequest('Unable to read message. Please contact the System Administrator.');
         }

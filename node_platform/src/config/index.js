@@ -60,6 +60,35 @@ const ConfigSchema = z.object({
     workerSecret: z.string().min(1),
     webOrigins: z.array(z.string().url()),
     publishAllowIps: z.array(z.string()),
+    internalSecret: z.string().min(1),
+    aiPythonSecret: z.string().min(1),
+    // Threat detection configuration
+    threatDetection: z.object({
+      bruteForce: z.object({
+        count: z.number().int().min(1).default(5),
+        windowMs: z.number().int().min(1000).default(900000), // 15 min
+        uniqueUsers: z.number().int().min(1).default(3),
+        alertCooldownMs: z.number().int().min(1000).default(1800000), // 30 min
+      }).optional(),
+      credentialStuffing: z.object({
+        count: z.number().int().min(1).default(10),
+        windowMs: z.number().int().min(1000).default(3600000), // 1 hour
+        alertCooldownMs: z.number().int().min(1000).default(3600000), // 1 hour
+      }).optional(),
+      suspiciousQuery: z.object({
+        count: z.number().int().min(1).default(3),
+        windowMs: z.number().int().min(1000).default(3600000), // 1 hour
+        alertCooldownMs: z.number().int().min(1000).default(3600000), // 1 hour
+      }).optional(),
+      offTopic: z.object({
+        minLength: z.number().int().min(1).default(20),
+      }).optional(),
+    }).optional(),
+    // Public assistant rate limiting
+    publicRateLimit: z.object({
+      requestsPerMinute: z.number().int().min(1).default(20),
+      burstLimit: z.number().int().min(1).default(50),
+    }).optional(),
   }),
   metrics: z.object({
     prefix: z.string(),
@@ -132,7 +161,11 @@ export function loadConfig(overrides = {}) {
 
   const env = process.env.NODE_ENV || 'development';
   const configPath = resolve(__dirname, `../../config/${env}.yaml`);
-  const fileConfig = loadEnvFile(resolve(__dirname, '../../.env'));
+
+  // Priority: process.env (Passenger SetEnv, Docker, systemd) > .env file > YAML defaults
+  // .env file is only for local development; production uses Passenger SetEnv / Docker env / systemd env
+  const fileConfig = loadEnvFile(resolve(__dirname, '.env'));
+  // process.env takes precedence (Passenger SetEnv in production, Docker env, systemd)
   const mergedEnv = mergeEnv(fileConfig, process.env);
 
   let yamlConfig = {};
@@ -155,6 +188,8 @@ export function loadConfig(overrides = {}) {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean),
+      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.internalSecret || '',
+      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.aiPythonSecret || '',
     },
     app: {
       ...yamlConfig.app,
@@ -169,6 +204,14 @@ export function loadConfig(overrides = {}) {
       heartbeatMs: mergedEnv.NODE_REALTIME_HEARTBEAT_MS
         ? Number.parseInt(mergedEnv.NODE_REALTIME_HEARTBEAT_MS, 10)
         : yamlConfig.sse?.heartbeatMs,
+      // Memory-safety soft cap per user (oldest connections are evicted,
+      // never a 429 lockout). Tunable from the host panel without redeploy.
+      userMaxConnections: mergedEnv.NODE_REALTIME_USER_MAX_CONNECTIONS
+        ? Number.parseInt(mergedEnv.NODE_REALTIME_USER_MAX_CONNECTIONS, 10)
+        : yamlConfig.sse?.userMaxConnections,
+      maxConnections: mergedEnv.NODE_REALTIME_MAX_CONNECTIONS
+        ? Number.parseInt(mergedEnv.NODE_REALTIME_MAX_CONNECTIONS, 10)
+        : yamlConfig.sse?.maxConnections,
     },
     internalHttp: {
       ...yamlConfig.internalHttp,

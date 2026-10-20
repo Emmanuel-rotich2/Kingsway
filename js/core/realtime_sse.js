@@ -25,6 +25,13 @@
   let retryTimer = 0;
   let retryAttempt = 0;
   let capability = null;
+  // Consecutive connect→error cycles that died within FAST_FAIL_MS of the
+  // socket opening. A stream that never reaches the `connected` frame is not
+  // a "down gateway" (that survives and backs off normally) but a rejection
+  // at the edge (rate limit, proxy block, capacity): escalating straight to
+  // the max delay stops hammering it while buffer polling carries events.
+  let fastFailures = 0;
+  let connectStartedAt = 0;
 
   // Capped backoff for connection-level failures. The transport never gives up
   // (a re-probed gateway reconnects on its own), but it also never spams: each
@@ -32,6 +39,8 @@
   // calls and one socket open per interval.
   const MAX_BACKOFF_MS = 60000;
   const RENEW_BEFORE_MS = 30000;
+  const FAST_FAIL_MS = 5000;
+  const FAST_FAIL_THRESHOLD = 3;
 
   function emit(name, detail) {
     window.dispatchEvent(new CustomEvent(name, { detail }));
@@ -85,7 +94,11 @@
 
   function scheduleReconnect() {
     if (retryTimer) return;
-    const delay = Math.min(MAX_BACKOFF_MS, 1000 * (2 ** retryAttempt));
+    const base = Math.min(MAX_BACKOFF_MS, 1000 * (2 ** retryAttempt));
+    // Full jitter: spread reconnect attempts so many tabs/sessions recovering
+    // from the same gateway blip don't synchronize into a thundering herd
+    // against the proxy or the token endpoint.
+    const delay = Math.round(base * (0.5 + Math.random() * 0.5));
     retryAttempt = Math.min(retryAttempt + 1, 6); // 1s→2s→4s→8s→16s→32s→60s cap
     retryTimer = window.setTimeout(() => {
       retryTimer = 0;
@@ -116,7 +129,15 @@
     }
     const token = result?.data?.token || result?.token;
     const url = result?.data?.url || result?.url;
-    const expiresAt = Number(new Date(result?.data?.expires_at || 0));
+    // Accept both wrapped ({data:{expires_at}}) and unwrapped ({expires_at})
+    // envelopes. An absent or unparseable expiry must yield NaN — NOT epoch 0
+    // — so usableCapability() treats it as "unknown, server enforces" and the
+    // cached token is reused. The old `|| 0` fallback made every reconnect
+    // re-mint a token (epoch 0 always looks expired), multiplying PHP load
+    // and proxy connection churn during gateway blips.
+    const rawExpiry = result?.data?.expires_at ?? result?.expires_at;
+    const parsedExpiry = rawExpiry ? Number(new Date(rawExpiry)) : NaN;
+    const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : NaN;
     if (typeof token !== 'string' || !token || typeof url !== 'string' || !url) {
       return false;
     }
@@ -146,10 +167,12 @@
       source = null;
     }
     source = new EventSource(endpoint.toString());
+    connectStartedAt = Date.now();
     source.addEventListener('kingsway', deliver);
     const onStreamOpen = () => {
       const isReconnect = retryAttempt > 0;
       retryAttempt = 0;
+      fastFailures = 0;
       // Gateway restart catch-up: after a reconnect the socket missed every
       // event published while it was down, so silently re-fetch all endpoints
       // this page depends on. The static-buffer manager does the same on
@@ -189,6 +212,17 @@
       // gateway costs one socket open per backoff interval and never re-mints.
       source?.close();
       source = null;
+      // Distinguish "gateway down" (survives, backs off normally) from "edge
+      // rejecting us" (stream dies within FAST_FAIL_MS of opening, never
+      // reached the connected frame). The latter is a rate/capacity signal:
+      // escalate straight to the max delay so we stop hammering the edge
+      // while RealtimeManager's buffer polling carries events meanwhile.
+      const livedFast = connectStartedAt > 0 && (Date.now() - connectStartedAt) < FAST_FAIL_MS;
+      fastFailures = livedFast ? fastFailures + 1 : 0;
+      if (fastFailures >= FAST_FAIL_THRESHOLD) {
+        retryAttempt = 6; // jump to the 60s cap immediately
+        fastFailures = 0;
+      }
       emit('kingsway:realtime-status', { detail: { state: 'reconnecting' } });
       scheduleReconnect();
     };

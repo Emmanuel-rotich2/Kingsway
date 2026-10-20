@@ -19,6 +19,7 @@ use DomainException;
  *   POST /api/public/inquiries
  *   POST /api/public/applications
  *   POST /api/public/subscribers
+ *   POST /api/public/leads
  */
 class PublicController extends BaseAPI
 {
@@ -178,53 +179,48 @@ public function postSubscribers($id = null, $data = [], $segments = [])
         return $this->manager->createSubscriber($email, trim($data['name'] ?? ''));
     }
 
+    /**
+     * POST /api/public/leads
+     * Lead capture from the public AI assistant handoff card. Stored in the
+     * existing contact_inquiries table and emailed to admissions; no external
+     * messaging provider is involved because Buni/Daraja are payment gateways.
+     */
+    public function postLeads($id = null, $data = [], $segments = [])
+    {
+        $name = trim((string) ($data['name'] ?? ''));
+        $phone = trim((string) ($data['phone'] ?? ''));
+        $details = trim((string) ($data['details'] ?? ''));
+        $rawEmail = trim((string) ($data['email'] ?? ''));
+        $email = $rawEmail !== '' ? filter_var($rawEmail, FILTER_VALIDATE_EMAIL) : null;
+
+        if ($name === '' || $phone === '' || $details === '') {
+            return $this->errorResponse('Name, phone and inquiry details are required.', 422);
+        }
+        if ($rawEmail !== '' && !$email) {
+            return $this->errorResponse('Please enter a valid email address.', 422);
+        }
+        if (mb_strlen($name) > 120 || mb_strlen($phone) > 40 || mb_strlen($details) > 2000) {
+            return $this->errorResponse('One or more fields are too long.', 422);
+        }
+
+        return $this->manager->createAiLead([
+            'name' => $name,
+            'phone' => $phone,
+            'details' => $details,
+            'email' => $email,
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+        ]);
+    }
+
     /** POST /api/public/ai-faq */
     public function postAiFaq($id = null, $data = [], $segments = [])
     {
         try {
-            $content = $this->manager->getContent();
-            $payload = is_array($content['data'] ?? null) ? $content['data'] : (is_array($content) ? $content : []);
-            $corpus = [];
-            foreach ($payload as $key => $value) {
-                $sourceKey = preg_replace('/[^a-z0-9_]+/i', '_', (string) $key);
-                if (is_scalar($value) && trim((string) $value) !== '') {
-                    $corpus[] = ['id' => 'public_' . $sourceKey, 'title' => (string) $key, 'content' => (string) $value];
-                    continue;
-                }
-                if (!is_array($value)) continue;
-                foreach (array_slice($value, 0, 40) as $index => $item) {
-                    if (!is_array($item)) continue;
-                    // WebsiteManager exposes published blocks as content_key /
-                    // content_value, while normalized public sections use
-                    // description/name/title. Include only public prose fields;
-                    // never send IDs, ordering, flags, or internal metadata.
-                    $parts = [];
-                    foreach (['content_value', 'content', 'description', 'level_range', 'event_title', 'bio', 'setting_value'] as $field) {
-                        $text = trim((string) ($item[$field] ?? ''));
-                        if ($text !== '') $parts[] = $text;
-                    }
-                    if ($parts === []) continue;
-                    $title = (string) ($item['title'] ?? $item['content_key'] ?? $item['name'] ?? $item['event_title'] ?? $key);
-                    $corpus[] = [
-                        'id' => 'public_' . $sourceKey . '_' . (int) $index,
-                        'title' => $title,
-                        'content' => implode("\n", array_unique($parts)),
-                    ];
-                }
-            }
-            // This is a public fact already displayed in the shared website
-            // footer/login pages. Keep it explicit so a technology question
-            // cannot be answered with the unrelated school-founder record.
-            $corpus[] = [
-                'id' => 'public_system_maintainer',
-                'title' => 'School system maintenance',
-                'content' => 'The Kingsway school management system is maintained by AngiSoft Technologies. Public company information is available at https://www.angisoft.co.ke. The published school information does not claim that the founders developed the software.',
-            ];
-            $corpus[] = [
-                'id' => 'public_system_maintainer_contact',
-                'title' => 'AngiSoft Technologies contact',
-                'content' => 'To contact AngiSoft Technologies, visit https://www.angisoft.co.ke/contact, call or send SMS/WhatsApp to +254710398690, or email info@angisoft.co.ke. AngiSoft Technologies is based in Nairobi, Kenya.',
-            ];
+            // The Python platform refreshes storage/public/faqs.json from the
+            // published site (term dates, academic year, contacts) on a
+            // schedule. PublicFaqService falls back to live website content
+            // when that corpus has not been generated yet.
+            $corpus = $this->contract('App\\API\\Services\\PublicFaqService')->corpus($this->manager);
             $result = $this->contract('App\\API\\Services\\PublicAiAssistantService')->ask(
                 (string) ($data['question'] ?? ''),
                 $corpus,

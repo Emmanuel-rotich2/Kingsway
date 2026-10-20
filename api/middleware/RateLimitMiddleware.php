@@ -17,6 +17,8 @@ class RateLimitMiddleware
     // Public AI is provider-backed and anonymous; keep its cost/abuse bucket
     // separate from ordinary public website traffic.
     const PUBLIC_AI_REQUESTS_LIMIT = 20;
+    // Handoff leads are low-volume but write to the DB and send email.
+    const PUBLIC_LEADS_REQUESTS_LIMIT = 5;
     const TIME_WINDOW = 60; // seconds
 
     // Login endpoints that get a stricter rate limit.
@@ -108,6 +110,9 @@ class RateLimitMiddleware
         if (self::isPublicAiEndpoint()) {
             return self::PUBLIC_AI_REQUESTS_LIMIT;
         }
+        if (self::isPublicLeadsEndpoint()) {
+            return self::PUBLIC_LEADS_REQUESTS_LIMIT;
+        }
         if (self::isRefreshEndpoint()) {
             return self::REFRESH_REQUESTS_LIMIT;
         }
@@ -133,6 +138,12 @@ class RateLimitMiddleware
     {
         $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
         return strpos($path, '/public/ai-faq') !== false;
+    }
+
+    private static function isPublicLeadsEndpoint(): bool
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        return strpos($path, '/public/leads') !== false;
     }
 
     private static function isLoginEndpoint()
