@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import sqlite3 from 'sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 import { getBus } from '../realtime/bus.js';
@@ -14,6 +14,10 @@ import { getBus } from '../realtime/bus.js';
  * process memory: Passenger can recycle this worker at any time and the next
  * worker must see the same brute-force, credential-stuffing and blocked-IP
  * state. The only in-process state is the database handle itself.
+ *
+ * Uses Node's built-in `node:sqlite` module rather than the npm `sqlite3`
+ * package, whose native addon requires a newer glibc than the shared host
+ * provides (ERR_DLOPEN_FAILED / GLIBC_2.38).
  */
 class ThreatDetector {
   constructor() {
@@ -50,7 +54,13 @@ class ThreatDetector {
       },
     };
 
-    this.ready = this.init();
+    try {
+      this.init();
+      this.ready = Promise.resolve();
+    } catch (err) {
+      this.logger.error({ err: err.message, dbPath: this.dbPath }, 'Failed to open threat detection database');
+      this.ready = Promise.reject(err);
+    }
     this.cleanupTimer = setInterval(() => {
       this.cleanup().catch((err) => {
         this.logger.warn({ err: err.message }, 'Threat detector cleanup failed');
@@ -59,15 +69,13 @@ class ThreatDetector {
     this.cleanupTimer.unref?.();
   }
 
-  async init() {
-    await new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+  init() {
+    this.db = new DatabaseSync(this.dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA synchronous = NORMAL');
+    this.db.exec('PRAGMA busy_timeout = 5000');
 
-    await this.run(`CREATE TABLE IF NOT EXISTS failed_logins (
+    this.run(`CREATE TABLE IF NOT EXISTS failed_logins (
       ip TEXT PRIMARY KEY,
       count INTEGER NOT NULL DEFAULT 0,
       first_attempt INTEGER NOT NULL,
@@ -75,7 +83,7 @@ class ThreatDetector {
       last_alert INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     )`);
-    await this.run(`CREATE TABLE IF NOT EXISTS suspicious_queries (
+    this.run(`CREATE TABLE IF NOT EXISTS suspicious_queries (
       ip TEXT PRIMARY KEY,
       count INTEGER NOT NULL DEFAULT 0,
       window_start INTEGER NOT NULL,
@@ -83,13 +91,13 @@ class ThreatDetector {
       last_alert INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     )`);
-    await this.run(`CREATE TABLE IF NOT EXISTS blocked_ips (
+    this.run(`CREATE TABLE IF NOT EXISTS blocked_ips (
       ip TEXT PRIMARY KEY,
       reason TEXT NOT NULL,
       blocked_at INTEGER NOT NULL,
       expires_at INTEGER
     )`);
-    await this.run(`CREATE TABLE IF NOT EXISTS alerts (
+    this.run(`CREATE TABLE IF NOT EXISTS alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       type TEXT NOT NULL,
       severity TEXT NOT NULL,
@@ -99,41 +107,26 @@ class ThreatDetector {
       timestamp INTEGER NOT NULL,
       hostname TEXT
     )`);
-    await this.run(`CREATE TABLE IF NOT EXISTS alert_cooldowns (
+    this.run(`CREATE TABLE IF NOT EXISTS alert_cooldowns (
       cooldown_key TEXT PRIMARY KEY,
       last_alert INTEGER NOT NULL
     )`);
-    await this.run('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)');
-    await this.run('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)');
+    this.run('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)');
+    this.run('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)');
 
     this.logger.info({ dbPath: this.dbPath }, 'Threat detector ready');
   }
 
   run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function onRun(err) {
-        if (err) reject(err);
-        else resolve(this);
-      });
-    });
+    return this.db.prepare(sql).run(...params);
   }
 
   get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+    return this.db.prepare(sql).get(...params);
   }
 
   all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+    return this.db.prepare(sql).all(...params);
   }
 
   normalizeIp(ip) {
@@ -415,7 +408,10 @@ class ThreatDetector {
 
   shutdown() {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
-    if (this.db) this.db.close();
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
   }
 }
 

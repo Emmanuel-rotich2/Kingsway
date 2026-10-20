@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import sqlite3 from 'sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 
@@ -11,6 +11,10 @@ import { getLogger } from '../logger/index.js';
  * Node storage namespace (never in process memory), which also means limits
  * survive Passenger worker restarts and are shared by every worker process
  * using the same STORAGE_ROOT.
+ *
+ * Uses Node's built-in `node:sqlite` module rather than the npm `sqlite3`
+ * package: the latter ships a native addon that cannot run on older glibc
+ * hosts (ERR_DLOPEN_FAILED / GLIBC_2.38), which breaks Passenger startup.
  */
 export class FileRateLimiter {
   constructor({
@@ -33,7 +37,14 @@ export class FileRateLimiter {
     fs.mkdirSync(directory, { recursive: true });
     this.dbPath = path.join(directory, `${name}.sqlite`);
 
-    this.ready = this.open();
+    this.db = null;
+    try {
+      this.open();
+      this.ready = Promise.resolve();
+    } catch (err) {
+      this.ready = Promise.reject(err);
+    }
+
     this.cleanupTimer = setInterval(() => {
       this.cleanup().catch((err) => {
         this.logger.warn({ err: err.message }, 'Rate limiter cleanup failed');
@@ -43,50 +54,32 @@ export class FileRateLimiter {
   }
 
   open() {
-    return new Promise((resolve, reject) => {
-      this.db = new sqlite3.Database(this.dbPath, (err) => {
-        if (err) {
-          this.logger.error({ err: err.message, dbPath: this.dbPath }, 'Failed to open rate limit database');
-          reject(err);
-          return;
-        }
-        this.db.run(
-          `CREATE TABLE IF NOT EXISTS rate_limits (
-             bucket_key TEXT PRIMARY KEY,
-             window_start INTEGER NOT NULL,
-             window_count INTEGER NOT NULL,
-             burst_start INTEGER NOT NULL,
-             burst_count INTEGER NOT NULL
-           )`,
-          (createErr) => {
-            if (createErr) {
-              this.logger.error({ err: createErr.message }, 'Failed to create rate limit table');
-              reject(createErr);
-              return;
-            }
-            resolve();
-          },
-        );
-      });
-    });
+    try {
+      this.db = new DatabaseSync(this.dbPath);
+      this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.exec('PRAGMA synchronous = NORMAL');
+      this.db.exec('PRAGMA busy_timeout = 5000');
+      this.db.exec(
+        `CREATE TABLE IF NOT EXISTS rate_limits (
+           bucket_key TEXT PRIMARY KEY,
+           window_start INTEGER NOT NULL,
+           window_count INTEGER NOT NULL,
+           burst_start INTEGER NOT NULL,
+           burst_count INTEGER NOT NULL
+         )`,
+      );
+    } catch (err) {
+      this.logger.error({ err: err.message, dbPath: this.dbPath }, 'Failed to open rate limit database');
+      throw err;
+    }
   }
 
   run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function onRun(err) {
-        if (err) reject(err);
-        else resolve(this);
-      });
-    });
+    return this.db.prepare(sql).run(...params);
   }
 
   get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+    return this.db.prepare(sql).get(...params);
   }
 
   async check(bucketKey) {
@@ -101,7 +94,7 @@ export class FileRateLimiter {
     const now = Date.now();
 
     try {
-      const row = await this.get('SELECT * FROM rate_limits WHERE bucket_key = ?', [key]);
+      const row = this.get('SELECT * FROM rate_limits WHERE bucket_key = ?', [key]);
       let windowStart = row?.window_start ?? now;
       let windowCount = row?.window_count ?? 0;
       let burstStart = row?.burst_start ?? now;
@@ -119,7 +112,7 @@ export class FileRateLimiter {
       windowCount += 1;
       burstCount += 1;
 
-      await this.run(
+      this.run(
         `INSERT INTO rate_limits (bucket_key, window_start, window_count, burst_start, burst_count)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(bucket_key) DO UPDATE SET
@@ -152,11 +145,14 @@ export class FileRateLimiter {
   async cleanup() {
     await this.ready;
     const cutoff = Date.now() - Math.max(this.windowMs, this.burstWindowMs) * 2;
-    await this.run('DELETE FROM rate_limits WHERE window_start < ? AND burst_start < ?', [cutoff, cutoff]);
+    this.run('DELETE FROM rate_limits WHERE window_start < ? AND burst_start < ?', [cutoff, cutoff]);
   }
 
   close() {
     if (this.cleanupTimer) clearInterval(this.cleanupTimer);
-    if (this.db) this.db.close();
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
   }
 }
