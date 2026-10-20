@@ -56,8 +56,8 @@ class WebsiteManager extends BaseAPI
         $stmt = $this->db->query(
             "SELECT d.id, d.code, d.name, d.description, d.status,
                     cd.email, cd.phone
-             FROM " . ReadReplicaService::qualifiedRef("departments") . "
-             JOIN contact_directory cd
+             FROM " . ReadReplicaService::qualifiedRef("departments") . " d
+             LEFT JOIN contact_directory cd
                     ON cd.contact_type = 'department' AND cd.department_id = d.id
              WHERE d.status = 'active'
              ORDER BY d.id ASC"
@@ -1055,10 +1055,113 @@ class WebsiteManager extends BaseAPI
                 $extra['leadership_positions'] = [];
             }
             $extra['departments'] = $this->departmentSections();
+            $extra['term_dates'] = $this->publicTermDates();
             return $this->successResponse(['blocks' => $rows, 'sections' => $extra]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Published term dates for the public website and FAQ corpus.
+     * Reads board-owned calendar dates only; no learner or staff records.
+     *
+     * @return array<int,array{title:string,content:string}>
+     */
+    public function publicTermDates(): array
+    {
+        try {
+            $year = $this->db->query(
+                "SELECT id, year_name FROM academic_years ORDER BY is_current DESC, id DESC LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$year) {
+                return [];
+            }
+
+            $terms = [];
+            foreach ($this->db->query("SELECT id, name FROM terms")->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $terms[(int) $row['id']] = (string) $row['name'];
+            }
+
+            $stmt = $this->db->prepare(
+                "SELECT term_id, opening_date, half_term_start, half_term_end, closing_date, status
+                 FROM " . ReadReplicaService::qualifiedRef('academic_year_terms') . "
+                 WHERE academic_year_id = ?
+                 ORDER BY term_id"
+            );
+            $stmt->execute([(int) $year['id']]);
+
+            $format = static function ($value): string {
+                $value = is_string($value) ? trim($value) : '';
+                if ($value === '') {
+                    return '';
+                }
+                $timestamp = strtotime($value);
+                return $timestamp ? date('j F Y', $timestamp) : '';
+            };
+
+            $out = [];
+            $yearLabel = trim((string) ($year['year_name'] ?? ''));
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $term) {
+                $parts = [];
+                $opening = $format($term['opening_date'] ?? null);
+                $closing = $format($term['closing_date'] ?? null);
+                $halfStart = $format($term['half_term_start'] ?? null);
+                $halfEnd = $format($term['half_term_end'] ?? null);
+                if ($opening !== '') {
+                    $parts[] = 'opens ' . $opening;
+                }
+                if ($halfStart !== '' && $halfEnd !== '') {
+                    $parts[] = 'half-term ' . $halfStart . ' to ' . $halfEnd;
+                }
+                if ($closing !== '') {
+                    $parts[] = 'closes ' . $closing;
+                }
+                if ($parts === []) {
+                    continue;
+                }
+                $termName = $terms[(int) $term['term_id']] ?? 'Term';
+                $out[] = [
+                    'title' => trim($termName . ($yearLabel !== '' ? ' ' . $yearLabel : '')),
+                    'content' => ucfirst(implode('; ', $parts)) . '.',
+                ];
+            }
+
+            return $out;
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] term dates unavailable: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Published office contacts for the public FAQ assistant. Limits the read
+     * to department-type directory rows so staff, parent and supplier records
+     * can never enter a public corpus.
+     *
+     * @return array<int,array{name:string,email:string,phone:string}>
+     */
+    public function publicDepartmentContacts(): array
+    {
+        try {
+            $stmt = $this->db->query(
+                "SELECT name, email, phone
+                 FROM contact_directory
+                 WHERE contact_type = 'department'
+                   AND ((email IS NOT NULL AND email <> '') OR (phone IS NOT NULL AND phone <> ''))
+                 ORDER BY name"
+            );
+            return array_map(static function (array $row): array {
+                return [
+                    'name' => trim((string) ($row['name'] ?? '')),
+                    'email' => trim((string) ($row['email'] ?? '')),
+                    'phone' => trim((string) ($row['phone'] ?? '')),
+                ];
+            }, $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] department contacts unavailable: ' . $e->getMessage());
+            return [];
         }
     }
 
@@ -1966,6 +2069,98 @@ class WebsiteManager extends BaseAPI
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Lead captured by the public AI assistant handoff card.
+     *
+     * Reuses contact_inquiries (which already has a phone column) instead of
+     * adding a new table. Admissions is notified by email; no WhatsApp/SMS
+     * provider is involved because Buni and Daraja are payment gateways.
+     */
+    public function createAiLead(array $d)
+    {
+        try {
+            $name = trim((string) ($d['name'] ?? ''));
+            $phone = trim((string) ($d['phone'] ?? ''));
+            $details = trim((string) ($d['details'] ?? ''));
+            $email = filter_var(trim((string) ($d['email'] ?? '')), FILTER_VALIDATE_EMAIL) ?: '';
+            $subject = 'AI Assistant Lead';
+
+            $stmt = $this->db->prepare(
+                "INSERT INTO contact_inquiries (full_name,email,phone,subject,message,ip_address)
+                 VALUES (?,?,?,?,?,?)"
+            );
+            $stmt->execute([
+                $name,
+                $email,
+                $phone,
+                $subject,
+                $details,
+                $d['ip_address'] ?? ($_SERVER['REMOTE_ADDR'] ?? null),
+            ]);
+            $leadId = (int) $this->db->lastInsertId();
+
+            $recipients = $this->aiLeadRecipients();
+            if ($recipients !== []) {
+                $safeName = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+                $safePhone = htmlspecialchars($phone, ENT_QUOTES, 'UTF-8');
+                $safeEmail = htmlspecialchars($email !== '' ? $email : 'not provided', ENT_QUOTES, 'UTF-8');
+                $safeDetails = nl2br(htmlspecialchars($details, ENT_QUOTES, 'UTF-8'));
+                $body = "<p>A visitor requested a callback from the website AI assistant.</p>"
+                    . "<p><strong>Name:</strong> {$safeName}<br>"
+                    . "<strong>Phone:</strong> {$safePhone}<br>"
+                    . "<strong>Email:</strong> {$safeEmail}</p>"
+                    . "<p><strong>Inquiry:</strong><br>{$safeDetails}</p>";
+                try {
+                    $this->contract(\App\API\Services\MessageService::class)->sendEmail(
+                        $recipients,
+                        'New admissions inquiry from the website assistant',
+                        $body
+                    );
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError('[WebsiteManager] AI lead email failed: ' . $e->getMessage());
+                }
+            }
+
+            return $this->successResponse(
+                ['id' => $leadId],
+                'Thank you. Our admissions team will contact you shortly.',
+                201
+            );
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Admissions office mailbox(es) from the public contact directory.
+     *
+     * @return array<int, string>
+     */
+    private function aiLeadRecipients(): array
+    {
+        try {
+            $stmt = $this->db->query(
+                "SELECT DISTINCT cd.email
+                 FROM contact_directory cd
+                 LEFT JOIN departments d ON d.id = cd.department_id
+                 WHERE cd.contact_type = 'department'
+                   AND cd.email IS NOT NULL AND cd.email <> ''
+                   AND (cd.name LIKE '%Admission%'
+                        OR d.name LIKE '%Admission%'
+                        OR d.code = 'ADMISSIONS_OFFICE')"
+            );
+            $emails = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+            return array_values(array_unique(array_filter(array_map(
+                static fn($value): string => trim((string) $value),
+                $emails
+            ))));
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] admissions recipients unavailable: ' . $e->getMessage());
+            return [];
         }
     }
 

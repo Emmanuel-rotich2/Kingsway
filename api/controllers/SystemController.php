@@ -661,8 +661,8 @@ class SystemController extends BaseController
         return $this->success([
             'status' => 'active',
             'uptime' => $this->formatUptime(),
-            'window' => defined('RATE_LIMIT_WINDOW') ? RATE_LIMIT_WINDOW : null,
-            'max_requests' => defined('RATE_LIMIT_MAX_REQUESTS') ? RATE_LIMIT_MAX_REQUESTS : null,
+            'window' => \App\API\Middleware\RateLimitMiddleware::TIME_WINDOW,
+            'max_requests' => \App\API\Middleware\RateLimitMiddleware::AUTHENTICATED_REQUESTS_LIMIT,
             'source' => 'RateLimitMiddleware',
             'timestamp' => date('c'),
         ], 'Rate limiting status retrieved');
@@ -2495,5 +2495,77 @@ class SystemController extends BaseController
         }
 
         return $this->forbidden('Director or School Administrator access required');
+    }
+
+    /**
+     * POST /api/system/send-security-alert
+     * Worker-secret authenticated; sends email to system administrators.
+     * Called by Node gateway ThreatDetector.
+     */
+    public function postSendSecurityAlert($id = null, $data = [], $segments = [])
+    {
+        $secret = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        $expected = (string) \App\Config\Config::get('COMMUNICATION_WORKER_SECRET');
+        if (!$expected || !hash_equals($expected, $secret)) {
+            return $this->unauthorized('Invalid worker secret');
+        }
+
+        $alert = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($alert)) {
+            return $this->respond(null, 'Invalid alert payload', 422, false);
+        }
+
+        // Fetch system administrators' emails
+        $db = $this->getDb()->getConnection();
+        $stmt = $db->prepare("
+            SELECT u.email, u.first_name, u.last_name
+            FROM users u
+            JOIN user_roles ur ON ur.user_id = u.id
+            JOIN roles r ON r.id = ur.role_id
+            WHERE r.name = 'System Administrator'
+            AND u.status = 'active'
+            AND u.email IS NOT NULL
+            AND u.email != ''
+        ");
+        $stmt->execute();
+        $admins = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        if (empty($admins)) {
+            \App\API\Services\Logger::legacyError('[SystemController] No system administrators with email found for security alert');
+            return $this->respond(null, 'No recipients configured', 500, false);
+        }
+
+        $type = $alert['type'] ?? 'unknown';
+        $severity = $alert['severity'] ?? 'warning';
+        $timestamp = $alert['timestamp'] ?? date('c');
+        $details = $alert['details'] ?? [];
+        $hostname = $alert['hostname'] ?? 'unknown';
+
+        $subject = "[Kingsway Security] {$severity}: {$type}";
+        $body = "A security alert was triggered:\n\n";
+        $body .= "Type: {$type}\n";
+        $body .= "Severity: {$severity}\n";
+        $body .= "Time: {$timestamp}\n";
+        $body .= "Host: {$hostname}\n";
+        $body .= "Details: " . json_encode($details, JSON_PRETTY_PRINT) . "\n";
+
+        $messageService = $this->contract(\App\API\Services\MessageService::class);
+        $sent = 0;
+        foreach ($admins as $admin) {
+            $email = $admin['email'];
+            $name = trim(($admin['first_name'] ?? '') . ' ' . ($admin['last_name'] ?? ''));
+            try {
+                $messageService->sendEmail([$email => $name], $subject, $body);
+                $sent++;
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError('[SystemController] Failed to send security alert to ' . $email . ': ' . $e->getMessage());
+            }
+        }
+
+        if ($sent === 0) {
+            return $this->serverError('Failed to send alerts to any administrator');
+        }
+
+        return $this->success(['sent_to' => $sent], 'Security alert sent');
     }
 }

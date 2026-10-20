@@ -65,18 +65,22 @@ final class AiPythonBridge
      */
     public function assist(array $context, string $question): array
     {
+        $ctx = [
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', array_merge(
+                (array) ($context['effective_permissions'] ?? []),
+                (array) ($context['permissions'] ?? [])
+            )))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
+        ];
+        if (!empty($context['session_id'])) {
+            $ctx['session_id'] = mb_substr((string) $context['session_id'], 0, 64);
+        }
         return $this->call(self::ENDPOINT_ASSIST, [
-            'context' => [
-                'user_id' => (int) ($context['user_id'] ?? 0),
-                'permissions' => array_values(array_unique(array_map('strval', array_merge(
-                    (array) ($context['effective_permissions'] ?? []),
-                    (array) ($context['permissions'] ?? [])
-                )))),
-                'audience' => 'staff',
-                'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
-                'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
-                'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
-            ],
+            'context' => $ctx,
             'question' => $question,
         ]);
     }
@@ -275,8 +279,24 @@ final class AiPythonBridge
         if (!$this->client->isConfigured('python_ai') || $secret === '') {
             throw new AiProviderException('The Python AI platform is not configured.');
         }
+        $ctx = $context;
+        // Build the context with session_id if present
+        $streamContext = [
+            'user_id' => (int) ($ctx['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', array_merge(
+                (array) ($ctx['effective_permissions'] ?? []),
+                (array) ($ctx['permissions'] ?? [])
+            )))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($ctx['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($ctx['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($ctx['request_id'] ?? 'ai-python-bridge'), 0, 100),
+        ];
+        if (!empty($ctx['session_id'])) {
+            $streamContext['session_id'] = mb_substr((string) $ctx['session_id'], 0, 64);
+        }
         $body = json_encode(
-            ['context' => $context, 'question' => $question],
+            ['context' => $streamContext, 'question' => $question],
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
         );
         if ($body === false) {
@@ -378,6 +398,133 @@ final class AiPythonBridge
 
         FileLogger::write('ai_generation', [
             'type' => 'python_bridge_stream',
+            'duration_ms' => (int) round((microtime(true) - $started) * 1000),
+            'http_status' => $status,
+            'completed' => $completed,
+            'http_client' => function_exists('curl_init') ? 'curl' : 'stream',
+            'link' => $link['transport'],
+        ]);
+
+        return [$completed, $status];
+    }
+
+    /**
+     * Stream task progress via SSE.
+     *
+     * @param callable(string): void $onChunk
+     * @return array{0:bool,1:int} [completed, httpStatus]
+     */
+    public function streamTask(array $context, string $taskId, callable $onChunk, int $timeout = 0): array
+    {
+        $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
+        if (!$this->client->isConfigured('python_ai') || $secret === '') {
+            throw new AiProviderException('The Python AI platform is not configured.');
+        }
+        $streamContext = [
+            'user_id' => (int) ($context['user_id'] ?? 0),
+            'permissions' => array_values(array_unique(array_map('strval', array_merge(
+                (array) ($context['effective_permissions'] ?? []),
+                (array) ($context['permissions'] ?? [])
+            )))),
+            'audience' => 'staff',
+            'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
+            'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
+            'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
+        ];
+        $body = json_encode(
+            ['context' => $streamContext, 'task_id' => $taskId],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+        if ($body === false) {
+            throw new AiProviderException('The AI relay request could not be encoded.');
+        }
+
+        $timeout = $timeout > 0 ? $timeout : (int) Config::get('AI_PYTHON_TIMEOUT', 45);
+        $executionLimit = (int) ini_get('max_execution_time');
+        if ($executionLimit > 0) {
+            $timeout = min($timeout, max(10, $executionLimit - 5));
+        }
+        $link = $this->client->resolve('python_ai');
+        $url = rtrim($link['base'], '/') . '/api/agents/tasks/' . $taskId . '/stream';
+        $headers = [
+            'Content-Type: application/json',
+            'Accept: text/event-stream',
+            'Authorization: Bearer ' . $secret,
+            'Cache-Control: no-cache',
+        ];
+        if ($link['host'] !== null) {
+            $headers[] = 'Host: ' . $link['host'];
+        }
+
+        $started = microtime(true);
+        $completed = false;
+        $status = 0;
+        $streamBuffer = '';
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $body,
+                CURLOPT_HTTPHEADER => $headers,
+                CURLOPT_RETURNTRANSFER => false,
+                CURLOPT_WRITEFUNCTION => function ($handle, string $chunk) use ($onChunk, &$streamBuffer): int {
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                    return strlen($chunk);
+                },
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => max(10, min(180, $timeout + 15)),
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_NOSIGNAL => true,
+            ]);
+            $completed = curl_exec($ch) !== false;
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+        } else {
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => implode("\r\n", $headers),
+                    'content' => $body,
+                    'timeout' => max(10, min(180, $timeout + 15)),
+                    'ignore_errors' => true,
+                    'protocol_version' => 1.1,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                    'allow_self_signed' => false,
+                ],
+            ]);
+            $stream = @fopen($url, 'rb', false, $context);
+            if ($stream === false) {
+                throw new AiProviderException('The Python AI platform did not respond.');
+            }
+            try {
+                while (!feof($stream)) {
+                    $chunk = fread($stream, 8192);
+                    if ($chunk === false || $chunk === '') {
+                        continue;
+                    }
+                    $this->pushStreamChunk($streamBuffer, $chunk, $onChunk);
+                }
+                $completed = true;
+                foreach ((stream_get_meta_data($stream)['wrapper_data'] ?? []) as $responseHeader) {
+                    if (preg_match('/^HTTP\/\S+\s+(\d{3})/', (string) $responseHeader, $match)) {
+                        $status = (int) $match[1];
+                        break;
+                    }
+                }
+            } finally {
+                fclose($stream);
+            }
+        }
+
+        $this->flushStreamChunk($streamBuffer, $onChunk);
+
+        FileLogger::write('ai_generation', [
+            'type' => 'python_bridge_task_stream',
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
             'http_status' => $status,
             'completed' => $completed,

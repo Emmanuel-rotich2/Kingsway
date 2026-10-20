@@ -259,7 +259,7 @@ final class StaffDomainAccessService
         }
     }
 
-    public function audit(string $action, string $entityType, ?int $entityId, array $before = null, array $after = null): void
+    public function audit(string $action, string $entityType, ?int $entityId, ?array $before = null, ?array $after = null): void
     {
         try {
             $details = [

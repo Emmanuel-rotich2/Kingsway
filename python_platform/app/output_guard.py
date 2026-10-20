@@ -35,6 +35,18 @@ MAX_STRING = 20000
 OBJECT_PREFIXES = ("vw_", "mmv_", "mv_", "sp_", "fn_", "trg_")
 
 _OBJECT_RE = re.compile(r"\b(?:%s)[A-Za-z0-9_]+\b" % "|".join(OBJECT_PREFIXES))
+
+# Snake_case identifiers (table names, column names) with 2+ underscore segments.
+# These are humanized to Title Case with spaces instead of underscores.
+# e.g., "student_fee_obligations" -> "Student Fee Obligations"
+_SNAKE_CASE_RE = re.compile(r"\b[a-z]+(?:_[a-z]+){2,}\b")
+
+
+def _humanize_snake(match: re.Match[str]) -> str:
+    """Convert snake_case to Title Case with spaces."""
+    return " ".join(part.capitalize() for part in match.group(0).split("_"))
+
+
 # Governed registry report codes, e.g. FIN_FEE_SUMMARY_CLASS: uppercase
 # identifiers built from two or more underscore segments.
 _REGISTRY_CODE_RE = re.compile(r"\b[A-Z]{2,}(?:_[A-Z0-9]+){2,}\b")
@@ -145,6 +157,8 @@ def scrub_text(text: str) -> str:
 
     text = _OBJECT_RE.sub("school data", text)
     text = _REGISTRY_CODE_RE.sub("the school report", text)
+    # Humanize snake_case identifiers (table/column names) to Title Case
+    text = _SNAKE_CASE_RE.sub(_humanize_snake, text)
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
     return _scrub_sql(text)

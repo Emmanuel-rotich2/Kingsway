@@ -2,3 +2,7 @@
 package-lock.json
 node_modules/**
 .env.example
+node_platform/src/config/.env
+*test**
+*.log
+node_platform/test-server.js

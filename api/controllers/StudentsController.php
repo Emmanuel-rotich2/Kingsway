@@ -1323,6 +1323,46 @@ class StudentsController extends BaseController
     }
 
     /**
+     * GET /api/students/get-all
+     * Returns paginated list of all students with optional filtering
+     */
+    public function getGetAll($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view students')) {
+            return $auth;
+        }
+
+        $result = $this->api->getAllStudents($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/promotion-eligible
+     */
+    public function getPromotionEligible($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotion eligible students')) {
+            return $auth;
+        }
+
+        $result = $this->api->getPromotionEligible($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/promotions
+     */
+    public function getPromotions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotions')) {
+            return $auth;
+        }
+
+        $result = $this->api->getPromotions($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * GET /api/students/roster-get/{classId}?stream_id={streamId}&year_id={yearId}
      */
     public function getRosterGet($id = null, $data = [], $segments = [])

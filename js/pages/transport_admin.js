@@ -7,10 +7,13 @@ const transportAdminController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+
+  isActive() { return !!document.getElementById('transportRoutesBody'); },
 
   async loadReferencesComposed() {
     try {
+      if (!this.isActive()) { this.state.referenceCache = null; return; }
       const response = await window.API.nodeViews.read("transport", "transport-admin-references");
       this.state.referenceCache = response?.data?.sources || response?.sources || {};
     } catch (error) {
@@ -21,6 +24,7 @@ const transportAdminController = {
 
   async load() {
     try {
+      if (!this.isActive()) return;
       const cache = this.state.referenceCache;
       const [routes, vehicles, drivers, stops] = await Promise.all([
         cache?.routes !== undefined ? cache.routes : this.API('GET', '/api/transport/all-routes'),
@@ -44,55 +48,74 @@ const transportAdminController = {
 
   renderRoutes() {
     const routes = this.state.routes;
-    const body = document.getElementById('traRoutesBody');
-    if (!routes.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No routes defined.</td></tr>'; return; }
-    body.innerHTML = routes.map(r => `<tr>
-      <td class="small">${this.esc(r.name || '—')}</td>
-      <td class="small">${this.esc(r.vehicle_reg || '—')}</td>
-      <td class="small">${this.esc(r.driver_name || '—')}</td>
-      <td class="small">${r.stops_count || 0} stops</td>
-      <td class="small"><span class="badge bg-${r.is_active ? 'success' : 'secondary'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editRoute(${r.id})"><i class="bi bi-pencil"></i></button></td>
-    </tr>`).join('');
+    const body = document.getElementById('transportRoutesBody');
+    if (!body) return;
+    if (!routes.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No routes defined.</td></tr>'; return; }
+    body.innerHTML = routes.map(r => {
+      const roads = [r.start_point, r.end_point].filter(Boolean).join(' → ') || '—';
+      return `<tr>
+      <td class="small">${this.esc(r.name || '—')}${r.code ? `<div class="text-muted">${this.esc(r.code)}</div>` : ''}</td>
+      <td class="small">${this.esc(roads)}</td>
+      <td class="small">${this.esc(this.fmtTime(r.morning_departure))} / ${this.esc(this.fmtTime(r.afternoon_departure))}</td>
+      <td class="small">${this.esc(r.vehicle_registration || '—')}${r.driver_name ? `<div class="text-muted">${this.esc(r.driver_name)}</div>` : ''}</td>
+      <td class="small">${Number(r.stop_count) || 0} stops</td>
+      <td class="small"><span class="badge bg-${r.status === 'active' ? 'success' : 'secondary'}">${r.status === 'active' ? 'Active' : 'Inactive'}</span></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editRoute(${Number(r.id)})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`;
+    }).join('');
   },
 
   renderVehicles() {
     const vehicles = this.state.vehicles;
-    const body = document.getElementById('traVehiclesBody');
-    if (!vehicles.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No vehicles registered.</td></tr>'; return; }
-    body.innerHTML = vehicles.map(v => `<tr>
-      <td class="small">${this.esc(v.registration || '—')}</td>
-      <td class="small">${this.esc(v.type || '—')}</td>
-      <td class="small">${v.capacity || 0} seats</td>
-      <td class="small">${this.fmtDate(v.last_service)}</td>
-      <td class="small"><span class="badge bg-${v.status === 'active' ? 'success' : v.status === 'maintenance' ? 'warning' : 'secondary'}">${this.esc(v.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editVehicle(${v.id})"><i class="bi bi-pencil"></i></button></td>
-    </tr>`).join('');
+    const body = document.getElementById('transportVehiclesBody');
+    if (!body) return;
+    if (!vehicles.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No vehicles registered.</td></tr>'; return; }
+    body.innerHTML = vehicles.map(v => {
+      const model = [v.type, v.model].filter(Boolean).join(' ');
+      const statusClass = v.status === 'active' ? 'success' : v.status === 'maintenance' ? 'warning' : 'secondary';
+      return `<tr>
+      <td class="small">${this.esc(v.registration_number || '—')}</td>
+      <td class="small">${this.esc(model || '—')}</td>
+      <td class="small">${Number(v.capacity) || 0} seats</td>
+      <td class="small">${this.esc(this.fmtDate(v.insurance_expiry))}</td>
+      <td class="small">${this.esc(this.fmtDate(v.service_due_date))}</td>
+      <td class="small"><span class="badge bg-${statusClass}">${this.esc(v.status || '—')}</span></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editVehicle(${Number(v.id)})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`;
+    }).join('');
   },
 
   renderDrivers() {
     const drivers = this.state.drivers;
-    const body = document.getElementById('traDriversBody');
-    if (!drivers.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No drivers registered.</td></tr>'; return; }
-    body.innerHTML = drivers.map(d => `<tr>
-      <td class="small">${this.esc(d.name || '—')}</td>
-      <td class="small">${this.esc(d.license_number || '—')}</td>
+    const body = document.getElementById('transportDriversBody');
+    if (!body) return;
+    if (!drivers.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No drivers registered.</td></tr>'; return; }
+    body.innerHTML = drivers.map(d => {
+      const name = [d.first_name, d.last_name].filter(Boolean).join(' ');
+      return `<tr>
+      <td class="small">${this.esc(name || '—')}</td>
+      <td class="small">${this.esc(d.staff_no || '—')}</td>
       <td class="small">${this.esc(d.phone || '—')}</td>
+      <td class="small">${this.esc(d.license_number || '—')}</td>
       <td class="small"><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${this.esc(d.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editDriver(${d.id})"><i class="bi bi-pencil"></i></button></td>
-    </tr>`).join('');
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editDriver(${Number(d.id)})"><i class="bi bi-pencil"></i></button></td>
+    </tr>`;
+    }).join('');
   },
 
   renderStops() {
     const stops = this.state.stops;
-    const body = document.getElementById('traStopsBody');
-    if (!stops.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No stops defined.</td></tr>'; return; }
+    const body = document.getElementById('transportStopsBody');
+    if (!body) return;
+    if (!stops.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No stops defined.</td></tr>'; return; }
+    const routeNames = new Map(this.state.routes.map(r => [String(r.id), r.name]));
     body.innerHTML = stops.map(s => `<tr>
       <td class="small">${this.esc(s.name || '—')}</td>
+      <td class="small">${this.esc(routeNames.get(String(s.route_id)) || '—')}</td>
+      <td class="small">${Number(s.sequence) || 0}</td>
       <td class="small">${this.esc(s.location || '—')}</td>
-      <td class="small">${this.fmtTime(s.pickup_time)}</td>
-      <td class="small"><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editStop(${s.id})"><i class="bi bi-pencil"></i></button></td>
+      <td class="small"><span class="badge bg-${s.status === 'active' ? 'success' : 'secondary'}">${s.status === 'active' ? 'Active' : 'Inactive'}</span></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editStop(${Number(s.id)})"><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

@@ -3718,6 +3718,23 @@ async function infoDialog(title, message, options = {}) {
   });
 }
 
+// Node Agent Gateway origin (from RealtimeGatewayPublisher::browserStreamBase).
+// Without it the browser falls back to the PHP dashboard agent endpoints.
+function agentGatewayOrigin() {
+  return String(window.KINGSWAY_REALTIME_ORIGIN || "").replace(/\/+$/, "");
+}
+
+function hasAgentGateway() {
+  if (window.AI_FEATURES && window.AI_FEATURES.useNodeGateway === false) {
+    return false;
+  }
+  return agentGatewayOrigin() !== "";
+}
+
+function agentGatewayCall(path, method = "POST", data = null) {
+  return apiCall(agentGatewayOrigin() + path, method, data, {}, { coalesce: false });
+}
+
 //attach API to window for global access
 window.API = {
   apiCall,
@@ -5610,10 +5627,13 @@ window.API = {
       id
         ? apiCall(`/communications/recipient/${id}`, "GET")
         : apiCall("/communications/recipient", "GET"),
+    getRecipients: async (communicationId) =>
+      apiCall("/communications/recipient", "GET", null, { communication_id: communicationId }),
     createRecipient: async (data) =>
       apiCall("/communications/recipient", "POST", data),
     deleteRecipient: async (id) =>
       apiCall(`/communications/recipient/${id}`, "DELETE"),
+    getOptOuts: async () => apiCall("/communications/opt-outs", "GET"),
 
     // Template
     getTemplate: async (id = null) =>
@@ -7934,8 +7954,8 @@ window.API = {
   dashboard: {
     // Governed multi-agent staff assistant (triage -> allowlisted tools ->
     // structured answer). Server owns routing and per-tool authorization.
-    agentAssist: async (question, route = "", module = "dashboard") =>
-      apiCall("/dashboard/agent-assist", "POST", { question, route, module }),
+    agentAssist: async (question, route = "", module = "dashboard", options = {}) =>
+      apiCall("/dashboard/agent-assist", "POST", { question, route, module, ...options }),
 
     /**
      * Streamed assistant answer. Returns an object exposing `promise`,
@@ -7957,20 +7977,23 @@ window.API = {
         onError: handlers.onError || (() => {}),
       };
 
+      const {session_id, ...options} = handlers;
+      const requestOptions = session_id ? {session_id, ...options} : options;
+
       const promise = (async () => {
         const token = AuthContext.getToken?.();
         if (!token || typeof fetch !== "function" || !window.ReadableStream) {
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
-            { question, route, module },
+            { question, route, module, ...options },
           );
           state.onFinal(fallback?.data ?? fallback);
           return fallback?.data ?? fallback;
         }
 
         try {
-          const response = await fetch("/Kingsway/api/dashboard/agent-assist-stream", {
+          const response = await fetch(API_BASE_URL + "/dashboard/agent-assist-stream", {
             method: "POST",
             credentials:
               window.location.hostname === "localhost" ? "same-origin" : "include",
@@ -7984,7 +8007,7 @@ window.API = {
                 ? crypto.randomUUID()
                 : String(Date.now()),
             },
-            body: JSON.stringify({ question, route, module }),
+            body: JSON.stringify({ question, route, module, ...requestOptions }),
           });
 
           if (!response.ok || !response.body) {
@@ -8080,6 +8103,177 @@ window.API = {
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
       apiCall("/dashboard/workspace-briefing", "GET", { route }),
+
+    // Assistant session management
+    getAssistantSessions: async (limit = 30) =>
+      apiCall("/dashboard/assistant-sessions", "GET", { limit }),
+    getAssistantSession: async (sessionId, limit = 200) =>
+      apiCall("/dashboard/assistant-session", "GET", { session_id: sessionId, limit }),
+    postAssistantSession: async (route = "", title = "") =>
+      apiCall("/dashboard/assistant-session", "POST", { route, title }),
+    deleteAssistantSession: async (sessionId) =>
+      apiCall("/dashboard/assistant-session", "DELETE", { session_id: sessionId }),
+    patchAssistantSession: async (sessionId, title) =>
+      apiCall("/dashboard/assistant-session", "PATCH", { session_id: sessionId, title }),
+    postAssistantSessionsClear: async () =>
+      apiCall("/dashboard/assistant-sessions/clear", "POST"),
+    getAssistantPreferences: async () =>
+      apiCall("/dashboard/assistant-preferences", "GET"),
+    postAssistantPreferences: async (preferences = {}) =>
+      apiCall("/dashboard/assistant-preferences", "POST", { preferences }),
+
+    // Node Agent Gateway: direct agent tool calls with background tracking
+    agentCall: async (tool, question, route = "dashboard", module = "dashboard", options = {}) => {
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-assist", "POST", { question, route, module, ...options });
+      }
+      return agentGatewayCall("/api/agents/call", "POST", { tool, question, route, module, ...options });
+    },
+    agentStream: async (tool, question, route = "dashboard", module = "dashboard", handlers = {}) => {
+      const controller = new AbortController();
+      const state = {
+        cancelled: false,
+        controller,
+        onDelta: handlers.onDelta || (() => {}),
+        onStatus: handlers.onStatus || (() => {}),
+        onFinal: handlers.onFinal || (() => {}),
+        onError: handlers.onError || (() => {}),
+        onStatusText: handlers.onStatusText || (() => {}),
+      };
+
+      if (!hasAgentGateway()) {
+        return window.API.agentAssistStream(question, route, module, handlers);
+      }
+
+      const token = AuthContext.getToken?.();
+      if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+        const fallback = await apiCall("/dashboard/agent-assist", "POST", { question, route, module });
+        state.onFinal(fallback?.data ?? fallback);
+        return { promise: Promise.resolve(fallback?.data ?? fallback), cancel: () => {} };
+      }
+
+      const promise = (async () => {
+        try {
+          const response = await fetch(agentGatewayOrigin() + "/api/agents/stream", {
+            method: "POST",
+            credentials: window.location.hostname === "localhost" ? "same-origin" : "include",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream",
+              Authorization: "Bearer " + token,
+              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+              "X-Request-ID": crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+            },
+            body: JSON.stringify({ tool, question, route, module }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.event === "delta") {
+                    state.onDelta(data.data?.text || "");
+                  } else if (data.event === "status") {
+                    state.onStatusText(data.data?.text || "");
+                  } else if (data.event === "status") {
+                    state.onStatus(data.data);
+                  } else if (data.event === "final") {
+                    state.onFinal(data.data?.result);
+                  } else if (data.event === "error") {
+                    state.onError(data.data?.message || "Stream error");
+                  } else if (data.event === "task:start") {
+                    // Task started
+                  } else if (data.event === "task:completed") {
+                    // Task completed
+                  } else if (data.event === "task:failed") {
+                    state.onError(data.data?.error || "Task failed");
+                  } else if (data.event === "agent:component:update") {
+                    // Component update - could trigger UI refresh
+                    if (handlers.onComponentUpdate) {
+                      handlers.onComponentUpdate(data.data);
+                    }
+                  }
+                } catch (e) {
+                  // Ignore parse errors
+                }
+              }
+            }
+          }
+          if (!state.cancelled && !response.body?.locked) {
+            try {
+              await reader.cancel();
+            } catch {}
+          }
+        } catch (streamError) {
+          if (state.cancelled || streamError?.name === "AbortError") return;
+          state.onError(streamError?.message || "Stream failed");
+          const fallback = await apiCall("/dashboard/agent-assist", "POST", { question, route, module });
+          state.onFinal(fallback?.data ?? fallback);
+        }
+      })();
+
+      return {
+        promise,
+        cancel() {
+          state.cancelled = true;
+          try {
+            controller.abort();
+          } catch {}
+        },
+      };
+    },
+
+    // Background agent tasks with progress tracking. The panel passes one
+    // object; keep positional arguments for older callers.
+    agentTaskCreate: async (tool, question, route = "dashboard", module = "dashboard", options = {}) => {
+      const payload =
+        tool && typeof tool === "object"
+          ? { ...tool }
+          : { tool, question, route, module, ...options };
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-task-create", "POST", payload);
+      }
+      return agentGatewayCall("/api/agents/tasks", "POST", payload);
+    },
+    agentTaskGet: async (taskId) => {
+      if (!hasAgentGateway()) {
+        return apiCall(`/dashboard/agent-task/${encodeURIComponent(taskId)}`, "GET");
+      }
+      return agentGatewayCall(`/api/agents/tasks/${encodeURIComponent(taskId)}`, "GET");
+    },
+    agentTaskList: async () => {
+      if (!hasAgentGateway()) {
+        return apiCall("/dashboard/agent-tasks", "GET");
+      }
+      return agentGatewayCall("/api/agents/tasks", "GET");
+    },
+    agentTaskCancel: async (taskId) => {
+      if (!hasAgentGateway()) {
+        return apiCall(`/dashboard/agent-task-cancel/${encodeURIComponent(taskId)}`, "DELETE");
+      }
+      return agentGatewayCall(`/api/agents/tasks/${encodeURIComponent(taskId)}`, "DELETE");
+    },
+    agentCapabilities: async () => {
+      if (!hasAgentGateway()) {
+        return { success: true, data: { tools: [] } };
+      }
+      return agentGatewayCall("/api/agents/capabilities", "GET");
+    },
 
     // System Administrator (role 2): infrastructure only, no School Domain data.
     getAuthEvents: async () =>

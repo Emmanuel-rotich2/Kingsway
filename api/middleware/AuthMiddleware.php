@@ -128,6 +128,7 @@ class AuthMiddleware
             'public/inquiries',
             'public/applications',
             'public/subscribers',
+            'public/leads',
             // Public FAQ assistant is intentionally anonymous; the
             // controller supplies only the published website corpus.
             'public/ai-faq',
@@ -161,6 +162,8 @@ class AuthMiddleware
             'dashboard/agent-tool',
             'dashboard/insight-brief-queue',
             'dashboard/kicd-policy-watch',
+            // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
+            'system/send-security-alert',
             // MCP authenticates with its own expiring machine token inside
             // McpController, never with a staff JWT.
             'mcp',

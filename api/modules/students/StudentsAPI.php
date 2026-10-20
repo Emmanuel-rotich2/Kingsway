@@ -12,6 +12,8 @@ use PDO;
 use Exception;
 
 use App\API\Modules\students\StudentIDCardGenerator;
+use App\API\Modules\students\StudentTransportAssignmentManager;
+
 use App\API\Services\ReadReplicaService;
 
 class StudentsAPI extends BaseAPI
@@ -5424,6 +5426,99 @@ private function getCurrentStudentTransport(int $studentId): array
         }
     }
 
+    public function getAllStudents($params = [])
+    {
+        try {
+            $limit = isset($params['limit']) ? (int) $params['limit'] : 1000;
+            $status = isset($params['status']) ? $params['status'] : 'active';
+            $offset = isset($params['offset']) ? (int) $params['offset'] : 0;
+            $search = isset($params['search']) ? trim($params['search']) : '';
+            $studentTypeId = isset($params['student_type_id']) ? (int) $params['student_type_id'] : 0;
+
+            $where = [];
+            $params_sql = [];
+
+            if ($status !== '') {
+                $where[] = "s.status = ?";
+                $params_sql[] = $status;
+            }
+
+            if ($studentTypeId > 0) {
+                $where[] = "s.student_type_id = ?";
+                $params_sql[] = $studentTypeId;
+            }
+
+            if ($search !== '') {
+                $where[] = "(per.first_name LIKE ? OR per.last_name LIKE ? OR s.admission_no LIKE ?)";
+                $searchTerm = "%{$search}%";
+                $params_sql[] = $searchTerm;
+                $params_sql[] = $searchTerm;
+                $params_sql[] = $searchTerm;
+            }
+
+            $whereClause = $where ? "WHERE " . implode(" AND ", $where) : "";
+
+            $sql = "
+                SELECT s.id, s.admission_no, s.student_type_id, st.code as student_type_code,
+                       s.status, s.application_id,
+                       per.first_name, per.last_name, per.middle_name,
+                       per.gender, per.dob AS date_of_birth, per.photo_url,
+                       sae.academic_year_class_stream_id,
+                       sm.name AS stream_name, c.name AS class_name
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_types") . " st ON st.id = s.student_type_id
+                {$whereClause}
+                ORDER BY per.last_name, per.first_name
+                LIMIT ? OFFSET ?
+            ";
+
+            $params_sql[] = $limit;
+            $params_sql[] = $offset;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params_sql);
+            $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get total count for pagination
+            $countSql = "
+                SELECT COUNT(*)
+                FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_types") . " st ON st.id = s.student_type_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                {$whereClause}
+            ";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute(array_slice($params_sql, 0, -2)); // Remove limit and offset
+            $total = (int) $countStmt->fetchColumn();
+
+            return $this->response([
+                'status' => 'success',
+                'data' => $students,
+                'pagination' => [
+                    'total' => $total,
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'has_more' => ($offset + $limit) < $total
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function getStudentStatistics($params = [])
     {
         try {
@@ -8281,10 +8376,153 @@ private function getCurrentStudentTransport(int $studentId): array
             $stmt->execute($params);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+return [
+            'success' => true,
+            'data' => $rows,
+            'message' => 'Promotion batches fetched successfully'
+        ];
+    } catch (Exception $e) {
+        return ['success' => false, 'message' => 'An internal error occurred.'];
+    }
+    }
+
+    /**
+     * Get promotion-eligible students
+     */
+    public function getPromotionEligible($params = [])
+    {
+        try {
+            $filters = [
+                'from_academic_year_id' => $params['from_academic_year_id'] ?? $params['academic_year_id'] ?? null,
+                'from_class_id' => $params['from_class_id'] ?? $params['class_id'] ?? null,
+                'from_stream_id' => $params['from_stream_id'] ?? $params['stream_id'] ?? null,
+                'search' => $params['search'] ?? '',
+            ];
+
+            $candidates = $this->promotionManager->getPromotionCandidates($filters);
+
             return [
                 'success' => true,
-                'data' => $rows,
-                'message' => 'Promotion batches fetched successfully'
+                'data' => $candidates,
+                'message' => 'Promotion eligible students fetched successfully'
+            ];
+        } catch (Exception $e) {
+            return ['success' => false, 'message' => 'An internal error occurred.'];
+        }
+    }
+
+    /**
+     * Get promotions (student_transitions with promotion type)
+     */
+    public function getPromotions($params = [])
+    {
+        try {
+            $yearId = $params['academic_year_id'] ?? $params['year_id'] ?? null;
+            $termId = $params['term_id'] ?? null;
+            $classId = $params['class_id'] ?? null;
+            $streamId = $params['stream_id'] ?? null;
+            $status = $params['status'] ?? '';
+            $limit = isset($params['limit']) ? (int) $params['limit'] : 100;
+            $offset = isset($params['offset']) ? (int) $params['offset'] : 0;
+
+            $where = ["st.transition_type = 'promotion'"];
+            $bindings = [];
+
+            if ($yearId) {
+                $where[] = "st.academic_year_id = ?";
+                $bindings[] = (int) $yearId;
+            }
+            if ($termId) {
+                $where[] = "st.academic_term_id = ?";
+                $bindings[] = (int) $termId;
+            }
+            if ($classId) {
+                // Need to join through student_academic_enrollments
+                $where[] = "ayc.id = ?";
+                $bindings[] = (int) $classId;
+            }
+            if ($streamId) {
+                $where[] = "sae.academic_year_class_stream_id = ?";
+                $bindings[] = (int) $streamId;
+            }
+            if ($status !== '') {
+                $where[] = "st.status = ?";
+                $bindings[] = $status;
+            }
+
+            $whereClause = implode(" AND ", $where);
+
+            $sql = "
+                SELECT
+                    st.id,
+                    st.student_id,
+                    st.transition_type,
+                    st.reason,
+                    st.decided_by,
+                    st.decided_at,
+                    st.executed_at,
+                    s.admission_no,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    ay.year_code AS year,
+                    c.name AS from_class,
+                    sm.name AS from_stream,
+                    c2.name AS to_class,
+                    sm2.name AS to_stream
+                FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = st.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = st.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_from ON sae_from.id = st.from_student_academic_enrollment_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs_from ON aycs_from.id = sae_from.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs_from.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs_from.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_to ON sae_to.id = st.to_student_academic_enrollment_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs_to ON aycs_to.id = sae_to.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc2 ON ayc2.id = aycs_to.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c2 ON c2.id = ayc2.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm2 ON sm2.id = aycs_to.stream_id
+                WHERE $whereClause
+                ORDER BY st.decided_at DESC, per.last_name, per.first_name
+                LIMIT ? OFFSET ?
+            ";
+
+            $bindings[] = $limit;
+            $bindings[] = $offset;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+            $promotions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Get total count
+            $countSql = "
+                SELECT COUNT(*)
+                FROM " . ReadReplicaService::qualifiedRef("student_transitions") . " st
+                JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = st.student_id
+                JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae_from ON sae_from.id = st.from_student_academic_enrollment_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs_from ON aycs_from.id = sae_from.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs_from.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " sm ON sm.id = aycs_from.stream_id
+                WHERE $whereClause
+            ";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute(array_slice($bindings, 0, -2));
+            $total = (int) $countStmt->fetchColumn();
+
+            return [
+                'success' => true,
+                'data' => $promotions,
+                'pagination' => [
+                    'total' => $total,
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'has_more' => ($offset + $limit) < $total
+                ],
+                'message' => 'Promotions fetched successfully'
             ];
         } catch (Exception $e) {
             return ['success' => false, 'message' => 'An internal error occurred.'];

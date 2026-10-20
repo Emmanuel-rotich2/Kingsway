@@ -1742,6 +1742,21 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/fee-structures OR /api/finance/fee-structures/{id}
+     * Detail view when an id is supplied; otherwise the permission-aware list.
+     * The Node data-operation spec for finance/fee_structures calls this bare
+     * resource for its detail query, so it must resolve explicitly instead of
+     * relying on the router's list fallback.
+     */
+    public function getFeeStructures($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null && is_numeric($id)) {
+            return $this->getFeeStructuresGet($id, $data, $segments);
+        }
+        return $this->getFeeStructuresList($id, $data, $segments);
+    }
+
+    /**
      * GET /api/finance/fee-structures/list
      * Get fee structures with permission-aware filtering
      */

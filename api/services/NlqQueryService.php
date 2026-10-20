@@ -199,6 +199,261 @@ class NlqQueryService
     }
 
     /**
+     * Compute a governed aggregation (count, sum, avg, min, max) over
+     * authorized report data.
+     *
+     * @param array $context authenticated envelope
+     * @param string $question natural-language question
+     * @param string $aggType one of: count, sum, avg, min, max
+     * @return array<string,mixed>
+     */
+    public function aggregate(PDO $pdo, array $context, string $question, string $aggType = 'count'): array
+    {
+        $question = trim($question);
+        if ($question === '' || mb_strlen($question) > self::MAX_QUESTION_CHARS) {
+            throw new DomainException('A question of up to 500 characters is required.', 422);
+        }
+        $aggType = strtolower(trim($aggType));
+        if (!in_array($aggType, ['count', 'sum', 'avg', 'min', 'max'], true)) {
+            $aggType = 'count';
+        }
+
+        // Same authorization as ask()
+        $clean = AiPromptPolicy::minimize(self::WORKFLOW, [
+            'question' => $question,
+            'audience' => 'staff',
+        ]);
+        $user = $this->normalizeUser($context);
+        $catalogue = $this->authorizedCatalogue($pdo, $user);
+        if ($catalogue === []) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'no_reports',
+                'message' => 'No governed report is available to your role for this aggregation.',
+            ];
+        }
+
+        // Parse intent with aggregation hint
+        $fingerprint = substr(
+            hash('sha256', json_encode([
+                'q' => $this->normalizeQuestion((string) $clean['question']) . " agg:$aggType",
+                'c' => $this->catalogueFingerprint($catalogue),
+            ])),
+            0,
+            32
+        );
+        $cache = $this->intentCache();
+        try {
+            $cachedIntent = $cache !== null ? $cache->get($this->cacheKey($user, $fingerprint)) : null;
+            $hit = is_array($cachedIntent) && $cachedIntent !== [];
+            $intent = $hit
+                ? $cachedIntent
+                : $this->parseIntent($clean['question'], (string) $clean['audience'], $catalogue);
+            if (!$hit && $cache !== null) {
+                $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
+            }
+        } catch (AiProviderException $e) {
+            return [
+                'status' => 'unavailable',
+                'reason' => 'provider_unavailable',
+                'message' => 'The assistant is not available right now. Use the governed reports directly.',
+            ];
+        }
+
+        if (($intent['cannot_answer'] ?? true) === true || trim((string) ($intent['report_code'] ?? '')) === '') {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'unsupported',
+                'message' => 'That question is outside the governed reports available to you.',
+            ];
+        }
+
+        $byCode = [];
+        foreach ($catalogue as $report) {
+            $byCode[(string) $report['code']] = $report;
+        }
+        $code = strtoupper(trim((string) $intent['report_code']));
+        if (!isset($byCode[$code])) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'report_not_allowed',
+                'message' => 'That question maps to a report you are not authorized to run.',
+            ];
+        }
+
+        $report = $byCode[$code];
+        $validation = $this->validateFilters($intent['filters'] ?? [], $report);
+        if ($validation['missing'] !== []) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'missing_filters',
+                'message' => 'More detail is needed to run this report: ' . implode(', ', $validation['missing']) . '.',
+            ];
+        }
+
+        $requestId = (string) ($context['request_id'] ?? '');
+        try {
+            $result = $this->execute($pdo, $code, $validation['filters'], $user, $requestId);
+        } catch (RuntimeException | DomainException $e) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'execution_rejected',
+                'message' => 'That report could not be generated within your authorized scope.',
+            ];
+        }
+
+        // Build aggregation from the result rows
+        $rows = $result['rows'] ?? [];
+        $rowCount = count($rows);
+
+        $aggregation = $this->computeAggregation($rows, $aggType);
+
+        return [
+            'status' => 'answered',
+            'audience' => 'staff',
+            'intent' => [
+                'report_code' => $code,
+                'filters' => $validation['filters'],
+                'agg_type' => $aggType,
+                'confidence' => max(0.0, min(1.0, (float) ($intent['confidence'] ?? 0))),
+            ],
+            'explanation' => $this->boundedText((string) ($intent['explanation'] ?? ''), 600),
+            'answer' => [
+                'report_code' => $code,
+                'row_count' => $rowCount,
+                'aggregation' => $aggregation,
+                'as_of' => gmdate('c'),
+            ],
+        ];
+    }
+
+    /**
+     * Generate a chart specification from governed report data.
+     *
+     * @param array $context authenticated envelope
+     * @param string $question natural-language question
+     * @param string $chartType one of: bar, line, pie, doughnut, area
+     * @return array<string,mixed>
+     */
+    public function generateChart(PDO $pdo, array $context, string $question, string $chartType = 'bar'): array
+    {
+        $question = trim($question);
+        if ($question === '' || mb_strlen($question) > self::MAX_QUESTION_CHARS) {
+            throw new DomainException('A question of up to 500 characters is required.', 422);
+        }
+        $chartType = strtolower(trim($chartType));
+        if (!in_array($chartType, ['bar', 'line', 'pie', 'doughnut', 'area'], true)) {
+            $chartType = 'bar';
+        }
+
+        // Same authorization flow
+        $clean = AiPromptPolicy::minimize(self::WORKFLOW, [
+            'question' => $question,
+            'audience' => 'staff',
+        ]);
+        $user = $this->normalizeUser($context);
+        $catalogue = $this->authorizedCatalogue($pdo, $user);
+        if ($catalogue === []) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'no_reports',
+                'message' => 'No governed report is available to your role for chart generation.',
+            ];
+        }
+
+        // Parse intent with chart hint
+        $fingerprint = substr(
+            hash('sha256', json_encode([
+                'q' => $this->normalizeQuestion((string) $clean['question']) . " chart:$chartType",
+                'c' => $this->catalogueFingerprint($catalogue),
+            ])),
+            0,
+            32
+        );
+        $cache = $this->intentCache();
+        try {
+            $cachedIntent = $cache !== null ? $cache->get($this->cacheKey($user, $fingerprint)) : null;
+            $hit = is_array($cachedIntent) && $cachedIntent !== [];
+            $intent = $hit
+                ? $cachedIntent
+                : $this->parseIntent($clean['question'], (string) $clean['audience'], $catalogue);
+            if (!$hit && $cache !== null) {
+                $cache->set($this->cacheKey($user, $fingerprint), $intent, 900);
+            }
+        } catch (AiProviderException $e) {
+            return [
+                'status' => 'unavailable',
+                'reason' => 'provider_unavailable',
+                'message' => 'The assistant is not available right now. Use the governed reports directly.',
+            ];
+        }
+
+        if (($intent['cannot_answer'] ?? true) === true || trim((string) ($intent['report_code'] ?? '')) === '') {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'unsupported',
+                'message' => 'That question is outside the governed reports available to you.',
+            ];
+        }
+
+        $byCode = [];
+        foreach ($catalogue as $report) {
+            $byCode[(string) $report['code']] = $report;
+        }
+        $code = strtoupper(trim((string) $intent['report_code']));
+        if (!isset($byCode[$code])) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'report_not_allowed',
+                'message' => 'That question maps to a report you are not authorized to run.',
+            ];
+        }
+
+        $report = $byCode[$code];
+        $validation = $this->validateFilters($intent['filters'] ?? [], $report);
+        if ($validation['missing'] !== []) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'missing_filters',
+                'message' => 'More detail is needed to run this report: ' . implode(', ', $validation['missing']) . '.',
+            ];
+        }
+
+        $requestId = (string) ($context['request_id'] ?? '');
+        try {
+            $result = $this->execute($pdo, $code, $validation['filters'], $user, $requestId);
+        } catch (RuntimeException | DomainException $e) {
+            return [
+                'status' => 'cannot_answer',
+                'reason' => 'execution_rejected',
+                'message' => 'That report could not be generated within your authorized scope.',
+            ];
+        }
+
+        // Build chart spec from result rows
+        $rows = $result['rows'] ?? [];
+        $chartSpec = $this->buildChartSpec($rows, $chartType, $validation['filters']);
+
+        return [
+            'status' => 'answered',
+            'audience' => 'staff',
+            'intent' => [
+                'report_code' => $code,
+                'filters' => $validation['filters'],
+                'chart_type' => $chartType,
+                'confidence' => max(0.0, min(1.0, (float) ($intent['confidence'] ?? 0))),
+            ],
+            'explanation' => $this->boundedText((string) ($intent['explanation'] ?? ''), 600),
+            'answer' => [
+                'report_code' => $code,
+                'row_count' => count($rows),
+                'chart' => $chartSpec,
+                'as_of' => gmdate('c'),
+            ],
+        ];
+    }
+
+    /**
      * The catalogue the caller may execute. Only authorized, executable
      * reports are ever assembled into a provider prompt.
      */
@@ -484,5 +739,157 @@ class NlqQueryService
         } catch (\Throwable $e) {
             // Journaling must never break an answer.
         }
+    }
+
+    /**
+     * Compute an aggregation from report rows.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param string $aggType one of: count, sum, avg, min, max
+     * @return array<string,mixed>
+     */
+    private function computeAggregation(array $rows, string $aggType): array
+    {
+        $values = [];
+        if ($rows !== []) {
+            // Try to find a numeric column to aggregate
+            $firstRow = $rows[0];
+            foreach ($firstRow as $key => $value) {
+                if (is_numeric($value)) {
+                    foreach ($rows as $row) {
+                        if (isset($row[$key]) && is_numeric($row[$key])) {
+                            $values[] = (float) $row[$key];
+                        }
+                    }
+                    break;
+                }
+            }
+            // If no numeric column found, count rows
+            if ($values === []) {
+                $values = array_fill(0, count($rows), 1.0);
+            }
+        }
+
+        $result = [];
+        switch ($aggType) {
+            case 'count':
+                $result['type'] = 'count';
+                $result['value'] = (int) count($rows);
+                break;
+            case 'sum':
+                $result['type'] = 'sum';
+                $result['value'] = array_sum($values);
+                break;
+            case 'avg':
+                $result['type'] = 'avg';
+                $result['value'] = $values !== [] ? array_sum($values) / count($values) : 0;
+                break;
+            case 'min':
+                $result['type'] = 'min';
+                $result['value'] = $values !== [] ? min($values) : 0;
+                break;
+            case 'max':
+                $result['type'] = 'max';
+                $result['value'] = $values !== [] ? max($values) : 0;
+                break;
+            default:
+                $result['type'] = 'count';
+                $result['value'] = (int) count($rows);
+        }
+        $result['row_count'] = (int) count($rows);
+        return $result;
+    }
+
+    /**
+     * Build a chart specification from report rows.
+     *
+     * @param array<int,array<string,mixed>> $rows
+     * @param string $chartType one of: bar, line, pie, doughnut, area
+     * @param array $filters applied filters
+     * @return array<string,mixed>
+     */
+    private function buildChartSpec(array $rows, string $chartType, array $filters): array
+    {
+        if ($rows === []) {
+            return [
+                'type' => $chartType,
+                'labels' => [],
+                'datasets' => [],
+                'title' => 'No data available for chart',
+            ];
+        }
+
+        // Find label column (first non-numeric) and value column (first numeric)
+        $labelKey = null;
+        $valueKey = null;
+        $firstRow = $rows[0];
+        foreach ($firstRow as $key => $value) {
+            if (is_numeric($value)) {
+                $valueKey = $key;
+            } elseif ($labelKey === null && is_string($value)) {
+                $labelKey = $key;
+            }
+        }
+
+        // Fallback: use first column as label, second as value
+        $keys = array_keys($firstRow);
+        if ($labelKey === null) $labelKey = $keys[0] ?? 'label';
+        if ($valueKey === null) $valueKey = $keys[1] ?? $keys[0] ?? 'value';
+
+        $labels = [];
+        $data = [];
+        foreach ($rows as $row) {
+            $labels[] = (string) ($row[$labelKey] ?? '');
+            $data[] = is_numeric($row[$valueKey] ?? 0) ? (float) $row[$valueKey] : 0;
+        }
+
+        $dataset = [
+            'label' => ucfirst($valueKey),
+            'data' => $data,
+        ];
+
+        // Add colors for visual appeal
+        $colors = [
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(255, 206, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+            'rgba(255, 159, 64, 0.8)',
+        ];
+        if ($chartType === 'pie' || $chartType === 'doughnut') {
+            $dataset['backgroundColor'] = array_slice($colors, 0, count($labels));
+        } else {
+            $dataset['backgroundColor'] = $colors[0];
+            $dataset['borderColor'] = str_replace('0.8', '1', $colors[0]);
+        }
+
+        $title = 'Chart';
+        if ($chartType === 'pie' || $chartType === 'doughnut') {
+            $title = 'Distribution';
+        } elseif ($chartType === 'line' || $chartType === 'area') {
+            $title = 'Trend';
+        } else {
+            $title = 'Comparison';
+        }
+
+        return [
+            'type' => $chartType,
+            'labels' => $labels,
+            'datasets' => [$dataset],
+            'title' => $title,
+            'options' => [
+                'responsive' => true,
+                'maintainAspectRatio' => false,
+                'plugins' => [
+                    'legend' => ['display' => $chartType !== 'pie' && $chartType !== 'doughnut'],
+                    'title' => ['display' => true, 'text' => $title],
+                ],
+                'scales' => ($chartType === 'pie' || $chartType === 'doughnut') ? [] : [
+                    'y' => ['beginAtZero' => true, 'title' => ['display' => true, 'text' => ucfirst($valueKey)]],
+                    'x' => ['title' => ['display' => true, 'text' => ucfirst($labelKey)]],
+                ],
+            ],
+        ];
     }
 }

@@ -15,6 +15,7 @@ import { getAggregationEngine } from './src/aggregation/engine.js';
 import { registerViewRoutes } from './src/routes/views.js';
 import { registerPublicRoutes } from './src/routes/public.js';
 import { registerInternalRoutes } from './src/routes/internal.js';
+import { registerAgentRoutes } from './src/routes/agents.js';
 
 function safeRequestPath(url) {
   return String(url || '').split('?', 1)[0].slice(0, 256);
@@ -74,8 +75,18 @@ async function createApp(env = {}) {
 
   await app.register(fastifyCors, {
     origin: config.security.webOrigins,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['content-type', 'x-kingsway-sse-token', 'last-event-id'],
+    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'content-type',
+      'authorization',
+      'x-csrf-token',
+      'x-request-id',
+      'x-browser-session-id',
+      'idempotency-key',
+      'x-kingsway-sse-token',
+      'last-event-id',
+    ],
+    exposedHeaders: ['x-request-id'],
     credentials: true,
     maxAge: 600,
   });
@@ -116,6 +127,7 @@ async function createApp(env = {}) {
   registerPublicRoutes(app);
   registerViewRoutes(app);
   registerInternalRoutes(app);
+  registerAgentRoutes(app);
 
   app.setNotFoundHandler(async (req, reply) => {
     return reply.code(404).send({ error: 'not found' });

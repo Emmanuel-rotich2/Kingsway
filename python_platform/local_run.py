@@ -27,7 +27,10 @@ import sys
 # leaving the service alive while read-model jobs fail after dispatch.
 VENV_PYTHON = Path(__file__).resolve().parent / ".venv" / "bin" / "python"
 if VENV_PYTHON.is_file() and Path(sys.executable).resolve() != VENV_PYTHON.resolve():
-    os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]])
+    os.execv(
+        str(VENV_PYTHON),
+        [str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],
+    )
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -86,15 +89,22 @@ def _load_php_env() -> None:
             os.environ.setdefault("KINGSWAY_PHP_INTERNAL_HOST", parsed.hostname)
             os.environ.setdefault("KINGSWAY_PHP_VERIFY_TLS", "false")
 
-    if all(os.environ.get(key) for key in (
-        "KINGSWAY_DB_HOST", "KINGSWAY_DB_USER", "KINGSWAY_DB_PASSWORD"
-    )):
+    if all(
+        os.environ.get(key)
+        for key in ("KINGSWAY_DB_HOST", "KINGSWAY_DB_USER", "KINGSWAY_DB_PASSWORD")
+    ):
         os.environ.setdefault("KINGSWAY_PYTHON_READ_MODELS_ENABLED", "true")
 
 
 if __name__ == "__main__":
     _load_php_env()
     os.environ.setdefault("KINGSWAY_AI_PRODUCTION", "false")
+
+    import logging
+
+    # The scheduled worker polls every minute; its access lines otherwise
+    # dominate local_run.out. Application-level errors are still logged.
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
     from app.routes import create_app
 

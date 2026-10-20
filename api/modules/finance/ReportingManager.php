@@ -40,6 +40,24 @@ class ReportingManager extends FileLifecycleBase
     }
 
     /**
+     * Accounting source-trace rows (source link -> journal batch), newest first.
+     * Backed by the financial_source_trace read projection; called statically by
+     * FinanceController::getAccountingSourceTrace().
+     */
+    public static function sourceTrace(PDO $db, int $limit = 100): array
+    {
+        $limit = min(500, max(1, $limit));
+        $sql = "SELECT source_type, source_id, source_reference, journal_batch_id,
+                       batch_number, journal_status, correlation_id, created_at, posted_at
+                FROM " . ReadReplicaService::qualifiedRef('financial_source_trace') . "
+                ORDER BY created_at DESC, journal_batch_id DESC
+                LIMIT ?";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$limit]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
      * Get comprehensive financial dashboard
      * @param array $filters Filter criteria (academic_year, date_from, date_to)
      * @return array Response with dashboard data

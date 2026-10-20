@@ -38,6 +38,13 @@ final class AiOutputGuard
      */
     private const OBJECT_PREFIXES = ['vw_', 'mmv_', 'mv_', 'sp_', 'fn_', 'trg_'];
 
+    /**
+     * Snake_case identifiers (table/column names) with 2+ underscore segments.
+     * These are humanized to Title Case with spaces instead of underscores.
+     * e.g., "student_fee_obligations" -> "Student Fee Obligations"
+     */
+    private const SNAKE_CASE = '/\b[a-z]+(?:_[a-z]+){2,}\b/u';
+
     /** @var list<array{0:string,1:string}> */
     private const PATTERNS = [
         // Credentials and secrets.
@@ -149,6 +156,13 @@ final class AiOutputGuard
         // Governed registry report codes, e.g. FIN_FEE_SUMMARY_CLASS: uppercase
         // identifiers built from two or more underscore segments.
         $text = preg_replace('/\b[A-Z]{2,}(?:_[A-Z0-9]+){2,}\b/u', 'the school report', $text) ?? $text;
+
+        // Humanize snake_case identifiers (table/column names) to Title Case
+        $text = preg_replace_callback(
+            self::SNAKE_CASE,
+            static fn(array $m): string => implode(' ', array_map('ucfirst', explode('_', $m[0]))),
+            $text
+        ) ?? $text;
 
         foreach (self::PATTERNS as [$pattern, $replacement]) {
             $text = preg_replace($pattern, $replacement, $text) ?? $text;

@@ -13,11 +13,17 @@ from typing import Any
 TOOL_CATALOG = "assistant.catalog"
 TOOL_NLQ = "reports.nlq"
 TOOL_INSIGHT_BRIEF = "reports.insight_brief"
+TOOL_AGGREGATE = "reports.aggregate"
+TOOL_CHART = "charts.generate"
+TOOL_DRAFT = "drafts.create"
 
 TOOL_SUMMARIES: dict[str, str] = {
     TOOL_CATALOG: "assistant.catalog - list the governed AI workflows available to this staff member in this workspace; takes no input",
     TOOL_NLQ: "reports.nlq - answer a data question by routing it to an authorized governed report; input: question (string)",
     TOOL_INSIGHT_BRIEF: "reports.insight_brief - fetch the deterministic daily/weekly/term school intelligence briefing; input: cadence (daily|weekly|term)",
+    TOOL_AGGREGATE: "reports.aggregate - compute a governed aggregation (count, sum, avg, min, max) over authorized data; input: question (string), agg_type (count|sum|avg|min|max)",
+    TOOL_CHART: "charts.generate - generate a chart specification from authorized governed data; input: question (string), chart_type (bar|line|pie|doughnut|area)",
+    TOOL_DRAFT: "drafts.create - create a draft message/notice/announcement for human review; input: template (string), context (string)",
 }
 
 AGENTS: dict[str, dict[str, Any]] = {
@@ -39,7 +45,13 @@ AGENTS: dict[str, dict[str, Any]] = {
             "portfolio",
         ],
         "persona": "You are the CBC Academic Planning Agent for a Kenyan CBC primary and junior-secondary school. Ground every answer in Kenyan CBC practice: strands, sub-strands, learning outcomes, formative assessment and rubric bands (Below, Approaching, Meeting, Exceeding Expectation). You never invent curriculum content, learner records or official decisions; drafts always remain for teacher review.",
-        "tools": [TOOL_NLQ, TOOL_INSIGHT_BRIEF, TOOL_CATALOG],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "admissions.agent": {
         "id": "admissions.agent",
@@ -55,7 +67,13 @@ AGENTS: dict[str, dict[str, Any]] = {
             "applicant",
         ],
         "persona": "You are the Admissions Funnel Agent. You know the eight stages: Applied, Received, Reviewed & Approved, Interview (Grade 4-9 only), Admission Number, Class/Stream Placement, Fees/Transport/Uniform Payments, ID Generation, Final Enrollment. You never finalize admissions, promise placement or contact parents yourself; you prepare review notes and drafts for staff approval.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "attendance.agent": {
         "id": "attendance.agent",
@@ -64,7 +82,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Explain attendance register exceptions, lateness patterns and follow-up actions for authorized class scopes.",
         "route_tokens": ["attendance", "absen", "late", "register"],
         "persona": "You are the Attendance & Lateness Agent. You respect student types: DAY learners are home on weekends, WEEKLY boarders go home on weekends, and only full BOARDers are expected in weekend and night sessions. Denominators always come from governed reports; you never diagnose welfare or punish; you recommend register review and parent follow-up through normal workflows.",
-        "tools": [TOOL_NLQ, TOOL_INSIGHT_BRIEF, TOOL_CATALOG],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "boarding.agent": {
         "id": "boarding.agent",
@@ -73,7 +97,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize dormitory occupancy, roll-call exceptions, exeats and weekend presence signals.",
         "route_tokens": ["boarding", "dorm", "hostel", "exeat", "roll_call"],
         "persona": "You are the Boarding Operations Agent. You distinguish full boarders (weekends included) from weekly boarders (home on weekends). You never infer safeguarding outcomes or identify learners; you summarize aggregate signals and suggest operational checks for the Boarding Master.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "finance.agent": {
         "id": "finance.agent",
@@ -93,7 +123,13 @@ AGENTS: dict[str, dict[str, Any]] = {
             "invoice",
         ],
         "persona": "You are the Finance & Fees Agent. You explain reconciled, posted figures only; a provider acknowledgement is never treated as collected revenue. You never post, match, refund or settle anything; accountants keep that control. All money questions route through governed reports.",
-        "tools": [TOOL_NLQ, TOOL_INSIGHT_BRIEF, TOOL_CATALOG],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "communications.agent": {
         "id": "communications.agent",
@@ -112,7 +148,7 @@ AGENTS: dict[str, dict[str, Any]] = {
             "outbox",
         ],
         "persona": "You are the Communications Drafting Agent. You draft clear, respectful, audience-appropriate school messages with placeholders where facts are missing. You never select recipients, resolve contact data or send anything; dispatch stays in the governed Communications Hub workflow.",
-        "tools": [TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [TOOL_DRAFT, TOOL_CATALOG, TOOL_INSIGHT_BRIEF],
     },
     "staff.agent": {
         "id": "staff.agent",
@@ -129,7 +165,13 @@ AGENTS: dict[str, dict[str, Any]] = {
             "hr",
         ],
         "persona": "You are the Staff & HR Agent. Teaching is the base role: every leadership office (Headteacher, Deputies, Class Teacher) is an additional duty on top of teaching. You never make employment, appraisal or payroll decisions; you summarize aggregate signals and prepare review notes.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "transport.agent": {
         "id": "transport.agent",
@@ -154,7 +196,13 @@ AGENTS: dict[str, dict[str, Any]] = {
             "uniform",
         ],
         "persona": "You are the Inventory & Uniforms Agent. You highlight replenishment review items and category exceptions; you never change stock, approve requisitions, set prices or dispose of assets.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "catering.agent": {
         "id": "catering.agent",
@@ -163,7 +211,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize meals planned/prepared/served, waste rates and food-stock signals.",
         "route_tokens": ["food", "catering", "meal", "menu", "bakery"],
         "persona": "You are the Catering & Nutrition Operations Agent. The school runs a bakery and garden-supported kitchen that also trains older students. You summarize consumption and waste aggregates; you never make nutrition, allergy, food-safety or purchasing decisions.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "health.agent": {
         "id": "health.agent",
@@ -172,7 +226,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize aggregate sick-bay, vaccination-due and referral administration signals.",
         "route_tokens": ["health", "sick", "clinic", "nurse", "welfare"],
         "persona": "You are the Health Administration Agent. Learner health data is highly restricted. You summarize aggregate counts only, never diagnose, never identify learners, and never alter health records; escalation to the nurse or administration stays human.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "counseling.agent": {
         "id": "counseling.agent",
@@ -181,7 +241,7 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize aggregate counselling case load and follow-up signals without case identities.",
         "route_tokens": ["counsel", "guidance", "welfare", "safeguard"],
         "persona": "You are the Counselling & Welfare Agent. Confidential notes and case identities never reach you. You summarize aggregate case/session counts and suggest administrative follow-up for authorized counsellors only.",
-        "tools": [TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [TOOL_DRAFT, TOOL_CATALOG, TOOL_INSIGHT_BRIEF],
     },
     "activities.agent": {
         "id": "activities.agent",
@@ -190,7 +250,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Summarize club, talent, sports and library/resource participation signals.",
         "route_tokens": ["activit", "sport", "club", "library", "resource", "talent"],
         "persona": "You are the Activities & Library Agent. You summarize participation and resource utilization aggregates and never expose individual participation or borrower identity.",
-        "tools": [TOOL_NLQ, TOOL_CATALOG, "reports.insight_brief"],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "maintenance.agent": {
         "id": "maintenance.agent",
@@ -208,7 +274,13 @@ AGENTS: dict[str, dict[str, Any]] = {
         "goal": "Answer data questions through governed reports and explain KPI trends, alerts and intelligence briefings.",
         "route_tokens": ["report", "analytics", "kpi", "insight"],
         "persona": "You are the Analytics & Reporting Agent. Every number you quote comes from a governed report run with the caller's own role and row scope. You explain observed metrics versus possible drivers, never assert unsupported causes, and always name the report behind a figure.",
-        "tools": [TOOL_NLQ, TOOL_INSIGHT_BRIEF, TOOL_CATALOG],
+        "tools": [
+            TOOL_NLQ,
+            TOOL_AGGREGATE,
+            TOOL_CHART,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
     },
     "system.agent": {
         "id": "system.agent",
@@ -254,7 +326,8 @@ PROMPT_TEMPLATES: dict[str, str] = {
         '{"action":"tool","tool":"<exact tool id>","tool_input":{...}}; to finish return '
         '{"action":"final","answer":{"title":"...","body":"...","next_steps":[...],'
         '"suggested_questions":[...],"escalation_required":false}}. Call a tool ONLY when the '
-        "question needs school data, a governed report, the intelligence briefing, or the workflow "
+        "question needs school data, a governed report, an aggregation (count, sum, avg, min, max), "
+        "a chart visualization, a draft communication, the intelligence briefing, or the workflow "
         "catalogue; answer directly for process, policy or guidance questions. When you need more "
         "than one tool, request them together in a single turn as "
         '{"action":"tool","tools":[{"tool":"<exact tool id>","tool_input":{...}},...]} (max 3); '
@@ -265,14 +338,21 @@ PROMPT_TEMPLATES: dict[str, str] = {
         "reports not_authorized or fails, say so plainly and point the staff member to the right "
         "workspace. Keep the body under 250 words, practical and actionable; put concrete follow-up "
         "actions in next_steps (max 6) and at most 3 short suggested_questions. This is a Christian "
-        "Adventist school; keep a respectful, professional tone."
+        "Adventist school; keep a respectful, professional tone.\n\n"
+        "MANDATORY TOOL SELECTION RULES:\n"
+        "- If the user asks for a COUNT, TOTAL, NUMBER OF, HOW MANY, SUM, TOTAL AMOUNT, AVERAGE, MEAN, MINIMUM, MIN, MAXIMUM, MAX, or AGGREGATE → YOU MUST USE reports.aggregate tool.\n"
+        "- If the user asks to DRAW, PLOT, GRAPH, CHART, VISUALIZE, SHOW CHART, CREATE CHART, or MAKE A CHART → YOU MUST USE charts.generate tool.\n"
+        "- If the user asks to DRAFT, WRITE, COMPOSE, CREATE A DRAFT, PREPARE A MESSAGE, NOTICE, ANNOUNCEMENT, LETTER, or EMAIL → YOU MUST USE drafts.create tool.\n"
+        "- If the user asks for the INTELLIGENCE BRIEFING, DAILY BRIEFING, WEEKLY BRIEFING, or TERM BRIEFING → USE reports.insight_brief tool.\n"
+        "- If the user asks what workflows are available or what tools you have → USE assistant.catalog tool.\n"
+        "- For all other data questions → USE reports.nlq tool.\n"
+        "These rules are MANDATORY. You MUST follow them."
     ),
 }
 
 
 def resolve(agent_id: str) -> dict[str, Any] | None:
     return AGENTS.get(agent_id)
-
 
 
 # Deterministic lexical routing. A tiny bag-of-words classifier runs before
@@ -287,36 +367,119 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("lateness", "late", "truancy", "rollcall", "mark", "session"),
     ),
     "academics.agent": (
-        ("scheme of work", "lesson plan", "learning area", "curriculum", "cbc",
-         "assignment", "homework", "class test", "exam", "rubric", "assessment",
-         "topic", "learning outcome", "strand", "sub-strand", "portfolio", "course outline"),
-        ("exam", "rubric", "assessment", "grade", "marks", "strand", "sub-strand",
-         "topic", "objective", "outcome", "learner", "class"),
+        (
+            "scheme of work",
+            "lesson plan",
+            "learning area",
+            "curriculum",
+            "cbc",
+            "assignment",
+            "homework",
+            "class test",
+            "exam",
+            "rubric",
+            "assessment",
+            "topic",
+            "learning outcome",
+            "strand",
+            "sub-strand",
+            "portfolio",
+            "course outline",
+        ),
+        (
+            "exam",
+            "rubric",
+            "assessment",
+            "grade",
+            "marks",
+            "strand",
+            "sub-strand",
+            "topic",
+            "objective",
+            "outcome",
+            "learner",
+            "class",
+        ),
     ),
     "finance.agent": (
-        ("fee", "fees", "invoice", "payment", "collection", "budget", "revenue",
-         "expense", "mpesa", "finance", "financial", "salary", "payroll"),
-        ("balance", "owing", "debt", "receivable", "ledger", "bank", "profit",
-         "expenditure", "grant", "donor"),
+        (
+            "fee",
+            "fees",
+            "invoice",
+            "payment",
+            "collection",
+            "budget",
+            "revenue",
+            "expense",
+            "mpesa",
+            "finance",
+            "financial",
+            "salary",
+            "payroll",
+        ),
+        (
+            "balance",
+            "owing",
+            "debt",
+            "receivable",
+            "ledger",
+            "bank",
+            "profit",
+            "expenditure",
+            "grant",
+            "donor",
+        ),
     ),
     "admissions.agent": (
-        ("admission", "applicant", "application", "enrol", "enrollment",
-         "enrolment", "intake", "waiting list"),
+        (
+            "admission",
+            "applicant",
+            "application",
+            "enrol",
+            "enrollment",
+            "enrolment",
+            "intake",
+            "waiting list",
+        ),
         ("interview", "placement", "transfer", "withdraw", "prospect"),
     ),
     "transport.agent": (
-        ("transport", "route", "vehicle", "driver", "bus", "passenger",
-         "manifest", "pickup", "drop-off"),
+        (
+            "transport",
+            "route",
+            "vehicle",
+            "driver",
+            "bus",
+            "passenger",
+            "manifest",
+            "pickup",
+            "drop-off",
+        ),
         ("trip", "fare", "commute", "fleet", "accident", "journey"),
     ),
     "boarding.agent": (
-        ("boarding", "boarder", "dormitory", "dorm", "hostel", "exeat",
-         "roll call", "overnight"),
+        (
+            "boarding",
+            "boarder",
+            "dormitory",
+            "dorm",
+            "hostel",
+            "exeat",
+            "roll call",
+            "overnight",
+        ),
         ("bed", "welfare", "weekend", "night", "preacher"),
     ),
     "inventory.agent": (
-        ("inventory", "stock", "requisition", "supplier", "procurement",
-         "warehouse", "store"),
+        (
+            "inventory",
+            "stock",
+            "requisition",
+            "supplier",
+            "procurement",
+            "warehouse",
+            "store",
+        ),
         ("item", "quantity", "out of stock", "order", "purchase", "asset"),
     ),
     "catering.agent": (
@@ -324,56 +487,192 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("waste", "portion", "cook", "canteen", "dining", "snack", "consume"),
     ),
     "staff.agent": (
-        ("staff", "teacher", "employee", "payroll", "appraisal", "leave",
-         "workload", "timetable for staff", "human resource"),
-        ("sick", "vacation", "contract", "department", "training", "cpd",
-         "salary", "recruitment", "discipline of staff"),
+        (
+            "staff",
+            "teacher",
+            "employee",
+            "payroll",
+            "appraisal",
+            "leave",
+            "workload",
+            "timetable for staff",
+            "human resource",
+        ),
+        (
+            "sick",
+            "vacation",
+            "contract",
+            "department",
+            "training",
+            "cpd",
+            "salary",
+            "recruitment",
+            "discipline of staff",
+        ),
     ),
     "health.agent": (
-        ("health", "medical", "clinic", "illness", "disease", "medication",
-         "immunization", "injury", "first aid"),
+        (
+            "health",
+            "medical",
+            "clinic",
+            "illness",
+            "disease",
+            "medication",
+            "immunization",
+            "injury",
+            "first aid",
+        ),
         ("nurse", "diagnosis", "referral", "sick bay", "hygiene"),
     ),
     "counseling.agent": (
-        ("counsel", "counselling", "counseling", "psychology", "mental health",
-         "wellbeing", "grief", "peer pressure"),
+        (
+            "counsel",
+            "counselling",
+            "counseling",
+            "psychology",
+            "mental health",
+            "wellbeing",
+            "grief",
+            "peer pressure",
+        ),
         ("confidential", "emotional", "support", "referral", "well-being"),
     ),
     "communications.agent": (
-        ("message", "sms", "email", "whatsapp", "announcement", "parent",
-         "communication", "forum", "letter", "notice"),
+        (
+            "message",
+            "sms",
+            "email",
+            "whatsapp",
+            "announcement",
+            "parent",
+            "communication",
+            "forum",
+            "letter",
+            "notice",
+        ),
         ("broadcast", "recipient", "send", "reply", "inbox"),
     ),
     "maintenance.agent": (
-        ("maintenance", "repair", "broken", "plumbing", "electrical", "generator",
-         "cleaning", "grinding", "compound", "facility"),
+        (
+            "maintenance",
+            "repair",
+            "broken",
+            "plumbing",
+            "electrical",
+            "generator",
+            "cleaning",
+            "grinding",
+            "compound",
+            "facility",
+        ),
         ("work order", "artisan", "spare part", "tool", "building", "fence"),
     ),
     "activities.agent": (
-        ("activity", "club", "sport", "library", "music", "drama", "football",
-         "athletics", "competition"),
+        (
+            "activity",
+            "club",
+            "sport",
+            "library",
+            "music",
+            "drama",
+            "football",
+            "athletics",
+            "competition",
+        ),
         ("event", "team", "participant", "talent", "resource", "book"),
     ),
     "reports.agent": (
-        ("report", "report card", "analytics", "kpi", "dashboard figure",
-         "statistic", "trend", "chart"),
+        (
+            "report",
+            "report card",
+            "analytics",
+            "kpi",
+            "dashboard figure",
+            "statistic",
+            "trend",
+            "chart",
+        ),
         ("summary", "figure", "number of", "how many", "average", "total"),
     ),
     "system.agent": (
-        ("system health", "server health", "queue", "job queue", "audit log",
-         "error log", "security", "login failure", "backup", "system error",
-         "system performance", "failing api"),
+        (
+            "system health",
+            "server health",
+            "queue",
+            "job queue",
+            "audit log",
+            "error log",
+            "security",
+            "login failure",
+            "backup",
+            "system error",
+            "system performance",
+            "failing api",
+        ),
         ("incident", "outage", "slow", "log file", "journal", "permission drift"),
     ),
 }
 
 _STOPWORDS = {
-    "the", "a", "an", "of", "for", "to", "and", "or", "in", "on", "at", "is",
-    "are", "was", "were", "do", "does", "did", "can", "could", "should", "would",
-    "i", "me", "my", "we", "our", "you", "your", "it", "this", "that", "today",
-    "now", "please", "give", "show", "tell", "list", "summarise", "summarize",
-    "explain", "recap", "what", "how", "much", "many", "there", "have", "has",
-    "with", "from", "about", "get", "make", "need", "help", "check", "any",
+    "the",
+    "a",
+    "an",
+    "of",
+    "for",
+    "to",
+    "and",
+    "or",
+    "in",
+    "on",
+    "at",
+    "is",
+    "are",
+    "was",
+    "were",
+    "do",
+    "does",
+    "did",
+    "can",
+    "could",
+    "should",
+    "would",
+    "i",
+    "me",
+    "my",
+    "we",
+    "our",
+    "you",
+    "your",
+    "it",
+    "this",
+    "that",
+    "today",
+    "now",
+    "please",
+    "give",
+    "show",
+    "tell",
+    "list",
+    "summarise",
+    "summarize",
+    "explain",
+    "recap",
+    "what",
+    "how",
+    "much",
+    "many",
+    "there",
+    "have",
+    "has",
+    "with",
+    "from",
+    "about",
+    "get",
+    "make",
+    "need",
+    "help",
+    "check",
+    "any",
 }
 
 
@@ -497,14 +796,14 @@ def specialist_prompt(focus: str) -> str:
     return (
         "You are one specialist reviewer inside a school operations briefing. Focus ONLY on: "
         f"{focus[:120]}. You receive deterministic aggregate facts about the workspace. "
-        "Return ONLY JSON: {\"insight\": \"<=180 chars\"} stating the single most useful "
+        'Return ONLY JSON: {"insight": "<=180 chars"} stating the single most useful '
         "observation for the staff member, grounded only in the supplied facts. If the facts show "
         "nothing notable, return an empty insight. Never invent numbers, names or causes."
     )
 
 
-def system_prompt(agent: dict[str, Any]) -> str:
-    return "\n\n".join(
+def system_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
+    base = "\n\n".join(
         [
             PROMPT_TEMPLATES["system.agent_chat"],
             f"AGENT PERSONA - {agent['name']}: {agent['persona']}",
@@ -512,9 +811,14 @@ def system_prompt(agent: dict[str, Any]) -> str:
             "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
         ]
     )
+    if context:
+        from . import staff_prompt
+
+        base = staff_prompt.compose(base, context)
+    return base
 
 
-def stream_prompt(agent: dict[str, Any]) -> str:
+def stream_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
     """System prompt for the streamed answer surface.
 
     The buffered agent loop uses a strict JSON answer contract, which is right
@@ -524,7 +828,7 @@ def stream_prompt(agent: dict[str, Any]) -> str:
     governed tool request. The first character of the reply distinguishes the
     two, so the relay can stream prose immediately and never show a tool frame.
     """
-    return "\n\n".join(
+    base = "\n\n".join(
         [
             "You are a governed AI co-worker agent inside a Kenyan CBC primary and "
             "junior-secondary school system (Kingsway Preparatory School). You help "
@@ -532,17 +836,16 @@ def stream_prompt(agent: dict[str, Any]) -> str:
             "writing a live, streamed reply.",
             f"AGENT PERSONA - {agent['name']}: {agent['persona']}",
             f"AGENT GOAL: {agent['goal']}",
-            "TOOLS AVAILABLE (use exact ids):\n- "
-            + "\n- ".join(tool_summaries(agent)),
+            "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
             (
                 "CONTRACT - follow exactly:\n"
                 "1. Write the answer directly, in plain text. Never emit JSON, "
-                "markdown fences, or an \"answer\" wrapper.\n"
+                'markdown fences, or an "answer" wrapper.\n'
                 "2. Answer from the governed tool_results already provided. They are "
                 "the only school facts you may use. Never invent numbers, identifiers, "
                 "balances, dates, learner or staff details, or policy.\n"
                 "3. Keep it under 150 words, professional and warm, no preamble such as "
-                "\"Based on the data\".\n"
+                '"Based on the data".\n'
                 "4. Only if the provided results genuinely cannot answer the question, "
                 "request ONE governed tool and reply with nothing except JSON: "
                 '{"action":"tool","tools":[{"tool":"<exact tool id>",'
@@ -550,10 +853,19 @@ def stream_prompt(agent: dict[str, Any]) -> str:
                 "5. Never claim to have created, approved, posted, sent, published or "
                 "changed anything - drafts and decisions belong to human staff.\n"
                 "6. If a result is missing, say plainly what could not be retrieved and "
-                "point to the related workspace."
+                "point to the related workspace.\n"
+                "7. Available tools include: governed reports (reports.nlq), aggregations "
+                "(reports.aggregate), charts (charts.generate), drafts (drafts.create), "
+                "intelligence briefing (reports.insight_brief), and workflow catalogue "
+                "(assistant.catalog)."
             ),
         ]
     )
+    if context:
+        from . import staff_prompt
+
+        base = staff_prompt.compose(base, context)
+    return base
 
 
 def validate_registry() -> None:

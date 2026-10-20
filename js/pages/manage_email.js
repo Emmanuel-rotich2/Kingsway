@@ -46,6 +46,7 @@
       this.bindAccessEvents();
       this.bindRealtime();
       this.setupVariableMenu();
+      window.APIRealtime?.register?.("manageEmail", this, ["communications"]);
       await this.loadMailboxes();
     },
 
@@ -252,6 +253,7 @@
       });
       this.on("composeAttachments", "change", () => self.renderAttachmentChips());
       this.on("composeDirectoryToggle", "click", () => self.toggleDirectoryPicker());
+      this.on("templateSelect", "change", () => self.applyEmailTemplate());
       document.getElementById("composeModal")?.addEventListener("hidden.bs.modal", () => {
         self.composeContext = null;
         document.getElementById("composeStatus").textContent = "";
@@ -1212,8 +1214,20 @@
       const dirBtn = document.getElementById("composeDirectoryToggle");
       if (dirWrap) dirWrap.style.display = "";
       if (dirBtn) dirBtn.textContent = "Hide directory";
-      this.ensureDirectoryPicker();
+      if (!this.directoryPicker && window.RecipientPicker) {
+        const self = this;
+        this.directoryPicker = window.RecipientPicker.create("composeRecipientPicker", {
+          mode: "multi",
+          types: ["student", "parent", "staff", "vendor"],
+          placeholder: "Browse or search learner, guardian, staff or vendor...",
+          onChange: function (selection) {
+            const emails = (selection || []).map((r) => r.email).filter(Boolean);
+            if (emails.length) self.appendToRecipients(emails);
+          },
+        });
+      }
       if (this.directoryPicker) this.directoryPicker.clear();
+      this.loadEmailTemplates();
       bootstrap.Modal.getOrCreateInstance(document.getElementById("composeModal")).show();
     },
 
@@ -1328,6 +1342,109 @@
       } finally {
         this.setComposeBusy(false, "");
       }
+    },
+
+    async loadEmailTemplates() {
+      const select = document.getElementById("templateSelect");
+      if (!select) return;
+      try {
+        const res = await window.API.communications.getTemplates();
+        const templates = Array.isArray(res) ? res : (res?.data || []);
+        select.innerHTML = '<option value="">No template</option>' +
+          templates
+            .filter((t) => String(t.template_type || "").toLowerCase() === "email")
+            .map((t) => `<option value="${this.esc(t.id)}">${this.esc(t.name)}</option>`)
+            .join("");
+      } catch (e) {
+        select.innerHTML = '<option value="">No template</option>';
+      }
+    },
+
+    applyEmailTemplate() {
+      const select = document.getElementById("templateSelect");
+      if (!select || !select.value) return;
+      const id = select.value;
+      window.API.communications.getTemplate(id).then((res) => {
+        const tmpl = res?.template || res?.data || res;
+        if (!tmpl || !tmpl.template_body) return;
+        const body = tmpl.template_body;
+        const placeholders = this.extractPlaceholders(body);
+        if (placeholders.length > 0) {
+          this.promptForVariables(placeholders, (variables) => {
+            const substituted = this.substituteVariables(body, variables);
+            document.getElementById("composeBody").value = substituted;
+            if (tmpl.subject && !document.getElementById("composeSubject").value) {
+              document.getElementById("composeSubject").value = tmpl.subject;
+            }
+          });
+        } else {
+          document.getElementById("composeBody").value = body;
+          if (tmpl.subject && !document.getElementById("composeSubject").value) {
+            document.getElementById("composeSubject").value = tmpl.subject;
+          }
+        }
+      }).catch(() => {});
+    },
+
+    extractPlaceholders(text) {
+      const regex = /@([A-Za-z_][A-Za-z0-9_]*)/g;
+      const matches = text.match(regex) || [];
+      return [...new Set(matches.map(m => m.slice(1)))];
+    },
+
+    substituteVariables(text, variables) {
+      return text.replace(/@([A-Za-z_][A-Za-z0-9_]*)/g, (match, key) => {
+        return variables.hasOwnProperty(key) ? variables[key] : match;
+      });
+    },
+
+    promptForVariables(placeholders, callback) {
+      const modalHtml = `
+        <div class="modal fade" id="variablePromptModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit me-1"></i>Template Variables</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <p class="small text-muted">This template has placeholders. Provide values for each:</p>
+                <form id="variablePromptForm">
+                  ${placeholders.map(key => `
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">@${key}</label>
+                      <input type="text" class="form-control form-control-sm" name="${key}" required>
+                    </div>
+                  `).join('')}
+                </form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="variablePromptApply">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const existing = document.getElementById("variablePromptModal");
+      if (existing) existing.remove();
+      document.body.insertAdjacentHTML('beforeend', modalHtml);
+      const modalEl = document.getElementById("variablePromptModal");
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modalEl.querySelector('#variablePromptApply').addEventListener('click', () => {
+        const form = modalEl.querySelector('#variablePromptForm');
+        const variables = {};
+        let valid = true;
+        form.querySelectorAll('input').forEach(input => {
+          if (!input.value.trim()) valid = false;
+          variables[input.name] = input.value.trim();
+        });
+        if (!valid) { showNotification('Please fill all variables', 'warning'); return; }
+        modal.hide();
+        callback(variables);
+      });
+      modalEl.addEventListener('hidden.bs.modal', () => modalEl.remove());
+      modal.show();
     },
 
     downloadAttachment(index) {

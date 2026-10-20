@@ -12,12 +12,13 @@ require_once __DIR__ . '/public/layout/public_data.php';
 // Spaces are intentionally "Available" for marketing — capacity is not declared
 // per grade. Kept as a static table (was kw_grade_spaces()).
 $gradeSpaces = [
-    'PP1 (Pre-Primary 1)' => ['4 – 5 years', 'Available'],
-    'PP2 (Pre-Primary 2)' => ['5 – 6 years', 'Available'],
-    'Grade 1'             => ['6 – 7 years', 'Available'],
-    'Grade 2 – 3'         => ['7 – 9 years', 'Available'],
-    'Grade 4 – 6'         => ['10 – 12 years', 'Available'],
-    'Grade 7 – 9 (JSS)'   => ['12 – 15 years', 'Available'],
+    'Playgroup'            => ['', 'Available'],
+    'PP1 (Pre-Primary 1)' => ['', 'Available'],
+    'PP2 (Pre-Primary 2)' => ['', 'Available'],
+    'Grade 1'             => ['', 'Available'],
+    'Grade 2 – 3'         => ['', 'Available'],
+    'Grade 4 – 6'         => ['', 'Available'],
+    'Grade 7 – 9 (JSS)'   => ['', 'Available'],
 ];
 
 // Fixed six-step admission journey (was kw_admission_steps(); the backing
@@ -123,7 +124,7 @@ $adSteps = [
             <thead style="background:var(--green);color:#fff">
               <tr>
                 <th class="py-3">Grade / Level</th>
-                <th class="py-3">Age Range</th>
+                <!-- <th class="py-3">Age Range</th> -->
                 <th class="py-3">Spaces</th>
               </tr>
             </thead>
@@ -134,7 +135,7 @@ $adSteps = [
               ?>
               <tr>
                 <td class="fw-semibold"><?= htmlspecialchars($gradeName) ?></td>
-                <td class="text-muted"><?= htmlspecialchars($ageRange) ?></td>
+                <!-- <td class="text-muted"><?= htmlspecialchars($ageRange) ?></td> -->
                 <td>
                   <span class="tag" style="background:<?= $spaceBg ?>;color:<?= $spaceClr ?>;font-size:.72rem">
                     <?= htmlspecialchars($spaces) ?>
@@ -162,32 +163,8 @@ $adSteps = [
       <div class="section-label justify-content-center"><span>Transparent Pricing</span></div>
       <h2 class="section-title">Fee <span>Structure Overview</span></h2>
       <p class="section-subtitle mx-auto">Comprehensive education at affordable rates. Detailed fee structure available on request.</p>
+      <p class="small text-muted mb-0">*Fees are indicative and may change. Please contact the admissions office for the latest fee schedule.</p>
     </div>
-    <div class="row g-4 justify-content-center">
-      <?php foreach ([
-        ['Day Scholar','PP1 – Grade 9','#198754',['Tuition fees','Activity fees','Examination fees','Lunch meal','All learning materials'],'From KSh 18,000 / term'],
-        ['Full Boarding','Grade 1 – Grade 9','#1976d2',['All day scholar inclusions','Accommodation &amp; bedding','Three meals daily','Evening preps','Pastoral care 24/7'],'From KSh 42,000 / term'],
-      ] as $fp): ?>
-      <div class="col-lg-5">
-        <div class="card-modern p-5 text-center h-100 reveal" style="border-top:4px solid <?= $fp[2] ?>">
-          <h4 class="fw-bold mb-1"><?= $fp[0] ?></h4>
-          <div class="text-muted small mb-3"><?= $fp[1] ?></div>
-          <div class="fs-4 fw-bold mb-4" style="color:<?= $fp[2] ?>"><?= $fp[4] ?></div>
-          <ul class="list-unstyled text-start mb-4">
-            <?php foreach ($fp[3] as $f): ?>
-            <li class="d-flex align-items-center gap-2 mb-2 small">
-              <i class="bi bi-check-circle-fill flex-shrink-0" style="color:<?= $fp[2] ?>"></i><?= $f ?>
-            </li>
-            <?php endforeach; ?>
-          </ul>
-          <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="btn-kw-outline" style="color:<?= $fp[2] ?>;border-color:<?= $fp[2] ?>">
-            <i class="bi bi-download"></i>Download Full Fee Structure
-          </a>
-        </div>
-      </div>
-      <?php endforeach; ?>
-    </div>
-    <p class="text-center text-muted small mt-4">* Fees are reviewed annually. Payment plans available. Bursaries offered to deserving students — <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="text-success">download bursary form</a>.</p>
   </div>
 </section>
 

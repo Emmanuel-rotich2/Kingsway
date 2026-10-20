@@ -888,6 +888,18 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
         "sensitivity": "financial",
         "max_age_seconds": 600,
     },
+    "financial_source_trace": {
+        "source": "vw_financial_source_trace",
+        "target": "mmv_financial_source_trace",
+        "indexes": {
+            "idx_batch": ("journal_batch_id",),
+            "idx_batch_number": ("batch_number",),
+            "idx_created_at": ("created_at",),
+            "idx_source": ("source_type", "source_id"),
+        },
+        "sensitivity": "financial",
+        "max_age_seconds": 600,
+    },
     "fixed_assets": {
         "source": "vw_fixed_assets",
         "target": "mmv_fixed_assets",
@@ -2178,6 +2190,15 @@ PROJECTIONS: dict[str, dict[str, Any]] = {
             "idx_student": ("student_id",),
         },
         "sensitivity": "personal",
+        "max_age_seconds": 600,
+    },
+    "student_types": {
+        "source": "vw_student_types",
+        "target": "mmv_student_types",
+        "indexes": {
+            "idx_pk": ("id",),
+        },
+        "sensitivity": "normal",
         "max_age_seconds": 600,
     },
     "student_vaccinations": {

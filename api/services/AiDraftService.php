@@ -82,6 +82,75 @@ class AiDraftService
         return ['draft_id' => $id, 'workflow_id' => $workflowId, 'status' => 'pending_approval', 'draft' => $validated];
     }
 
+    /**
+     * Create a draft from a template and context for the AI agent tool.
+     *
+     * @param array $context authenticated envelope (user_id, permissions, roles)
+     * @param string $template template identifier (e.g., 'parent_notice', 'staff_memo', 'announcement')
+     * @param string $contextText free-text context for the draft
+     * @return array<string,mixed>
+     */
+    public function createDraft(PDO $pdo, array $context, string $template, string $contextText): array
+    {
+        $workflowId = 'communications.general_draft';
+        $userId = (int) ($context['user_id'] ?? 0);
+        if ($userId < 1) {
+            return ['status' => 'error', 'message' => 'Valid user context required.'];
+        }
+
+        $prompt = $this->templates->resolve('communications.general_draft');
+        $cleanInput = AiPromptPolicy::minimize('communications.general_draft', [
+            'template' => $template,
+            'context' => $contextText,
+            'staff_name' => $context['user_name'] ?? 'Staff Member',
+        ]);
+        $messages = [
+            ['role' => 'system', 'content' => $prompt['content']],
+            ['role' => 'user', 'content' => json_encode($cleanInput, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+        ];
+        $draft = $this->provider->complete($messages);
+        $validated = $this->validateDraft($draft, 'communications.general_draft', $cleanInput);
+
+        $inputHash = hash('sha256', json_encode($cleanInput));
+        $stmt = $pdo->prepare(
+            'INSERT INTO ai_workflow_drafts
+                (workflow_id, operator_id, subject_type, subject_id, metadata_json, input_hash, draft_json, status, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, \'pending_approval\', DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY))'
+        );
+        $stmt->execute([
+            'communications.general_draft',
+            $userId,
+            'general',
+            0,
+            json_encode(['template' => $template], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            hash('sha256', json_encode($cleanInput)),
+            json_encode($validated, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+        $id = (int) $pdo->lastInsertId();
+
+        FileLogger::write('ai_generation', [
+            'type' => 'draft_created',
+            'workflow_id' => 'communications.general_draft',
+            'draft_id' => $id,
+            'operator_id' => $userId,
+            'subject_type' => 'general',
+            'subject_id' => 0,
+            'input_hash' => hash('sha256', json_encode($cleanInput)),
+            'result_hash' => hash('sha256', json_encode($validated)),
+            'prompt_version' => $prompt['version'],
+            'prompt_hash' => hash('sha256', $prompt['content']),
+            'status' => 'pending_approval',
+        ]);
+
+        return [
+            'status' => 'ok',
+            'draft_id' => $id,
+            'workflow_id' => 'communications.general_draft',
+            'status' => 'pending_approval',
+            'draft' => $validated,
+        ];
+    }
+
     public function queue(string $workflowId, array $context, array $input, array $metadata = []): array
     {
         $workflow = (new AiWorkflowService())->authorize($workflowId, $context);

@@ -8,6 +8,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 <html lang="en">
 <head>
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
+    <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#0b5d3b">

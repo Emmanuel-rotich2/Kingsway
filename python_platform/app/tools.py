@@ -19,9 +19,12 @@ from .config import Config
 
 ALLOWED_TOOLS = (
     "reports.nlq",
+    "reports.aggregate",
     "reports.insight_brief",
     "assistant.catalog",
     "assistant.workspace_scan",
+    "charts.generate",
+    "drafts.create",
 )
 VALID_CADENCES = ("daily", "weekly", "term")
 
@@ -199,10 +202,28 @@ class ToolBridge:
             question = str(tool_input.get("question") or "")[:500]
             if question:
                 bounded["question"] = question
+        elif tool == "reports.aggregate":
+            question = str(tool_input.get("question") or "")[:500]
+            agg_type = str(tool_input.get("agg_type") or "count")[:20]
+            if question and agg_type in {"count", "sum", "avg", "min", "max"}:
+                bounded["question"] = question
+                bounded["agg_type"] = agg_type
         elif tool == "reports.insight_brief":
             cadence = str(tool_input.get("cadence") or "daily")
             bounded["cadence"] = cadence if cadence in VALID_CADENCES else "daily"
         elif tool == "assistant.workspace_scan":
             route = str(tool_input.get("route") or "dashboard")[:120]
             bounded["route"] = route
+        elif tool == "charts.generate":
+            question = str(tool_input.get("question") or "")[:500]
+            chart_type = str(tool_input.get("chart_type") or "bar")[:20]
+            if question and chart_type in {"bar", "line", "pie", "doughnut", "area"}:
+                bounded["question"] = question
+                bounded["chart_type"] = chart_type
+        elif tool == "drafts.create":
+            template = str(tool_input.get("template") or "")[:60]
+            context = str(tool_input.get("context") or "")[:2000]
+            if template:
+                bounded["template"] = template
+                bounded["context"] = context
         return bounded
