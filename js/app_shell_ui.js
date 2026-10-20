@@ -1058,6 +1058,28 @@
     });
   }
 
+  function renderAssistantHistory() {
+    // Keep the session list in sync and, when the cached active session carries
+    // messages, restore its transcript. Otherwise leave the current greeting.
+    renderAssistantSessions();
+    if (!currentSessionId) return;
+    const active = sessionsCache.find(
+      (session) => String(session.id) === String(currentSessionId)
+    );
+    if (active && Array.isArray(active.messages) && active.messages.length) {
+      renderConversationThread(active);
+    }
+  }
+
+  function growAssistantInput() {
+    const input = $("#global-ai-assistant-question");
+    if (!input) return;
+    const maxHeight = 160;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, maxHeight)}px`;
+    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
+  }
+
   async function createAssistantSession() {
     try {
       const route = window.REQUESTED_ROUTE || "";

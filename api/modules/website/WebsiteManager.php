@@ -156,6 +156,27 @@ class WebsiteManager extends BaseAPI
     public function getStats()
     {
         try {
+            // Public staff headcount excludes test logins and test-scoped
+            // staff records. Prefer the directory projection (it exposes the
+            // linked account flags); fall back to the staff table's data_scope
+            // if the projection is unavailable so the homepage never breaks.
+            try {
+                $staffCount = (int) $this->scalar(
+                    "SELECT COUNT(DISTINCT staff_id)
+                       FROM " . ReadReplicaService::qualifiedRef('staff_directory') . "
+                      WHERE staff_status = 'active'
+                        AND COALESCE(data_scope, 'live') <> 'test'
+                        AND COALESCE(is_test_user, 0) = 0
+                        AND COALESCE(account_type, 'real') <> 'test'"
+                );
+            } catch (\Throwable $projectionError) {
+                $staffCount = (int) $this->scalar(
+                    "SELECT COUNT(*) FROM staff
+                      WHERE status = 'active'
+                        AND COALESCE(data_scope, 'live') <> 'test'"
+                );
+            }
+
             $stats = [
                 'news'         => (int) $this->scalar("SELECT COUNT(*) FROM news_articles WHERE deleted_at IS NULL"),
                 'events'       => (int) $this->scalar("SELECT COUNT(*) FROM school_events"),
@@ -167,7 +188,7 @@ class WebsiteManager extends BaseAPI
                 'job_apps'     => (int) $this->scalar("SELECT COUNT(*) FROM job_applications WHERE status='received'"),
                 // Live enrolment / staff headcounts shown on the public homepage.
                 'students'     => (int) $this->scalar("SELECT COUNT(*) FROM students WHERE status='active'"),
-                'staff'        => (int) $this->scalar("SELECT COUNT(*) FROM staff WHERE status='active'"),
+                'staff'        => $staffCount,
             ];
             return $this->successResponse($stats, 'Website stats retrieved');
         } catch (Exception $e) {
