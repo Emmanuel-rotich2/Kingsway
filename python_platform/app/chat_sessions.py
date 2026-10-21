@@ -36,6 +36,13 @@ MAX_MESSAGES = 200
 MAX_MESSAGE_CHARS = 4000
 MAX_TITLE_CHARS = 80
 MAX_META_CHARS = 2000
+MAX_TOPICS = 12
+MAX_TOPIC_CHARS = 40
+HISTORY_MAX_TURNS = 12
+HISTORY_MESSAGE_CHARS = 1200
+HISTORY_CHAR_BUDGET = 5000
+SUMMARY_LINES = 8
+SUMMARY_LINE_CHARS = 180
 STORE_VERSION = "assistant_chat_v1"
 
 _ROLES = {"user", "assistant"}
@@ -81,6 +88,30 @@ class ChatSessionStore:
                 );
                 """
             )
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """Additive migrations for databases created by earlier releases.
+
+        Called from ``__init__`` while ``self._lock`` is already held, so it
+        must not re-acquire the lock (a non-reentrant lock would deadlock).
+        """
+        connection = self._connect()
+        try:
+            columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(chat_sessions)"
+                ).fetchall()
+            }
+            if "topics_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE chat_sessions"
+                    " ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            connection.commit()
+        finally:
+            connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self._db_path), timeout=3)
@@ -129,6 +160,7 @@ class ChatSessionStore:
                     "created_at": now,
                     "updated_at": now,
                     "message_count": 0,
+                    "topics_json": "[]",
                 }
             )
         except Exception:
@@ -141,7 +173,7 @@ class ChatSessionStore:
             with self._lock:
                 connection = self._connect()
                 rows = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count"
+                    "SELECT id, user_id, title, route, created_at, updated_at, message_count, topics_json"
                     " FROM chat_sessions"
                     " WHERE user_id = ? AND updated_at >= ?"
                     " ORDER BY updated_at DESC LIMIT ?",
@@ -161,7 +193,7 @@ class ChatSessionStore:
             with self._lock:
                 connection = self._connect()
                 row = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count"
+                    "SELECT id, user_id, title, route, created_at, updated_at, message_count, topics_json"
                     " FROM chat_sessions WHERE id = ? AND user_id = ?",
                     (session_id, int(user_id)),
                 ).fetchone()
@@ -273,6 +305,159 @@ class ChatSessionStore:
                 {"session_id": session_id[:12]},
             )
             return None
+
+    # ------------------------------------------------------------------ topics
+    def add_topics(
+        self, user_id: int, session_id: str, topics: list[Any] | None
+    ) -> list[str]:
+        """Merge human topic labels into one session, bounded and deduplicated."""
+        if not isinstance(topics, list):
+            return []
+        clean: list[str] = []
+        for topic in topics[:MAX_TOPICS]:
+            text = " ".join(str(topic or "").split())[:MAX_TOPIC_CHARS]
+            if text and text not in clean:
+                clean.append(text)
+        if not clean:
+            return self.get_topics(user_id, session_id)
+        try:
+            with self._lock:
+                connection = self._connect()
+                row = connection.execute(
+                    "SELECT topics_json FROM chat_sessions"
+                    " WHERE id = ? AND user_id = ?",
+                    (str(session_id), int(user_id)),
+                ).fetchone()
+                if row is None:
+                    return []
+                existing = self._load_topics(row["topics_json"])
+                merged = list(existing)
+                for topic in clean:
+                    if topic not in merged:
+                        merged.append(topic)
+                merged = merged[:MAX_TOPICS]
+                connection.execute(
+                    "UPDATE chat_sessions SET topics_json = ? WHERE id = ? AND user_id = ?",
+                    (
+                        json.dumps(merged, ensure_ascii=False),
+                        str(session_id),
+                        int(user_id),
+                    ),
+                )
+                connection.commit()
+            return merged
+        except Exception:
+            return []
+
+    def get_topics(self, user_id: int, session_id: str) -> list[str]:
+        if not session_id:
+            return []
+        try:
+            with self._lock:
+                connection = self._connect()
+                row = connection.execute(
+                    "SELECT topics_json FROM chat_sessions"
+                    " WHERE id = ? AND user_id = ?",
+                    (str(session_id), int(user_id)),
+                ).fetchone()
+            return self._load_topics(row["topics_json"]) if row is not None else []
+        except Exception:
+            return []
+
+    def clear_messages(self, user_id: int, session_id: str) -> bool:
+        """Empty one session while keeping the session in the sidebar."""
+        session_id = str(session_id or "").strip()
+        if not session_id:
+            return False
+        try:
+            with self._lock:
+                connection = self._connect()
+                owned = connection.execute(
+                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+                    (session_id, int(user_id)),
+                ).fetchone()
+                if owned is None:
+                    return False
+                connection.execute(
+                    "DELETE FROM chat_messages WHERE session_id = ? AND user_id = ?",
+                    (session_id, int(user_id)),
+                )
+                connection.execute(
+                    "UPDATE chat_sessions SET message_count = 0, updated_at = ?,"
+                    " topics_json = '[]' WHERE id = ? AND user_id = ?",
+                    (int(time.time()), session_id, int(user_id)),
+                )
+                connection.commit()
+            self._journal_event(
+                user_id, "assistant_session_cleared", {"session_id": session_id[:12]}
+            )
+            return True
+        except Exception:
+            return False
+
+    # ----------------------------------------------------------------- history
+    def history_messages(
+        self,
+        user_id: int,
+        session_id: str,
+        max_turns: int = HISTORY_MAX_TURNS,
+        message_chars: int = HISTORY_MESSAGE_CHARS,
+        char_budget: int = HISTORY_CHAR_BUDGET,
+    ) -> list[dict[str, str]]:
+        """Recent turns as native ``{role, content}`` messages for the model.
+
+        The newest turns are kept within a hard character budget so the prompt
+        never grows without bound; older turns are represented by ``summary``.
+        """
+        session = self.get_session(user_id, session_id)
+        if not session:
+            return []
+        messages = session.get("messages") or []
+        wanted = max(1, int(max_turns)) * 2
+        selected: list[dict[str, str]] = []
+        used = 0
+        for message in reversed(messages[-wanted:]):
+            role = str(message.get("role") or "")
+            if role not in ("user", "assistant"):
+                continue
+            content = str(message.get("content") or "").strip()[:message_chars]
+            if not content:
+                continue
+            if selected and used + len(content) > char_budget:
+                break
+            selected.append({"role": role, "content": content})
+            used += len(content)
+        return list(reversed(selected))
+
+    def summary(
+        self,
+        user_id: int,
+        session_id: str,
+        recent_turns: int = HISTORY_MAX_TURNS,
+        max_lines: int = SUMMARY_LINES,
+    ) -> list[str]:
+        """Deterministic summary of turns older than the native-history window."""
+        session = self.get_session(user_id, session_id)
+        if not session:
+            return []
+        messages = session.get("messages") or []
+        keep = max(1, int(recent_turns)) * 2
+        older = messages[:-keep] if len(messages) > keep else []
+        lines: list[str] = []
+        pending = ""
+        for message in older:
+            role = str(message.get("role") or "")
+            content = " ".join(str(message.get("content") or "").split())
+            if not content:
+                continue
+            if role == "user":
+                pending = content[:SUMMARY_LINE_CHARS]
+            elif role == "assistant" and pending:
+                lines.append(f"Earlier: {pending} -> {content[:SUMMARY_LINE_CHARS]}")
+                pending = ""
+        if pending:
+            lines.append(f"Earlier: {pending}")
+        return [line[:500] for line in lines[-max_lines:]]
 
     def rename(self, user_id: int, session_id: str, title: str) -> bool:
         clean = self._clean_title(title)
@@ -450,14 +635,35 @@ class ChatSessionStore:
     # ----------------------------------------------------------------- helpers
     @staticmethod
     def _session_row(row: Any) -> dict[str, Any]:
+        try:
+            topics = ChatSessionStore._load_topics(row["topics_json"])
+        except (KeyError, IndexError, TypeError):
+            topics = []
         return {
             "id": str(row["id"]),
+            "user_id": int(row["user_id"]),
             "title": str(row["title"] or ""),
             "route": str(row["route"] or ""),
             "created_at": int(row["created_at"]),
             "updated_at": int(row["updated_at"]),
             "message_count": int(row["message_count"] or 0),
+            "topics": topics,
         }
+
+    @staticmethod
+    def _load_topics(raw: Any) -> list[str]:
+        try:
+            data = json.loads(str(raw or "[]"))
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        clean: list[str] = []
+        for item in data[:MAX_TOPICS]:
+            text = " ".join(str(item or "").split())[:MAX_TOPIC_CHARS]
+            if text and text not in clean:
+                clean.append(text)
+        return clean
 
     @staticmethod
     def _load_meta(raw: Any) -> dict[str, Any]:

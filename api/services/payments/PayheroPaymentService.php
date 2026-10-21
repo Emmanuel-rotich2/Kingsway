@@ -144,7 +144,7 @@ final class PayheroPaymentService
      *
      * @param array $data {channel_type: bank|paybill|till, short_code,
      *                    account_number?, description?, account_id?}
-     * @return array{channel_type: string, account_id: int, short_code: int, account_number: string, description: string}
+     * @return array{channel_type: string, account_id: int, short_code: string, account_number: string, description: string}
      */
     public static function normalizeChannelRegistration(array $data, int $accountId = 0): array
     {
@@ -179,7 +179,7 @@ final class PayheroPaymentService
         return [
             'channel_type' => $type,
             'account_id' => $resolvedAccountId,
-            'short_code' => (int) $shortCode,
+            'short_code' => $shortCode,
             'account_number' => $account,
             'description' => $description,
         ];

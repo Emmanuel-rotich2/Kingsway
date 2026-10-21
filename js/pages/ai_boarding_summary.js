@@ -29,9 +29,9 @@ const aiBoardingSummaryController = {
   render() {
     const summary = this.state.summary;
     const insights = this.state.insights;
-    document.getElementById('absSummaryText')?.textContent = summary?.overview || 'No summary available.';
-    document.getElementById('absRiskLevel')?.textContent = summary?.risk_level || '—';
-    document.getElementById('absRecommendations')?.textContent = summary?.recommendations || '—';
+    { const el = document.getElementById('absSummaryText'); if (el) el.textContent = summary?.overview || 'No summary available.'; }
+    { const el = document.getElementById('absRiskLevel'); if (el) el.textContent = summary?.risk_level || '—'; }
+    { const el = document.getElementById('absRecommendations'); if (el) el.textContent = summary?.recommendations || '—'; }
     const insightsBody = document.getElementById('absInsightsBody');
     if (!insights.length) { insightsBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No AI insights.</td></tr>'; return; }
     insightsBody.innerHTML = insights.map(i => `<tr>

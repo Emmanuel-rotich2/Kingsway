@@ -44,11 +44,11 @@ const performanceAnalysisController = {
 
   renderAnalysis() {
     const a = this.state.analysis;
-    document.getElementById('paOverallMean')?.textContent = a?.overall_mean ?? '—';
-    document.getElementById('paImprovementRate')?.textContent = `${a?.improvement_rate ?? '—'}%`;
-    document.getElementById('paTopSubject')?.textContent = a?.top_subject || '—';
-    document.getElementById('paBottomSubject')?.textContent = a?.bottom_subject || '—';
-    document.getElementById('paTopClass')?.textContent = a?.top_class || '—';
+    { const el = document.getElementById('paOverallMean'); if (el) el.textContent = a?.overall_mean ?? '—'; }
+    { const el = document.getElementById('paImprovementRate'); if (el) el.textContent = `${a?.improvement_rate ?? '—'}%`; }
+    { const el = document.getElementById('paTopSubject'); if (el) el.textContent = a?.top_subject || '—'; }
+    { const el = document.getElementById('paBottomSubject'); if (el) el.textContent = a?.bottom_subject || '—'; }
+    { const el = document.getElementById('paTopClass'); if (el) el.textContent = a?.top_class || '—'; }
   },
 
   renderTrends() {

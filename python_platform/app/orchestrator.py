@@ -19,14 +19,17 @@ from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
-from .tools import ToolBridge
+from .tools import ToolBridge, SYSTEM_ADMIN_PERMISSION
 
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
 MAX_PROVIDER_CALLS = 2
 # Retained follow-up turns supplied by the client for conversational context.
-MAX_HISTORY_TURNS = 6
-CONVERSATION_PROMPT_TURNS = 4
+MAX_HISTORY_TURNS = 12
+CONVERSATION_PROMPT_TURNS = 12
+HISTORY_MESSAGE_CHARS = 1200
+HISTORY_CHAR_BUDGET = 5000
+SUMMARY_LINES = 8
 MAX_TOOLS_PER_STEP = 3
 MAX_TOOL_RESULT_CHARS = 500
 TOOL_RESULT_FIELDS = (
@@ -132,6 +135,9 @@ class Orchestrator:
                 session = self.chat_sessions.create(user_id, route)
             session_id = session["id"]
             context = {**context, "session_id": session_id}
+            self._merge_incoming_topics(user_id, session_id, context)
+
+        prefs = self._preferences(user_id, context)
 
         routing = "route_match"
         if agent is None:
@@ -149,6 +155,42 @@ class Orchestrator:
             agent = agents.default_agent()
             routing = "default"
 
+        # The system_admin agent and its file/log tools are reserved for
+        # system administrators only. A non-admin request that lands here is
+        # demoted to the default agent; an explicit admin-mode request from a
+        # verified administrator is honoured.
+        wants_admin = bool(context.get("system_admin"))
+        if agent["id"] == "system_admin.agent":
+            if not (wants_admin and self._is_system_admin(context)):
+                agent = agents.default_agent()
+                routing = "not_authorized" if wants_admin else routing
+        elif wants_admin and self._is_system_admin(context):
+            resolved = agents.resolve("system_admin.agent")
+            if resolved is not None:
+                agent = resolved
+                routing = "admin_mode"
+
+        # Assistant domain routing: explicit persona from the frontend.
+        # system_admin -> system_admin.agent, parent -> parent.agent,
+        # public -> public.agent, staff -> use normal staff routing.
+        assistant_domain = str(context.get("assistant_domain") or "").lower()
+        if assistant_domain and agent["id"] != "system_admin.agent":
+            domain_agent_map = {
+                "system_admin": "system_admin.agent",
+                "parent": "parent.agent",
+                "public": "public.agent",
+                "staff": None,  # normal staff routing below
+            }
+            target = domain_agent_map.get(assistant_domain)
+            if target:
+                resolved = agents.resolve(target)
+                if resolved is not None:
+                    agent = resolved
+                    routing = f"domain:{assistant_domain}"
+                else:
+                    agent = agents.default_agent()
+                    routing = "default"
+
         self.behavior.observe(
             user_id,
             "question",
@@ -165,7 +207,12 @@ class Orchestrator:
 
         # Record turn to session
         self._remember_session(
-            session_id, user_id, route, question, result.get("answer")
+            session_id,
+            user_id,
+            route,
+            question,
+            result.get("answer"),
+            save_history=bool(prefs.get("save_history", True)),
         )
 
         self.behavior.observe(
@@ -737,6 +784,9 @@ class Orchestrator:
                 session = self.chat_sessions.create(user_id, route)
             session_id = session["id"]
             context = {**context, "session_id": session_id}
+            self._merge_incoming_topics(user_id, session_id, context)
+
+        prefs = self._preferences(user_id, context)
 
         routing = "route_match"
         if agent is None:
@@ -747,6 +797,38 @@ class Orchestrator:
         if agent is None:
             agent = agents.default_agent()
             routing = "default"
+
+        # The system_admin agent and its file/log tools are reserved for
+        # system administrators only.
+        wants_admin = bool(context.get("system_admin"))
+        if agent["id"] == "system_admin.agent":
+            if not (wants_admin and self._is_system_admin(context)):
+                agent = agents.default_agent()
+                routing = "not_authorized" if wants_admin else routing
+        elif wants_admin and self._is_system_admin(context):
+            resolved = agents.resolve("system_admin.agent")
+            if resolved is not None:
+                agent = resolved
+                routing = "admin_mode"
+
+        # Assistant domain routing: explicit persona from the frontend.
+        assistant_domain = str(context.get("assistant_domain") or "").lower()
+        if assistant_domain and agent["id"] != "system_admin.agent":
+            domain_agent_map = {
+                "system_admin": "system_admin.agent",
+                "parent": "parent.agent",
+                "public": "public.agent",
+                "staff": None,
+            }
+            target = domain_agent_map.get(assistant_domain)
+            if target:
+                resolved = agents.resolve(target)
+                if resolved is not None:
+                    agent = resolved
+                    routing = f"domain:{assistant_domain}"
+                else:
+                    agent = agents.default_agent()
+                    routing = "default"
 
         started = time.monotonic()
         allowed_tools = list(agent["tools"])
@@ -770,9 +852,12 @@ class Orchestrator:
             },
         )
 
-        history = self._conversation_turns(user_id, route, session_id)
-        if not history:
-            history = list((context.get("history") or []))[-MAX_HISTORY_TURNS:]
+        history_messages = self._conversation_messages(
+            user_id, route, session_id, context, question=question
+        )
+        summary = self._conversation_summary(user_id, session_id, route, context)
+        topics = self._session_topics(user_id, session_id, context)
+        navigation = self._navigation_lines(context.get("sidebar_state"))
         instruction = (
             slash_instruction or str((context.get("instruction") or "") or "")
         )[:400]
@@ -789,7 +874,10 @@ class Orchestrator:
                 "question."
             ),
             "tool_results": tool_results,
-            "conversation": history,
+            "conversation": summary,
+            "session_topics": topics,
+            "preferences": self._preference_lines(prefs),
+            "navigation": navigation,
         }
         if instruction:
             base_envelope["instruction"] = instruction
@@ -811,6 +899,7 @@ class Orchestrator:
         for attempt in range(2):
             messages = [
                 {"role": "system", "content": agents.stream_prompt(agent, context)},
+                *history_messages,
                 {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},
             ]
             # An oversized envelope must be trimmed rather than lose the answer.
@@ -977,6 +1066,171 @@ class Orchestrator:
                 )
         return lines
 
+    def _merge_incoming_topics(
+        self, user_id: int, session_id: str, context: dict
+    ) -> None:
+        """Persist topic labels the client already extracted from the turn."""
+        if self.chat_sessions is None or not session_id:
+            return
+        topics = context.get("topics")
+        if isinstance(topics, list) and topics:
+            try:
+                self.chat_sessions.add_topics(user_id, session_id, topics)
+            except Exception:
+                pass
+
+    def _preferences(self, user_id: int, context: dict) -> dict[str, Any]:
+        prefs: dict[str, Any] = {}
+        if self.chat_sessions is not None:
+            try:
+                stored = self.chat_sessions.get_prefs(user_id)
+                if isinstance(stored, dict):
+                    prefs.update(stored)
+            except Exception:
+                pass
+        incoming = context.get("preferences")
+        if isinstance(incoming, dict):
+            if "save_history" in incoming:
+                prefs["save_history"] = bool(incoming.get("save_history"))
+            if "auto_charts" in incoming:
+                prefs["auto_charts"] = bool(incoming.get("auto_charts"))
+            for key in ("response_style", "language"):
+                value = str(incoming.get(key) or "").strip()[:40]
+                if value:
+                    prefs[key] = value
+        return prefs
+
+    @staticmethod
+    def _preference_lines(prefs: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        style = str(prefs.get("response_style") or "").strip()
+        if style:
+            lines.append(f"Response style: {style[:40]}")
+        language = str(prefs.get("language") or "").strip()
+        if language and language.lower() not in ("en", "english"):
+            lines.append(f"Preferred language: {language[:40]}")
+        if prefs.get("auto_charts") is False:
+            lines.append("Charts: only when explicitly requested")
+        return lines
+
+    @staticmethod
+    def _navigation_lines(state: Any) -> list[str]:
+        if not isinstance(state, dict):
+            return []
+        lines: list[str] = []
+        current = str(
+            state.get("current_label") or state.get("title") or state.get("route") or ""
+        ).strip()
+        if current:
+            lines.append(f"Current screen: {current[:120]}")
+        items = state.get("visible_items")
+        if isinstance(items, list):
+            labels: list[str] = []
+            for item in items[:12]:
+                label = ""
+                if isinstance(item, dict):
+                    label = str(item.get("label") or "").strip()
+                elif isinstance(item, str):
+                    label = item.strip()
+                if label and label not in labels:
+                    labels.append(label[:60])
+            if labels:
+                lines.append(f"Sidebar: {', '.join(labels)}")
+        return lines
+
+    def _conversation_messages(
+        self,
+        user_id: int,
+        route: str,
+        session_id: str,
+        context: dict,
+        question: str = "",
+    ) -> list[dict[str, str]]:
+        """Native role-based history, preferring the server-side transcript."""
+        if self.chat_sessions is not None and session_id:
+            try:
+                messages = self.chat_sessions.history_messages(
+                    user_id,
+                    session_id,
+                    max_turns=MAX_HISTORY_TURNS,
+                    message_chars=HISTORY_MESSAGE_CHARS,
+                    char_budget=HISTORY_CHAR_BUDGET,
+                )
+                if messages:
+                    return messages
+            except Exception:
+                pass
+        history = context.get("history")
+        if not isinstance(history, list):
+            return []
+        selected: list[dict[str, str]] = []
+        for item in history[-(MAX_HISTORY_TURNS * 2) :]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "")
+            if role not in ("user", "assistant"):
+                continue
+            content = str(item.get("content") or "").strip()[:HISTORY_MESSAGE_CHARS]
+            if content:
+                selected.append({"role": role, "content": content})
+        if question and selected:
+            last = selected[-1]
+            if last["role"] == "user" and last["content"] == question:
+                selected.pop()
+        return selected
+
+    def _conversation_summary(
+        self, user_id: int, session_id: str, route: str, context: dict
+    ) -> list[str]:
+        if self.chat_sessions is not None and session_id:
+            try:
+                return self.chat_sessions.summary(
+                    user_id,
+                    session_id,
+                    recent_turns=MAX_HISTORY_TURNS,
+                    max_lines=SUMMARY_LINES,
+                )
+            except Exception:
+                return []
+        return []
+
+    def _session_topics(
+        self, user_id: int, session_id: str, context: dict
+    ) -> list[str]:
+        if self.chat_sessions is not None and session_id:
+            try:
+                topics = self.chat_sessions.get_topics(user_id, session_id)
+                if topics:
+                    return list(topics)[:12]
+            except Exception:
+                pass
+        incoming = context.get("topics")
+        if not isinstance(incoming, list):
+            return []
+        clean: list[str] = []
+        for topic in incoming[:12]:
+            text = " ".join(str(topic or "").split())[:40]
+            if text and text not in clean:
+                clean.append(text)
+        return clean
+
+    def _is_system_admin(self, context: dict) -> bool:
+        """True only when the authenticated operator is a system administrator.
+
+        Checked via the system_admin permission or an equivalent role label so
+        the system_admin agent and its file/log tools can never be reached by
+        ordinary staff.
+        """
+        permissions = set(str(p) for p in (context.get("permissions") or []))
+        roles = context.get("roles") or []
+        role_text = " ".join(str(r) for r in roles).lower()
+        return (
+            SYSTEM_ADMIN_PERMISSION in permissions
+            or "system admin" in role_text
+            or "system_administrator" in role_text
+            or "school administrator" in role_text
+        )
+
     def _remember_session(
         self,
         session_id: str,
@@ -984,11 +1238,14 @@ class Orchestrator:
         route: str,
         question: str,
         answer: dict[str, Any] | None,
+        save_history: bool = True,
     ) -> None:
         """Record a turn to the chat session store."""
         if self.chat_sessions is None or not session_id:
             # Fall back to legacy store
             self._remember(user_id, route, question, answer)
+            return
+        if not save_history:
             return
         if not isinstance(answer, dict):
             return
@@ -1033,15 +1290,20 @@ class Orchestrator:
     def _assert_prompt_fits(self, messages: list[dict[str, str]]) -> None:
         """Trim the prompt rather than fail the whole answer.
 
-        Governed tool results are the only unbounded part of the envelope. If a
-        rare report result pushes the prompt past the approved budget, drop the
-        oldest tool results one at a time rather than losing the answer.
+        Tool results and native history are the unbounded parts of the prompt.
+        Overflow first drops the oldest governed results, then the oldest
+        history turns, so the current question and the most recent context
+        always survive.
         """
         if policy.MAX_CONTEXT_BYTES <= 0:
             return
         while self._prompt_bytes(messages) > policy.MAX_CONTEXT_BYTES:
             user_turn = next(
-                (message for message in messages if message.get("role") == "user"),
+                (
+                    message
+                    for message in reversed(messages)
+                    if message.get("role") == "user"
+                ),
                 None,
             )
             if user_turn is None:
@@ -1049,15 +1311,41 @@ class Orchestrator:
             try:
                 payload = json.loads(user_turn["content"])
             except (TypeError, ValueError):
+                payload = None
+            changed = False
+            if isinstance(payload, dict):
+                results = payload.get("tool_results")
+                if isinstance(results, list) and results:
+                    if len(results) > 1:
+                        payload["tool_results"] = results[1:]
+                    else:
+                        payload.pop("tool_results", None)
+                    changed = True
+                else:
+                    conversation = payload.get("conversation")
+                    if isinstance(conversation, list) and conversation:
+                        if len(conversation) > 2:
+                            payload["conversation"] = conversation[-2:]
+                        else:
+                            payload.pop("conversation", None)
+                        changed = True
+            if changed and isinstance(payload, dict):
+                user_turn["content"] = json.dumps(payload, ensure_ascii=False)
+                continue
+            # No envelope material left: drop the oldest history turn.
+            history_index = next(
+                (
+                    index
+                    for index, message in enumerate(messages)
+                    if index > 0
+                    and message is not user_turn
+                    and message.get("role") in ("user", "assistant")
+                ),
+                None,
+            )
+            if history_index is None:
                 return
-            results = payload.get("tool_results")
-            if not isinstance(results, list) or len(results) <= 1:
-                payload.pop("tool_results", None)
-            else:
-                payload["tool_results"] = results[1:]
-            user_turn["content"] = json.dumps(payload, ensure_ascii=False)
-            if "tool_results" not in payload and not results:
-                return
+            messages.pop(history_index)
 
     @staticmethod
     def _prompt_bytes(messages: list[dict[str, str]]) -> int:
@@ -1168,8 +1456,19 @@ class Orchestrator:
         hints = self.behavior.hints(user_id)
         tools = list(agent["tools"])
 
+        prefs = self._preferences(user_id, context)
+        topics = self._session_topics(user_id, session_id, context)
+        history_messages = self._conversation_messages(
+            user_id, route, session_id, context, question=question
+        )
+        summary = self._conversation_summary(user_id, session_id, route, context)
+        navigation = self._navigation_lines(context.get("sidebar_state"))
+
         system = agents.system_prompt(agent, context)
-        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system},
+            *history_messages,
+        ]
         tool_results: list[str] = []
         tools_used: list[str] = []
         tool_steps = 0
@@ -1188,7 +1487,6 @@ class Orchestrator:
             tools_used.append(tool_id)
             tool_results.append(self._compact_result(tool_id, result))
 
-        history = self._conversation_turns(user_id, route, session_id)
         instruction = str(context.get("instruction") or "")[:400]
 
         try:
@@ -1206,7 +1504,10 @@ class Orchestrator:
                             "behavior_hints": self._hint_lines(hints),
                             "tools": tools,
                             "tool_results": tool_results,
-                            "conversation": history,
+                            "conversation": summary,
+                            "session_topics": topics,
+                            "preferences": self._preference_lines(prefs),
+                            "navigation": navigation,
                             "instruction": instruction,
                         }.items()
                         if value

@@ -290,6 +290,14 @@ class TabNavigator {
 
         let firstTab = null;
 
+        // Restore saved tab for this route if none is currently active
+        if (!this.activeTab) {
+            const savedTab = window.UIStateManager?.getActiveTab?.();
+            if (savedTab && this.tabs.has(savedTab)) {
+                this.activeTab = savedTab;
+            }
+        }
+
         // Render tab headers
         this.tabs.forEach((tab, tabId) => {
             // Check permission
@@ -298,6 +306,11 @@ class TabNavigator {
             }
 
             if (!firstTab) firstTab = tabId;
+
+            // If still no active tab after restore attempt, fall back to first tab
+            if (!this.activeTab) {
+                this.activeTab = firstTab;
+            }
 
             const tabHeader = document.createElement('li');
             tabHeader.className = 'nav-item';
@@ -371,6 +384,9 @@ class TabNavigator {
 
         // Update state
         this.activeTab = tabId;
+
+        // Persist active tab for reload recovery
+        window.UIStateManager?.saveActiveTab?.(tabId);
 
         // Call onActivate
         if (tab.onActivate) {

@@ -94,13 +94,12 @@
     }
   };
 
-  const loadReferencesComposed=async()=>{try{const r=await window.API.nodeViews.resolve('academic','ai-assessment-draft-references');aiDraftCache=r?.data?.sources||r?.sources||{};}catch(e){console.warn('AI assessment draft Node view failed; using direct reads:',e);aiDraftCache=null;}};
   const init=async()=>{
     document.getElementById('queueAiAssessmentDraft')?.addEventListener('click',queue);
     document.getElementById('faOutcome')?.addEventListener('change',load);
     await loadReferencesComposed();
     load();
   };
-  window.APIRealtime?.register?.('ai_assessment_draft',{refresh:async(){await loadReferencesComposed();await load();}},['academic']);
+  window.APIRealtime?.register?.('ai_assessment_draft',{refresh:async()=>{await loadReferencesComposed();await load();}},['academic']);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();

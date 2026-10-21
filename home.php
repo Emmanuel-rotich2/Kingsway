@@ -176,18 +176,25 @@ if (!headers_sent()) {
 
     <?php include __DIR__ . '/layouts/app_layout.php'; ?>
 
-    <script
-        src="https://code.jquery.com/jquery-3.6.0.min.js"
-        referrerpolicy="no-referrer"
-    ></script>
-    <script
-        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
-    ></script>
-    <script
-        src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
-        referrerpolicy="no-referrer"
-    ></script>
+<?php
+$isFragment = isset($_GET['fragment']) && $_GET['fragment'] === '1';
+?>
+<script
+    src="https://code.jquery.com/jquery-3.6.0.min.js"
+    referrerpolicy="no-referrer"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
+<script
+    src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
+<script
+    src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
+    referrerpolicy="no-referrer"
+    <?= $isFragment ? 'data-skip="1"' : '' ?>>
+</script>
 
+<?php if (!$isFragment): ?>
 <?php
 echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
 echo '<script>window.KINGSWAY_REALTIME_ORIGIN = ' . json_encode($nodeRealtimeOrigin, JSON_UNESCAPED_SLASHES) . ';</script>';
@@ -231,6 +238,7 @@ $files = [
     'js/components/UIComponents.js',
     'js/components/PageNavigator.js',
     'js/components/PageShell.js',
+    'js/core/ui_state_manager.js',
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
     'js/utils/academic_context.js',
@@ -248,6 +256,13 @@ foreach ($files as $file) {
     asset_script($appBase, $file);
 }
 ?>
+<script
+    src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"
+    referrerpolicy="no-referrer"
+    crossorigin="anonymous"
+    ></script>
+<?php endif; ?>
+
 <script>
     // Frontend telemetry logger: safe to initialize once the API client exists.
     // It buffers + batches events to the same file logger as the backend.
@@ -255,6 +270,7 @@ foreach ($files as $file) {
         window.AppLogger.init();
     }
 </script>
+<?php if (!$isFragment): ?>
 <script>
     // Self-binding form validation kernel: wire every decoded form that carries
     // data-kw-validate fields (names, DOB, email, phone). Injected modals are
@@ -326,5 +342,6 @@ foreach ($files as $file) {
         }
     })();
 </script>
+<?php endif; ?>
 </body>
 </html>

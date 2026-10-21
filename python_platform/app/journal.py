@@ -63,7 +63,7 @@ class Journal:
             }
             line = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
             with self._lock:
-                log_root = _resolve_log_root() / self._resolve_env()
+                log_root = self._dir
                 log_root.mkdir(parents=True, exist_ok=True)
                 path = log_root / f"{category[:60]}.log"
                 with open(path, "a", encoding="utf-8") as handle:

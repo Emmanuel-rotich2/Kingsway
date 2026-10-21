@@ -2002,6 +2002,16 @@ const ENDPOINT_PERMISSIONS = {
       "payments.manage",
     ],
   },
+  "/payments/payhero-stk-push": {
+    POST: [
+      "finance_create",
+      "finance_manage",
+      "payments_manage",
+      "finance.create",
+      "finance.manage",
+      "payments.manage",
+    ],
+  },
 
   "/transport/payment-intents": { POST: "finance_create", GET: "finance_view" },
   "/transport/payment-intent-confirm": { POST: "finance_update" },
@@ -7535,6 +7545,8 @@ window.API = {
       apiCall("/payments/payhero-bank-paybills", "GET"),
     registerPayheroChannel: async (data) =>
       apiCall("/payments/payhero-channel", "POST", data),
+    payheroStkPush: async (data) =>
+      apiCall("/payments/payhero-stk-push", "POST", data),
   },
 
   // Accounts endpoints (bank accounts, transactions)
@@ -7980,19 +7992,27 @@ window.API = {
       const {session_id, ...options} = handlers;
       const requestOptions = session_id ? {session_id, ...options} : options;
 
+      const STREAM_TIMEOUT_MS = 30000;
+      let timeoutTimer = null;
+
       const promise = (async () => {
         const token = AuthContext.getToken?.();
         if (!token || typeof fetch !== "function" || !window.ReadableStream) {
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
-            { question, route, module, ...options },
+            { question, route, module, ...requestOptions },
           );
           state.onFinal(fallback?.data ?? fallback);
           return fallback?.data ?? fallback;
         }
 
         try {
+          timeoutTimer = setTimeout(() => {
+            state.onError("The assistant is taking too long — falling back to a full response.");
+            controller.abort();
+          }, STREAM_TIMEOUT_MS);
+
           const response = await fetch(API_BASE_URL + "/dashboard/agent-assist-stream", {
             method: "POST",
             credentials:
@@ -8009,6 +8029,13 @@ window.API = {
             },
             body: JSON.stringify({ question, route, module, ...requestOptions }),
           });
+
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+
+          if (!response.ok || !response.body) {
+            throw new Error(`stream unavailable (${response.status})`);
+          }
 
           if (!response.ok || !response.body) {
             throw new Error(`stream unavailable (${response.status})`);
@@ -8058,6 +8085,9 @@ window.API = {
           }
           if (buffer.trim()) consume(buffer);
 
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+
           if (final) {
             state.onFinal(final);
             return final;
@@ -8067,18 +8097,31 @@ window.API = {
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
-            { question, route, module },
+            { question, route, module, ...requestOptions },
           );
           const data = fallback?.data ?? fallback;
           state.onFinal(data);
           return data;
         } catch (error) {
-          if (state.cancelled || error?.name === "AbortError") return null;
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+          if (state.cancelled || error?.name === "AbortError") {
+            // Stream was aborted (user stop or timeout): fall back to the
+            // buffered endpoint so the user still gets an answer.
+            const fallback = await apiCall(
+              "/dashboard/agent-assist",
+              "POST",
+              { question, route, module, ...requestOptions },
+            ).catch(() => null);
+            const data = fallback?.data ?? fallback;
+            if (data) state.onFinal(data);
+            return data;
+          }
           state.onError(error?.message || "The assistant could not answer");
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
-            { question, route, module },
+            { question, route, module, ...requestOptions },
           ).catch(() => null);
           const data = fallback?.data ?? fallback;
           if (data) state.onFinal(data);
@@ -8102,19 +8145,38 @@ window.API = {
     // Proactive workspace co-worker: cached scan findings for the current
     // route; "generating" means a background job is preparing them.
     getWorkspaceBriefing: async (route = "dashboard") =>
-      apiCall("/dashboard/workspace-briefing", "GET", { route }),
+      apiCall("/dashboard/workspace-briefing", "GET", null, { route }),
 
-    // Assistant session management
-    getAssistantSessions: async (limit = 30) =>
-      apiCall("/dashboard/assistant-sessions", "GET", { limit }),
-    getAssistantSession: async (sessionId, limit = 200) =>
-      apiCall("/dashboard/assistant-session", "GET", { session_id: sessionId, limit }),
-    postAssistantSession: async (route = "", title = "") =>
-      apiCall("/dashboard/assistant-session", "POST", { route, title }),
-    deleteAssistantSession: async (sessionId) =>
-      apiCall("/dashboard/assistant-session", "DELETE", { session_id: sessionId }),
-    patchAssistantSession: async (sessionId, title) =>
-      apiCall("/dashboard/assistant-session", "PATCH", { session_id: sessionId, title }),
+    // Assistant session management. Each method accepts either its scalar
+    // arguments or a pre-built params object, because both call styles exist.
+    getAssistantSessions: async (limit = 30) => {
+      const params = limit && typeof limit === "object" ? limit : { limit };
+      return apiCall("/dashboard/assistant-sessions", "GET", null, params);
+    },
+    getAssistantSession: async (sessionId, limit = 200) => {
+      const params = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId, limit };
+      return apiCall("/dashboard/assistant-session", "GET", null, params);
+    },
+    postAssistantSession: async (route = "", title = "") => {
+      const payload = route && typeof route === "object" ? route : { route, title };
+      return apiCall("/dashboard/assistant-session", "POST", payload);
+    },
+    deleteAssistantSession: async (sessionId) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId };
+      return apiCall("/dashboard/assistant-session", "DELETE", payload);
+    },
+    patchAssistantSession: async (sessionId, title) => {
+      const payload = sessionId && typeof sessionId === "object"
+        ? sessionId
+        : { session_id: sessionId, title };
+      return apiCall("/dashboard/assistant-session", "PATCH", payload);
+    },
+    clearAssistantSessionMessages: async (sessionId) =>
+      apiCall("/dashboard/assistant-session-clear", "POST", { session_id: sessionId }),
     postAssistantSessionsClear: async () =>
       apiCall("/dashboard/assistant-sessions/clear", "POST"),
     getAssistantPreferences: async () =>

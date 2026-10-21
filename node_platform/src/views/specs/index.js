@@ -549,6 +549,51 @@ viewSpecs.set('finance/fee-structure-viewer-references', {
   aggregations: {},
 });
 
+// Fee Structure Admin: static reference data for year/level/type/term/class.
+// The paginated structure table, approvals, and canonical matrix stay direct.
+viewSpecs.set('finance/fee-structure-admin-references', {
+  view: 'finance/fee-structure-admin-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'levels', endpoint: '/api/academic/levels-list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+  ],
+  aggregations: {},
+});
+
+// Fee Structure Accountant: static reference data for year/level/type/term/class.
+viewSpecs.set('finance/fee-structure-accountant-references', {
+  view: 'finance/fee-structure-accountant-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'levels', endpoint: '/api/academic/levels-list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+  ],
+  aggregations: {},
+});
+
+// Draft Fee Structure: static reference data for class/year/type/term.
+viewSpecs.set('finance/draft-fee-structure-references', {
+  view: 'finance/draft-fee-structure-references',
+  service: 'php',
+  permissions: [],
+  queries: [
+    { key: 'classes', endpoint: '/api/academic/classes-list' },
+    { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
+  ],
+  aggregations: {},
+});
+
 // Manage Admissions Payments: static years list. The payment queue is filter-scoped and stays direct.
 viewSpecs.set('finance/manage-admissions-payments-references', {
   view: 'finance/manage-admissions-payments-references',

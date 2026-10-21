@@ -1298,7 +1298,11 @@ class FeeManager
                     CONCAT(p.first_name, ' ', p.last_name) as student_name,
                     c.name as class_name,
                     st.name as stream_name,
-                    sl.name as level_name
+                    sl.name as level_name,
+                    lg.parent_full_name as parent_name,
+                    lg.parent_phone,
+                    lg.parent_email,
+                    lg.relationship as guardian_relationship
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
@@ -1307,6 +1311,7 @@ class FeeManager
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_guardian") . " lg ON lg.student_id = s.id AND lg.is_primary = 1
                 WHERE s.id = ?
             ");
             $stmt->execute([$studentId]);

@@ -28,7 +28,7 @@ const studentCounselingController = {
   render() {
     const sessions = this.state.sessions;
     const student = this.state.student;
-    document.getElementById('scStudentName')?.textContent = student?.name || '—';
+    { const el = document.getElementById('scStudentName'); if (el) el.textContent = student?.name || '—'; }
     const body = document.getElementById('scSessionsBody');
     if (!sessions.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No counseling sessions.</td></tr>'; return; }
     body.innerHTML = sessions.map(s => `<tr>

@@ -513,6 +513,16 @@ class PaymentsController extends BaseController
         return $this->mpesaActionResult($guard, $this->api->triggerPayheroChannelRegister($data));
     }
 
+    /** POST /api/payments/payhero-stk-push */
+    public function postPayheroStkPush($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerPayheroStkPush($data));
+    }
+
     /** GET /api/payments/payhero-channels */
     public function getPayheroChannels($id = null, $data = [], $segments = [])
     {

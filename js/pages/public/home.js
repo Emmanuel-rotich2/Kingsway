@@ -186,14 +186,20 @@
     renderGallery(data) {
       const el = document.getElementById('home-gallery');
       if (!el) return;
-      const list = PS.items(data).slice(0, 6);
+      const list = PS.items(data).slice(0, 4);
       if (!list.length) { el.innerHTML = PS.emptyHTML('Gallery images are being added. Check back soon.'); return; }
-      el.innerHTML = list.map((g) =>
-        '<div class="gallery-item">' +
-        '<img src="' + S(PS.mediaUrl(g.image_url)) + '" alt="' + S(g.caption || 'Kingsway School') + '" loading="lazy" onerror="this.src=\'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70\'">' +
-        '<div class="overlay"><i class="bi bi-zoom-in"></i></div>' +
-        '</div>'
-      ).join('');
+      el.innerHTML = list.map((g) => {
+        const isVideo = g.media_type === 'video';
+        const src = isVideo ? S(g.video_url || g.image_url) : S(PS.mediaUrl(g.image_url));
+        const poster = g.image_url ? S(PS.mediaUrl(g.image_url)) : '';
+        const mediaHtml = isVideo
+          ? `<video src="${src}" poster="${poster}" class="w-100 h-100 object-fit-cover" style="background:#000" muted playsinline></video>`
+          : `<img src="${src}" alt="${S(g.caption || 'Kingsway School')}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70'">`;
+        return '<div class="gallery-item">' +
+          mediaHtml +
+          '<div class="overlay"><i class="bi bi-zoom-in"></i></div>' +
+          '</div>';
+      }).join('');
     },
 
     renderContactStrip(m) {

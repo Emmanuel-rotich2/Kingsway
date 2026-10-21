@@ -9,16 +9,6 @@ const studentTimelineController = {
 
   esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
 
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("students", "student-timeline-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Student Timeline Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
   async load(studentId) {
     try {
       const cache = this.state.referenceCache;
@@ -35,9 +25,14 @@ const studentTimelineController = {
   render() {
     const timeline = this.state.timeline;
     const student = this.state.student;
-    document.getElementById('stStudentName')?.textContent = student?.name || '—';
-    document.getElementById('stAdmissionNo')?.textContent = student?.admission_number || '—';
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setText('stStudentName', student?.name || '—');
+    setText('stAdmissionNo', student?.admission_number || '—');
     const body = document.getElementById('stTimelineBody');
+    if (!body) return;
     if (!timeline.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No timeline events.</td></tr>'; return; }
     body.innerHTML = timeline.map(e => `<tr>
       <td class="small">${this.fmtDate(e.date)}</td>
@@ -53,10 +48,9 @@ const studentTimelineController = {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     const studentId = new URLSearchParams(window.location.search).get('student_id');
     if (!studentId) return;
-    await this.loadReferencesComposed();
     await this.load(studentId);
     window.APIRealtime?.register?.("student_timeline", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(studentId); }
+      refresh: async () => { this.state.referenceCache = null; await this.load(studentId); }
     }, ["students"]);
   },
 };

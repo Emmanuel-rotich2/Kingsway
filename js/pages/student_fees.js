@@ -122,21 +122,56 @@ const StudentFeesController = {
 
     window.APIRealtime?.registerPatch?.({
       id: "student_fees_ledger",
-      targets: ["finance", "payments"],
+      targets: ["finance", "payments", "student_fee_balances"],
       apply: (descriptor) => {
         const type = String(descriptor.type || "").toUpperCase();
+
+        // Events that never need any refresh - handle them silently
+        const livenessTypes = new Set(["HEARTBEAT", "PRESENCE", "CONFLICT_HINT"]);
+        if (livenessTypes.has(type)) return true;
+
         const isFinanceChange = type === "PAYMENT_ALERT"
-          || (descriptor.domain === "finance" && (descriptor.action === "record_payment" || descriptor.action === "posted"));
+          || (descriptor.domain === "finance" && (descriptor.action === "record_payment" || descriptor.action === "posted"))
+          || type === "ROW_UPDATED"
+          || type === "DATA_CHANGED";
         if (!isFinanceChange) return false;
-        // Surgical only when a student's statement is actually on screen;
-        // otherwise the normal full-list refresh is the right reaction.
+
+        // If a specific student statement modal is open, refresh just that one
         const modalOpen = this.ui.feeDetailsModal?.classList.contains("show");
-        if (!modalOpen || !this.currentStudentId) return false;
-        this.openFeeDetails(this.currentStudentId);
+        if (modalOpen && this.currentStudentId) {
+          this.openFeeDetails(this.currentStudentId);
+          return true;
+        }
+
+        // Otherwise, try to patch the main table rows in place
+        const payload = descriptor.payload || {};
+        const targets = Array.isArray(payload.targets) ? payload.targets : [];
+        const studentIds = new Set();
+
+        // Extract student IDs from targets like "student_fee_balances:123" or "finance/student/456"
+        for (const target of targets) {
+          const match = String(target).match(/(?:student[_-]?id|fee[_-]?balances?)[/:](\d+)/i);
+          if (match) studentIds.add(Number(match[1]));
+        }
+
+        // Also check for student_id in payload
+        if (payload.student_id) studentIds.add(Number(payload.student_id));
+        if (payload.student_ids) {
+          (Array.isArray(payload.student_ids) ? payload.student_ids : [payload.student_ids]).forEach(id => studentIds.add(Number(id)));
+        }
+
+        if (studentIds.size > 0) {
+          this.patchTableRows(Array.from(studentIds));
+          return true;
+        }
+
+        // No specific student IDs to patch - don't trigger full refresh
+        // Return true to indicate "handled, no refresh needed"
         return true;
       },
     });
 
+    // Register a lower-priority full refresh that only fires when patches don't handle it
     window.APIRealtime?.register?.(
       "student_fees",
       { refresh: () => this.loadPaymentStatus() },
@@ -224,6 +259,24 @@ const StudentFeesController = {
       waiverReason: document.getElementById("waiverReason"),
       waiverNotes: document.getElementById("waiverNotes"),
       saveWaiverBtn: document.getElementById("saveWaiverBtn"),
+      // Prompt Parent modal elements
+      promptParentModal: document.getElementById("promptParentModal"),
+      promptStudentId: document.getElementById("promptStudentId"),
+      promptStudentName: document.getElementById("promptStudentName"),
+      promptAdmNo: document.getElementById("promptAdmNo"),
+      promptClass: document.getElementById("promptClass"),
+      promptBalance: document.getElementById("promptBalance"),
+      promptParentName: document.getElementById("promptParentName"),
+      promptPhone: document.getElementById("promptPhone"),
+      promptAmount: document.getElementById("promptAmount"),
+      promptOutstanding: document.getElementById("promptOutstanding"),
+      promptPurpose: document.getElementById("promptPurpose"),
+      promptDescription: document.getElementById("promptDescription"),
+      sendStkPushBtn: document.getElementById("sendStkPushBtn"),
+      // Payment Trends modal elements
+      paymentTrendsModal: document.getElementById("paymentTrendsModal"),
+      paymentTrendsContent: document.getElementById("paymentTrendsContent"),
+      exportTrendsBtn: document.getElementById("exportTrendsBtn"),
     };
   },
 
@@ -281,10 +334,6 @@ const StudentFeesController = {
     }
 
     if (this.ui.yearFilter) {
-      // Changing the year must rebuild the term picker, because each year owns
-      // its own academic_year_terms rows. The year and the term have to move
-      // together or the page silently mixes a year's label with another
-      // year's numbers.
       this.ui.yearFilter.addEventListener("change", async (event) => {
         const value = event.target.value;
         this.filters.academic_year = value ? value : "";
@@ -369,6 +418,16 @@ const StudentFeesController = {
       this.ui.saveAssistanceBtn.addEventListener("click", () => this.saveAssistance());
     }
     if (this.ui.saveWaiverBtn) this.ui.saveWaiverBtn.addEventListener("click", () => this.saveWaiver());
+
+    // Prompt Parent (STK Push) events
+    if (this.ui.sendStkPushBtn) {
+      this.ui.sendStkPushBtn.addEventListener("click", () => this.sendStkPush());
+    }
+
+    // Payment Trends events
+    if (this.ui.exportTrendsBtn) {
+      this.ui.exportTrendsBtn.addEventListener("click", () => this.exportPaymentTrends());
+    }
   },
 
   canManageAwards: function () {
@@ -633,60 +692,93 @@ const StudentFeesController = {
       return;
     }
 
+    const canManageAwards = this.canManageAwards();
+
     this.ui.tableBody.innerHTML = this.data.rows
       .map((row) => {
         const status = this.formatPaymentStatus(row);
         const safeName = (row.student_name || "").replace(/'/g, "\\'");
+        const studentId = Number(row.id);
+        const admissionNo = row.admission_no || "-";
+        const studentName = row.student_name || "-";
+        const className = row.class_name || row.level_name || "-";
+        const balance = Number(row.current_balance || 0);
+
+        // Build dropdown menu items
+        let dropdownItems = `
+          <li><button class="dropdown-item" data-action="view" data-student-id="${studentId}"><i class="bi bi-eye me-2"></i>View Details</button></li>
+          <li><button class="dropdown-item" data-action="record-payment" data-student-id="${studentId}"><i class="bi bi-cash-coin me-2"></i>Record Payment</button></li>
+          <li><button class="dropdown-item" data-action="prompt-parent" data-student-id="${studentId}"><i class="bi bi-phone me-2"></i>Prompt Parent (STK Push)</button></li>
+          <li><button class="dropdown-item" data-action="payment-trends" data-student-id="${studentId}"><i class="bi bi-graph-up me-2"></i>View Payment Trends</button></li>
+          <li><button class="dropdown-item" data-action="history" data-student-id="${studentId}" data-student-name="${safeName}"><i class="bi bi-clock-history me-2"></i>Full History</button></li>
+        `;
+        if (canManageAwards) {
+          dropdownItems += `
+            <li><hr class="dropdown-divider"></li>
+            <li><button class="dropdown-item" data-action="scholarship" data-student-id="${studentId}"><i class="bi bi-award me-2"></i>Sponsor (Scholarship)</button></li>
+            <li><button class="dropdown-item" data-action="waive" data-student-id="${studentId}"><i class="bi bi-shield-check me-2"></i>Waive Fees</button></li>
+          `;
+        }
+
         return `
           <tr>
-            <td class="text-center"><input type="checkbox" class="fee-student-select" value="${Number(row.id)}" ${this.data.selectedStudentIds.has(Number(row.id)) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${Number(row.id)}, this.checked)" aria-label="Select ${this.escapeHtml(row.student_name || "student")}"></td>
-            <td>${row.admission_no || "-"}</td>
-            <td>${row.student_name || "-"}</td>
-            <td>${row.class_name || row.level_name || "-"}</td>
+            <td class="text-center"><input type="checkbox" class="fee-student-select" value="${studentId}" ${this.data.selectedStudentIds.has(studentId) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${studentId}, this.checked)" aria-label="Select ${this.escapeHtml(studentName)}"></td>
+            <td>${admissionNo}</td>
+            <td>${studentName}</td>
+            <td>${className}</td>
             <td>${this.formatCurrency(row.total_due || 0)}</td>
             <td>${this.formatCurrency(row.total_paid || 0)}</td>
-            <td>${this.formatCurrency(row.current_balance || 0)}</td>
+            <td>${this.formatCurrency(balance)}</td>
             <td><span class="badge ${status.badge}">${status.label}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-primary me-1" data-action="view" data-student-id="${row.id}">
-                View
-              </button>
-              <button class="btn btn-sm btn-outline-success me-1" data-action="scholarship" data-student-id="${row.id}">
-                <i class="bi bi-award"></i> Scholarship
-              </button>
-              <button class="btn btn-sm btn-outline-secondary" data-action="history" data-student-id="${row.id}" data-student-name="${safeName}">
-                <i class="fas fa-history"></i> Full History
-              </button>
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  ${dropdownItems}
+                </ul>
+              </div>
             </td>
           </tr>
         `;
       })
       .join("");
 
-    this.ui.tableBody
-      .querySelectorAll("button[data-action='view']")
-      .forEach((btn) => {
-        btn.addEventListener("click", (event) => {
-          const studentId = event.currentTarget.getAttribute("data-student-id");
-          this.openFeeDetails(studentId);
-        });
-      });
+    // Attach event listeners for dropdown actions
+    this.ui.tableBody.querySelectorAll("[data-action]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        const action = event.currentTarget.getAttribute("data-action");
+        const studentId = event.currentTarget.getAttribute("data-student-id");
+        const studentName = event.currentTarget.getAttribute("data-student-name");
 
-    this.ui.tableBody
-      .querySelectorAll("button[data-action='history']")
-      .forEach((btn) => {
-        btn.addEventListener("click", (event) => {
-          const studentId = event.currentTarget.getAttribute("data-student-id");
-          const studentName = event.currentTarget.getAttribute("data-student-name");
-          this.openBillingHistory(studentId, studentName);
-        });
+        switch (action) {
+          case "view":
+            this.openFeeDetails(studentId);
+            break;
+          case "record-payment":
+            this.openPaymentModalForStudent(studentId);
+            break;
+          case "prompt-parent":
+            this.openPromptParentModal(studentId);
+            break;
+          case "payment-trends":
+            this.openPaymentTrendsModal(studentId);
+            break;
+          case "history":
+            this.openBillingHistory(studentId, studentName);
+            break;
+          case "scholarship":
+            this.openAssistanceModal(studentId);
+            break;
+          case "waive":
+            this.data.selectedStudentIds.clear();
+            this.data.selectedStudentIds.add(Number(studentId));
+            this.openWaiverModal();
+            break;
+        }
       });
-
-    this.ui.tableBody
-      .querySelectorAll("button[data-action='scholarship']")
-      .forEach((btn) => btn.addEventListener("click", (event) => {
-        this.openAssistanceModal(event.currentTarget.getAttribute("data-student-id"));
-      }));
+    });
     this.updateSelectionUi();
   },
 
@@ -1550,6 +1642,426 @@ const StudentFeesController = {
         { label: 'Headteacher', dateLine: true }
       ]
     });
+  },
+
+  /**
+   * Patch specific table rows in place without full reload
+   */
+  patchTableRows: async function (studentIds) {
+    if (!studentIds || !studentIds.length) return;
+
+    try {
+      // Fetch fresh data for just these students
+      for (const studentId of studentIds) {
+        const response = await window.API.finance.getStudentBalance(studentId);
+        const payload = response?.data ?? response;
+        const balances = payload?.balances || [];
+        const latest = balances[0] || {};
+        const balanceValue = latest.balance || latest.term_balance || latest.year_balance || 0;
+        const totalPaid = latest.total_paid || latest.amount_paid || 0;
+        const totalDue = latest.total_due || latest.amount_due || 0;
+        const paymentStatus = latest.payment_status || (balanceValue <= 0 ? 'paid' : balanceValue >= totalDue ? 'pending' : 'partial');
+
+        // Update the row in data
+        const rowIndex = this.data.rows.findIndex(r => Number(r.id) === Number(studentId));
+        if (rowIndex !== -1) {
+          this.data.rows[rowIndex].current_balance = balanceValue;
+          this.data.rows[rowIndex].total_paid = totalPaid;
+          this.data.rows[rowIndex].total_due = totalDue;
+          this.data.rows[rowIndex].payment_status = paymentStatus;
+
+          // Update just that row in the DOM
+          this.updateTableRow(rowIndex, this.data.rows[rowIndex]);
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to patch table rows:", error);
+      // Don't trigger full refresh - let user manually refresh if needed
+    }
+  },
+
+  /**
+   * Update a single table row in place
+   */
+  updateTableRow: function (rowIndex, row) {
+    if (!this.ui.tableBody) return;
+    const tr = this.ui.tableBody.querySelector(`tr:nth-child(${rowIndex + 1})`);
+    if (!tr) return;
+
+    const status = this.formatPaymentStatus(row);
+    tr.innerHTML = `
+      <td class="text-center"><input type="checkbox" class="fee-student-select" value="${Number(row.id)}" ${this.data.selectedStudentIds.has(Number(row.id)) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${Number(row.id)}, this.checked)" aria-label="Select ${this.escapeHtml(row.student_name || "student")}"></td>
+      <td>${row.admission_no || "-"}</td>
+      <td>${row.student_name || "-"}</td>
+      <td>${row.class_name || row.level_name || "-"}</td>
+      <td>${this.formatCurrency(row.total_due || 0)}</td>
+      <td>${this.formatCurrency(row.total_paid || 0)}</td>
+      <td>${this.formatCurrency(row.current_balance || 0)}</td>
+      <td><span class="badge ${status.badge}">${status.label}</span></td>
+      <td>
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-three-dots-vertical"></i>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><button class="dropdown-item" data-action="view" data-student-id="${row.id}"><i class="bi bi-eye me-2"></i>View Details</button></li>
+            <li><button class="dropdown-item" data-action="record-payment" data-student-id="${row.id}"><i class="bi bi-cash-coin me-2"></i>Record Payment</button></li>
+            <li><button class="dropdown-item" data-action="prompt-parent" data-student-id="${row.id}"><i class="bi bi-phone me-2"></i>Prompt Parent (STK Push)</button></li>
+            <li><button class="dropdown-item" data-action="payment-trends" data-student-id="${row.id}"><i class="bi bi-graph-up me-2"></i>View Payment Trends</button></li>
+            <li><button class="dropdown-item" data-action="history" data-student-id="${row.id}" data-student-name="${(row.student_name || "").replace(/'/g, "\\'")}"><i class="bi bi-clock-history me-2"></i>Full History</button></li>
+            ${this.canManageAwards() ? `
+              <li><hr class="dropdown-divider"></li>
+              <li><button class="dropdown-item" data-action="scholarship" data-student-id="${row.id}"><i class="bi bi-award me-2"></i>Sponsor (Scholarship)</button></li>
+              <li><button class="dropdown-item" data-action="waive" data-student-id="${row.id}"><i class="bi bi-shield-check me-2"></i>Waive Fees</button></li>
+            ` : ''}
+          </ul>
+        </div>
+      </td>
+    `;
+
+    // Re-attach event listeners for the new buttons
+    tr.querySelectorAll("[data-action]").forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        const action = event.currentTarget.getAttribute("data-action");
+        const studentId = event.currentTarget.getAttribute("data-student-id");
+        const studentName = event.currentTarget.getAttribute("data-student-name");
+
+        switch (action) {
+          case "view":
+            this.openFeeDetails(studentId);
+            break;
+          case "record-payment":
+            this.openPaymentModalForStudent(studentId);
+            break;
+          case "prompt-parent":
+            this.openPromptParentModal(studentId);
+            break;
+          case "payment-trends":
+            this.openPaymentTrendsModal(studentId);
+            break;
+          case "history":
+            this.openBillingHistory(studentId, studentName);
+            break;
+          case "scholarship":
+            this.openAssistanceModal(studentId);
+            break;
+          case "waive":
+            this.data.selectedStudentIds.clear();
+            this.data.selectedStudentIds.add(Number(studentId));
+            this.openWaiverModal();
+            break;
+        }
+      });
+    });
+
+    // Restore checkbox selection
+    const checkbox = tr.querySelector(".fee-student-select");
+    if (checkbox && this.data.selectedStudentIds.has(Number(row.id))) {
+      checkbox.checked = true;
+    }
+  },
+
+  /**
+   * Open payment modal for a specific student
+   */
+  openPaymentModalForStudent: function (studentId) {
+    this.resetPaymentForm();
+    this.ui.paymentStudent.value = studentId;
+    this.ui.paymentStudentId.value = studentId;
+    this.updateOutstandingAmount(studentId);
+    const modal = new bootstrap.Modal(this.ui.paymentModal);
+    modal.show();
+  },
+
+  /**
+   * Open Prompt Parent modal for STK push
+   */
+  openPromptParentModal: async function (studentId) {
+    if (!studentId) return;
+
+    try {
+      const row = this.data.rows.find((r) => Number(r.id) === Number(studentId));
+      if (!row) {
+        this.notify("Student not found.", "warning");
+        return;
+      }
+
+      const studentResp = await window.API.finance.getStudentFeeStatement(studentId, {
+        academic_year: this.filters.academic_year || undefined,
+      });
+      const payload = studentResp?.data ?? studentResp;
+      const student = payload?.student || {};
+      const balance = payload?.balance || {};
+
+      this.ui.promptStudentId.value = studentId;
+      this.ui.promptStudentName.value = student.student_name || row.student_name || "";
+      this.ui.promptAdmNo.value = student.admission_no || row.admission_no || "";
+      this.ui.promptClass.value = student.class_name || row.class_name || row.level_name || "";
+      this.ui.promptBalance.value = this.formatCurrency(balance.balance || balance.total_balance || row.current_balance || 0);
+      this.ui.promptOutstanding.textContent = this.formatCurrency(balance.balance || balance.total_balance || row.current_balance || 0);
+
+      const parentPhone = student.parent_phone || student.guardian_phone || "";
+      const parentName = student.parent_name || student.guardian_name || "";
+      this.ui.promptPhone.value = parentPhone;
+      this.ui.promptParentName.value = parentName;
+
+      this.ui.promptAmount.value = balance.balance || balance.total_balance || row.current_balance || 0;
+
+      const modal = new bootstrap.Modal(this.ui.promptParentModal);
+      modal.show();
+    } catch (error) {
+      console.error("Failed to load student details for STK push:", error);
+      this.notify("Could not load student details.", "danger");
+    }
+  },
+
+  /**
+   * Send STK Push via PayHero
+   */
+  sendStkPush: async function () {
+    const studentId = this.ui.promptStudentId.value;
+    const phone = this.ui.promptPhone.value.trim();
+    const amount = parseFloat(this.ui.promptAmount.value || "0");
+    const parentName = this.ui.promptParentName.value.trim();
+    const purpose = this.ui.promptPurpose.value;
+    const description = this.ui.promptDescription.value.trim() || `School fees payment for ${this.ui.promptStudentName.value}`;
+
+    if (!studentId || !phone || !amount || amount <= 0) {
+      this.notify("Please provide phone number and amount.", "warning");
+      return;
+    }
+
+    if (!/^254[0-9]{9}$/.test(phone)) {
+      this.notify("Phone number must be in format 2547XXXXXXXX.", "warning");
+      return;
+    }
+
+    this.ui.sendStkPushBtn.disabled = true;
+    this.ui.sendStkPushBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending...';
+
+    try {
+      const admissionNo = this.ui.promptAdmNo.value;
+      const reference = `FEE-${admissionNo}-${Date.now()}`;
+
+      const payload = {
+        phone_number: phone,
+        amount: amount,
+        external_reference: reference,
+        purpose: purpose,
+        customer_name: parentName || this.ui.promptStudentName.value,
+        description: description,
+      };
+
+      const response = await window.API.payments.payheroStkPush(payload);
+      const result = response?.data ?? response;
+
+      if (result?.accepted) {
+        this.notify(`STK push sent successfully to ${phone}. Parent should check their phone and enter PIN.`, "success");
+        const modal = bootstrap.Modal.getInstance(this.ui.promptParentModal);
+        if (modal) modal.hide();
+        setTimeout(() => this.loadPaymentStatus(), 3000);
+      } else {
+        this.notify(result?.message || "Failed to send STK push.", "danger");
+      }
+    } catch (error) {
+      console.error("STK push error:", error);
+      this.notify(error.message || "Failed to send STK push.", "danger");
+    } finally {
+      this.ui.sendStkPushBtn.disabled = false;
+      this.ui.sendStkPushBtn.innerHTML = '<i class="bi bi-send me-1"></i>Send STK Push';
+    }
+  },
+
+  /**
+   * Open Payment Trends modal
+   */
+  openPaymentTrendsModal: async function (studentId) {
+    if (!studentId) return;
+
+    try {
+      const row = this.data.rows.find((r) => Number(r.id) === Number(studentId));
+      if (!row) {
+        this.notify("Student not found.", "warning");
+        return;
+      }
+
+      const modal = new bootstrap.Modal(this.ui.paymentTrendsModal);
+      this.ui.paymentTrendsContent.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Loading payment trends...</p></div>';
+      modal.show();
+
+      const response = await window.API.apiCall('/finance/students-billing-history/' + studentId, 'GET');
+      const data = response?.data ?? response;
+
+      this.renderPaymentTrends(data, row);
+    } catch (error) {
+      console.error("Failed to load payment trends:", error);
+      this.ui.paymentTrendsContent.innerHTML = '<div class="alert alert-danger">Failed to load payment trends.</div>';
+    }
+  },
+
+  /**
+   * Render payment trends in modal
+   */
+  renderPaymentTrends: function (data, studentRow) {
+    const years = data.academic_years || data || [];
+    const studentName = studentRow.student_name || "Student";
+    const admNo = studentRow.admission_no || "";
+
+    let html = `
+      <div class="mb-3">
+        <h6>${this.esc(studentName)} (${this.esc(admNo)})</h6>
+        <small class="text-muted">Class: ${this.esc(studentRow.class_name || studentRow.level_name || "—")}</small>
+      </div>
+    `;
+
+    if (!years.length) {
+      html += '<div class="alert alert-info">No payment history found.</div>';
+      this.ui.paymentTrendsContent.innerHTML = html;
+      return;
+    }
+
+    let totalPaidAll = 0;
+    let totalDueAll = 0;
+
+    years.forEach((yr) => {
+      (yr.terms || []).forEach((term) => {
+        totalPaidAll += Number(term.total_paid || 0);
+        totalDueAll += Number(term.total_due || 0);
+      });
+    });
+
+    html += `
+      <div class="row mb-4">
+        <div class="col-md-4"><div class="card border-success"><div class="card-body text-center"><h6>Total Paid</h6><h4 class="text-success">${this.formatCurrency(totalPaidAll)}</h4></div></div></div>
+        <div class="col-md-4"><div class="card border-primary"><div class="card-body text-center"><h6>Total Expected</h6><h4 class="text-primary">${this.formatCurrency(totalDueAll)}</h4></div></div></div>
+        <div class="col-md-4"><div class="card border-info"><div class="card-body text-center"><h6>Collection Rate</h6><h4 class="text-info">${totalDueAll > 0 ? ((totalPaidAll / totalDueAll) * 100).toFixed(1) : 0}%</h4></div></div></div>
+      </div>
+    `;
+
+    const timelineLabels = [];
+    const timelinePaid = [];
+    const timelineDue = [];
+
+    years.forEach((yr) => {
+      (yr.terms || []).forEach((term) => {
+        timelineLabels.push(`${yr.year} - ${term.term_name}`);
+        timelinePaid.push(Number(term.total_paid || 0));
+        timelineDue.push(Number(term.total_due || 0));
+      });
+    });
+
+    let methodBreakdown = {};
+    years.forEach((yr) => {
+      (yr.terms || []).forEach((term) => {
+        (term.payments || []).forEach((p) => {
+          const method = p.payment_method || "Unknown";
+          methodBreakdown[method] = (methodBreakdown[method] || 0) + Number(p.amount_paid || 0);
+        });
+      });
+    });
+
+    html += `
+      <div class="row mb-4">
+        <div class="col-md-6">
+          <h6>Payment Timeline</h6>
+          <canvas id="trendsTimelineChart" height="120"></canvas>
+        </div>
+        <div class="col-md-6">
+          <h6>Payment Methods</h6>
+          <canvas id="trendsMethodChart" height="120"></canvas>
+        </div>
+      </div>
+
+      <h6 class="mb-3">Term-wise Breakdown</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>Academic Year</th>
+              <th>Term</th>
+              <th>Expected (KES)</th>
+              <th>Paid (KES)</th>
+              <th>Balance (KES)</th>
+              <th>Rate</th>
+              <th>Payments Count</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    years.forEach((yr) => {
+      (yr.terms || []).forEach((term) => {
+        const rate = term.total_due > 0 ? ((term.total_paid / term.total_due) * 100).toFixed(1) : 0;
+        const paymentsCount = (term.payments || []).length;
+        html += `
+          <tr>
+            <td>${this.esc(yr.year)}</td>
+            <td>${this.esc(term.term_name)}</td>
+            <td>${this.formatCurrency(term.total_due || 0)}</td>
+            <td>${this.formatCurrency(term.total_paid || 0)}</td>
+            <td>${this.formatCurrency(term.balance || 0)}</td>
+            <td><span class="badge ${rate >= 90 ? 'bg-success' : rate >= 50 ? 'bg-warning' : 'bg-danger'}">${rate}%</span></td>
+            <td>${paymentsCount}</td>
+          </tr>
+        `;
+      });
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    this.ui.paymentTrendsContent.innerHTML = html;
+
+    if (typeof Chart !== "undefined") {
+      new Chart(document.getElementById("trendsTimelineChart"), {
+        type: "bar",
+        data: {
+          labels: timelineLabels,
+          datasets: [
+            { label: "Paid", data: timelinePaid, backgroundColor: "rgba(25, 135, 84, 0.8)" },
+            { label: "Expected", data: timelineDue, backgroundColor: "rgba(13, 110, 253, 0.8)" },
+          ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } },
+      });
+
+      const methodLabels = Object.keys(methodBreakdown);
+      const methodData = Object.values(methodBreakdown);
+      new Chart(document.getElementById("trendsMethodChart"), {
+        type: "doughnut",
+        data: {
+          labels: methodLabels,
+          datasets: [{ data: methodData, backgroundColor: ["#0d6efd", "#198754", "#ffc107", "#dc3545", "#6c757d", "#0dcaf0", "#6f42c1"] }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } },
+      });
+    }
+  },
+
+  /**
+   * Export payment trends to CSV
+   */
+  exportPaymentTrends: function () {
+    const content = this.ui.paymentTrendsContent.querySelector("table");
+    if (!content) {
+      this.notify("No data to export.", "warning");
+      return;
+    }
+    KingswayFileLifecycle.exportText(
+      this.tableToCSV(content),
+      `payment_trends_${new Date().toISOString().slice(0, 10)}.csv`,
+      "text/csv;charset=utf-8;"
+    );
+  },
+
+  tableToCSV: function (table) {
+    const rows = Array.from(table.querySelectorAll("tr"));
+    return rows.map((row) =>
+      Array.from(row.querySelectorAll("th, td")).map((cell) => `"${cell.textContent.trim().replace(/"/g, '""')}"`).join(",")
+    ).join("\n");
   },
 
   debounce: function (fn, delay) {

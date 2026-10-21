@@ -37,8 +37,8 @@ const studentPerformanceController = {
   render() {
     const performance = this.state.performance;
     const student = this.state.student;
-    document.getElementById('spStudentName')?.textContent = student?.name || '—';
-    document.getElementById('spAdmissionNo')?.textContent = student?.admission_number || '—';
+    { const el = document.getElementById('spStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('spAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
     const body = document.getElementById('spPerformanceBody');
     if (!performance.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No performance data.</td></tr>'; return; }
     body.innerHTML = performance.map(p => `<tr>

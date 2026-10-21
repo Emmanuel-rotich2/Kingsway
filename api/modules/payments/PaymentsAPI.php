@@ -1,13 +1,12 @@
 <?php
 namespace App\API\Modules\payments;
-use App\API\Services\ReadReplicaService;
-use App\API\Modules\communications\CommunicationsAPI;
+
 /**
  * PaymentsAPI - Handles all payment webhook logic for bank, mpesa, etc.
  * All methods return associative arrays for controller use.
  */
-namespace App\API\Modules\payments;
 
+use App\API\Services\ReadReplicaService;
 use App\API\Services\payments\BankPaymentWebhook;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\MpesaB2CService;
@@ -17,7 +16,7 @@ use App\API\Services\FinancialPostingCoordinator;
 use Exception;
 use App\API\Services\ServiceContractBroker;
 use App\API\Includes\BaseAPI;
-use \App\API\Modules\communications\CommunicationsAPI;
+use App\API\Modules\communications\CommunicationsAPI;
 
 class PaymentsAPI extends BaseAPI
 {
@@ -297,7 +296,7 @@ class PaymentsAPI extends BaseAPI
                     $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('mpesa_daraja', $confirmationData, $mpesaCode, $amount, $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null, $admissionNumber);
                     $settlement = $this->db->prepare(
                         "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id)
-                         FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . "
+                         FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
                          JOIN payment_providers p ON p.id = r.provider_id
                          WHERE p.code = 'mpesa_daraja' AND r.normalized_account_identifier = ?
                            AND r.active = 1 ORDER BY r.id LIMIT 1"
@@ -787,6 +786,26 @@ class PaymentsAPI extends BaseAPI
             return $this->errorResponse($e->getMessage(), 422);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[PaymentsAPI] PayHero channel register error: ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** Initiate a PayHero STK push to a parent/guardian phone. */
+    public function triggerPayheroStkPush(array $data): array
+    {
+        try {
+            $service = new \App\API\Services\payments\PayheroPaymentService($this->db);
+            if (!$service->isConfigured()) {
+                return $this->errorResponse('PayHero is not configured yet. Save the gateway settings first.', 422);
+            }
+            $result = $service->initiate($data);
+            return $result['accepted']
+                ? $this->successResponse($result, $result['message'])
+                : $this->errorResponse($result['message'], 422, $result);
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] PayHero STK push error: ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
@@ -1438,7 +1457,7 @@ class PaymentsAPI extends BaseAPI
                 $bankTransactionId = $this->db->lastInsertId();
 
                 // Get parent_id for this student (for fee allocation)
-                $parentStmt = $this->db->prepare("SELECT parent_id FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " student_id = ? LIMIT 1");
+                $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? ORDER BY is_primary_contact DESC, parent_id ASC LIMIT 1");
                 $parentStmt->execute([$studentId]);
                 $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
                 $parentId = $parentRow ? $parentRow['parent_id'] : null;
@@ -1723,7 +1742,7 @@ class PaymentsAPI extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT GREATEST(
                     COALESCE((SELECT SUM(sfo.amount_due)
-                              FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations_enrolled") . "
+                              FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations_enrolled") . " sfo
                               JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
                               WHERE sae.student_id = ?), 0)
                     - COALESCE((SELECT SUM(p.amount)
@@ -1841,7 +1860,7 @@ class PaymentsAPI extends BaseAPI
             $feeLedgerRef = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_ledger');
             $overdue = $this->db->query(
                 "SELECT COUNT(DISTINCT e.student_id) AS overdue_count
-                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                 FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                  JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " e ON e.id = sfo.student_academic_enrollment_id
                  WHERE sfo.due_date < NOW()
                    AND COALESCE((SELECT MAX(l.balance) FROM {$feeLedgerRef} l

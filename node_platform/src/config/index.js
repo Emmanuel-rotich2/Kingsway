@@ -188,8 +188,8 @@ export function loadConfig(overrides = {}) {
         .split(',')
         .map(s => s.trim())
         .filter(Boolean),
-      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.internalSecret || '',
-      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.aiPythonSecret || '',
+      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.internalSecret || '',
+      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.aiPythonSecret || '',
     },
     app: {
       ...yamlConfig.app,

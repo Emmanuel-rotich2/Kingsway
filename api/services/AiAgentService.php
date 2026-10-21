@@ -116,6 +116,18 @@ class AiAgentService
         $route = mb_substr(trim((string) ($context['route'] ?? '')), 0, 120);
         $module = mb_substr(trim((string) ($context['module'] ?? 'dashboard')), 0, 60);
         $requestId = mb_substr((string) ($context['request_id'] ?? 'ai-agent-assist'), 0, 100);
+        // Conversation history for context-aware responses (last 10 turns)
+        $history = !empty($context['history']) && is_array($context['history'])
+            ? array_slice($context['history'], -10)
+            : [];
+        // Sidebar state for navigation guidance
+        $sidebarState = !empty($context['sidebar_state']) && is_array($context['sidebar_state'])
+            ? $context['sidebar_state']
+            : [];
+        // User preferences for tone/detail adaptation
+        $userPreferences = !empty($context['preferences']) && is_array($context['preferences'])
+            ? $context['preferences']
+            : [];
 
         // Audience boundary for the chat workflow itself.
         $this->workflows->authorize(self::WORKFLOW_CHAT, [
@@ -143,7 +155,7 @@ class AiAgentService
         ]);
 
         $startedAt = microtime(true);
-        $result = $this->runAgentLoop($pdo, $context, $agent, $question, $route, $module);
+        $result = $this->runAgentLoop($pdo, $context, $agent, $question, $route, $module, $history, $sidebarState, $userPreferences);
 
         $this->behavior->observe($userId, 'assist_outcome', [
             'agent_id' => (string) $agent['id'],
@@ -513,7 +525,7 @@ class AiAgentService
      *
      * @return array<string,mixed>
      */
-    private function runAgentLoop(PDO $pdo, array $context, array $agent, string $question, string $route, string $module): array
+    private function runAgentLoop(PDO $pdo, array $context, array $agent, string $question, string $route, string $module, array $history = [], array $sidebarState = [], array $userPreferences = []): array
     {
         $userId = (int) ($context['user_id'] ?? 0);
         $permissions = $this->permissionsOf($context);
@@ -527,6 +539,41 @@ class AiAgentService
         $providerCalls = 0;
         $messages = [];
         $answer = null;
+
+        // Seed conversation history so the model sees previous turns
+        if ($history !== []) {
+            foreach ($history as $msg) {
+                $role = (string) ($msg['role'] ?? 'user');
+                $content = (string) ($msg['content'] ?? '');
+                if ($role !== '' && $content !== '') {
+                    $messages[] = ['role' => $role, 'content' => $content];
+                }
+            }
+        }
+
+        // Build sidebar guidance text for the system prompt
+        $sidebarGuidance = '';
+        if ($sidebarState !== []) {
+            $visible = is_array($sidebarState['visible_routes'] ?? []) ? $sidebarState['visible_routes'] : [];
+            $current = (string) ($sidebarState['current_route'] ?? '');
+            $expanded = is_array($sidebarState['expanded_submenus'] ?? []) ? $sidebarState['expanded_submenus'] : [];
+            $sidebarGuidance = "\n\nSIDEBAR CONTEXT:\n- Current route: " . ($current ?: 'none') . "\n- Visible sidebar routes: " . ($visible ? implode(', ', $visible) : 'none') . "\n- Expanded submenus: " . ($expanded ? implode(', ', $expanded) : 'none') . "\nUse this to guide the user with clickable sidebar navigation instructions.";
+        }
+
+        // Build user preference guidance for the system prompt
+        $prefGuidance = '';
+        if ($userPreferences !== []) {
+            $tone = (string) ($userPreferences['response_style'] ?? 'balanced');
+            $detail = (string) ($userPreferences['detail_level'] ?? 'medium');
+            $saveHistory = !empty($userPreferences['save_history']);
+            $autoCharts = !empty($userPreferences['auto_charts']);
+            $prefGuidance = "\n\nUSER PREFERENCES:\n- Response tone: " . $tone . "\n- Detail level: " . $detail . "\n- Save history: " . ($saveHistory ? 'yes' : 'no') . "\n- Auto charts: " . ($autoCharts ? 'yes' : 'no') . "\nAdapt your writing style, detail level, and formatting to match these preferences.";
+        }
+
+        // Append guidance to system prompt
+        if ($sidebarGuidance !== '' || $prefGuidance !== '') {
+            $system .= $sidebarGuidance . $prefGuidance;
+        }
 
         try {
             while ($providerCalls < self::MAX_PROVIDER_CALLS) {

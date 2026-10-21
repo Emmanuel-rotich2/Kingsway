@@ -6097,6 +6097,52 @@ def create_app(config: Config | None = None) -> Flask:
             return jsonify({"success": False, "message": "Session not found"}), 404
         return jsonify({"success": True, "message": "Session renamed"})
 
+    @app.post("/api/agents/sessions/topics")
+    def agents_sessions_topics():
+        """Merge topic labels into a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        session_id = str(payload.get("session_id") or "")
+        topics = payload.get("topics")
+        if not session_id or not isinstance(topics, list):
+            return jsonify(
+                {"success": False, "message": "session_id and topics required"}
+            ), 422
+        merged = chat_sessions.add_topics(user_id, session_id, topics)
+        return jsonify(
+            {
+                "success": True,
+                "data": {"session_id": session_id, "topics": merged},
+                "message": "Topics updated",
+            }
+        )
+
+    @app.post("/api/agents/sessions/clear-messages")
+    def agents_sessions_clear_messages():
+        """Empty one chat session's messages while keeping the session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        if not chat_sessions.clear_messages(user_id, session_id):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session cleared"})
+
     @app.post("/api/agents/sessions/clear")
     def agents_sessions_clear():
         """Clear all chat sessions for the user (DPA erasure)."""

@@ -58,6 +58,13 @@ def ensure_staff_context(context: dict) -> dict:
             if t:
                 _humanized.append(" ".join(w.capitalize() for w in t.split()))
         scope_labels = _humanized
+    is_system_admin = "system_admin" in permissions
+    requested_domain = str(context.get("assistant_domain") or "staff").lower()
+    assistant_domain = (
+        "system_admin"
+        if requested_domain == "system_admin" and is_system_admin
+        else "staff"
+    )
     return {
         "user_id": user_id,
         "permissions": sorted(set(permissions)),
@@ -69,6 +76,8 @@ def ensure_staff_context(context: dict) -> dict:
         "user_name": user_name[:120],
         "roles": role_labels[:10],
         "scope_labels": scope_labels[:40],
+        "system_admin": bool(context.get("system_admin")) and is_system_admin,
+        "assistant_domain": assistant_domain,
     }
 
 
