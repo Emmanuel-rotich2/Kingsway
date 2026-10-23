@@ -23,8 +23,44 @@ class AiDraftService
 
     public function create(PDO $pdo, string $workflowId, array $context, array $input, array $metadata = []): array
     {
+        $operatorId = (int) ($context['user_id'] ?? 0);
+        if ($operatorId < 1) {
+            throw new DomainException('An authenticated operator is required to create an AI draft.', 401);
+        }
+        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
+        if ($permissions === []) {
+            throw new DomainException('Current operator permissions could not be resolved.', 403);
+        }
+        // Context grants can be stale (queued work) or supplied by an internal
+        // caller. Reauthorize from the authoritative grants at execution time.
+        $context['permissions'] = $permissions;
+        $context['effective_permissions'] = $permissions;
         $workflow = (new AiWorkflowService())->authorize($workflowId, $context);
         $clean = AiPromptPolicy::minimize($workflowId, $input);
+        $queueJobId = (int) ($metadata['queue_job_id'] ?? 0);
+        if ($queueJobId > 0) {
+            // A worker may lose its lease after persisting the draft but before
+            // acknowledging the queue row. Reuse that persisted result on retry
+            // instead of calling the provider and inserting a duplicate draft.
+            $existing = $pdo->prepare(
+                "SELECT id, draft_json FROM ai_workflow_drafts
+                 WHERE workflow_id = ? AND operator_id = ?
+                   AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.queue_job_id')) = ?
+                 ORDER BY id DESC LIMIT 1"
+            );
+            $existing->execute([$workflowId, (int) ($context['user_id'] ?? 0), (string) $queueJobId]);
+            $row = $existing->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $saved = json_decode((string) ($row['draft_json'] ?? ''), true);
+                return [
+                    'draft_id' => (int) $row['id'],
+                    'workflow_id' => $workflowId,
+                    'status' => 'pending_approval',
+                    'draft' => is_array($saved) ? $saved : [],
+                    'reused' => true,
+                ];
+            }
+        }
         $prompt = $this->templates->resolve($workflowId);
         $messages = [
             ['role' => 'system', 'content' => $prompt['content']],

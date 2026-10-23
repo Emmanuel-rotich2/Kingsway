@@ -1197,6 +1197,14 @@ class AuthAPI extends BaseAPI
             ]
         );
 
+        // RFC 7519 subject claim. The Node gateway resolves the authenticated
+        // user from `sub`, while the PHP middleware resolves it from
+        // `user_id`; both must describe the SAME numeric user so the gateway
+        // and PHP never disagree about who the bearer is.
+        if (!isset($payload['sub']) && isset($payload['user_id'])) {
+            $payload['sub'] = (string) (int) $payload['user_id'];
+        }
+
         return JWT::encode($payload, JWT_SECRET, 'HS256');
     }
 

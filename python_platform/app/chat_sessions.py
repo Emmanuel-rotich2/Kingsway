@@ -27,6 +27,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -55,12 +56,13 @@ class ChatSessionStore:
         self._journal = journal
         self._lock = threading.Lock()
         self._db_path = Path(data_dir) / "assistant_chat.sqlite"
-        with self._lock:
-            self._connect().executescript(
+        with self._lock, closing(self._connect()) as connection:
+            connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL,
+                    assistant_domain TEXT NOT NULL DEFAULT 'staff',
                     title TEXT NOT NULL DEFAULT '',
                     route TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
@@ -89,6 +91,11 @@ class ChatSessionStore:
                 """
             )
             self._migrate()
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_domain_time"
+                " ON chat_sessions(user_id, assistant_domain, updated_at DESC)"
+            )
+            connection.commit()
 
     def _migrate(self) -> None:
         """Additive migrations for databases created by earlier releases.
@@ -109,6 +116,11 @@ class ChatSessionStore:
                     "ALTER TABLE chat_sessions"
                     " ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "assistant_domain" not in columns:
+                connection.execute(
+                    "ALTER TABLE chat_sessions"
+                    " ADD COLUMN assistant_domain TEXT NOT NULL DEFAULT 'staff'"
+                )
             connection.commit()
         finally:
             connection.close()
@@ -121,19 +133,25 @@ class ChatSessionStore:
         return connection
 
     # ---------------------------------------------------------------- sessions
-    def create(self, user_id: int, route: str = "", title: str = "") -> dict[str, Any]:
+    def create(
+        self,
+        user_id: int,
+        route: str = "",
+        title: str = "",
+        assistant_domain: str = "staff",
+    ) -> dict[str, Any]:
         now = int(time.time())
         session_id = uuid.uuid4().hex
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "INSERT INTO chat_sessions"
-                    " (id, user_id, title, route, created_at, updated_at, message_count)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 0)",
+                    " (id, user_id, assistant_domain, title, route, created_at, updated_at, message_count)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
                     (
                         session_id,
                         int(user_id),
+                        self._clean_domain(assistant_domain),
                         self._clean_title(title),
                         str(route or "")[:120],
                         now,
@@ -141,11 +159,17 @@ class ChatSessionStore:
                     ),
                 )
                 connection.execute(
-                    "DELETE FROM chat_sessions WHERE user_id = ? AND id NOT IN ("
-                    "  SELECT id FROM chat_sessions WHERE user_id = ?"
+                    "DELETE FROM chat_sessions WHERE user_id = ? AND assistant_domain = ? AND id NOT IN ("
+                    "  SELECT id FROM chat_sessions WHERE user_id = ? AND assistant_domain = ?"
                     "  ORDER BY updated_at DESC LIMIT ?"
                     ")",
-                    (int(user_id), int(user_id), MAX_SESSIONS),
+                    (
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        MAX_SESSIONS,
+                    ),
                 )
                 connection.commit()
             self._journal_event(
@@ -160,6 +184,7 @@ class ChatSessionStore:
                     "created_at": now,
                     "updated_at": now,
                     "message_count": 0,
+                    "assistant_domain": self._clean_domain(assistant_domain),
                     "topics_json": "[]",
                 }
             )
@@ -167,35 +192,44 @@ class ChatSessionStore:
             self._journal_event(user_id, "assistant_session_write_failed", {})
             return {}
 
-    def list_sessions(self, user_id: int, limit: int = 30) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, user_id: int, limit: int = 30, assistant_domain: str = "staff"
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit or 30), MAX_SESSIONS))
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 rows = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count, topics_json"
+                    "SELECT id, user_id, assistant_domain, title, route, created_at, updated_at, message_count, topics_json"
                     " FROM chat_sessions"
-                    " WHERE user_id = ? AND updated_at >= ?"
+                    " WHERE user_id = ? AND assistant_domain = ? AND updated_at >= ?"
                     " ORDER BY updated_at DESC LIMIT ?",
-                    (int(user_id), int(time.time()) - TTL_SECONDS, limit),
+                    (
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        int(time.time()) - TTL_SECONDS,
+                        limit,
+                    ),
                 ).fetchall()
             return [self._session_row(row) for row in rows]
         except Exception:
             return []
 
     def get_session(
-        self, user_id: int, session_id: str, limit: int = MAX_MESSAGES
+        self,
+        user_id: int,
+        session_id: str,
+        limit: int = MAX_MESSAGES,
+        assistant_domain: str = "staff",
     ) -> dict[str, Any] | None:
         session_id = str(session_id or "").strip()
         if not session_id:
             return None
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count, topics_json"
-                    " FROM chat_sessions WHERE id = ? AND user_id = ?",
-                    (session_id, int(user_id)),
+                    "SELECT id, user_id, assistant_domain, title, route, created_at, updated_at, message_count, topics_json"
+                    " FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (session_id, int(user_id), self._clean_domain(assistant_domain)),
                 ).fetchone()
                 if row is None:
                     return None
@@ -222,6 +256,17 @@ class ChatSessionStore:
         except Exception:
             return None
 
+    def owns_domain(self, user_id: int, session_id: str, assistant_domain: str) -> bool:
+        try:
+            with self._lock, closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT 1 FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (str(session_id or ""), int(user_id), self._clean_domain(assistant_domain)),
+                ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
     def append(
         self,
         user_id: int,
@@ -230,6 +275,7 @@ class ChatSessionStore:
         content: str,
         agent_id: str = "",
         meta: dict[str, Any] | None = None,
+        assistant_domain: str = "staff",
     ) -> int | None:
         role = str(role or "").strip().lower()
         content = self._clip(content, MAX_MESSAGE_CHARS)
@@ -244,11 +290,10 @@ class ChatSessionStore:
             except Exception:
                 meta_json = ""
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 owned = connection.execute(
-                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
-                    (session_id, int(user_id)),
+                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (session_id, int(user_id), self._clean_domain(assistant_domain)),
                 ).fetchone()
                 if owned is None:
                     return None
@@ -321,8 +366,7 @@ class ChatSessionStore:
         if not clean:
             return self.get_topics(user_id, session_id)
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
                     "SELECT topics_json FROM chat_sessions"
                     " WHERE id = ? AND user_id = ?",
@@ -353,8 +397,7 @@ class ChatSessionStore:
         if not session_id:
             return []
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
                     "SELECT topics_json FROM chat_sessions"
                     " WHERE id = ? AND user_id = ?",
@@ -370,8 +413,7 @@ class ChatSessionStore:
         if not session_id:
             return False
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 owned = connection.execute(
                     "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
                     (session_id, int(user_id)),
@@ -464,8 +506,7 @@ class ChatSessionStore:
         if not clean:
             return False
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 cursor = connection.execute(
                     "UPDATE chat_sessions SET title = ?, updated_at = ?"
                     " WHERE id = ? AND user_id = ?",
@@ -478,8 +519,7 @@ class ChatSessionStore:
 
     def delete_session(self, user_id: int, session_id: str) -> bool:
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 owned = connection.execute(
                     "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
                     (str(session_id), int(user_id)),
@@ -507,8 +547,7 @@ class ChatSessionStore:
     def clear(self, user_id: int) -> int:
         """Erase every session and message for one user (DPA erasure)."""
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "DELETE FROM chat_messages WHERE user_id = ?", (int(user_id),)
                 )
@@ -560,8 +599,7 @@ class ChatSessionStore:
     # --------------------------------------------------------------- settings
     def get_prefs(self, user_id: int) -> dict[str, Any]:
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
                     "SELECT prefs_json FROM assistant_prefs WHERE user_id = ?",
                     (int(user_id),),
@@ -592,8 +630,7 @@ class ChatSessionStore:
                 if text:
                     clean[key] = text
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "INSERT INTO assistant_prefs (user_id, prefs_json, updated_at)"
                     " VALUES (?, ?, ?)"
@@ -614,8 +651,7 @@ class ChatSessionStore:
     def purge_expired(self) -> int:
         cutoff = int(time.time()) - TTL_SECONDS
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 expired = connection.execute(
                     "SELECT id FROM chat_sessions WHERE updated_at < ?", (cutoff,)
                 ).fetchall()
@@ -642,6 +678,7 @@ class ChatSessionStore:
         return {
             "id": str(row["id"]),
             "user_id": int(row["user_id"]),
+            "assistant_domain": str(row["assistant_domain"] or "staff"),
             "title": str(row["title"] or ""),
             "route": str(row["route"] or ""),
             "created_at": int(row["created_at"]),
@@ -649,6 +686,10 @@ class ChatSessionStore:
             "message_count": int(row["message_count"] or 0),
             "topics": topics,
         }
+
+    @staticmethod
+    def _clean_domain(value: Any) -> str:
+        return "system_admin" if str(value or "").strip().lower() == "system_admin" else "staff"
 
     @staticmethod
     def _load_topics(raw: Any) -> list[str]:

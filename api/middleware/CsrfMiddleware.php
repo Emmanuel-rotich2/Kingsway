@@ -99,6 +99,7 @@ class CsrfMiddleware
         'realtime/python-job-fail',
         // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
         'system/send-security-alert',
+        'system/monitoring-worker',
         // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'dashboard/agent-digest-worker',
         'dashboard/insight-brief-queue',

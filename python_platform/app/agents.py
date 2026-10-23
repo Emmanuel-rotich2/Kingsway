@@ -417,7 +417,9 @@ PROMPT_TEMPLATES: dict[str, str] = {
         "learner or staff details, or policy. Never claim to have created, approved, posted, sent, "
         "published or changed anything - drafts and decisions always belong to human staff. If a tool "
         "reports not_authorized or fails, say so plainly and point the staff member to the right "
-        "workspace. Keep the body under 250 words, practical and actionable; put concrete follow-up "
+        "workspace. Write the answer body as a natural, direct conversation; use Markdown when it "
+        "helps, preserve follow-up context, and never substitute unrelated briefing or assistant-usage "
+        "statistics for school report data. Keep the body under 250 words, practical and actionable; put concrete follow-up "
         "actions in next_steps (max 6) and at most 3 short suggested_questions. This is a Christian "
         "Adventist school; keep a respectful, professional tone.\n\n"
         "MANDATORY TOOL SELECTION RULES:\n"
@@ -672,8 +674,27 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "statistic",
             "trend",
             "chart",
+            "enrollment",
+            "enrolment",
+            "learner",
+            "student",
+            "pupil",
+            "admission",
+            "admissions",
+            "fee",
+            "attendance",
+            "finance",
         ),
-        ("summary", "figure", "number of", "how many", "average", "total"),
+        (
+            "summary",
+            "figure",
+            "number of",
+            "how many",
+            "average",
+            "total",
+            "boarder",
+            "boarding",
+        ),
     ),
     "system.agent": (
         (
@@ -920,22 +941,32 @@ def stream_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
             "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
             (
                 "CONTRACT - follow exactly:\n"
-                "1. Write the answer directly, in plain text. Never emit JSON, "
-                'markdown fences, or an "answer" wrapper.\n'
-                "2. Answer from the governed tool_results already provided. They are "
-                "the only school facts you may use. Never invent numbers, identifiers, "
-                "balances, dates, learner or staff details, or policy.\n"
-                "3. Keep it under 150 words, professional and warm, no preamble such as "
-                '"Based on the data".\n'
-                "4. Only if the provided results genuinely cannot answer the question, "
+                "1. Speak naturally to the staff member. Use readable Markdown when it "
+                "helps (short headings, bullets, bold labels); never use code fences or "
+                "emit JSON except for a tool request. Start with the answer, not a title "
+                "or generic preamble.\n"
+                "2. Use only relevant governed tool_results and the conversation history. "
+                "A briefing or catalogue is not evidence for a different school-data "
+                "question. Never invent numbers, identifiers, balances, dates, learner "
+                "or staff details, sources, or policy.\n"
+                "3. For every school-record question, retrieve the matching governed "
+                "report unless the exact question is already answered by supplied results. "
+                "For follow-ups, preserve the prior topic and resolve references such as "
+                "'this week' using the school's local date and the report's available "
+                "period. If the answer or period is unavailable, say so plainly.\n"
+                "4. Keep answers concise and warm. Give the direct result first, then the "
+                "timeframe and one useful explanation or next step when supported. Ask at "
+                "most one short clarifying question when necessary.\n"
+                "5. Only if the provided results genuinely cannot answer the question, "
                 "request ONE governed tool and reply with nothing except JSON: "
                 '{"action":"tool","tools":[{"tool":"<exact tool id>",'
                 '"tool_input":{...}}]}. Do not wrap it in prose.\n'
-                "5. Never claim to have created, approved, posted, sent, published or "
+                "6. Never claim to have created, approved, posted, sent, published or "
                 "changed anything - drafts and decisions belong to human staff.\n"
-                "6. If a result is missing, say plainly what could not be retrieved and "
-                "point to the related workspace.\n"
-                "7. Available tools include: governed reports (reports.nlq), aggregations "
+                "7. If data is missing or access is denied, explain what could not be "
+                "checked and where the staff member can verify it. Do not replace missing "
+                "data with generic recommendations.\n"
+                "Available tools include: governed reports (reports.nlq), aggregations "
                 "(reports.aggregate), charts (charts.generate), drafts (drafts.create), "
                 "intelligence briefing (reports.insight_brief), and workflow catalogue "
                 "(assistant.catalog)."

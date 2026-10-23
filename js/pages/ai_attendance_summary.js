@@ -52,8 +52,9 @@
                 }
             });
 
-            document.getElementById('queueAiAttendanceLateness')?.addEventListener('click', async () => {
-                const button = document.getElementById('queueAiAttendanceLateness');
+            const latenessButton = document.querySelector('#queueAiAttendanceLateness, #queueAiLatenessPattern');
+            latenessButton?.addEventListener('click', async () => {
+                const button = latenessButton;
                 if (!button) return;
                 button.disabled = true;
                 try {
@@ -68,7 +69,7 @@
                                 : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
                         return { date_from: document.getElementById('arDateFrom')?.value || from, date_to: document.getElementById('arDateTo')?.value || to };
                     };
-                    panel.question = `Generate a lateness pattern review for the period ${range().date_from} to ${range().date_to}. Analyze student lateness patterns, identify persistent offenders, and recommend interventions.`;
+                    panel.question = `Generate a supportive lateness pattern review for ${range().date_from} to ${range().date_to}. Summarize recurring patterns using only authorized aggregate attendance data, identify where staff should verify the register, and suggest respectful follow-up. Do not label or rank individual learners, infer causes, or recommend punishment.`;
                     await panel.start();
                 } catch (error) {
                     notify(error.message || 'Unable to queue lateness review', 'danger');

@@ -2473,7 +2473,7 @@ class PaymentsAPI extends BaseAPI
             'amount' => $data['amount'] ?? 0,
             'invoice_number' => $data['invoice_number'] ?? $data['admission_no'] ?? $data['account_reference'] ?? '',
             'description' => $data['description'] ?? 'School fees',
-            'callback_url' => $data['callback_url'] ?? rtrim($base, '/') . '/api/payments/kcb-mpesa-express-callback',
+            'callback_url' => $data['callback_url'] ?? rtrim($base, '/') . '/api/payments/kcb-notification',
             'message_id' => $data['message_id'] ?? null,
         ]);
     }
@@ -2541,6 +2541,16 @@ class PaymentsAPI extends BaseAPI
     {
         $service = new MpesaPaymentService();
         return $service->queryAccountBalance();
+    }
+
+    public function triggerMiniStatement(array $data): array
+    {
+        $service = new MpesaPaymentService();
+        return $service->getMiniStatement(
+            (int) ($data['count'] ?? 10),
+            $data['remarks'] ?? 'mini statement',
+            $data['occasion'] ?? 'reconciliation'
+        );
     }
 
     public function triggerReversal(array $data): array

@@ -5,11 +5,16 @@ namespace App\API\Services\payments;
 use Exception;
 
 /**
- * KCB Buni M-Pesa Express adapter.
+ * KCB Buni M-Pesa Express adapter (DEPRECATED).
  *
  * This is intentionally separate from Daraja STK Push: both initiate an
  * M-Pesa prompt but they have different authentication, headers, endpoint,
  * and acknowledgement envelopes.
+ *
+ * @deprecated Buni STK Push is deprecated per architecture decision.
+ *   PayHero is primary STK aggregator; Daraja Express is fallback.
+ *   Buni now only handles C2B/IPN (Lipa na KCB / Lipa Karo) via
+ *   /api/payments/kcb-notification.
  */
 class KcbMpesaExpressService
 {

@@ -702,6 +702,11 @@ const AuthContext = (() => {
     roles = [];
     teacherScope = null;
     _csrfToken = null;
+    try {
+      sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    } catch (_) {
+      /* ignore */
+    }
     // Use removeAllUserKeys() which reads the sentinel BEFORE clearing it,
     // so it can compute the correct namespaced keys (kw_<userId>_*) to delete.
     removeAllUserKeys(localStorage);
@@ -2551,6 +2556,7 @@ if (document.readyState === "loading") {
  */
 let _sessionExpiredEmitted = false;
 let _csrfToken = null;
+const CSRF_STORAGE_KEY = "kingsway_csrf_token";
 
 // ---------------------------------------------------------------------------
 // Parent portal session bridge
@@ -2630,6 +2636,18 @@ function renewPortalExpiry(headers) {
  */
 function setCsrfToken(token) {
   _csrfToken = token;
+  // Every authenticated staff session needs its CSRF token to survive a page
+  // reload or a token refresh. Only the parent portal used to persist it,
+  // which silently broke every staff POST (including the assistant) after F5.
+  try {
+    if (token) {
+      sessionStorage.setItem(CSRF_STORAGE_KEY, token);
+    } else {
+      sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    }
+  } catch (_) {
+    /* ignore */
+  }
   // Parent sessions persist their CSRF token in sessionStorage so a page
   // reload (which resets the in-memory copy) can restore it per session.
   if (isParentSourceSession()) {
@@ -2639,6 +2657,21 @@ function setCsrfToken(token) {
       /* ignore */
     }
   }
+}
+
+/**
+ * Return the in-memory CSRF token, restoring it from sessionStorage after a
+ * reload. PHP binds the token to the user id and a one-hour window, so a
+ * refresh always issues a replacement that overwrites this value.
+ */
+function getCsrfToken() {
+  if (_csrfToken) return _csrfToken;
+  try {
+    _csrfToken = sessionStorage.getItem(CSRF_STORAGE_KEY) || null;
+  } catch (_) {
+    _csrfToken = null;
+  }
+  return _csrfToken;
 }
 
 // ---------------------------------------------------------------------------
@@ -2848,6 +2881,10 @@ async function performRefreshAccessToken() {
     }
 
     AuthContext.setTokens(token);
+
+    if (payload.csrf_token) {
+      setCsrfToken(payload.csrf_token);
+    }
 
     if (payload.user) {
       AuthContext.setUser(payload.user, payload, true);
@@ -3292,6 +3329,7 @@ async function apiCallDirect(
       credentials:
         options.credentials ||
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
+      ...(options.signal ? { signal: options.signal } : {}),
       headers: {
         "X-Request-ID": requestId,
         "X-Browser-Session-Id": getBrowserSessionId(),
@@ -3305,9 +3343,9 @@ async function apiCallDirect(
         ...(token && {
           Authorization: "Bearer " + token,
         }),
-        ...(_csrfToken &&
+        ...(getCsrfToken() &&
           (!isAuthFreeEndpoint || isParentCatalogApi) && {
-          "X-CSRF-Token": _csrfToken,
+          "X-CSRF-Token": getCsrfToken(),
         }),
         ...options.headers,
       },
@@ -7974,14 +8012,16 @@ window.API = {
      * `cancel()`, and an `onDelta`/`onStatus` callback pair, so the caller can
      * render words as they arrive instead of waiting for the whole answer.
      *
-     * Falls back automatically to the buffered endpoint when the browser has
-     * no ReadableStream support or the relay returns a non-event response, so
-     * every caller keeps working.
+     * Uses Node as the live browser transport when configured. PHP supplies
+     * the server-derived identity and permission envelope; Python streams the
+     * answer and routes governed data tools back through PHP. Direct-PHP SSE
+     * remains the compatibility path when the Node gateway is disabled.
      */
     agentAssistStream: (question, route = "", module = "dashboard", handlers = {}) => {
       const controller = new AbortController();
       const state = {
         cancelled: false,
+        timedOut: false,
         controller,
         onDelta: handlers.onDelta || (() => {}),
         onStatus: handlers.onStatus || (() => {}),
@@ -7991,29 +8031,59 @@ window.API = {
 
       const {session_id, ...options} = handlers;
       const requestOptions = session_id ? {session_id, ...options} : options;
-
-      const STREAM_TIMEOUT_MS = 30000;
-      let timeoutTimer = null;
-
-      const promise = (async () => {
-        const token = AuthContext.getToken?.();
-        if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+      const getBufferedFallback = async () => {
+        const fallbackController = new AbortController();
+        state.onStatus("I’m checking that again…");
+        const fallbackTimer = setTimeout(() => fallbackController.abort(), 45000);
+        try {
           const fallback = await apiCall(
             "/dashboard/agent-assist",
             "POST",
             { question, route, module, ...requestOptions },
+            {},
+            { signal: fallbackController.signal },
           );
-          state.onFinal(fallback?.data ?? fallback);
           return fallback?.data ?? fallback;
+        } catch {
+          return {
+            status: "unavailable",
+            answer: { body: "I couldn’t complete that check just now. Please try again." },
+          };
+        } finally {
+          clearTimeout(fallbackTimer);
+        }
+      };
+
+      // Bound a single stream attempt. A gateway failure is shown as a retry
+      // state instead of launching duplicate provider/tool work via PHP.
+      const STREAM_TIMEOUT_MS = 65000;
+      let timeoutTimer = null;
+
+      const promise = (async () => {
+        // Access tokens rotate on refresh and the PHP edge invalidates the
+        // previous hash immediately. The stream bypasses apiCall(), so make
+        // sure it never starts with a token that is about to expire mid-handshake.
+        if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+          await refreshAccessToken();
+        }
+        const token = AuthContext.getToken?.();
+        if (!token || typeof fetch !== "function" || !window.ReadableStream) {
+          const fallback = await getBufferedFallback();
+          state.onFinal(fallback);
+          return fallback;
         }
 
         try {
           timeoutTimer = setTimeout(() => {
-            state.onError("The assistant is taking too long — falling back to a full response.");
+            state.timedOut = true;
+            state.onError("I couldn’t finish checking that just now. Please try again.");
             controller.abort();
           }, STREAM_TIMEOUT_MS);
 
-          const response = await fetch(API_BASE_URL + "/dashboard/agent-assist-stream", {
+          const streamUrl = hasAgentGateway()
+            ? agentGatewayOrigin() + "/api/agents/stream"
+            : API_BASE_URL + "/dashboard/agent-assist-stream";
+          const response = await fetch(streamUrl, {
             method: "POST",
             credentials:
               window.location.hostname === "localhost" ? "same-origin" : "include",
@@ -8022,20 +8092,13 @@ window.API = {
               "Content-Type": "application/json",
               Accept: "text/event-stream",
               Authorization: "Bearer " + token,
-              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
+              ...(getCsrfToken() ? { "X-CSRF-Token": getCsrfToken() } : {}),
               "X-Request-ID": crypto.randomUUID
                 ? crypto.randomUUID()
                 : String(Date.now()),
             },
             body: JSON.stringify({ question, route, module, ...requestOptions }),
           });
-
-          clearTimeout(timeoutTimer);
-          timeoutTimer = null;
-
-          if (!response.ok || !response.body) {
-            throw new Error(`stream unavailable (${response.status})`);
-          }
 
           if (!response.ok || !response.body) {
             throw new Error(`stream unavailable (${response.status})`);
@@ -8045,6 +8108,8 @@ window.API = {
           const decoder = new TextDecoder();
           let buffer = "";
           let final = null;
+          let terminalError = "";
+          let receivedStreamEvent = false;
 
           // Parse SSE frames: "event: <name>" then one or more "data:" lines.
           const consume = (frame) => {
@@ -8056,6 +8121,7 @@ window.API = {
               .join("");
             if (!nameLine || !dataLine) return;
             const name = nameLine.slice(6).trim();
+            receivedStreamEvent = true;
             let payload;
             try {
               payload = JSON.parse(dataLine);
@@ -8065,19 +8131,32 @@ window.API = {
             if (name === "delta") {
               state.onDelta(payload.text || "");
             } else if (name === "start") {
-              state.onStatus("streaming");
+              state.onStatus("Preparing your answer…");
             } else if (name === "status") {
               state.onStatus(payload.text || "working");
             } else if (name === "final") {
-              final = payload;
+              // The Node gateway wraps the PHP event payload in `result`.
+              // Accept both gateway and direct-PHP event envelopes.
+              final = payload.result && typeof payload.result === "object"
+                ? payload.result
+                : payload;
             } else if (name === "error") {
-              state.onError(payload.message || "The response was interrupted");
+              terminalError = payload.message || "I couldn’t complete that answer. Please try again.";
+              state.onError(terminalError);
             }
           };
 
           for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
+            // Keep the deadline tied to actual stream activity, not the time
+            // spent since the user first sent the question.
+            clearTimeout(timeoutTimer);
+            timeoutTimer = setTimeout(() => {
+              state.timedOut = true;
+              state.onError("I couldn’t finish checking that just now. Please try again.");
+              controller.abort();
+            }, STREAM_TIMEOUT_MS);
             buffer += decoder.decode(value, { stream: true });
             const frames = buffer.split("\n\n");
             buffer = frames.pop() || "";
@@ -8085,47 +8164,65 @@ window.API = {
           }
           if (buffer.trim()) consume(buffer);
 
-          clearTimeout(timeoutTimer);
-          timeoutTimer = null;
-
           if (final) {
+            clearTimeout(timeoutTimer);
+            timeoutTimer = null;
             state.onFinal(final);
             return final;
           }
+          if (terminalError || receivedStreamEvent) {
+            clearTimeout(timeoutTimer);
+            timeoutTimer = null;
+            const message = terminalError || "The response was interrupted. Please try again.";
+            const data = { status: "unavailable", answer: { body: message } };
+            state.onFinal(data);
+            return data;
+          }
           // Stream ended without a final frame: fetch the authoritative answer
           // rather than showing a half-rendered bubble.
-          const fallback = await apiCall(
-            "/dashboard/agent-assist",
-            "POST",
-            { question, route, module, ...requestOptions },
-          );
-          const data = fallback?.data ?? fallback;
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+          const data = await getBufferedFallback();
           state.onFinal(data);
           return data;
         } catch (error) {
           clearTimeout(timeoutTimer);
           timeoutTimer = null;
-          if (state.cancelled || error?.name === "AbortError") {
-            // Stream was aborted (user stop or timeout): fall back to the
-            // buffered endpoint so the user still gets an answer.
-            const fallback = await apiCall(
-              "/dashboard/agent-assist",
-              "POST",
-              { question, route, module, ...requestOptions },
-            ).catch(() => null);
-            const data = fallback?.data ?? fallback;
-            if (data) state.onFinal(data);
+          if (state.cancelled && !state.timedOut) {
+            // A user stop is a stop: do not unexpectedly launch a second
+            // request after the user has cancelled generation.
+            return null;
+          }
+          if (state.timedOut || error?.name === "AbortError") {
+            // Do not launch a second copy of the same slow request after a
+            // timeout. Return a visible terminal response so the UI can stop
+            // its spinner and let the user retry deliberately.
+            const data = {
+              status: "unavailable",
+              answer: { body: "I couldn’t finish checking that just now. Please try again." },
+            };
+            state.onFinal(data);
             return data;
           }
-          state.onError(error?.message || "The assistant could not answer");
-          const fallback = await apiCall(
-            "/dashboard/agent-assist",
-            "POST",
-            { question, route, module, ...requestOptions },
-          ).catch(() => null);
-          const data = fallback?.data ?? fallback;
-          if (data) state.onFinal(data);
+          if (hasAgentGateway()) {
+            // Do not silently repeat a failed Node stream through the slower
+            // PHP buffered path. A single user retry is explicit and avoids
+            // duplicate provider/tool work after a gateway interruption.
+            const data = {
+              status: "unavailable",
+              answer: { body: "The assistant connection was interrupted. Please try again." },
+            };
+            state.onError(data.answer.body);
+            state.onFinal(data);
+            return data;
+          }
+          state.onError("I’m having trouble connecting. I’ll try another way…");
+          const data = await getBufferedFallback();
+          state.onFinal(data);
           return data;
+        } finally {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
         }
       })();
 
@@ -8191,114 +8288,8 @@ window.API = {
       }
       return agentGatewayCall("/api/agents/call", "POST", { tool, question, route, module, ...options });
     },
-    agentStream: async (tool, question, route = "dashboard", module = "dashboard", handlers = {}) => {
-      const controller = new AbortController();
-      const state = {
-        cancelled: false,
-        controller,
-        onDelta: handlers.onDelta || (() => {}),
-        onStatus: handlers.onStatus || (() => {}),
-        onFinal: handlers.onFinal || (() => {}),
-        onError: handlers.onError || (() => {}),
-        onStatusText: handlers.onStatusText || (() => {}),
-      };
-
-      if (!hasAgentGateway()) {
-        return window.API.agentAssistStream(question, route, module, handlers);
-      }
-
-      const token = AuthContext.getToken?.();
-      if (!token || typeof fetch !== "function" || !window.ReadableStream) {
-        const fallback = await apiCall("/dashboard/agent-assist", "POST", { question, route, module });
-        state.onFinal(fallback?.data ?? fallback);
-        return { promise: Promise.resolve(fallback?.data ?? fallback), cancel: () => {} };
-      }
-
-      const promise = (async () => {
-        try {
-          const response = await fetch(agentGatewayOrigin() + "/api/agents/stream", {
-            method: "POST",
-            credentials: window.location.hostname === "localhost" ? "same-origin" : "include",
-            signal: controller.signal,
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "text/event-stream",
-              Authorization: "Bearer " + token,
-              ...(_csrfToken ? { "X-CSRF-Token": _csrfToken } : {}),
-              "X-Request-ID": crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-            },
-            body: JSON.stringify({ tool, question, route, module }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data.event === "delta") {
-                    state.onDelta(data.data?.text || "");
-                  } else if (data.event === "status") {
-                    state.onStatusText(data.data?.text || "");
-                  } else if (data.event === "status") {
-                    state.onStatus(data.data);
-                  } else if (data.event === "final") {
-                    state.onFinal(data.data?.result);
-                  } else if (data.event === "error") {
-                    state.onError(data.data?.message || "Stream error");
-                  } else if (data.event === "task:start") {
-                    // Task started
-                  } else if (data.event === "task:completed") {
-                    // Task completed
-                  } else if (data.event === "task:failed") {
-                    state.onError(data.data?.error || "Task failed");
-                  } else if (data.event === "agent:component:update") {
-                    // Component update - could trigger UI refresh
-                    if (handlers.onComponentUpdate) {
-                      handlers.onComponentUpdate(data.data);
-                    }
-                  }
-                } catch (e) {
-                  // Ignore parse errors
-                }
-              }
-            }
-          }
-          if (!state.cancelled && !response.body?.locked) {
-            try {
-              await reader.cancel();
-            } catch {}
-          }
-        } catch (streamError) {
-          if (state.cancelled || streamError?.name === "AbortError") return;
-          state.onError(streamError?.message || "Stream failed");
-          const fallback = await apiCall("/dashboard/agent-assist", "POST", { question, route, module });
-          state.onFinal(fallback?.data ?? fallback);
-        }
-      })();
-
-      return {
-        promise,
-        cancel() {
-          state.cancelled = true;
-          try {
-            controller.abort();
-          } catch {}
-        },
-      };
-    },
+    agentStream: async (_tool, question, route = "dashboard", module = "dashboard", handlers = {}) =>
+      window.API.dashboard.agentAssistStream(question, route, module, handlers),
 
     // Background agent tasks with progress tracking. The panel passes one
     // object; keep positional arguments for older callers.

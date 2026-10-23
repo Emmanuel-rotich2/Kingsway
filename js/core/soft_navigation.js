@@ -55,10 +55,13 @@
    * Called by window.AppRouter.go after authorization passes.
    * @param {string} route
    * @param {string} extraParams
+   * @param {{updateHistory?: boolean}} options
    */
-  async function loadFragment(route, extraParams = '') {
+  async function loadFragment(route, extraParams = '', options = {}) {
     if (isNavigating) return;
     isNavigating = true;
+
+    const updateHistory = options.updateHistory !== false;
 
     const container = document.getElementById('main-content-segment');
     if (!container) {
@@ -134,9 +137,27 @@
       // --- Persist route for reload recovery ---
       window.UIStateManager?.saveRoute?.(route);
 
+      // Keep the global route pointer in sync with the fragment that is now
+      // rendered. Every route-scoped module (tabs, drafts, assistant context,
+      // error reporting) reads REQUESTED_ROUTE, and it must no longer describe
+      // the page the user first landed on.
+      window.REQUESTED_ROUTE = route;
+
+      // Update browser URL so F5/hard refresh keeps the current page
+      if (updateHistory) {
+        try {
+          const params = extraParams ? ('&' + extraParams) : '';
+          const url = (window.APP_BASE || '') + '/home.php?route=' + encodeURIComponent(route) + params;
+          history.pushState({ route: route, extraParams: extraParams }, '', url);
+        } catch (e) {
+          // History updates can fail in sandboxed/embedded contexts; the
+          // fragment has already loaded, so continue without a URL change.
+        }
+      }
+
       // --- Notify shell + other modules that the page changed ---
       window.dispatchEvent(new CustomEvent('kingsway:page-loaded', {
-        detail: { route, extraParams }
+        detail: { route: route, extraParams: extraParams }
       }));
 
       // --- Synthetic DOMContentLoaded so page controllers self-init ---
@@ -225,7 +246,8 @@
    */
   function handlePopState(e) {
     if (e.state && e.state.route) {
-      loadFragment(e.state.route);
+      // The history entry already carries this route; do not push a new one.
+      loadFragment(e.state.route, e.state.extraParams || '', { updateHistory: false });
     } else {
       window.location.reload();
     }

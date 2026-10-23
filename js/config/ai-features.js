@@ -19,32 +19,35 @@ window.AI_FEATURES = {
   
   // Per-page AgentTaskPanel enablement
   useAgentTaskPanel: {
-    // Drafting pages (already migrated)
-    'ai_lesson_plan_draft': true,
-    'ai_scheme_draft': true,
-    'ai_assessment_draft': true,
+    // Domain workflows must keep using their PHP-owned adapters until the
+    // Node task contract can preserve their exact input, draft persistence,
+    // reviewer policy and approval lifecycle. Generic assistant tasks are
+    // not substitutes for these governed workflows.
+    'ai_lesson_plan_draft': false,
+    'ai_scheme_draft': false,
+    'ai_assessment_draft': false,
     
     // Review/Summary pages (being migrated)
-    'ai_academic_reviews': true,
-    'ai_activities_review': true,
-    'ai_attendance_summary': true,
+    'ai_academic_reviews': false,
+    'ai_activities_review': false,
+    'ai_attendance_summary': false,
     'ai_boarding_summary': false,  // Pre-generated, no queue
-    'ai_catering_review': true,
-    'ai_counseling_review': true,
-    'ai_facilities_review': true,
-    'ai_health_welfare': true,
-    'ai_inventory_review': true,
-    'ai_kpi_brief': true,
-    'ai_staff_hr': true,
+    'ai_catering_review': false,
+    'ai_counseling_review': false,
+    'ai_facilities_review': false,
+    'ai_health_welfare': false,
+    'ai_inventory_review': false,
+    'ai_kpi_brief': false,
+    'ai_staff_hr': false,
     'ai_transport_summary': false, // Pre-generated, no queue
-    'payment_reconciliation_ai': true,
+    'payment_reconciliation_ai': false,
     
     // Timetable/Scheduling pages
-    'manage_timetable': true,
-    'exam_periods': true,
+    'manage_timetable': false,
+    'exam_periods': false,
     
     // Admissions
-    'admissions_workspace': true,
+    'admissions_workspace': false,
   },
   
   // Public Assistant (www subdomain)

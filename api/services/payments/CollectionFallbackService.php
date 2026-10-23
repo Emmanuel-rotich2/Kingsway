@@ -11,6 +11,12 @@ use Throwable;
 /**
  * Initiates online collections through the configured rails in priority order.
  *
+ * ARCHITECTURE:
+ *   - PayHero = PRIMARY STK Push aggregator (all purposes: fees, transport, uniforms)
+ *   - Daraja Express (LIPA_NA_MPESA_ONLINE) = STK FALLBACK (all purposes)
+ *   - KCB Buni = C2B/IPN ONLY (Lipa na KCB / Lipa Karo) — NO STK
+ *   - Daraja C2B = Real-time validation + confirmation (Uniforms primary, Fees/Transport fallback)
+ *
  * Failover is initiation-time only: the next rail is attempted only when the
  * previous rail refused or could not be reached. Once a provider has accepted
  * (an STK prompt is queued on the payer's phone), the transaction is never
@@ -164,30 +170,8 @@ final class CollectionFallbackService
                     'provider' => $result,
                 ];
 
-            case 'kcb_buni':
-                $base = (string) ($context['callback_url'] ?? '');
-                if ($base === '') {
-                    $base = rtrim((string) (defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : (defined('BASE_URL') ? BASE_URL : '')), '/')
-                        . '/api/payments/kcb-mpesa-express-callback';
-                }
-                $result = (new KcbMpesaExpressService())->initiate([
-                    'phone_number' => $phone,
-                    'amount' => $amount,
-                    'invoice_number' => $reference,
-                    'description' => $description,
-                    'org_short_code' => (string) $candidate['account_identifier'],
-                    'callback_url' => $base,
-                ]);
-
-                return [
-                    'accepted' => !empty($result['accepted']),
-                    'request_id' => $result['checkout_request_id'] ?? ($result['message_id'] ?? null),
-                    'message' => (string) ($result['message'] ?? ''),
-                    'status' => (string) ($result['status'] ?? ''),
-                    'provider' => $result,
-                ];
-
             case 'mpesa_daraja':
+                // Daraja Express STK Push (LIPA_NA_MPESA_ONLINE) - FALLBACK only
                 $result = (new MpesaPaymentService())->initiateSTKPush(
                     $reference,
                     $phone,
@@ -206,7 +190,7 @@ final class CollectionFallbackService
                 ];
         }
 
-        throw new RuntimeException("Provider {$candidate['provider_code']} cannot initiate an online collection.");
+        throw new RuntimeException("Provider {$candidate['provider_code']} cannot initiate an online collection. Only PayHero (primary) and Daraja Express (fallback) support STK Push.");
     }
 
     private function attemptRecord(array $candidate, bool $accepted, string $message): array

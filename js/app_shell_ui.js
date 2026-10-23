@@ -991,9 +991,11 @@
   let sessionsCache = [];
   let assistantGenerating = false;
   let activeAssistantStream = null;
+  let activeAssistantPlaceholder = null;
   let assistantGenerationSeq = 0;
-
-  const ASSISTANT_ACTIVE_SESSION_KEY = "kw_staff_assistant_active_session";
+  let assistantQueue = [];
+  let assistantQueueProcessing = false;
+  let assistantSessionFilter = "";
 
   function getStoredActiveSession() {
     try {
@@ -1026,7 +1028,8 @@
       send.title = on ? "Stop generating" : "Send question";
       send.setAttribute("aria-label", on ? "Stop generating" : "Send question");
     }
-    if (input) input.disabled = on;
+    // NOTE: Input is intentionally NOT disabled during generation to allow queueing
+    // if (input) input.disabled = on;
     if (on) {
       assistantGenerationSeq += 1;
     }
@@ -1053,6 +1056,51 @@
       send.setAttribute("aria-label", "Send question");
     }
     return seq;
+  }
+
+  return seq;
+  }
+
+  // Simple queue for assistant questions
+  let assistantQueue = [];
+  let assistantQueueProcessing = false;
+
+  async function processAssistantQueue() {
+    if (assistantQueueProcessing || assistantQueue.length === 0) return;
+    assistantQueueProcessing = true;
+    while (assistantQueue.length > 0) {
+      const { question, sessionId, resolve, reject } = assistantQueue.shift();
+      if (sessionId && sessionId !== currentSessionId) {
+        currentSessionId = sessionId;
+        rememberActiveSession(currentSessionId);
+        await loadAssistantSession(currentSessionId);
+      }
+      try {
+        // Use the existing submit logic inline
+        const form = $("#global-ai-assistant-form");
+        const input = $("#global-ai-assistant-question");
+        if (form && input) {
+          input.value = question;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          // Trigger the form's submit handler
+          const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+          form.dispatchEvent(submitEvent);
+        }
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    }
+    assistantQueueProcessing = false;
+  }
+
+  function queueAssistantQuestion(question, sessionId = currentSessionId) {
+    return new Promise((resolve, reject) => {
+      assistantQueue.push({ question, sessionId, resolve, reject });
+      if (!assistantQueueProcessing) {
+        processAssistantQueue();
+      }
+    });
   }
 
   async function loadAssistantSessions() {
@@ -1085,12 +1133,37 @@
   function renderAssistantSessions() {
     const host = $("#global-ai-assistant-history");
     if (!host) return;
-    if (!sessionsCache.length) {
-      host.innerHTML =
-        '<p class="small text-muted px-2 mb-0">Your conversations will appear here.</p>';
+
+    // Search input for session filtering
+    const searchHtml = `
+      <div class="px-2 pb-2">
+        <input type="search" class="form-control form-control-sm assistant-session-search"
+               placeholder="Search chats…" aria-label="Search chat history"
+               value="${escapeHtml(assistantSessionFilter)}">
+      </div>`;
+
+    // Filter sessions by search query
+    let filteredSessions = sessionsCache;
+    if (assistantSessionFilter.trim()) {
+      const query = assistantSessionFilter.trim().toLowerCase();
+      filteredSessions = sessionsCache.filter((s) =>
+        (s.title || "").toLowerCase().includes(query)
+      );
+    }
+
+    if (!filteredSessions.length) {
+      host.innerHTML = searchHtml + (sessionsCache.length
+        ? '<p class="small text-muted px-2 mb-0">No matching conversations.</p>'
+        : '<p class="small text-muted px-2 mb-0">Your conversations will appear here.</p>');
+      // Bind search input
+      host.querySelector(".assistant-session-search")?.addEventListener("input", (e) => {
+        assistantSessionFilter = e.target.value;
+        renderAssistantSessions();
+      });
       return;
     }
-    host.innerHTML = sessionsCache
+
+    host.innerHTML = searchHtml + filteredSessions
       .map(
         (session) => {
           const title = session.title || "New chat";
@@ -1854,6 +1927,9 @@
         const question = String(input?.value || "").trim();
         if (!question || !thread) return;
 
+        // Store last question for regenerate/edit actions
+        assistantLastQuestion = question;
+
         // Block duplicate sends while generating
         if (assistantGenerating) return;
 
@@ -2135,21 +2211,44 @@
     if (result.status !== "answered" || !result.answer) {
       return '<div class="alert alert-info small mb-0">The assistant could not answer that question.</div>';
     }
+
     const agent = result.agent || {};
     const toolsUsed = Array.isArray(result.tools_used) ? result.tools_used : [];
+    const citations = Array.isArray(result.citations) ? result.citations : [];
+    const isInsufficient = result.answer?.insufficient_data === true;
+
     const nextSteps = Array.isArray(result.answer.next_steps) && result.answer.next_steps.length
       ? `<ul class="small mb-2">${result.answer.next_steps
           .map((step) => `<li>${escapeHtml(String(step))}</li>`)
           .join("")}</ul>`
       : "";
+
     const tools = toolsUsed.length
       ? `<span class="small text-muted">Grounded via: ${toolsUsed
           .map((tool) => escapeHtml(String(tool)))
           .join(", ")}</span>`
       : "";
+
+    const citationsHtml = citations.length
+      ? `<div class="citations mt-2 mb-2">
+          <h6 class="small mb-1">Sources</h6>
+          <ul class="small mb-0">
+            ${citations.map(c => `<li><strong>${escapeHtml(c.title || c.report_code || "Report")}</strong>: ${escapeHtml(c.excerpt || c.description || "")}</li>`).join("")}
+          </ul>
+        </div>`
+      : "";
+
+    const insufficientHtml = isInsufficient
+      ? `<div class="alert alert-info small mb-2">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>Insufficient data</strong>: The report returned no rows for the current filters. Try adjusting the time range, class, or other filters.
+        </div>`
+      : "";
+
     const escalation = result.answer.escalation_required
       ? '<div class="alert alert-warning small mt-2 mb-0">This needs a human decision — the assistant cannot act on it.</div>'
       : "";
+
     const followUps = Array.isArray(result.answer.suggested_questions) && result.answer.suggested_questions.length
       ? `<div class="d-flex flex-wrap gap-1 mt-2">${result.answer.suggested_questions
           .map(
@@ -2160,16 +2259,34 @@
           )
           .join("")}</div>`
       : "";
+
+    // Action buttons for assistant message
+    const actionButtons = `
+      <div class="d-flex gap-1 mt-2 ai-message-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-regenerate-btn" title="Regenerate answer" data-question="${escapeHtml(assistantLastQuestion || "")}">
+          <i class="bi bi-arrow-clockwise"></i> Regenerate
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-edit-btn" title="Edit question">
+          <i class="bi bi-pencil"></i> Edit
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-copy-btn" title="Copy answer">
+          <i class="bi bi-clipboard"></i> Copy
+        </button>
+      </div>`;
+
     const rendered = `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
         <h6 class="mb-0">${escapeHtml(result.answer.title || "Assistant")}</h6>
         <span class="badge text-bg-light">${escapeHtml(agent.name || "Agent")}</span>
       </div>
+      ${insufficientHtml}
       <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(result.answer.body || "")}</p>
       ${nextSteps}
       ${tools}
+      ${citationsHtml}
       ${escalation}
       ${followUps}
+      ${actionButtons}
     </div></div>`;
     requestAnimationFrame(() => {
       document
@@ -2181,6 +2298,40 @@
               input.value = button.textContent;
               input.focus();
             }
+          })
+        );
+      // Action button handlers
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-regenerate-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const question = button.getAttribute("data-question");
+            if (question) {
+              queueAssistantQuestion(question);
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-edit-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const input = $("#global-ai-assistant-question");
+            if (input) {
+              input.value = button.getAttribute("data-question") || "";
+              input.focus();
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-copy-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const card = button.closest(".card");
+            const body = card?.querySelector("p[style*='white-space']")?.textContent || "";
+            navigator.clipboard.writeText(body).then(() => {
+              button.innerHTML = '<i class="bi bi-check"></i> Copied!';
+              setTimeout(() => { button.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+            });
           })
         );
     });

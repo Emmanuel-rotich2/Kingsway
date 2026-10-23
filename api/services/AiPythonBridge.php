@@ -261,6 +261,9 @@ final class AiPythonBridge
             if (!isset($params['user_id']) && !empty($context['user_id'])) {
                 $params['user_id'] = (int) $context['user_id'];
             }
+            if (!isset($params['assistant_domain']) && in_array(($context['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)) {
+                $params['assistant_domain'] = (string) $context['assistant_domain'];
+            }
             if ($params !== []) {
                 $path .= (str_contains($path, '?') ? '&' : '?') . http_build_query($params);
             }

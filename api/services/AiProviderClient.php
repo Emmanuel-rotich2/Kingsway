@@ -91,6 +91,10 @@ class AiProviderClient implements AiCompletionProvider
         $temperature = isset($options['temperature']) ? (float) $options['temperature'] : 0.2;
         $responseFormat = (string) ($options['response_format'] ?? Config::get('AI_RESPONSE_FORMAT', ''));
         $reasoning = (string) ($options['reasoning_effort'] ?? Config::get('AI_REASONING_EFFORT', ''));
+        $allowThinking = filter_var($options['allow_thinking'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if (!$allowThinking && $this->isReasoningModel($model)) {
+            $reasoning = 'none';
+        }
         [$method, $url, $headers, $payload] = $this->buildRequest(
             $providerKind, $baseUrl, $model, $apiKey, $cleanMessages, $maxTokens,
             $temperature, $responseFormat, $reasoning
@@ -208,6 +212,11 @@ class AiProviderClient implements AiCompletionProvider
         return 'openai';
     }
 
+    private function isReasoningModel(string $model): bool
+    {
+        return preg_match('/(nemotron|reasoning|thinking|gpt-oss|deepseek-r|qwq)/i', $model) === 1;
+    }
+
     private function buildRequest(string $kind, string $baseUrl, string $model, string $apiKey, array $messages, int $maxTokens, float $temperature, string $responseFormat, string $reasoning): array
     {
         $headers = ['Content-Type: application/json', 'Accept: application/json'];
@@ -245,7 +254,7 @@ class AiProviderClient implements AiCompletionProvider
         }
         $payload = ['model' => $model, 'messages' => $messages, 'temperature' => $temperature, 'max_tokens' => $maxTokens];
         if ($responseFormat === 'json_object') $payload['response_format'] = ['type' => 'json_object'];
-        if (in_array($reasoning, ['low', 'high', 'max'], true)) $payload['reasoning_effort'] = $reasoning;
+        if (in_array($reasoning, ['none', 'low', 'medium', 'high', 'max'], true)) $payload['reasoning_effort'] = $reasoning;
         if ($apiKey !== '') $headers[] = 'Authorization: Bearer ' . $apiKey;
         return ['POST', $this->joinEndpoint($baseUrl, '/v1/chat/completions'), $headers, $payload];
     }

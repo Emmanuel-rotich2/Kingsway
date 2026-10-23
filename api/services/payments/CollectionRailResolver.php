@@ -11,6 +11,12 @@ use Throwable;
 /**
  * Resolves the ordered list of online collection rails for a payment purpose.
  *
+ * ARCHITECTURE:
+ *   - PayHero = PRIMARY STK Push (channel: mpesa_stk)
+ *   - Daraja Express = STK FALLBACK (channel: mpesa_stk)
+ *   - KCB Buni = C2B/IPN ONLY — NOT in RAIL_CHANNELS (no STK)
+ *   - Daraja C2B = Validation + Confirmation (channel: mpesa_c2b) — handled separately
+ *
  * Gateways are rails, not account-bound: the receiving / settling accounts are
  * read from `payment_collection_routes` at transaction time, and the failover
  * order is driven by `routes.priority` (lower is attempted first). Routes whose
@@ -24,9 +30,9 @@ class CollectionRailResolver
 {
     /** provider code => financial channel code used to initiate a collection */
     private const RAIL_CHANNELS = [
-        'kcb_buni' => 'buni_ipn',
-        'payhero' => 'mpesa_stk',
-        'mpesa_daraja' => 'mpesa_stk',
+        'payhero'      => 'mpesa_stk',   // PRIMARY STK
+        'mpesa_daraja' => 'mpesa_stk',   // FALLBACK STK (LIPA_NA_MPESA_ONLINE)
+        // 'kcb_buni'    => 'buni_ipn',   // REMOVED: Buni does C2B/IPN only, no STK
     ];
 
     private PDO $db;

@@ -57,15 +57,77 @@ const studentPerformanceController = {
     if (select) select.innerHTML = '<option value="">All Terms</option>' + terms.map(t => `<option value="${t.id}">${this.esc(t.name)}</option>`).join('');
   },
 
+  async loadAiSupportReviews(scope = 'own') {
+    const host = document.getElementById('aiSupportPlanningReviews');
+    const list = document.getElementById('aiSupportPlanningReviewsList');
+    const status = document.getElementById('aiSupportPlanningReviewsStatus');
+    if (!host || !list) return;
+    host.hidden = false;
+    if (status) status.textContent = 'Loading support review drafts…';
+    try {
+      const response = await window.API.students.getAiSupportPlanningReviews(scope);
+      const drafts = response?.data?.drafts || response?.drafts || [];
+      list.innerHTML = drafts.length ? drafts.map((draft) => {
+        const content = draft.draft || {};
+        const canReview = scope === 'review' && draft.status === 'pending_approval';
+        return `<div class="col-12"><article class="border rounded p-3 bg-white">
+          <div class="d-flex justify-content-between gap-2"><strong>${this.esc(content.title || 'Learner support review')}</strong><span class="badge text-bg-secondary">${this.esc(draft.status || 'queued')}</span></div>
+          <p class="small mt-2 mb-2">${this.esc(content.body || 'Review is being prepared.')}</p>
+          ${Array.isArray(content.next_steps) && content.next_steps.length ? `<ul class="small">${content.next_steps.map((item) => `<li>${this.esc(item)}</li>`).join('')}</ul>` : ''}
+          ${canReview ? `<button type="button" class="btn btn-sm btn-outline-success" data-ai-support-approve="${Number(draft.id)}">Approve for staff guidance</button>` : ''}
+          <div class="small text-muted mt-2">Advisory only. Verify through the responsible staff workflow; this does not update learner records.</div>
+        </article></div>`;
+      }).join('') : '<div class="col-12 small text-muted">No support review drafts in this view.</div>';
+      if (status) status.textContent = `${drafts.length} draft${drafts.length === 1 ? '' : 's'} loaded.`;
+      list.querySelectorAll('[data-ai-support-approve]').forEach((button) => button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await window.API.students.approveAiSupportPlanning(button.dataset.aiSupportApprove);
+          if (status) status.textContent = 'Review approved for staff guidance.';
+          await this.loadAiSupportReviews('review');
+        } catch (error) {
+          if (status) status.textContent = error.message || 'Unable to approve this review.';
+          button.disabled = false;
+        }
+      }));
+    } catch (error) {
+      list.replaceChildren();
+      if (status) status.textContent = error.message || 'Unable to load support reviews.';
+    }
+  },
+
+  bindAiSupportPlanning() {
+    const button = document.getElementById('queueAiSupportPlanningBtn');
+    const status = document.getElementById('aiSupportPlanningStatus');
+    button?.addEventListener('click', async () => {
+      button.disabled = true;
+      if (status) status.textContent = 'Preparing an authorized aggregate support review…';
+      try {
+        const queued = await this.API('POST', '/students/ai-support-planning-queue', { context: "oversight" });
+        const jobId = queued?.data?.job_id || queued?.job_id;
+        if (status) status.textContent = jobId ? `Support review queued (job ${jobId}).` : 'Support review queued.';
+        await this.loadAiSupportReviews('own');
+      } catch (error) {
+        if (status) status.textContent = error.message || 'Unable to queue a support review.';
+      } finally {
+        button.disabled = false;
+      }
+    }, { once: true });
+    document.getElementById('loadOwnAiSupportReviewsBtn')?.addEventListener('click', () => this.loadAiSupportReviews('own'));
+    document.getElementById('loadReviewAiSupportReviewsBtn')?.addEventListener('click', () => this.loadAiSupportReviews('review'));
+  },
+
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
+    this.bindAiSupportPlanning();
     const studentId = new URLSearchParams(window.location.search).get('student_id');
-    if (!studentId) return;
-    await this.loadReferencesComposed();
-    await this.load(studentId);
-    window.APIRealtime?.register?.("student_performance", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(studentId); }
-    }, ["students", "academic"]);
+    if (studentId) {
+      await this.loadReferencesComposed();
+      await this.load(studentId);
+      window.APIRealtime?.register?.("student_performance", {
+        refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(studentId); }
+      }, ["students", "academic"]);
+    }
   },
 };
 

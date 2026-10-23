@@ -1905,17 +1905,26 @@ if ($canViewPayment || $canRecordPayment) {
                 return $this->successResponse($test, 'Placement test retrieved');
             }
 
-            $stmt = $this->db->prepare(
-                "SELECT apt.*,
+            $sql = "SELECT apt.*,
                         aa.applicant_name,
                         aa.application_no,
                         aa.grade_applying_for
-                 FROM " . ReadReplicaService::qualifiedRef("admission_placement_tests") . "
+                 FROM %s apt
                  JOIN " . ReadReplicaService::qualifiedRef("admission_applications") . " aa ON aa.id = apt.application_id
-                 ORDER BY apt.created_at DESC"
-            );
-            $stmt->execute();
-            $tests = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                 ORDER BY apt.created_at DESC";
+            try {
+                $stmt = $this->db->prepare(
+                    sprintf($sql, ReadReplicaService::qualifiedRef("admission_placement_tests"))
+                );
+                $stmt->execute();
+                $tests = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            } catch (\Throwable $e) {
+                $stmt = $this->db->prepare(
+                    sprintf($sql, ReadReplicaService::masterRef("admission_placement_tests"))
+                );
+                $stmt->execute();
+                $tests = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            }
 
             return $this->successResponse($tests, 'Placement tests retrieved');
         } catch (Exception $e) {

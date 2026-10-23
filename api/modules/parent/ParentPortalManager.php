@@ -2948,6 +2948,7 @@ class ParentPortalManager extends BaseAPI
         $token = JWT::encode([
             'user_id'   => $userId,
             'id'        => $userId,
+            'sub'       => (string) $userId,
             'person_id' => $personId,
             'parent_id' => $parentId,
             'roles'     => [['id' => 73, 'name' => 'Parent']],

@@ -249,6 +249,7 @@
     class="offcanvas offcanvas-end ai-assistant-panel"
     tabindex="-1"
     id="globalAiAssistantPanel"
+    data-persist-open="true"
     aria-labelledby="globalAiAssistantPanelLabel"
 >
     <div class="assistant-shell d-flex h-100 w-100">

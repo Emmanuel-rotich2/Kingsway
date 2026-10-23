@@ -221,6 +221,29 @@ class AiAgentService
     }
 
     /**
+     * Resolve the user's roles for NLQ report authorization.
+     * Returns array of role objects with id and name.
+     */
+    private function resolveUserRoles(PDO $pdo, int $userId): array
+    {
+        if ($userId < 1) {
+            return [];
+        }
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT r.id, r.name FROM roles r
+                 JOIN user_roles ur ON ur.role_id = r.id
+                 WHERE ur.user_id = ? AND r.is_active = 1
+                 ORDER BY r.id'
+            );
+            $stmt->execute([$userId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
      * Bounded permission hint for the Python engine. Python only needs scope
      * to pick an agent; every governed tool re-authorizes the recorded
      * operator against the database, so the full grant list is never relayed.
@@ -251,7 +274,7 @@ class AiAgentService
         // (a System Administrator holds thousands and blows the payload cap).
         $permissions = $this->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
-            $permissions = array_values(array_map('strval', (array) ($payload['permissions'] ?? [])));
+            throw new DomainException('The task owner has no currently resolved permissions.', 403);
         }
         $requestId = mb_substr((string) ($payload['request_id'] ?? 'ai-agent-run'), 0, 100);
         $mode = (string) ($payload['mode'] ?? 'digest');
@@ -387,8 +410,10 @@ class AiAgentService
         // always resolved from the authoritative source for the operator.
         $permissions = $this->resolveEffectivePermissions($pdo, $userId);
         if ($permissions === []) {
-            $permissions = array_values(array_map('strval', (array) ($operator['permissions'] ?? [])));
+            throw new DomainException('The recorded operator permissions could not be resolved.', 403);
         }
+        // Also resolve roles for NLQ report authorization which needs role_ids
+        $roles = $this->resolveUserRoles($pdo, $userId);
         $tool = (string) ($payload['tool'] ?? '');
         $allowedTools = [AiAgentRegistry::TOOL_NLQ, AiAgentRegistry::TOOL_INSIGHT_BRIEF, AiAgentRegistry::TOOL_CATALOG, self::TOOL_SCAN];
         if (!in_array($tool, $allowedTools, true)) {
@@ -407,7 +432,9 @@ class AiAgentService
         }
         $context = [
             'user_id' => $userId,
-            'roles' => [],
+            'roles' => $roles,
+            'role_ids' => array_values(array_map('intval', array_column($roles, 'id'))),
+            'role_names' => array_values(array_map('strval', array_column($roles, 'name'))),
             'permissions' => $permissions,
             'effective_permissions' => $permissions,
             'request_id' => mb_substr((string) ($payload['request_id'] ?? 'ai-agent-tool'), 0, 100),
@@ -587,7 +614,7 @@ class AiAgentService
                     'module' => $module,
                     'tools' => $tools,
                     'behavior_hints' => $this->hintLines($hints),
-                    'grounding_note' => 'Governed results are already in tool_results. Answer from them; only request a tool if the results genuinely do not cover the question.',
+                    'grounding_note' => 'Use only relevant governed results; a briefing or assistant-usage statistic is not evidence for an unrelated school-data question. Use reports.nlq for any school-record question not answered by the supplied results. Today in Africa/Nairobi is ' . (new \DateTimeImmutable('now', new \DateTimeZone('Africa/Nairobi')))->format('Y-m-d') . '.',
                     'tool_results' => $toolResults,
                     'question' => $question,
                 ], static fn($value): bool => $value !== null && $value !== []));
@@ -899,16 +926,11 @@ class AiAgentService
     /** Deterministic close-out when the step budget is exhausted. */
     private function fallbackAnswer(array $toolsUsed, array $toolResults): array
     {
-        $next = ['Review the results above in the related workspace.'];
-        if ($toolResults !== []) {
-            $next[] = 'Re-ask the specific part that is still unclear.';
-        }
-        if ($toolsUsed !== []) {
-            $next[] = 'The governed reports behind this answer can be opened directly from the Reports workspace.';
-        }
+        $next = ['Open the related report to check the current records.'];
+        if ($toolResults !== []) $next[] = 'Ask again with the specific date range or class you need.';
         return [
-            'title' => 'Assistant ran out of steps',
-            'body' => 'The assistant gathered the information it could within its step budget but could not complete a final summary. The collected tool results are reflected in the workspace.',
+            'title' => 'I couldn’t verify that',
+            'body' => 'I couldn’t produce a reliable answer from the report results available to me. Please open the related report to verify the figures, or ask about a specific date range.',
             'next_steps' => $next,
             'suggested_questions' => [],
             'escalation_required' => false,

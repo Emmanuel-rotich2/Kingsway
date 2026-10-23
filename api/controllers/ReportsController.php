@@ -203,6 +203,8 @@ class ReportsController extends BaseController
                 [
                     'user_id' => $userId,
                     'roles' => $this->user['roles'] ?? [],
+                    'role_ids' => $this->user['role_ids'] ?? [],
+                    'role_names' => $this->user['role_names'] ?? [],
                     'permissions' => $permissions,
                     'effective_permissions' => $permissions,
                     'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),

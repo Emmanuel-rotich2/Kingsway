@@ -1,9 +1,27 @@
-import { Pool, Agent } from 'undici';
+import { Pool, Agent, setGlobalDispatcher } from 'undici';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logger/index.js';
 import { getMetrics } from '../metrics/index.js';
 
 let clientCache = null;
+let globalDispatcherConfigured = false;
+
+/**
+ * Honour internalHttp.*.tlsInsecure for call sites that use the global fetch
+ * (undici) instead of the pooled internal client — notably the agent routes,
+ * which talk to the PHP vhost over its self-signed development certificate.
+ * Only enabled when the YAML explicitly opts into insecure internal TLS.
+ */
+export function configureGlobalFetchTls() {
+  if (globalDispatcherConfigured) return;
+  const config = getConfig();
+  const insecure = Boolean(
+    config.internalHttp?.php?.tlsInsecure || config.internalHttp?.python?.tlsInsecure,
+  );
+  if (!insecure) return;
+  setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
+  globalDispatcherConfigured = true;
+}
 
 const CircuitState = { CLOSED: 'closed', OPEN: 'open', HALF_OPEN: 'half_open' };
 

@@ -335,6 +335,47 @@ define('MPESA_CERTIFICATE_PATH', $_ENV['MPESA_CERTIFICATE_PATH'] ?? __DIR__ . '/
 
 /*
 |--------------------------------------------------------------------------
+| M-Pesa Daraja — Per-Stream Credentials (Fluid: env-only, no DB)
+|--------------------------------------------------------------------------
+| If Safaricom allows 1 app for all paybills: leave these empty, shared
+| MPESA_CONSUMER_KEY/SECRET/PASSKEY will be used.
+| If 1 app per paybill: set MPESA_FEES_*, MPESA_TRN_*, MPESA_UNI_*.
+| Resolution in MpesaApiClient: per-stream → shared fallback.
+*/
+
+foreach (['FEES', 'TRN', 'UNI'] as $prefix) {
+    define(
+        "MPESA_{$prefix}_SHORTCODE",
+        $_ENV["MPESA_{$prefix}_SHORTCODE"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_CONSUMER_KEY",
+        $_ENV["MPESA_{$prefix}_CONSUMER_KEY"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_CONSUMER_SECRET",
+        $_ENV["MPESA_{$prefix}_CONSUMER_SECRET"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_PASSKEY",
+        $_ENV["MPESA_{$prefix}_PASSKEY"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_INITIATOR_NAME",
+        $_ENV["MPESA_{$prefix}_INITIATOR_NAME"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_INITIATOR_PASSWORD",
+        $_ENV["MPESA_{$prefix}_INITIATOR_PASSWORD"] ?? ''
+    );
+    define(
+        "MPESA_{$prefix}_SECURITY_CREDENTIAL",
+        $_ENV["MPESA_{$prefix}_SECURITY_CREDENTIAL"] ?? ''
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
 | KCB Buni
 |--------------------------------------------------------------------------
 */
@@ -410,6 +451,8 @@ define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/req
 define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
 define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
 define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+define('KCB_ACCOUNT_BALANCE_PATH', $_ENV['KCB_ACCOUNT_BALANCE_PATH'] ?? '/accountservices/1.0.0/api/v1/balance');
+define('KCB_ACCOUNT_VALIDATE_PATH', $_ENV['KCB_ACCOUNT_VALIDATE_PATH'] ?? '/accountservices/1.0.0/api/v1/validate');
 define('KCB_STATUS_POLL_INITIAL_DELAY_SECONDS', max(60, (int) ($_ENV['KCB_STATUS_POLL_INITIAL_DELAY_SECONDS'] ?? 120)));
 define('KCB_STATUS_POLL_MAX_ATTEMPTS', max(1, (int) ($_ENV['KCB_STATUS_POLL_MAX_ATTEMPTS'] ?? 5)));
 define('KCB_STATUS_EXCEPTION_AFTER_MINUTES', max(5, (int) ($_ENV['KCB_STATUS_EXCEPTION_AFTER_MINUTES'] ?? 60)));

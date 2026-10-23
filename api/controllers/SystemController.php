@@ -2504,68 +2504,73 @@ class SystemController extends BaseController
      */
     public function postSendSecurityAlert($id = null, $data = [], $segments = [])
     {
-        $secret = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
-        $expected = (string) \App\Config\Config::get('COMMUNICATION_WORKER_SECRET');
-        if (!$expected || !hash_equals($expected, $secret)) {
-            return $this->unauthorized('Invalid worker secret');
-        }
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        $alert = $this->sanitizeSecurityAlert(is_array($data) ? $data : []);
+        if ($alert === null) return $this->respond(null, 'Invalid alert payload', 422, false);
 
-        $alert = json_decode(file_get_contents('php://input'), true);
-        if (!is_array($alert)) {
-            return $this->respond(null, 'Invalid alert payload', 422, false);
-        }
+        try {
+            $securityAlerts = $this->contract(\App\API\Services\SecurityAlertService::class);
+            $securityAlerts->record($alert);
+            $admins = $securityAlerts->activeAdministratorRecipients($this->db->getConnection());
+            if (!$admins) return $this->respond(null, 'No recipients configured', 500, false);
 
-        // Fetch system administrators' emails
-        $db = $this->getDb()->getConnection();
-        $stmt = $db->prepare("
-            SELECT u.email, u.first_name, u.last_name
-            FROM users u
-            JOIN user_roles ur ON ur.user_id = u.id
-            JOIN roles r ON r.id = ur.role_id
-            WHERE r.name = 'System Administrator'
-            AND u.status = 'active'
-            AND u.email IS NOT NULL
-            AND u.email != ''
-        ");
-        $stmt->execute();
-        $admins = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $subject = '[Kingsway Security] ' . $alert['severity'] . ': ' . $alert['type'];
+            $details = ['IP' => $alert['details']['ip'] ?? 'not supplied', 'Count' => $alert['details']['count']];
+            if ($alert['details']['topics']) $details['Categories'] = implode(', ', $alert['details']['topics']);
+            $body = "A security alert was triggered:\n\nType: {$alert['type']}\nSeverity: {$alert['severity']}\nTime: {$alert['timestamp']}\n";
+            foreach ($details as $label => $value) $body .= $label . ': ' . $value . "\n";
 
-        if (empty($admins)) {
-            \App\API\Services\Logger::legacyError('[SystemController] No system administrators with email found for security alert');
-            return $this->respond(null, 'No recipients configured', 500, false);
-        }
-
-        $type = $alert['type'] ?? 'unknown';
-        $severity = $alert['severity'] ?? 'warning';
-        $timestamp = $alert['timestamp'] ?? date('c');
-        $details = $alert['details'] ?? [];
-        $hostname = $alert['hostname'] ?? 'unknown';
-
-        $subject = "[Kingsway Security] {$severity}: {$type}";
-        $body = "A security alert was triggered:\n\n";
-        $body .= "Type: {$type}\n";
-        $body .= "Severity: {$severity}\n";
-        $body .= "Time: {$timestamp}\n";
-        $body .= "Host: {$hostname}\n";
-        $body .= "Details: " . json_encode($details, JSON_PRETTY_PRINT) . "\n";
-
-        $messageService = $this->contract(\App\API\Services\MessageService::class);
-        $sent = 0;
-        foreach ($admins as $admin) {
-            $email = $admin['email'];
-            $name = trim(($admin['first_name'] ?? '') . ' ' . ($admin['last_name'] ?? ''));
-            try {
-                $messageService->sendEmail([$email => $name], $subject, $body);
-                $sent++;
-            } catch (\Throwable $e) {
-                \App\API\Services\Logger::legacyError('[SystemController] Failed to send security alert to ' . $email . ': ' . $e->getMessage());
+            $messageService = $this->contract(\App\API\Services\MessageService::class);
+            $sent = 0;
+            foreach ($admins as $admin) {
+                $name = trim(($admin['first_name'] ?? '') . ' ' . ($admin['last_name'] ?? ''));
+                try { $messageService->sendEmail([$admin['email'] => $name], $subject, nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'))); $sent++; }
+                catch (\Throwable $e) { Logger::error('security', 'Security alert email delivery failed', ['type' => $alert['type']]); }
             }
+            return $sent ? $this->success(['sent_to' => $sent], 'Security alert sent') : $this->serverError('Failed to send alerts to administrators');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Security alert processing failed', ['type' => $alert['type']]);
+            return $this->serverError('Security alert processing failed');
         }
-
-        if ($sent === 0) {
-            return $this->serverError('Failed to send alerts to any administrator');
-        }
-
-        return $this->success(['sent_to' => $sent], 'Security alert sent');
     }
+
+    /** POST /api/system/monitoring-worker — governed journal scan. */
+    public function postMonitoringWorker($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validWorkerSecret()) return $this->unauthorized('Invalid worker secret');
+        try {
+            $result = \App\API\Services\LogMonitoringService::run();
+            return $this->success($result, 'Monitoring scan completed');
+        } catch (\Throwable $e) {
+            Logger::error('security', 'Automated log monitoring failed');
+            return $this->serverError('Monitoring scan failed');
+        }
+    }
+
+    private function validWorkerSecret(): bool
+    {
+        $secret = (string) ($_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '');
+        $expected = (string) \App\Config\Config::get('COMMUNICATION_WORKER_SECRET');
+        return $expected !== '' && $secret !== '' && hash_equals($expected, $secret);
+    }
+
+    private function sanitizeSecurityAlert(array $payload): ?array
+    {
+        $types = ['brute_force', 'credential_stuffing', 'suspicious_query'];
+        $type = (string) ($payload['type'] ?? '');
+        if (!in_array($type, $types, true)) return null;
+        $details = is_array($payload['details'] ?? null) ? $payload['details'] : [];
+        $topics = $details['topics'] ?? [];
+        $allowedTopics = ['credentials', 'database', 'prompt_injection', 'code_execution', 'infrastructure'];
+        if (!is_array($topics)) $topics = [];
+        $topics = array_values(array_unique(array_filter($topics, static fn($topic) => is_string($topic) && in_array($topic, $allowedTopics, true))));
+        $ip = filter_var($details['ip'] ?? null, FILTER_VALIDATE_IP) ?: null;
+        return [
+            'type' => $type,
+            'severity' => in_array($type, ['brute_force', 'credential_stuffing'], true) ? 'critical' : 'warning',
+            'timestamp' => date('c'),
+            'details' => ['ip' => $ip, 'count' => max(0, min(1000000, (int) ($details['count'] ?? 0))), 'topics' => $topics],
+        ];
+    }
+
 }

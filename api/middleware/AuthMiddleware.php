@@ -164,6 +164,7 @@ class AuthMiddleware
             'dashboard/kicd-policy-watch',
             // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
             'system/send-security-alert',
+            'system/monitoring-worker',
             // MCP authenticates with its own expiring machine token inside
             // McpController, never with a staff JWT.
             'mcp',

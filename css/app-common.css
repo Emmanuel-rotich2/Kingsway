@@ -911,6 +911,75 @@ table.table thead th[scope="col"] {
   color: var(--kw-green, #0d4f2a);
   font-weight: 600;
 }
+.assistant-delete-dialog .modal-dialog {
+  width: min(100% - 2rem, 430px);
+}
+.assistant-delete-dialog .modal-content {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(16, 24, 40, .22);
+}
+.assistant-delete-dialog .modal-body {
+  position: relative;
+  padding: 30px;
+}
+.assistant-delete-dialog .assistant-delete-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+}
+.assistant-delete-dialog .assistant-delete-icon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 18px;
+  place-items: center;
+  border: 1px solid #f4c7c7;
+  border-radius: 13px;
+  background: #fff1f1;
+  color: #b42318;
+  font-size: 1.15rem;
+}
+.assistant-delete-dialog .assistant-delete-title {
+  margin: 0 0 8px;
+  color: #202124;
+  font-size: 1.2rem;
+  font-weight: 650;
+}
+.assistant-delete-dialog .assistant-delete-name {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+  color: #343a40;
+  font-weight: 600;
+}
+.assistant-delete-dialog .assistant-delete-copy {
+  margin: 0;
+  color: #626b75;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+.assistant-delete-dialog .assistant-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 26px;
+}
+.assistant-delete-dialog .assistant-delete-actions .btn {
+  min-height: 42px;
+  padding-inline: 16px;
+  font-weight: 600;
+}
+.assistant-delete-dialog .assistant-delete-actions .btn:focus-visible,
+.assistant-delete-dialog .assistant-delete-close:focus-visible {
+  outline: 3px solid rgba(13, 79, 42, .35);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+@media (max-width: 575.98px) {
+  .assistant-delete-dialog .modal-body { padding: 24px; }
+  .assistant-delete-dialog .assistant-delete-actions { flex-direction: column-reverse; }
+  .assistant-delete-dialog .assistant-delete-actions .btn { width: 100%; }
+}
 .ai-assistant-panel .assistant-main {
   background: #fff;
   flex: 1;
@@ -1082,6 +1151,32 @@ table.table thead th[scope="col"] {
   white-space: pre-line;
   word-break: break-word;
   border: 1px solid #e2e8f0;
+}
+.ai-assistant-panel .assistant-markdown {
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.ai-assistant-panel .assistant-markdown > :last-child {
+  margin-bottom: 0;
+}
+.ai-assistant-panel .assistant-markdown ul,
+.ai-assistant-panel .assistant-markdown ol {
+  padding-left: 1.35rem;
+}
+.ai-assistant-panel .assistant-markdown pre {
+  overflow-x: auto;
+  padding: .75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.ai-assistant-panel .assistant-markdown code {
+  color: #31445b;
+  overflow-wrap: anywhere;
+}
+.ai-assistant-panel .assistant-stream-markdown {
+  min-height: 1.5rem;
+  color: #263238;
 }
 .ai-assistant-panel .assistant-greeting-card {
   background: #fff;

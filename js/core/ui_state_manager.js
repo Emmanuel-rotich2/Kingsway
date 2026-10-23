@@ -15,6 +15,7 @@
   const STORAGE_PREFIX = 'kingsway_ui_';
   const KEY_ROUTE = STORAGE_PREFIX + 'last_route';
   const KEY_ACTIVE_TAB = STORAGE_PREFIX + 'active_tab';
+  const KEY_BOOTSTRAP_TABS = STORAGE_PREFIX + 'bootstrap_tabs';
   const KEY_OPEN_MODALS = STORAGE_PREFIX + 'open_modals';
   const KEY_OPEN_OFFCANVAS = STORAGE_PREFIX + 'open_offcanvas';
 
@@ -55,6 +56,10 @@
     return _get(KEY_ROUTE);
   }
 
+  function currentRoute() {
+    return String(window.REQUESTED_ROUTE || new URLSearchParams(window.location.search).get('route') || '');
+  }
+
   function clearRoute() {
     _remove(KEY_ROUTE);
   }
@@ -86,32 +91,155 @@
     }
   }
 
+  function saveBootstrapTab(tab) {
+    if (!tab) return;
+    const route = currentRoute();
+    if (!route) return;
+    const target = tab.getAttribute('data-bs-target') || tab.getAttribute('href') || '';
+    const all = _get(KEY_BOOTSTRAP_TABS) || {};
+    all[route] = {
+      id: tab.id || '',
+      target: target.startsWith('#') ? target : '',
+    };
+    _set(KEY_BOOTSTRAP_TABS, all);
+  }
+
+  function findBootstrapTab(saved) {
+    if (!saved) return null;
+    if (saved.id) {
+      const byId = document.getElementById(saved.id);
+      if (byId?.matches('[data-bs-toggle="tab"], [data-bs-toggle="pill"]')) return byId;
+    }
+    if (saved.target) {
+      return Array.from(document.querySelectorAll('[data-bs-toggle="tab"], [data-bs-toggle="pill"]'))
+        .find((tab) => (tab.getAttribute('data-bs-target') || tab.getAttribute('href')) === saved.target) || null;
+    }
+    return null;
+  }
+
+  function restoreBootstrapTab() {
+    const saved = (_get(KEY_BOOTSTRAP_TABS) || {})[currentRoute()];
+    if (!saved) return;
+    let observer = null;
+    let settleTimer = null;
+    let timeoutTimer = null;
+    const stopObserving = () => {
+      if (observer) observer.disconnect();
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      if (timeoutTimer !== null) window.clearTimeout(timeoutTimer);
+      observer = null;
+      settleTimer = null;
+      timeoutTimer = null;
+    };
+    const activate = () => {
+      const tab = findBootstrapTab(saved);
+      if (!tab || tab.disabled || !window.bootstrap?.Tab) return false;
+      window.bootstrap.Tab.getOrCreateInstance(tab).show();
+      return true;
+    };
+    if (activate()) return;
+    // Many page controllers render tabs after an asynchronous data request.
+    // Observe that render briefly so the remembered tab can still be restored.
+    if (!document.body || typeof MutationObserver === 'undefined') return;
+    observer = new MutationObserver(() => {
+      // Let page renderers finish their current batch before applying the saved
+      // tab. Several screens replace tab markup more than once during startup.
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        if (activate()) stopObserving();
+      }, 120);
+    });
+    observer.observe(document.body, {childList: true, subtree: true});
+    timeoutTimer = window.setTimeout(stopObserving, 10000);
+  }
+
   /**
    * Track open modals. Called on Bootstrap modal show/hide events.
    */
   function addOpenModal(modalId) {
-    const mods = _get(KEY_OPEN_MODALS) || [];
+    const stored = _get(KEY_OPEN_MODALS);
+    const all = stored && !Array.isArray(stored) ? stored : {};
+    const route = currentRoute();
+    const mods = Array.isArray(all[route]) ? all[route] : [];
     if (!mods.includes(modalId)) {
       mods.push(modalId);
-      _set(KEY_OPEN_MODALS, mods);
+      all[route] = mods;
+      _set(KEY_OPEN_MODALS, all);
     }
   }
 
   function removeOpenModal(modalId) {
-    const mods = _get(KEY_OPEN_MODALS) || [];
+    const stored = _get(KEY_OPEN_MODALS);
+    const all = stored && !Array.isArray(stored) ? stored : {};
+    const route = currentRoute();
+    const mods = Array.isArray(all[route]) ? all[route] : [];
     const idx = mods.indexOf(modalId);
     if (idx !== -1) {
       mods.splice(idx, 1);
-      _set(KEY_OPEN_MODALS, mods);
+      all[route] = mods;
+      _set(KEY_OPEN_MODALS, all);
     }
   }
 
   function getOpenModals() {
-    return _get(KEY_OPEN_MODALS) || [];
+    const stored = _get(KEY_OPEN_MODALS);
+    const all = stored && !Array.isArray(stored) ? stored : {};
+    return all[currentRoute()] || [];
   }
 
   function clearOpenModals() {
     _remove(KEY_OPEN_MODALS);
+  }
+
+  function wireBootstrapState() {
+    document.addEventListener('shown.bs.tab', (event) => saveBootstrapTab(event.target));
+    document.addEventListener('show.bs.modal', (event) => {
+      const modal = event.target;
+      if (modal?.id && modal.dataset.persistOpen === 'true') addOpenModal(modal.id);
+    });
+    document.addEventListener('hidden.bs.modal', (event) => {
+      const modal = event.target;
+      if (modal?.id) removeOpenModal(modal.id);
+    });
+    document.addEventListener('show.bs.offcanvas', (event) => {
+      const panel = event.target;
+      if (panel?.id && panel.dataset.persistOpen === 'true') addOpenOffcanvas(panel.id);
+    });
+    document.addEventListener('hidden.bs.offcanvas', (event) => {
+      const panel = event.target;
+      if (panel?.id) removeOpenOffcanvas(panel.id);
+    });
+
+    const restore = () => {
+      restoreBootstrapTab();
+      if (window.bootstrap?.Modal) {
+        getOpenModals().forEach((id) => {
+          const modal = document.getElementById(id);
+          // Only restore explicitly opted-in, static dialogs. Dynamic dialogs
+          // and transactions must be recreated by their page workflow.
+          if (modal?.dataset.persistOpen === 'true') {
+            window.bootstrap.Modal.getOrCreateInstance(modal).show();
+          } else {
+            removeOpenModal(id);
+          }
+        });
+      }
+      if (window.bootstrap?.Offcanvas) {
+        getOpenOffcanvases().forEach((id) => {
+          const panel = document.getElementById(id);
+          if (panel?.dataset.persistOpen === 'true') {
+            window.bootstrap.Offcanvas.getOrCreateInstance(panel).show();
+          } else {
+            removeOpenOffcanvas(id);
+          }
+        });
+      }
+    };
+    document.addEventListener('DOMContentLoaded', restore, {once: true});
+    window.addEventListener('kingsway:page-loaded', restore);
+    window.addEventListener('kingsway:ready', restore);
+    if (document.readyState !== 'loading') window.setTimeout(restore, 0);
   }
 
   /**
@@ -147,7 +275,8 @@
    */
   function clearAll() {
     clearRoute();
-    clearActiveTab();
+    _remove(KEY_ACTIVE_TAB);
+    _remove(KEY_BOOTSTRAP_TABS);
     clearOpenModals();
     clearOpenOffcanvases();
   }
@@ -169,4 +298,6 @@
     clearOpenOffcanvases,
     clearAll,
   };
+
+  wireBootstrapState();
 })();

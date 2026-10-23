@@ -269,15 +269,18 @@ class MpesaPaymentService
             if (!$checkoutRequestId) {
                 return $this->respond(false, null, 'CheckoutRequestID is required');
             }
+
+            // Resolve the shortcode from the original STK request
+            $shortcode = $this->resolveShortcodeFromCheckout($checkoutRequestId);
             $timestamp = $this->client->timestamp();
             $payload = [
-                'BusinessShortCode' => $this->client->getShortcode(),
-                'Password'          => $this->client->lipaNaMpesaPassword($timestamp),
+                'BusinessShortCode' => $this->client->getShortcode($shortcode),
+                'Password'          => $this->client->lipaNaMpesaPassword($timestamp, $shortcode),
                 'Timestamp'         => $timestamp,
                 'CheckoutRequestID' => $checkoutRequestId,
             ];
 
-            $response = $this->client->post('/mpesa/stkpushquery/v1/query', $payload);
+            $response = $this->client->post('/mpesa/stkpushquery/v1/query', $payload, $shortcode);
 
             if (($response['ResultCode'] ?? '1') === '0') {
                 $this->recordStkSuccess($checkoutRequestId, $response);
@@ -293,6 +296,19 @@ class MpesaPaymentService
             \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK query error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
+    }
+
+    /**
+     * Look up the collection shortcode used for a checkout request.
+     */
+    private function resolveShortcodeFromCheckout(string $checkoutRequestId): string
+    {
+        $stmt = $this->getDb()->prepare(
+            "SELECT collection_account_identifier FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
+        );
+        $stmt->execute(['checkout' => $checkoutRequestId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? (string) ($row['collection_account_identifier'] ?? '') : $this->client->getShortcode();
     }
 
     /**
@@ -882,6 +898,37 @@ class MpesaPaymentService
             return $this->respond(!$failed, $response, $failed ? 'Account balance query failed' : 'Account balance queried', $failed ? 502 : 200);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[MpesaPaymentService] account balance error: ' . $e->getMessage());
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
+        }
+    }
+
+    /**
+     * Mini Statement API — returns last N transactions for reconciliation.
+     *
+     * @param int    $count    Number of transactions to retrieve (max 10 per Daraja spec)
+     * @param string $remarks  Remarks for the request
+     * @param string $occasion Occasion for the request
+     * @return array
+     */
+    public function getMiniStatement(int $count = 10, string $remarks = 'mini statement', string $occasion = 'reconciliation')
+    {
+        try {
+            $count = max(1, min(10, $count)); // Daraja limits to 10
+            $payload = [
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'MiniStatement',
+                'PartyA'             => $this->client->getShortcode(),
+                'IdentifierType'     => 4,
+                'Remarks'            => $remarks,
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
+            ];
+            $response = $this->client->post('/mpesa/ministatement/v1/query', $payload);
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? 'Mini statement query failed' : 'Mini statement retrieved', $failed ? 502 : 200);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] mini statement error: ' . $e->getMessage());
             return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }

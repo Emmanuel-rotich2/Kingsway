@@ -174,6 +174,8 @@ class ToolBridge:
         tool: str,
         tool_input: dict,
         request_id: str = "",
+        roles: list | None = None,
+        role_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         # System-administrator tools are executed locally and are guarded by
         # the system_admin permission. No other caller may reach them.
@@ -183,8 +185,13 @@ class ToolBridge:
             )
         if tool not in ALLOWED_TOOLS:
             return {"status": "unknown_tool"}
+        operator: dict[str, Any] = {"user_id": user_id, "permissions": permissions}
+        if roles:
+            operator["roles"] = roles
+        if role_ids:
+            operator["role_ids"] = [int(r) for r in role_ids]
         payload = {
-            "operator": {"user_id": user_id, "permissions": permissions},
+            "operator": operator,
             "tool": tool,
             "tool_input": self._bound_input(tool, tool_input),
             "request_id": request_id[:100],
