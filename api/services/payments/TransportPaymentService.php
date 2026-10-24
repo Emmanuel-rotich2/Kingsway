@@ -28,7 +28,7 @@ class TransportPaymentService
         $entitlementId = (int)($data['entitlement_id'] ?? 0);
         $channel = strtolower(trim((string)($data['channel'] ?? '')));
         $amount = (float)($data['amount'] ?? 0);
-        $allowed = ['auto', 'daraja_mpesa', 'buni_mpesa', 'c2b_mpesa', 'bank_transfer', 'cash', 'cheque'];
+        $allowed = ['auto', 'daraja_mpesa', 'payhero_mpesa', 'c2b_mpesa', 'bank_transfer', 'cash', 'cheque'];
         if (!$entitlementId || !in_array($channel, $allowed, true) || $amount <= 0) {
             throw new RuntimeException('entitlement_id, a valid channel and a positive amount are required');
         }
@@ -88,25 +88,21 @@ class TransportPaymentService
         } elseif ($channel === 'daraja_mpesa') {
             $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$accountId);
             $this->updateProviderResult($intentId, $result, $result['data']['checkout_request_id'] ?? $result['checkout_request_id'] ?? null);
-        } elseif ($channel === 'buni_mpesa') {
-            $base = defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : (defined('BASE_URL') ? BASE_URL : '');
-            $result = (new KcbMpesaExpressService())->initiate([
+        } elseif ($channel === 'payhero_mpesa') {
+            $result = (new PayheroPaymentService($this->db))->initiate([
                 'phone_number' => $phone,
                 'amount' => $amount,
-                'invoice_number' => 'TRN-' . $intentId,
-                'org_short_code' => (string)$account['account_identifier'],
-                'description' => 'Transport payment',
-                'callback_url' => rtrim($base, '/') . '/api/payments/kcb-mpesa-express-callback',
+                'external_reference' => 'TRN-' . $intentId,
+                'purpose' => 'transport',
             ]);
-            $requestId = $result['checkout_request_id'] ?? $result['message_id'] ?? null;
-            $this->updateProviderResult($intentId, $result, $requestId);
+            $this->updateProviderResult($intentId, $result, $result['checkout_request_id'] ?? $result['reference'] ?? null);
         }
         return $this->getIntent($intentId);
     }
 
     private function intentChannel(string $providerCode): string
     {
-        return ['kcb_buni' => 'buni_mpesa', 'payhero' => 'payhero_mpesa', 'mpesa_daraja' => 'daraja_mpesa'][$providerCode] ?? $providerCode;
+        return ['kcb_buni' => 'buni_mpesa', 'payhero' => 'payhero_mpesa', 'safaricom_daraja' => 'daraja_mpesa','mpesa_daraja' => 'daraja_mpesa'][$providerCode] ?? $providerCode;
     }
 
     public function confirmManual(int $intentId, int $userId): array
@@ -163,7 +159,7 @@ class TransportPaymentService
     public function reconcileIntentReference(string $reference, float $amount, string $provider, string $providerReference): bool
     {
         $reference = (new ReferenceNormalizer())->reference($reference);
-        $s=$this->db->prepare("SELECT i.* FROM " . ReadReplicaService::qualifiedRef("transport_payment_intents") . " JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
+        $s=$this->db->prepare("SELECT i.* FROM transport_payment_intents JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
         if (!$intent) return false;
         if ($intent['status']==='confirmed') return true;
         if (!in_array($intent['status'], ['pending','accepted','manual_review'], true) || abs((float)$intent['amount']-$amount)>0.01) return false;
@@ -208,7 +204,7 @@ class TransportPaymentService
 
     private function channelCode(string $channel): string
     {
-        return ['daraja_mpesa'=>'mpesa_stk','buni_mpesa'=>'buni_ipn','c2b_mpesa'=>'mpesa_c2b','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$channel] ?? $channel;
+        return ['daraja_mpesa'=>'safaricom_stk','payhero_mpesa'=>'payhero_stk','c2b_mpesa'=>'safaricom_c2b','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$channel] ?? $channel;
     }
 
     private function notifyParent(int $studentId, float $amount, string $reference): void

@@ -156,8 +156,8 @@ class MpesaPaymentService
                      JOIN " . ReadReplicaService::qualifiedRef("payment_collection_route_channels") . " rc ON rc.route_id = r.id
                      JOIN financial_channels ch ON ch.id = rc.channel_id
                      WHERE r.id = :route_id AND r.purpose = :purpose
-                       AND r.active = 1 AND p.code = 'mpesa_daraja'
-                       AND r.collection_product = 'paybill' AND ch.code = 'mpesa_stk'
+                       AND r.active = 1 AND p.code = 'safaricom_daraja'
+                       AND r.collection_product = 'paybill' AND ch.code = 'safaricom_stk'
                      LIMIT 1"
                 );
                 $routeStmt->execute(['route_id' => $collectionRouteId, 'purpose' => $purpose]);
@@ -168,8 +168,8 @@ class MpesaPaymentService
                 $shortcode = (string) $route['account_identifier'];
                 $settlementAccountId = (int) ($route['settlement_financial_account_id'] ?: $route['financial_account_id']);
             } else {
-                $schoolAccount = (new FinancialAccountService($this->getDb()))->requireFor($financialAccountId, $purpose, 'mpesa_stk');
-                if (($schoolAccount['provider_code'] ?? '') !== 'mpesa_daraja') {
+                $schoolAccount = (new FinancialAccountService($this->getDb()))->requireFor($financialAccountId, $purpose, 'safaricom_stk');
+                if (($schoolAccount['provider_code'] ?? '') !== 'safaricom_daraja') {
                     return $this->respond(false, null, 'Select an M-Pesa STK collection point, not a bank account.');
                 }
                 $shortcode = (string) $schoolAccount['account_identifier'];
@@ -282,8 +282,8 @@ class MpesaPaymentService
 
             $response = $this->client->post('/mpesa/stkpushquery/v1/query', $payload, $shortcode);
 
-            if (($response['ResultCode'] ?? '1') === '0') {
-                $this->recordStkSuccess($checkoutRequestId, $response);
+            if (($response['ResultCode'] ?? '1') === '0' && !$this->recordStkSuccess($checkoutRequestId, $response)) {
+                return $this->respond(false, $response, 'STK payment is still being reconciled', 503);
             }
 
             return $this->respond(
@@ -315,8 +315,26 @@ class MpesaPaymentService
      * Promote a pending STK_PUSH mpesa_transaction to processed once Safaricom
      * confirms ResultCode 0 (via callback or query).
      */
-    private function recordStkSuccess(string $checkoutRequestId, array $callback): void
+    private function recordStkSuccess(string $checkoutRequestId, array $callback): bool
     {
+        // Use a connection-scoped advisory lock instead of a status flag: the
+        // status enum has no "processing" value, and the downstream services
+        // own their own transactions. The lock prevents two callbacks for the
+        // same checkout from posting the same money twice.
+        $lockName = 'kingsway-stk-' . substr(hash('sha256', $checkoutRequestId), 0, 40);
+        try {
+            $lock = $this->getDb()->prepare('SELECT GET_LOCK(?, 0)');
+            $lock->execute([$lockName]);
+            $acquired = (int) $lock->fetchColumn() === 1;
+            $lock->closeCursor();
+            if (!$acquired) {
+                return false;
+            }
+        } catch (\Throwable $lockError) {
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK lock failed: ' . $lockError->getMessage());
+            return false;
+        }
+
         try {
             $stmt = $this->getDb()->prepare(
                 "SELECT id, status, bill_ref_number, amount, collection_account_identifier
@@ -325,10 +343,12 @@ class MpesaPaymentService
             $stmt->execute(['checkout' => $checkoutRequestId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
-                return;
+                return false;
             }
 
-            $wasAlreadyProcessed = ($row['status'] ?? '') === 'processed';
+            if (in_array(strtolower((string) ($row['status'] ?? '')), ['processed', 'reconciled'], true)) {
+                return true;
+            }
 
             $meta = $callback['CallbackMetadata']['Item'] ?? [];
             $kv = [];
@@ -340,8 +360,126 @@ class MpesaPaymentService
             $mpesaReceipt = $kv['MpesaReceiptNumber'] ?? null;
             $phone = $kv['PhoneNumber'] ?? null;
             $amount = $kv['Amount'] ?? null;
-            $normalizedBillRef = (new ReferenceNormalizer())->reference((string) ($row['bill_ref_number'] ?? ''));
+            $billRef = trim((string) ($row['bill_ref_number'] ?? ''));
+            $normalizedBillRef = (new ReferenceNormalizer())->reference($billRef);
 
+            // STK pushes made before a student exists are keyed by the
+            // application reference. Preserve them in the admission ledger;
+            // placement later posts this ledger to the student's obligations.
+            $applicationId = 0;
+            $handledAsAdmission = false;
+            if ($billRef !== '') {
+                $applicationStmt = $this->getDb()->prepare(
+                    "SELECT aa.id, aa.parent_id,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+                                WHERE sae.student_id = aa.enrolled_student_id
+                                  AND sae.enrollment_status = 'active'
+                            ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
+                     FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
+                     WHERE aa.application_no = :application_reference
+                     LIMIT 1"
+                );
+                $applicationStmt->execute(['application_reference' => $billRef]);
+                $application = $applicationStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $applicationId = (int) ($application['id'] ?? 0);
+
+                if ($applicationId > 0) {
+                    $handledAsAdmission = true;
+                    if ($mpesaReceipt) {
+                        $existingAdmission = $this->getDb()->prepare(
+                            "SELECT id FROM admission_payments
+                              WHERE application_id = :application_id AND reference_no = :reference_no
+                              LIMIT 1"
+                        );
+                        $existingAdmission->execute([
+                            'application_id' => $applicationId,
+                            'reference_no' => $mpesaReceipt,
+                        ]);
+                        $existingAdmissionId = (int) $existingAdmission->fetchColumn();
+                        if ($existingAdmissionId < 1) {
+                            $insert = $this->getDb()->prepare(
+                                "INSERT INTO admission_payments
+                                    (application_id, amount, payment_method, reference_no, receipt_no,
+                                     payment_date, notes, status, recorded_by, created_at)
+                                 VALUES (:application_id, :amount, 'mpesa', :reference_no, :receipt_no,
+                                         NOW(), :notes, 'recorded', 1, NOW())"
+                            );
+                            $insert->execute([
+                                'application_id' => $applicationId,
+                                'amount' => (float) ($amount ?: $row['amount'] ?: 0),
+                                'reference_no' => $mpesaReceipt,
+                                'receipt_no' => 'MPESA-' . $mpesaReceipt,
+                                'notes' => 'STK payment received using application reference ' . $billRef,
+                            ]);
+                        }
+
+                        $studentId = (int) ($application['enrolled_student_id'] ?? 0);
+                        if ($studentId > 0) {
+                            $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->getDb());
+                            $paymentService->postApplicationPaymentsToStudent(
+                                $applicationId,
+                                $studentId,
+                                !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                                1,
+                                $billRef
+                            );
+                        }
+                    }
+
+                    try {
+                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                    } catch (\Throwable $workflowError) {
+                        \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                    }
+                }
+            }
+
+            // Fees STK callbacks enter the same normalized fee ledger as C2B
+            // and bank collections. An application reference already owns an
+            // admission-ledger row, so it must not also be posted as a fee.
+            if (!$handledAsAdmission && $billRef !== '' && !preg_match('/^(T|TRN|U|UC|UNIFORM)-/i', $billRef)) {
+                try {
+                    (new PaymentRoutingService($this->getDb()))->routeIncoming(
+                        'safaricom_daraja',
+                        [
+                            'BusinessShortCode' => $row['collection_account_identifier'] ?? null,
+                            'BillRefNumber' => $billRef,
+                            'channel' => 'safaricom_stk',
+                        ],
+                        (string) ($mpesaReceipt ?: $checkoutRequestId),
+                        (float) ($amount ?: $row['amount'] ?: 0),
+                        (string) ($row['collection_account_identifier'] ?? ''),
+                        $billRef
+                    );
+                } catch (\Throwable $feeRoutingError) {
+                    \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK fee routing failed: ' . $feeRoutingError->getMessage());
+                    throw $feeRoutingError;
+                }
+            }
+
+            // Transport has its own entitlement ledger. A successful STK
+            // callback is the only point at which that ledger may be credited.
+            if (!empty($checkoutRequestId)) {
+                if (preg_match('/^(U|UC|UNIFORM)-/i', $billRef)) {
+                    (new UniformPaymentService($this->getDb()))->reconcileReference(
+                        $billRef,
+                        (float) ($amount ?: 0),
+                        'safaricom_daraja',
+                        $mpesaReceipt ?: $checkoutRequestId
+                    );
+                } else {
+                    (new TransportPaymentService($this->getDb()))->reconcileDaraja(
+                        $checkoutRequestId,
+                        $mpesaReceipt ?: $checkoutRequestId,
+                        (float) ($amount ?: 0)
+                    );
+                }
+            }
+
+            // Only mark the row processed once every allocation has succeeded.
+            // A failure above leaves it pending so Safaricom's retry can safely
+            // replay idempotent downstream writes.
             $update = $this->getDb()->prepare(
                 "UPDATE mpesa_transactions
                  SET status = 'processed',
@@ -351,7 +489,7 @@ class MpesaPaymentService
                      normalized_reference = NULLIF(:normalized_reference, ''),
                      raw_callback = :raw,
                      webhook_data = :webhook
-                 WHERE id = :id"
+                 WHERE id = :id AND status IN ('pending', 'failed')"
             );
             $update->execute([
                 'receipt' => $mpesaReceipt,
@@ -363,116 +501,22 @@ class MpesaPaymentService
                 'id'      => $row['id'],
             ]);
 
-            // STK pushes made before a student exists are keyed by the
-            // application reference. Preserve them in the admission ledger;
-            // placement later posts this ledger to the student's obligations.
-            $billRef = trim((string) ($row['bill_ref_number'] ?? ''));
-            if ($billRef !== '') {
-                $applicationStmt = $this->getDb()->prepare(
-                    "SELECT aa.id, aa.parent_id,
-                            CASE WHEN EXISTS (
-                                SELECT 1 FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
-                                WHERE sae.student_id = aa.enrolled_student_id
-                                  AND sae.enrollment_status = 'active'
-                            ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
-                     FROM " . ReadReplicaService::qualifiedRef("admission_applications") . " aa
-                     WHERE aa.application_no = :application_reference OR (SELECT sx.admission_no FROM " . ReadReplicaService::qualifiedRef('student_directory') . " sx WHERE sx.student_id = aa.enrolled_student_id LIMIT 1) = :admission_reference
-                     LIMIT 1"
-                );
-                $applicationStmt->execute([
-                    'application_reference' => $billRef,
-                    'admission_reference' => $billRef,
-                ]);
-                $application = $applicationStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-                $applicationId = (int) ($application['id'] ?? 0);
-                $admissionPaymentId = 0;
-                if ($applicationId > 0 && !$wasAlreadyProcessed && $mpesaReceipt) {
-                    $insert = $this->getDb()->prepare(
-                        "INSERT INTO admission_payments
-                            (application_id, amount, payment_method, reference_no, receipt_no,
-                             payment_date, notes, status, recorded_by, created_at)
-                         VALUES (:application_id, :amount, 'mpesa', :reference_no, :receipt_no,
-                                 NOW(), :notes, 'recorded', 1, NOW())"
-                    );
-                    $insert->execute([
-                        'application_id' => $applicationId,
-                        'amount' => (float) ($amount ?: $row['amount'] ?: 0),
-                        'reference_no' => $mpesaReceipt,
-                        'receipt_no' => 'MPESA-' . $mpesaReceipt,
-                        'notes' => 'STK payment received using application reference ' . $billRef,
-                    ]);
-                    $admissionPaymentId = (int) $this->getDb()->lastInsertId();
-                }
-
-                if ($applicationId > 0 && !$wasAlreadyProcessed) {
-                    $studentId = (int) ($application['enrolled_student_id'] ?? 0);
-                    if ($studentId > 0) {
-                        $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->getDb());
-                        $paymentService->postApplicationPaymentsToStudent(
-                            $applicationId,
-                            $studentId,
-                            !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
-                            1,
-                            $billRef
-                        );
-                    }
-                }
-
-                if ($applicationId > 0) {
-                    try {
-                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
-                    } catch (\Throwable $workflowError) {
-                        \App\API\Services\Logger::legacyError('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
-                    }
-                }
-            }
-
-            // Fees STK callbacks enter the same normalized fee ledger as C2B
-            // and bank collections. Transport and uniforms reconcile below.
-            if (!$wasAlreadyProcessed) {
-                $stkBillRef = trim((string) ($row['bill_ref_number'] ?? ''));
-                if ($stkBillRef !== '' && !preg_match('/^(T|TRN|U|UC|UNIFORM)-/i', $stkBillRef)) {
-                    try {
-                        (new PaymentRoutingService($this->getDb()))->routeIncoming(
-                            'mpesa_daraja',
-                            [
-                                'BusinessShortCode' => $row['collection_account_identifier'] ?? null,
-                                'BillRefNumber' => $stkBillRef,
-                                'channel' => 'mpesa_stk',
-                            ],
-                            (string) ($mpesaReceipt ?: $checkoutRequestId),
-                            (float) ($amount ?: $row['amount'] ?: 0),
-                            (string) ($row['collection_account_identifier'] ?? ''),
-                            $stkBillRef
-                        );
-                    } catch (\Throwable $feeRoutingError) {
-                        \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK fee routing failed: ' . $feeRoutingError->getMessage());
-                    }
-                }
-            }
-
             // Sent after fee routing so the quoted term/annual balances are
             // post-payment. The notifier de-duplicates against the SMS already
             // queued by routeIncoming for fee payments.
-            if (!$wasAlreadyProcessed) {
-                $this->sendPaymentConfirmationSms((int) $row['id']);
-            }
-            // Transport has its own entitlement ledger. A successful STK
-            // callback is the only point at which that ledger may be credited.
-            if (!$wasAlreadyProcessed && !empty($checkoutRequestId)) {
-                try {
-                    $billRef = (string)($row['bill_ref_number'] ?? '');
-                    if (preg_match('/^(U|UC|UNIFORM)-/i', $billRef)) {
-                        (new UniformPaymentService($this->getDb()))->reconcileReference($billRef, (float)($amount ?: 0), 'mpesa_daraja', $mpesaReceipt ?: $checkoutRequestId);
-                    } else {
-                        (new TransportPaymentService($this->getDb()))->reconcileDaraja($checkoutRequestId, $mpesaReceipt ?: $checkoutRequestId, (float)($amount ?: 0));
-                    }
-                } catch (\Throwable $transportError) {
-                    \App\API\Services\Logger::legacyError('[MpesaPaymentService] transport reconciliation failed: ' . $transportError->getMessage());
-                }
-            }
-        } catch (Exception $e) {
+            $this->sendPaymentConfirmationSms((int) $row['id']);
+
+            return true;
+        } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[MpesaPaymentService] Failed to record STK success: ' . $e->getMessage());
+            return false;
+        } finally {
+            try {
+                $release = $this->getDb()->prepare('SELECT RELEASE_LOCK(?)');
+                $release->execute([$lockName]);
+                $release->closeCursor();
+            } catch (\Throwable $ignored) {
+            }
         }
     }
 
@@ -526,12 +570,18 @@ class MpesaPaymentService
                 return $this->respond(false, null, 'Invalid STK callback payload');
             }
 
-            $checkoutId = $stk['CheckoutRequestID'] ?? null;
+            $checkoutId = trim((string) ($stk['CheckoutRequestID'] ?? ''));
             $resultCode = $stk['ResultCode'] ?? '1';
             $resultDesc = $stk['ResultDesc'] ?? '';
+            if ($checkoutId === '') {
+                return $this->respond(false, null, 'CheckoutRequestID is required');
+            }
 
             if ((string) $resultCode === '0') {
-                $this->recordStkSuccess($checkoutId, $stk);
+                if (!$this->recordStkSuccess($checkoutId, $stk)) {
+                    $this->logWebhook('mpesa_stk', $callbackData, 'failed');
+                    return $this->respond(false, null, 'STK callback could not be completed', 500);
+                }
                 $this->logWebhook('mpesa_stk', $callbackData, 'processed');
             } else {
                 try {

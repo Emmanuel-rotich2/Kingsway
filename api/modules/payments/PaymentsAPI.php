@@ -12,6 +12,7 @@ use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\MpesaB2CService;
 use App\API\Services\payments\KcbWebhookVerifier;
 use App\API\Services\payments\ReferenceNormalizer;
+use App\API\Services\payments\CollectionInitiationService;
 use App\API\Services\FinancialPostingCoordinator;
 use Exception;
 use App\API\Services\ServiceContractBroker;
@@ -285,7 +286,7 @@ class PaymentsAPI extends BaseAPI
             // Structured FEE/TRN references are resolved centrally. Legacy
             // admission-number fee payments continue through the existing path.
             $c2bAccount = $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null;
-            if (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$admissionNumber) || preg_match('/^T-/i', (string)$admissionNumber) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('mpesa_daraja', $c2bAccount)) {
+            if (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$admissionNumber) || preg_match('/^T-/i', (string)$admissionNumber) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('safaricom_daraja', $c2bAccount)) {
                 try {
                     // Persist the provider transaction before routing so C2B
                     // has the same normalized audit record as STK and bank
@@ -293,12 +294,12 @@ class PaymentsAPI extends BaseAPI
                     // account after the route has been resolved.
                     $mpesaService = new \App\API\Services\payments\MpesaPaymentService();
                     $mpesaService->recordC2BConfirmation($confirmationData, $mpesaCode, $admissionNumber, $amount);
-                    $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('mpesa_daraja', $confirmationData, $mpesaCode, $amount, $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null, $admissionNumber);
+                    $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('safaricom_daraja', $confirmationData, $mpesaCode, $amount, $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null, $admissionNumber);
                     $settlement = $this->db->prepare(
                         "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id)
                          FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
                          JOIN payment_providers p ON p.id = r.provider_id
-                         WHERE p.code = 'mpesa_daraja' AND r.normalized_account_identifier = ?
+                         WHERE p.code = 'safaricom_daraja' AND r.normalized_account_identifier = ?
                            AND r.active = 1 ORDER BY r.id LIMIT 1"
                     );
                     $settlement->execute([preg_replace('/[^0-9A-Za-z]/', '', (string)$c2bAccount)]);
@@ -931,6 +932,18 @@ class PaymentsAPI extends BaseAPI
         $logFile = $this->logDir . '/kcb_validation.log';
         $logFileErr = $this->logDir . '/kcb_validation_errors.log';
         $signature = $headers['Signature'] ?? $headers['signature'] ?? '';
+        // Verify KCB callback signature (copied from processKcbNotification pattern)
+        $rawBody = (string) ($headers['__raw_body'] ?? json_encode($validationData));
+        $verifier = new \App\API\Services\payments\KcbWebhookVerifier();
+        if ($verifier->shouldEnforce() && !$verifier->verify($headers, $rawBody)) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] Rejected KCB validation with invalid RSA signature.');
+            return [
+                'transactionID' => $validationData['requestId'] ?? '',
+                'statusCode' => '1',
+                'statusMessage' => 'Invalid callback signature',
+                'creditAccountIdentifier' => '',
+            ];
+        }
         (new \App\API\Services\UploadService())->writeFile(
             $logFileRaw,
             $this->timestamp . " - RAW REQUEST:\n" .
@@ -950,6 +963,36 @@ class PaymentsAPI extends BaseAPI
             $requestId = $validationData['requestId'] ?? '';
             $customerReference = $validationData['customerReference'] ?? '';
             $organizationReference = $validationData['organizationReference'] ?? '';
+            $creditAccountIdentifier = '';
+
+            // Handle structured references (TRN-/U-) via PaymentRoutingService to get correct credit account
+            if (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$customerReference) || preg_match('/^T-/i', (string)$customerReference)) {
+                try {
+                    $route = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming(
+                        'kcb_buni',
+                        $validationData,
+                        $validationData['requestId'] ?? '',
+                        0, // amount unknown at validation time
+                        $validationData['creditAccountIdentifier'] ?? null,
+                        $customerReference
+                    );
+                    if (!empty($route['status']) && $route['status'] === 'processed') {
+                        // Find the settlement account for this route
+                        $settleStmt = $this->db->prepare(
+                            "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id)
+                             FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
+                             JOIN payment_providers p ON p.id = r.provider_id
+                             WHERE p.code = 'kcb_buni' AND r.normalized_account_identifier = ?
+                               AND r.active = 1 ORDER BY r.id LIMIT 1"
+                        );
+                        $settleStmt->execute([preg_replace('/[^0-9A-Za-z]/', '', (string)($validationData['creditAccountIdentifier'] ?? ''))]);
+                        $creditAccountIdentifier = (string) $settleStmt->fetchColumn();
+                    }
+                } catch (\Throwable $e) {
+                    \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB validation routing error: ' . $e->getMessage());
+                }
+            }
+
             if (empty($customerReference)) {
                 (new \App\API\Services\UploadService())->writeFile(
                     $logFile,
@@ -964,7 +1007,7 @@ class PaymentsAPI extends BaseAPI
                     'billAmount' => '0.00',
                     'currency' => 'KES',
                     'billType' => 'PARTIAL',
-                    'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
+                    'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
                 ];
             }
             $studentDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
@@ -991,7 +1034,7 @@ class PaymentsAPI extends BaseAPI
                     'billAmount' => '0.00',
                     'currency' => 'KES',
                     'billType' => 'PARTIAL',
-                    'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
+                    'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
                 ];
             }
             if (!in_array($student['status'], ['active', 'enrolled'])) {
@@ -1008,7 +1051,7 @@ class PaymentsAPI extends BaseAPI
                     'billAmount' => '0.00',
                     'currency' => 'KES',
                     'billType' => 'PARTIAL',
-                    'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
+                    'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
                 ];
             }
             $response = [
@@ -1019,7 +1062,7 @@ class PaymentsAPI extends BaseAPI
                 'billAmount' => number_format($student['current_balance'], 2, '.', ''),
                 'currency' => 'KES',
                 'billType' => 'PARTIAL',
-                'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
+                'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
             ];
             \App\API\Includes\FileLogger::write('payments', [
                 'type' => 'webhook',
@@ -1055,7 +1098,7 @@ class PaymentsAPI extends BaseAPI
                 'billAmount' => '0.00',
                 'currency' => 'KES',
                 'billType' => 'PARTIAL',
-                'creditAccountIdentifier' => defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : ''
+                'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
             ];
         }
 
@@ -2446,6 +2489,25 @@ class PaymentsAPI extends BaseAPI
     // their real results land on the webhooks below, audited in
     // payment_webhooks_log / disbursement_transactions (see getMpesaResults).
     // =========================================================================
+
+    /**
+     * POST /api/payments/initiate-collection
+     * Purpose-aware mobile-money initiation for staff surfaces. Fees use the
+     * learner admission number, transport a TRN reference and uniforms a U/UC
+     * reference; STK failover is handled by the collection services.
+     */
+    public function triggerInitiateCollection(array $data): array
+    {
+        try {
+            $result = (new CollectionInitiationService($this->db))->initiate($data, (int) ($this->user_id ?? 0));
+            return $this->successResponse($result, $result['message'] ?? 'Payment prompt sent.');
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] initiate-collection error: ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
 
     public function triggerStkPush(array $data): array
     {

@@ -984,6 +984,7 @@
   }
 
   const ASSISTANT_HISTORY_KEY = "kw_staff_assistant_history";
+  const ASSISTANT_ACTIVE_SESSION_KEY = "kw_staff_assistant_active_session";
 
   // Session state
   let currentSessionId = null;
@@ -993,6 +994,7 @@
   let activeAssistantStream = null;
   let activeAssistantPlaceholder = null;
   let assistantGenerationSeq = 0;
+  let assistantLastQuestion = "";
   let assistantQueue = [];
   let assistantQueueProcessing = false;
   let assistantSessionFilter = "";
@@ -1058,13 +1060,7 @@
     return seq;
   }
 
-  return seq;
-  }
-
   // Simple queue for assistant questions
-  let assistantQueue = [];
-  let assistantQueueProcessing = false;
-
   async function processAssistantQueue() {
     if (assistantQueueProcessing || assistantQueue.length === 0) return;
     assistantQueueProcessing = true;

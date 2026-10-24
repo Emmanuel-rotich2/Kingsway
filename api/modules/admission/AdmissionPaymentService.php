@@ -118,56 +118,80 @@ class AdmissionPaymentService
 
     public function postApplicationPaymentsToStudent(int $applicationId, int $studentId, ?int $parentId, int $userId, string $applicationNo = ''): int
     {
-        $payments = $this->getPaymentsForApplication($applicationId);
-        $posted = 0;
-        $suffix = $applicationNo !== '' ? " ({$applicationNo})" : '';
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
 
-        foreach ($payments as $payment) {
-            if (!in_array(($payment['status'] ?? ''), ['recorded', 'posted'], true)) {
-                continue;
-            }
+        try {
+            // Only 'recorded' rows are candidates. A 'posted' row already owns
+            // its fee payment and journal, so replaying it would hit the
+            // payments.receipt_no unique key and abort the whole enrollment.
+            $stmt = $this->db->prepare(
+                "SELECT * FROM admission_payments
+                  WHERE application_id = :application_id
+                    AND status = 'recorded'
+                    AND amount > 0
+                  ORDER BY payment_date ASC, id ASC
+                  FOR UPDATE"
+            );
+            $stmt->execute(['application_id' => $applicationId]);
+            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-            $amount = (float) ($payment['amount'] ?? 0);
-            if ($amount <= 0) {
-                continue;
-            }
+            $posted = 0;
+            $suffix = $applicationNo !== '' ? " ({$applicationNo})" : '';
 
-            $notes = trim((string) ($payment['notes'] ?? ''));
-            if ($notes !== '') {
-                $notes .= ' | ';
-            }
-            $notes .= 'Admission pre-enrollment payment posted after enrollment' . $suffix;
+            foreach ($payments as $payment) {
+                $amount = (float) ($payment['amount'] ?? 0);
+                if ($amount <= 0) {
+                    continue;
+                }
 
-            $stmt = $this->db->prepare("
-                CALL sp_process_student_payment(
-                    :student_id,
-                    :parent_id,
-                    :amount_paid,
-                    :payment_method,
-                    :reference_no,
-                    :receipt_no,
-                    :received_by,
-                    :payment_date,
-                    :notes
-                )
-            ");
-            $stmt->execute([
-                'student_id' => $studentId,
-                'parent_id' => $parentId,
-                'amount_paid' => $amount,
-                'payment_method' => $this->normalizePaymentMethod((string) ($payment['payment_method'] ?? 'cash')),
-                'reference_no' => (string) ($payment['reference_no'] ?? ''),
-                'receipt_no' => (string) ($payment['receipt_no'] ?? ''),
-                'received_by' => (int) ($payment['recorded_by'] ?? $userId),
-                'payment_date' => $payment['payment_date'] ?? date('Y-m-d H:i:s'),
-                'notes' => $notes,
-            ]);
-            $paymentResult = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-            $stmt->closeCursor();
+                $financialAccountId = (int) ($payment['financial_account_id'] ?? 0);
+                if ($financialAccountId <= 0) {
+                    throw new Exception('Admission payment ' . (int) $payment['id'] . ' has no receiving financial account');
+                }
 
-            $studentPaymentId = (int) ($paymentResult['transaction_id'] ?? 0);
-            if ($studentPaymentId && !empty($payment['financial_account_id'])) {
-                $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=\'fees\' WHERE id=?')->execute([(int) $payment['financial_account_id'], $studentPaymentId]);
+                $notes = trim((string) ($payment['notes'] ?? ''));
+                if ($notes !== '') {
+                    $notes .= ' | ';
+                }
+                $notes .= 'Admission pre-enrollment payment posted after enrollment' . $suffix;
+
+                $stmt = $this->db->prepare("
+                    CALL sp_process_student_payment(
+                        :student_id,
+                        :parent_id,
+                        :amount_paid,
+                        :payment_method,
+                        :reference_no,
+                        :receipt_no,
+                        :received_by,
+                        :payment_date,
+                        :notes
+                    )
+                ");
+                $stmt->execute([
+                    'student_id' => $studentId,
+                    'parent_id' => $parentId,
+                    'amount_paid' => $amount,
+                    'payment_method' => $this->normalizePaymentMethod((string) ($payment['payment_method'] ?? 'cash')),
+                    'reference_no' => (string) ($payment['reference_no'] ?? ''),
+                    'receipt_no' => (string) ($payment['receipt_no'] ?? ''),
+                    'received_by' => (int) ($payment['recorded_by'] ?? $userId),
+                    'payment_date' => $payment['payment_date'] ?? date('Y-m-d H:i:s'),
+                    'notes' => $notes,
+                ]);
+                $paymentResult = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $stmt->closeCursor();
+
+                $studentPaymentId = (int) ($paymentResult['transaction_id'] ?? 0);
+                if ($studentPaymentId <= 0) {
+                    throw new Exception('The fee ledger did not create a payment for admission payment ' . (int) $payment['id']);
+                }
+
+                $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=\'fees\' WHERE id=?')
+                    ->execute([$financialAccountId, $studentPaymentId]);
                 $allocations = $this->db->prepare(
                     "SELECT apa.amount, COALESCE(coa.account_code,'120001') AS account_code, ec.name AS description
                      FROM admission_payment_allocations apa
@@ -177,21 +201,47 @@ class AdmissionPaymentService
                      WHERE apa.admission_payment_id=?"
                 );
                 $allocations->execute([(int) $payment['id']]);
-                (new FinancialPostingCoordinator($this->db))->postIncomingToChargeAccounts(
-                    'payment', $studentPaymentId, (int) $payment['financial_account_id'],
-                    $allocations->fetchAll(PDO::FETCH_ASSOC), $userId, (string) ($payment['reference_no'] ?? '')
+                $allocationRows = $allocations->fetchAll(PDO::FETCH_ASSOC);
+                $posting = new FinancialPostingCoordinator($this->db);
+                if ($allocationRows === []) {
+                    // Admission payments recorded from a gateway callback have
+                    // no extra-charge allocation split; credit them to fees.
+                    $posting->postIncoming(
+                        'payment', $studentPaymentId, $financialAccountId, 'fees',
+                        (string) $amount, $userId, (string) ($payment['reference_no'] ?? '')
+                    );
+                } else {
+                    $posting->postIncomingToChargeAccounts(
+                        'payment', $studentPaymentId, $financialAccountId,
+                        $allocationRows, $userId, (string) ($payment['reference_no'] ?? '')
+                    );
+                }
+
+                $update = $this->db->prepare(
+                    "UPDATE admission_payments
+                        SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW()
+                      WHERE id = :id AND status = 'recorded'"
                 );
+                $update->execute([
+                    'student_id' => $studentId,
+                    'id' => (int) $payment['id'],
+                ]);
+                if ($update->rowCount() !== 1) {
+                    throw new Exception('Admission payment ' . (int) $payment['id'] . ' was posted by another process');
+                }
+                $posted++;
             }
 
-            $update = $this->db->prepare("UPDATE admission_payments SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW() WHERE id = :id");
-            $update->execute([
-                'student_id' => $studentId,
-                'id' => (int) $payment['id'],
-            ]);
-            $posted++;
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+            return $posted;
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
         }
-
-        return $posted;
     }
 
     private function normalizePaymentMethod(string $method): string

@@ -200,10 +200,10 @@ class StudentTransportEntitlementManager
             if (in_array($method, ['mpesa', 'daraja_mpesa', 'buni_mpesa'], true) && empty($data['verified_provider_callback'])) {
                 throw new RuntimeException('Mobile-money transport payments must be allocated from a verified provider confirmation');
             }
-            $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " JOIN transport_entitlement_payments p ON p.id=a.payment_id AND p.payment_status='confirmed' WHERE a.entitlement_id=?");
+            $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(a.amount),0) FROM transport_entitlement_payment_allocations a JOIN transport_entitlement_payments p ON p.id=a.payment_id AND p.payment_status='confirmed' WHERE a.entitlement_id=?");
             $paidStmt->execute([$entitlementId]);
             $remaining = max(0, (float)$e['amount_due'] - (float)$paidStmt->fetchColumn());
-            if ($amount > $remaining && $remaining > 0 && empty($data['allow_credit'])) throw new RuntimeException('Payment exceeds this entitlement balance');
+            if ($amount > $remaining && empty($data['allow_credit'])) throw new RuntimeException('Payment exceeds this entitlement balance');
             $ref = trim((string)($data['provider_reference'] ?? '')) ?: null;
             $insert = $this->db->prepare("INSERT INTO transport_entitlement_payments (student_id,financial_account_id,amount,payment_method,provider_name,provider_reference,payment_status,payment_date,received_by,notes) VALUES (?,?,?,?,?,?,'confirmed',?,?,?)");
             $insert->execute([(int)$e['student_id'], (int)($data['financial_account_id'] ?? 0) ?: null, $amount, $method, $data['provider_name'] ?? 'manual', $ref, $data['payment_date'] ?? date('Y-m-d'), $userId ?: null, $data['notes'] ?? null]);
@@ -238,9 +238,9 @@ class StudentTransportEntitlementManager
                     (SELECT COUNT(*) FROM student_transport_day_usage u WHERE u.entitlement_id=e.id) AS used_school_days,
                     EXISTS(SELECT 1 FROM student_transport_day_usage u WHERE u.entitlement_id=e.id AND u.usage_date=?) AS used_today,
                     COALESCE(SUM(CASE WHEN tp.payment_status='confirmed' THEN a.amount ELSE 0 END),0) paid
-             FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e
+             FROM student_transport_entitlements e
              JOIN transport_entitlement_periods p ON p.id=e.period_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("transport_entitlement_payment_allocations") . " a ON a.entitlement_id=e.id
+             LEFT JOIN transport_entitlement_payment_allocations a ON a.entitlement_id=e.id
              LEFT JOIN transport_entitlement_payments tp ON tp.id=a.payment_id
              WHERE e.student_id=? AND e.route_id=? AND e.entitlement_status='active'
                AND p.status='open' AND p.period_start<=? AND p.period_end>=?
@@ -398,7 +398,7 @@ $termsStmt = $this->db->prepare(
 
     public function getEntitlement(int $id): array
     {
-        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $stmt=$this->db->prepare("SELECT e.*,p.period_type,p.period_start,p.period_end,p.label FROM student_transport_entitlements JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.id=?"); $stmt->execute([$id]); return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
     private function ensurePeriod(string $type, string $start, string $end, ?int $termId, ?string $label, ?int $userId): int

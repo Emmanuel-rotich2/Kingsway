@@ -7585,6 +7585,8 @@ window.API = {
       apiCall("/payments/payhero-channel", "POST", data),
     payheroStkPush: async (data) =>
       apiCall("/payments/payhero-stk-push", "POST", data),
+    initiateCollection: async (data) =>
+      apiCall("/payments/initiate-collection", "POST", data),
   },
 
   // Accounts endpoints (bank accounts, transactions)

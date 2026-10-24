@@ -152,6 +152,7 @@
                     : '<span class="badge bg-warning text-dark"><i class="fas fa-times"></i> No</span>';
 
                 var accountName = (txn.bank_name || "") + " - " + (txn.account_number || "");
+                var depositChannel = txn.deposit_channel || 'N/A';
 
                 html += '<tr>' +
                     '<td>' + (start + index + 1) + '</td>' +
@@ -159,6 +160,7 @@
                     '<td>' + self.escapeHtml(accountName) + '</td>' +
                     '<td><code>' + self.escapeHtml(txn.transaction_ref || "-") + '</code></td>' +
                     '<td>' + self.escapeHtml(txn.narration || "-") + '</td>' +
+                    '<td class="text-center">' + self.escapeHtml(txn.deposit_channel || 'N/A') + '</td>' +
                     '<td class="text-center">' + statusBadge + '</td>' +
                     '<td class="text-end fw-bold">KES ' + self.formatCurrency(txn.amount) + '</td>' +
                     '<td class="text-end text-muted">-</td>' +
@@ -166,6 +168,7 @@
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
                             '<button class="btn btn-outline-primary" onclick="BankTransactionsController.viewTransaction(' + txn.id + ')" title="View"><i class="fas fa-eye"></i></button>' +
+                            '<button class="btn btn-outline-info" onclick="BankTransactionsController.viewJournal(' + txn.id + ')" title="View Journal"><i class="fas fa-book"></i></button>' +
                             (!isReconciled ?
                                 '<button class="btn btn-outline-success" onclick="BankTransactionsController.reconcile(' + txn.id + ')" title="Reconcile"><i class="fas fa-check-double"></i></button>'
                                 : '') +
@@ -296,11 +299,43 @@
             var msg = "Date: " + this.formatDate(txn.transaction_date || txn.created_at) + "\n" +
                 "Account: " + ((txn.bank_name || "") + " - " + (txn.account_number || "-")) + "\n" +
                 "Reference: " + (txn.transaction_ref || "-") + "\n" +
+                "Deposit Channel: " + (txn.deposit_channel || "N/A") + "\n" +
                 "Status: " + (txn.status || "-") + "\n" +
                 "Description: " + (txn.narration || "-") + "\n" +
                 "Amount: KES " + this.formatCurrency(txn.amount) + "\n" +
                 "Reconciled: " + (txn.reconciled ? "Yes" : "No");
             await window.infoDialog('Notice', msg);
+        },
+
+        viewJournal: async function (id) {
+            var txn = this.data.find(function (t) { return t.id === id; });
+            if (!txn) return;
+
+            try {
+                var response = await API.callAPI("/accounts/bank-transactions/" + id + "/journal", "GET");
+                var journal = (response && response.journal) ? response.journal : [];
+
+                if (!journal.length) {
+                    await window.infoDialog('Journal', 'No journal entries found for this transaction.');
+                    return;
+                }
+
+                var lines = journal.map(function (line) {
+                    var direction = line.debit > 0 ? 'Dr' : 'Cr';
+                    var amount = parseFloat(line.debit || line.credit || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    return direction + ' ' + line.account_code + ' - ' + line.description + ' (' + amount + ')';
+                }).join('\n');
+
+                var msg = 'Journal for Transaction: ' + (txn.transaction_ref || '-') + '\n' +
+                    'Date: ' + this.formatDate(txn.transaction_date || txn.created_at) + '\n' +
+                    'Amount: KES ' + this.formatCurrency(txn.amount) + '\n\n' +
+                    'Journal Lines:\n' + lines;
+
+                await window.infoDialog('Transaction Journal', msg);
+            } catch (error) {
+                console.error("Error loading journal:", error);
+                this.showNotification("Failed to load journal entries", "error");
+            }
         },
 
         /**
@@ -341,7 +376,7 @@
          * Export data as CSV
          */
         exportCSV: function () {
-            var headers = ["#", "Date", "Account", "Reference", "Description", "Status", "Amount (KES)", "Reconciled"];
+            var headers = ["#", "Date", "Account", "Reference", "Description", "Deposit Channel", "Status", "Amount (KES)", "Reconciled"];
             var self = this;
             var rows = this.filtered.map(function (txn, i) {
                 return [
@@ -350,6 +385,7 @@
                     ((txn.bank_name || "") + " - " + (txn.account_number || "")).replace(/,/g, " "),
                     txn.transaction_ref || "",
                     (txn.narration || "").replace(/,/g, " "),
+                    txn.deposit_channel || "N/A",
                     txn.status || "",
                     txn.amount || 0,
                     txn.reconciled ? "Yes" : "No"

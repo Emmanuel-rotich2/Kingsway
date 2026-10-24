@@ -63,7 +63,7 @@ class PaymentRoutingService
                 $s=$this->db->prepare('SELECT id FROM students WHERE admission_no=? AND status IN ("active","enrolled") LIMIT 1'); $s->execute([$admission]); $studentId=(int)$s->fetchColumn();
                 if ($studentId) {
                     $e=$this->db->prepare("SELECT e.id FROM " . ReadReplicaService::qualifiedRef("student_transport_entitlements") . " JOIN transport_entitlement_periods p ON p.id=e.period_id WHERE e.student_id=? AND e.entitlement_status='active' AND p.period_start<=CURDATE() AND p.period_end>=CURDATE() ORDER BY DATEDIFF(p.period_end,p.period_start) ASC,e.id DESC LIMIT 1"); $e->execute([$studentId]); $entitlementId=(int)$e->fetchColumn();
-                    $financialAccountId = $this->accountFinancialId($providerId, $accountIdentifier);
+                    $financialAccountId = $this->accountFinancialId($providerId, $accountIdentifier, 'transport');
                     if ($entitlementId && $financialAccountId && (new TransportPaymentService($this->db))->reconcileEntitlement($entitlementId,$studentId,$amount,$providerCode,$providerTransactionId,$financialAccountId)) return ['status'=>'processed','purpose'=>'transport','student_id'=>$studentId,'reference'=>$reference,'provider_transaction_id'=>$providerTransactionId];
                 }
             }
@@ -79,10 +79,10 @@ class PaymentRoutingService
             $ok=(new TransportPaymentService($this->db))->reconcileIntentReference($reference,$amount,$providerCode,$providerTransactionId);
             if (!$ok) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'transport','Transport reference has no active payment intent',$payload);
         } elseif ($purpose==='uniforms') {
-            $ok=(new UniformPaymentService($this->db))->reconcileReference($reference,$amount,$providerCode,$providerTransactionId,$this->accountFinancialId($providerId,$accountIdentifier));
+            $ok=(new UniformPaymentService($this->db))->reconcileReference($reference,$amount,$providerCode,$providerTransactionId,$this->accountFinancialId($providerId,$accountIdentifier,'uniforms'));
             if (!$ok) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'uniforms','Uniform reference has no active sale/payment intent',$payload);
         } else {
-            $financialAccountId=$this->accountFinancialId($providerId,$accountIdentifier);
+            $financialAccountId=$this->accountFinancialId($providerId,$accountIdentifier,'fees');
             if (!$financialAccountId) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'fees','Fees collection account is not mapped to a financial ledger account',$payload);
             $feePaymentId=$this->recordFee($referenceRow['student_id'],$amount,$providerCode,$reference,$providerTransactionId,$payload,$financialAccountId);
         }
@@ -204,25 +204,69 @@ class PaymentRoutingService
         // idempotency keys. Use the provider transaction identity so the same
         // learner can make multiple legitimate fee payments.
         $receiptNo = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $provider), 0, 8)) . '-' . strtoupper(substr(hash('sha256', $provider . '|' . $providerTransactionId), 0, 16));
-        $s=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? LIMIT 1'); $s->execute([$receiptNo]); if ($s->fetchColumn()) return null;
-        // student_parents is a 4NF junction table with a composite key;
-        // there is intentionally no surrogate id column to order by.
-        $p=$this->db->prepare('SELECT parent_id FROM student_parents WHERE student_id=? ORDER BY is_primary_contact DESC,parent_id ASC LIMIT 1'); $p->execute([$studentId]); $parent=$p->fetchColumn() ?: null;
-        $sp=$this->db->prepare('CALL sp_process_student_payment(?,?,?,?,?,?,?,?,?)'); $sp->execute([$studentId,$parent,$amount,in_array($provider,['mpesa_daraja','payhero'],true)?'mpesa':'bank_transfer',$reference,$receiptNo,1,date('Y-m-d H:i:s'),'Provider transaction '.$providerTransactionId.' confirmed; routed incoming payment: '.json_encode($payload)]); $sp->closeCursor();
-        $find=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? ORDER BY id DESC LIMIT 1'); $find->execute([$receiptNo]); $paymentId=(int)$find->fetchColumn();
-        if (!$paymentId) throw new RuntimeException('Fee payment procedure did not create a payment record.');
-        $this->db->prepare('UPDATE payments SET financial_account_id=?,payment_purpose=? WHERE id=?')->execute([$financialAccountId,'fees',$paymentId]);
-        $this->posting->postIncoming('payment',$paymentId,$financialAccountId,'fees',(string)$amount,0,$reference);
-        return $paymentId;
+        $existing = $this->db->prepare('SELECT id FROM payments WHERE receipt_no=? LIMIT 1');
+        $existing->execute([$receiptNo]);
+        if ($existing->fetchColumn()) {
+            $findExisting = $this->db->prepare('SELECT id FROM payments WHERE receipt_no=? ORDER BY id DESC LIMIT 1');
+            $findExisting->execute([$receiptNo]);
+            $pid = (int)$findExisting->fetchColumn();
+            if ($pid > 0) {
+                try {
+                    $this->db->prepare("UPDATE payments SET financial_account_id=COALESCE(financial_account_id,?),payment_purpose=COALESCE(NULLIF(payment_purpose,''),?) WHERE id=?")->execute([$financialAccountId,'fees',$pid]);
+                } catch (\Throwable $e) {}
+                try {
+                    $this->posting->postIncoming('payment',$pid,$financialAccountId,'fees',(string)$amount,0,$reference);
+                } catch (\Throwable $e) {
+                    // Idempotent: already posted or handled elsewhere
+                }
+                return $pid;
+            }
+            return null;
+        }
+
+        $owns = !$this->db->inTransaction();
+        if ($owns) { $this->db->beginTransaction(); }
+        try {
+            // student_parents is a 4NF junction table with a composite key;
+            // there is intentionally no surrogate id column to order by.
+            $p=$this->db->prepare('SELECT parent_id FROM student_parents WHERE student_id=? ORDER BY is_primary_contact DESC,parent_id ASC LIMIT 1'); $p->execute([$studentId]); $parent=$p->fetchColumn() ?: null;
+            $sp=$this->db->prepare('CALL sp_process_student_payment(?,?,?,?,?,?,?,?,?)'); $sp->execute([$studentId,$parent,$amount,in_array(ProviderCodes::canonical($provider),['safaricom_daraja','payhero'],true)?'mpesa':'bank_transfer',$reference,$receiptNo,1,date('Y-m-d H:i:s'),'Provider transaction '.$providerTransactionId.' confirmed; routed incoming payment: '.json_encode($payload)]); $sp->closeCursor();
+            $find=$this->db->prepare('SELECT id FROM payments WHERE receipt_no=? ORDER BY id DESC LIMIT 1'); $find->execute([$receiptNo]); $paymentId=(int)$find->fetchColumn();
+            if (!$paymentId) throw new RuntimeException('Fee payment procedure did not create a payment record.');
+            $this->db->prepare('UPDATE payments SET financial_account_id=?,payment_purpose=? WHERE id=?')->execute([$financialAccountId,'fees',$paymentId]);
+            $this->posting->postIncoming('payment',$paymentId,$financialAccountId,'fees',(string)$amount,0,$reference);
+            if ($owns) { $this->db->commit(); }
+            return $paymentId;
+        } catch (\Throwable $e) {
+            if ($owns && $this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
     }
 
-    private function providerId(string $code): int { $s=$this->db->prepare('SELECT id FROM payment_providers WHERE code=? AND active=1 ORDER BY environment=IF(?="production", "production", "sandbox") DESC,id LIMIT 1'); $env=defined('APP_ENV')?(string)APP_ENV:'sandbox'; $s->execute([$code,$env]); $id=$s->fetchColumn(); if (!$id) throw new RuntimeException('Payment provider is not configured: '.$code); return (int)$id; }
+    private function providerId(string $code): int { $code = ProviderCodes::canonical($code); $env = defined('APP_ENV') ? (string)constant('APP_ENV') : 'sandbox'; $s=$this->db->prepare('SELECT id FROM payment_providers WHERE code=? AND active=1 ORDER BY environment=IF(?="production", "production", "sandbox") DESC,id LIMIT 1'); $s->execute([$code,$env]); $id=$s->fetchColumn(); if (!$id) { $s2=$this->db->prepare('SELECT id FROM payment_providers WHERE code=? AND active=1 ORDER BY id LIMIT 1'); $s2->execute([$code]); $id=$s2->fetchColumn(); } if (!$id) throw new RuntimeException('Payment provider is not configured: '.$code); return (int)$id; }
     private function accountPurpose(int $providerId,string $account): ?string { if ($account==='') return null; $s=$this->db->prepare('SELECT purpose FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1'); $s->execute([$providerId,$account]); $rows=$s->fetchAll(PDO::FETCH_COLUMN); if (count($rows)===1) return (string)$rows[0]; if ($this->providerCode($providerId)==='generic_bank') { $s=$this->db->prepare('SELECT purpose FROM payment_collection_routes WHERE normalized_account_identifier=? AND active=1'); $s->execute([$account]); $rows=$s->fetchAll(PDO::FETCH_COLUMN); } return count($rows)===1?(string)$rows[0]:null; }
     private function reference(string $ref): ?array { $normalized=$this->normalizer->reference($ref); if ($normalized==='') return null; $s=$this->db->prepare('SELECT * FROM payment_routing_references WHERE (normalized_reference=? OR reference=?) AND status IN ("active","consumed") AND (expires_at IS NULL OR expires_at>=NOW()) LIMIT 1'); $s->execute([$normalized,$ref]); return $s->fetch(PDO::FETCH_ASSOC) ?: null; }
     private function prefixPurpose(string $ref): ?string { return $this->normalizer->purposeFromReference($ref); }
-    private function accountFinancialId(int $providerId, string $account): ?int { $s=$this->db->prepare('SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1 ORDER BY id LIMIT 1'); $s->execute([$providerId,$account]); $id=$s->fetchColumn(); if (!$id && $this->providerCode($providerId)==='generic_bank') { $s=$this->db->prepare('SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE normalized_account_identifier=? AND active=1 ORDER BY id LIMIT 1'); $s->execute([$account]); $id=$s->fetchColumn(); } return $id ? (int)$id : null; }
+    private function accountFinancialId(int $providerId, string $account, ?string $purpose = null): ?int { if ($account==='') return null; $sql='SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1'; $params=[$providerId,$account]; if ($purpose!==null) { $sql.=' AND purpose=?'; $params[]=$purpose; } $sql.=' ORDER BY id LIMIT 1'; $s=$this->db->prepare($sql); $s->execute($params); $id=$s->fetchColumn(); if (!$id && $this->providerCode($providerId)==='generic_bank') { $sql='SELECT COALESCE(settlement_financial_account_id,financial_account_id) FROM payment_collection_routes WHERE normalized_account_identifier=? AND active=1'; $params=[$account]; if ($purpose!==null) { $sql.=' AND purpose=?'; $params[]=$purpose; } $sql.=' ORDER BY id LIMIT 1'; $s=$this->db->prepare($sql); $s->execute($params); $id=$s->fetchColumn(); } return $id ? (int)$id : null; }
     private function providerCode(int $providerId): string { $s=$this->db->prepare('SELECT code FROM payment_providers WHERE id=?'); $s->execute([$providerId]); return (string)$s->fetchColumn(); }
-    private function channelCode(string $providerCode, array $payload): string { if (!empty($payload['channel'])) return (string)$payload['channel']; if ($providerCode==='mpesa_daraja') return 'mpesa_c2b'; if ($providerCode==='kcb_buni') return 'buni_ipn'; if ($providerCode==='payhero') return 'mpesa_stk'; return 'bank_transfer'; }
+    private function channelCode(string $providerCode, array $payload): string
+    {
+        $explicit = trim((string)($payload['channel'] ?? ''));
+        // Older callers used provider-neutral aliases; map them to the
+        // canonical financial_channels codes used by payment_collection_routes.
+        $aliases = [
+            'mpesa_stk' => $providerCode === 'payhero' ? 'payhero_stk' : 'safaricom_stk',
+            'mpesa_c2b' => 'safaricom_c2b',
+            'buni_ipn' => 'kcb_buni_ipn',
+        ];
+        if ($explicit !== '' && $explicit !== 'auto') return $aliases[$explicit] ?? $explicit;
+        return match (ProviderCodes::canonical($providerCode)) {
+            'safaricom_daraja' => 'safaricom_c2b',
+            'kcb_buni' => 'kcb_buni_ipn',
+            'payhero' => 'payhero_stk',
+            default => 'bank_transfer',
+        };
+    }
     private function routeAllowsChannel(int $providerId, string $account, string $purpose, string $channel): bool
     {
         $s=$this->db->prepare('SELECT r.id FROM payment_collection_routes r WHERE r.provider_id=? AND r.normalized_account_identifier=? AND r.purpose=? AND r.active=1 LIMIT 1');

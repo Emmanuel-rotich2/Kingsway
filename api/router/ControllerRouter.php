@@ -41,6 +41,12 @@ class ControllerRouter
             // Get controller name (first segment)
             $controllerName = array_shift($segments);
 
+            // Special case: Buni IPN endpoints (/ipn/1.0.0/validation, /ipn/1.0.0/till-notification, etc.)
+            // Map the 'ipn' controller to the PaymentsController
+            if ($controllerName === 'ipn') {
+                $controllerName = 'payments';
+            }
+
             // Remaining segments are: [resource, id/value, ...nested]
             // Strategy:
             // 1. Extract the first numeric segment as the resource ID. This supports
@@ -78,6 +84,18 @@ class ControllerRouter
                 'resource' => $resource,
                 'id' => $id,
             ];
+
+            // Special case: Buni IPN endpoints (/ipn/1.0.0/...)
+            // Map IPN resource paths to correct KCB method names
+            if ($controllerName === 'payments' && $resource && strpos($resource, '1.0.0-') === 0) {
+                if (strpos($resource, '1.0.0-validation') === 0) {
+                    $resource = 'kcb-validation';
+                } elseif (strpos($resource, '1.0.0-till-notification') === 0) {
+                    $resource = 'kcb-notification';
+                } elseif (strpos($resource, '1.0.0-account-notification') === 0) {
+                    $resource = 'kcb-notification';
+                }
+            }
 
             // Load controller class
             $controller = $this->loadController($controllerName);

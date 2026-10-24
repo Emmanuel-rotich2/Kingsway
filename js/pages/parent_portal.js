@@ -1025,11 +1025,15 @@ const parentPortalController = {
     },
 
     checkMpesaStatus(checkoutRequestId, callback) {
+        var self = this;
+        var statusEl = document.getElementById('mpesaPollingStatus');
         this.apiFetch('/mpesa-status/' + checkoutRequestId, 'GET')
             .then(function (resp) {
                 var d = resp.data || resp;
                 if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') {
                     callback(true);
+                } else if (resp.status === 503 || d.message === 'STK payment is still being reconciled') {
+                    if (statusEl) statusEl.textContent = 'Still reconciling with M-Pesa...';
                 }
             }).catch(function () {});
     },

@@ -415,7 +415,7 @@
                 <option value="fees">School Fees</option>
                 <option value="uniforms">Uniforms</option>
                 <option value="transport">Transport</option>
-                <option value="other">Other</option>
+                
               </select>
             </div>
             <div class="col-12">

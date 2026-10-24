@@ -720,10 +720,16 @@ const MyFamilyController = {
     },
 
     checkMpesaStatus(checkoutRequestId, callback) {
+        const self = this;
+        const statusEl = document.getElementById('mfMpesaPollingStatus');
         this.apiFetch('/mpesa-status/' + checkoutRequestId, 'GET')
             .then((resp) => {
                 const d = resp.data || resp;
-                if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') callback(true);
+                if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') {
+                    callback(true);
+                } else if (resp.status === 503 || d.message === 'STK payment is still being reconciled') {
+                    if (statusEl) statusEl.textContent = 'Still reconciling with M-Pesa...';
+                }
             }).catch(() => {});
     },
 

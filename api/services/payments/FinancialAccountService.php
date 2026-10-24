@@ -25,6 +25,24 @@ final class FinancialAccountService
             throw new RuntimeException('Cash payments are not supported for school fees.');
         }
         if ($accountId <= 0 && !$disbursement) {
+            // The configured collection route is the authority for which
+            // school account receives a purpose + channel. Account-channel
+            // rows are the fallback for manual rails (cash/cheque/bank).
+            $default = $this->db->prepare(
+                "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id) AS id
+                   FROM payment_collection_routes r
+                   JOIN payment_collection_route_channels rc ON rc.route_id=r.id
+                   JOIN financial_channels fc ON fc.id=rc.channel_id AND fc.code=?
+                   JOIN " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
+                        ON a.id=COALESCE(r.settlement_financial_account_id, r.financial_account_id)
+                       AND a.status='active'
+                  WHERE r.active=1 AND r.purpose=?
+                  ORDER BY r.priority, r.id LIMIT 1"
+            );
+            $default->execute([$channel, $purpose]);
+            $accountId = (int) $default->fetchColumn();
+        }
+        if ($accountId <= 0 && !$disbursement) {
             $default = $this->db->prepare("SELECT a.id FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
                 JOIN financial_account_purposes fp ON fp.code=?
                 JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
@@ -54,14 +72,11 @@ final class FinancialAccountService
                 LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
                 JOIN financial_account_purposes fp ON fp.code=?
                 JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
-                JOIN " . ReadReplicaService::qualifiedRef("school_financial_account_channels") . " ac ON ac.financial_account_id=a.id
-                JOIN financial_channels fc ON fc.id=ac.channel_id
-                    AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))
                 WHERE a.id=? AND a.status='active' LIMIT 1";
         $s = $this->db->prepare($sql);
-        $s->execute($disbursement ? [$purpose, $accountId] : [$purpose, $channel, $channel, $accountId]);
+        $s->execute($disbursement ? [$purpose, $accountId] : [$purpose, $accountId]);
         $account = $s->fetch(PDO::FETCH_ASSOC);
-        if (!$account) throw new RuntimeException('Selected financial account is inactive or is not authorized for this purpose/channel.');
+        if (!$account) throw new RuntimeException('Selected financial account is inactive or is not authorized for this purpose.');
         if (empty($account['ledger_code'])) throw new RuntimeException('Selected financial account has no chart-of-accounts mapping.');
         if ($disbursement && $actorUserId) {
             $permission = $this->db->prepare('SELECT 1 FROM ' . ReadReplicaService::masterRef('school_financial_account_permissions') . ' JOIN user_roles ur ON ur.role_id=ap.role_id WHERE ap.financial_account_id=? AND ur.user_id=? AND ap.can_disburse=1 LIMIT 1');
@@ -78,12 +93,24 @@ final class FinancialAccountService
             FROM " . ReadReplicaService::qualifiedRef("school_financial_accounts") . " a
             JOIN financial_account_purposes fp ON fp.code=?
             JOIN school_financial_account_purposes sap ON sap.financial_account_id=a.id AND sap.purpose_id=fp.id
-            JOIN " . ReadReplicaService::qualifiedRef("school_financial_account_channels") . " ac ON ac.financial_account_id=a.id
-            JOIN financial_channels fc ON fc.id=ac.channel_id
-                AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))
             LEFT JOIN payment_providers p ON p.id=a.provider_id
-            WHERE a.status='active' ORDER BY a.is_primary DESC,a.account_name");
-        $s->execute([$purpose, $channel, $channel]);
+            WHERE a.status='active' AND (
+                EXISTS (
+                    SELECT 1 FROM payment_collection_routes r
+                    JOIN payment_collection_route_channels rc ON rc.route_id=r.id
+                    JOIN financial_channels rfc ON rfc.id=rc.channel_id AND rfc.code=?
+                    WHERE COALESCE(r.settlement_financial_account_id,r.financial_account_id)=a.id
+                      AND r.active=1 AND r.purpose=?
+                )
+                OR EXISTS (
+                    SELECT 1 FROM " . ReadReplicaService::qualifiedRef("school_financial_account_channels") . " ac
+                    JOIN financial_channels fc ON fc.id=ac.channel_id
+                        AND (fc.code=? OR (?='buni_transfer' AND fc.code='bank_transfer'))
+                    WHERE ac.financial_account_id=a.id
+                )
+            )
+            ORDER BY a.is_primary DESC,a.account_name");
+        $s->execute([$purpose, $channel, $purpose, $channel, $channel]);
         return $s->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

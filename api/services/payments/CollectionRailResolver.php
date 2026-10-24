@@ -12,27 +12,34 @@ use Throwable;
  * Resolves the ordered list of online collection rails for a payment purpose.
  *
  * ARCHITECTURE:
- *   - PayHero = PRIMARY STK Push (channel: mpesa_stk)
- *   - Daraja Express = STK FALLBACK (channel: mpesa_stk)
+ *   - PayHero = PRIMARY STK Push (channel: payhero_stk)
+ *   - Daraja Express = STK FALLBACK (channel: safaricom_stk)
  *   - KCB Buni = C2B/IPN ONLY — NOT in RAIL_CHANNELS (no STK)
- *   - Daraja C2B = Validation + Confirmation (channel: mpesa_c2b) — handled separately
+ *   - Daraja C2B = Validation + Confirmation (channel: safaricom_c2b) — handled separately
  *
  * Gateways are rails, not account-bound: the receiving / settling accounts are
- * read from `payment_collection_routes` at transaction time, and the failover
- * order is driven by `routes.priority` (lower is attempted first). Routes whose
- * provider cannot initiate an online collection (generic bank etc.) or whose
- * channel list excludes the rail's channel are skipped.
+ * read from `payment_collection_routes` at transaction time. STK failover is a
+ * business rule, not a database one: PayHero is always attempted first and
+ * Daraja Express second. `routes.priority` still orders non-STK rails.
+ * Routes whose provider cannot initiate an online collection (generic bank
+ * etc.) or whose channel list excludes the rail's channel are skipped.
  *
  * Reads go to the primary connection on purpose: rail configuration changes
  * must be visible to the very next initiation (no replica lag on money rails).
  */
 class CollectionRailResolver
 {
-    /** provider code => financial channel code used to initiate a collection */
+    /** provider code => canonical financial_channels.code used to initiate a collection */
     private const RAIL_CHANNELS = [
-        'payhero'      => 'mpesa_stk',   // PRIMARY STK
-        'mpesa_daraja' => 'mpesa_stk',   // FALLBACK STK (LIPA_NA_MPESA_ONLINE)
-        // 'kcb_buni'    => 'buni_ipn',   // REMOVED: Buni does C2B/IPN only, no STK
+        'payhero'      => 'payhero_stk',    // PRIMARY STK
+        'safaricom_daraja' => 'safaricom_stk',  // FALLBACK STK (LIPA_NA_MPESA_ONLINE)
+        // 'kcb_buni'    => 'kcb_buni_ipn', // REMOVED: Buni does C2B/IPN only, no STK
+    ];
+
+    /** STK initiation order: PayHero primary, Daraja Express fallback. */
+    private const STK_PROVIDER_RANK = [
+        'payhero'      => 0,
+        'safaricom_daraja' => 1,
     ];
 
     private PDO $db;
@@ -44,7 +51,7 @@ class CollectionRailResolver
 
     public function isOnlineProvider(string $providerCode): bool
     {
-        return isset(self::RAIL_CHANNELS[$providerCode]);
+        return isset(self::RAIL_CHANNELS[ProviderCodes::canonical($providerCode)]);
     }
 
     /**
@@ -79,8 +86,9 @@ class CollectionRailResolver
             $params[] = $financialAccountId;
         }
         if ($providerCode !== null && $providerCode !== '') {
-            $sql .= ' AND p.code = ?';
-            $params[] = $providerCode;
+            $variants = ProviderCodes::variants($providerCode);
+            $sql .= ' AND p.code IN (' . implode(',', array_fill(0, count($variants), '?')) . ')';
+            array_push($params, ...$variants);
         }
 
         $sql .= ' ORDER BY r.priority ASC, r.id ASC';
@@ -99,7 +107,7 @@ class CollectionRailResolver
 
         $out = [];
         foreach ($rows as $row) {
-            $providerCode = (string) $row['provider_code'];
+            $providerCode = ProviderCodes::canonical((string) $row['provider_code']);
             $channel = self::RAIL_CHANNELS[$providerCode] ?? null;
             if ($channel === null) {
                 continue; // not an online-initiating provider (e.g. generic_bank)
@@ -122,6 +130,16 @@ class CollectionRailResolver
                 'priority' => (int) $row['priority'],
             ];
         }
+
+        // STK failover is a business rule: PayHero is always the primary STK
+        // rail and Daraja Express is the fallback, regardless of the database
+        // priority used for other collection products.
+        usort($out, static function (array $a, array $b): int {
+            $rankA = self::STK_PROVIDER_RANK[$a['provider_code']] ?? 99;
+            $rankB = self::STK_PROVIDER_RANK[$b['provider_code']] ?? 99;
+            return [$rankA, $a['priority'], $a['route_id']]
+                <=> [$rankB, $b['priority'], $b['route_id']];
+        });
 
         return $out;
     }

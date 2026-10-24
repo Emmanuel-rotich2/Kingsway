@@ -2385,11 +2385,10 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Amount exceeds outstanding balance', 400);
             }
 
-            // Provider is a system decision, not a parent choice. Rails are
-            // DB-driven (payment_collection_routes.priority) and attempted in
-            // order: Buni first, PayHero next, Daraja last — failing over only
-            // while no provider has accepted the request. An explicit override
-            // is still honoured for staff-surface callers.
+            // Provider is a system decision, not a parent choice. STK rails
+            // are attempted in business order: PayHero first, Daraja Express
+            // fallback — failing over only while no provider has accepted the
+            // request. KCB Buni is C2B/IPN only and never prompts an STK.
             $provider = strtolower(trim((string) ($data['provider'] ?? 'auto')));
             if (!in_array($provider, ['auto', 'buni', 'daraja', 'payhero'], true)) {
                 return $this->errorResponse('Unsupported payment provider', 400);
@@ -2401,19 +2400,17 @@ class ParentPortalManager extends BaseAPI
                 'reference' => $student['admission_no'],
                 'customer_name' => trim((string) ($parent['name'] ?? '')),
                 'description' => 'School fees',
-                'provider_code' => ['buni' => 'kcb_buni', 'daraja' => 'mpesa_daraja', 'payhero' => 'payhero'][$provider] ?? '',
+                'provider_code' => ['daraja' => 'safaricom_daraja', 'payhero' => 'payhero'][$provider] ?? '',
             ]);
 
             if (!empty($result['accepted'])) {
                 $providerLabels = [
-                    'kcb_buni' => 'buni',
                     'payhero' => 'payhero',
-                    'mpesa_daraja' => 'daraja',
+                    'safaricom_daraja' => 'daraja',
                 ];
                 $messages = [
-                    'kcb_buni' => 'KCB Buni M-Pesa prompt sent. Check your phone and enter your PIN.',
                     'payhero' => 'M-Pesa prompt sent. Check your phone and enter your PIN.',
-                    'mpesa_daraja' => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
+                    'safaricom_daraja' => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
                 ];
                 $providerResult = $result['result']['provider'] ?? [];
 

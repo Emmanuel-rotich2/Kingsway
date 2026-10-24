@@ -126,8 +126,20 @@ class AccountsManager extends BaseAPI
             $providerId=null;if(!empty($data['provider_code'])){$s=$this->db->prepare('SELECT id FROM payment_providers WHERE code=? AND active=1 ORDER BY id DESC LIMIT 1');$s->execute([(string)$data['provider_code']]);$providerId=(int)$s->fetchColumn()?:null;}
             $ledgerId=null;if(!empty($data['ledger_code'])){$s=$this->db->prepare("SELECT id FROM chart_of_accounts WHERE account_code=? AND status='active' AND is_postable=1");$s->execute([(string)$data['ledger_code']]);$ledgerId=(int)$s->fetchColumn()?:null;}
             if(!$ledgerId)throw new Exception('A valid postable ledger account is required');
-            $i=$this->db->prepare("INSERT INTO school_financial_accounts(account_name,account_kind_id,provider_id,ledger_account_id,account_identifier,normalized_account_identifier,bank_name,currency,status,created_at) VALUES(?,?,?,?,?,?,?,?,'pending_verification',NOW())");
-            $i->execute([$name,$kindId,$providerId,$ledgerId,$identifier,$normalized,$data['bank_name']??null,$data['currency']??'KES']);$id=(int)$this->db->lastInsertId();
+            // Super admin accounts are auto-verified; others need manual verification
+            $isSuperAdmin = false;
+            if ($userId > 0) {
+                // System Administrator (id=2, scope='system', is_system=1) is the super admin
+                $roleCheck = $this->db->prepare("SELECT 1 FROM user_roles ur JOIN user_role_assignments ura ON ura.role_id=ur.id WHERE ura.user_id=? AND ur.id=2 AND ur.is_system=1 LIMIT 1");
+                $roleCheck->execute([$userId]);
+                $isSuperAdmin = (bool)$roleCheck->fetchColumn();
+            }
+            $initialStatus = $isSuperAdmin ? 'active' : 'pending_verification';
+            $verifiedBy = $isSuperAdmin ? $userId : null;
+            $verifiedAt = $isSuperAdmin ? 'NOW()' : null;
+
+            $i = $this->db->prepare("INSERT INTO school_financial_accounts(account_name,account_kind_id,provider_id,ledger_account_id,account_identifier,normalized_account_identifier,bank_name,currency,status,verified_by,verified_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,NOW())");
+            $i->execute([$name,$kindId,$providerId,$ledgerId,$identifier,$normalized,$data['bank_name']??null,$data['currency']??'KES',$initialStatus,$verifiedBy,$verifiedAt]);$id=(int)$this->db->lastInsertId();
             $settlementId=$this->settlementAccountId($data, $id, $kind);
             $this->db->prepare('UPDATE school_financial_accounts SET settlement_financial_account_id=? WHERE id=?')->execute([$settlementId,$id]);
             $p=$this->db->prepare('SELECT id FROM financial_account_purposes WHERE code=?');$pi=$this->db->prepare('INSERT INTO school_financial_account_purposes(financial_account_id,purpose_id) VALUES(?,?)');
@@ -137,15 +149,15 @@ class AccountsManager extends BaseAPI
             $data['collection_purposes'] = array_key_exists('collection_purposes', $data)
                 ? array_values(array_intersect(['fees','transport','uniforms'], (array)$data['collection_purposes']))
                 : array_values(array_intersect(['fees','transport','uniforms'], $purposes));
-            $this->syncCollectionRoutes($id, $providerId, $identifier, $data['collection_purposes'], $settlementId, $data);
+            $this->syncCollectionRoutes($id, $providerId, $identifier, $data['collection_purposes'], $settlementId, $data, $isSuperAdmin);
             $this->syncFeeStructureDisplay($id, $data, $userId);
             $this->db->prepare('INSERT INTO accounting_audit_events(actor_user_id,action,entity_type,entity_id,after_state) VALUES(?,?,?,?,?)')->execute([$userId,'created','school_financial_account',$id,json_encode(['name'=>$name,'kind'=>$kind,'purposes'=>$purposes,'channels'=>$channels])]);
-            $this->db->commit();return formatResponse(true,['id'=>$id],'Financial account created and awaiting verification');
+            $this->db->commit();return formatResponse(true,['id'=>$id,'status'=>$initialStatus],'Financial account created' . ($isSuperAdmin ? ' and auto-verified' : ' and awaiting verification'));
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();return $this->handleException($e);}
     }
 
     /** Keep the provider/account/purpose routes used by incoming payment callbacks in sync. */
-    private function syncCollectionRoutes(int $accountId, ?int $providerId, string $identifier, array $purposes, ?int $settlementId = null, array $data = []): void
+    private function syncCollectionRoutes(int $accountId, ?int $providerId, string $identifier, array $purposes, ?int $settlementId = null, array $data = [], bool $isSuperAdmin = false): void
     {
         $normalizer = new ReferenceNormalizer();
         $normalized = $normalizer->accountIdentifier($identifier);
@@ -167,7 +179,7 @@ class AccountsManager extends BaseAPI
         }
         $providerCode = '';
         if ($providerId) { $p=$this->db->prepare('SELECT code FROM payment_providers WHERE id=?'); $p->execute([$providerId]); $providerCode=(string)$p->fetchColumn(); }
-        $product = trim((string)($data['collection_product'] ?? '')) ?: (in_array($providerCode, ['mpesa_daraja','payhero'], true) ? (($data['account_product'] ?? 'paybill') === 'till' ? 'till' : 'paybill') : ($providerCode === 'kcb_buni' ? 'buni' : 'bank_collection'));
+        $product = trim((string)($data['collection_product'] ?? '')) ?: (in_array($providerCode, ['mpesa_daraja','safaricom_daraja','payhero'], true) ? (($data['account_product'] ?? 'paybill') === 'till' ? 'till' : 'paybill') : ($providerCode === 'kcb_buni' ? 'buni' : 'bank_collection'));
         $route = $this->db->prepare('INSERT INTO payment_collection_routes (provider_id,financial_account_id,settlement_financial_account_id,account_identifier,normalized_account_identifier,collection_product,reference_policy,reference_label,purpose,reference_prefix,priority) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
         $routeChannel = $this->db->prepare('INSERT IGNORE INTO payment_collection_route_channels (route_id,channel_id) SELECT ?,fc.id FROM financial_channels fc WHERE fc.code=?');
         foreach (array_intersect(['fees','transport','uniforms'], $purposes) as $purpose) {
@@ -176,6 +188,10 @@ class AccountsManager extends BaseAPI
             $label = trim((string)($data['reference_label'] ?? '')) ?: null;
             $route->execute([$providerId,$accountId,$settlementId ?: $accountId,$identifier,$normalizer->accountIdentifier($identifier),$product,$policy,$label,$purpose,$prefix,$priorities[$purpose] ?? 100]);
             $routeId = (int)$this->db->lastInsertId();
+            // Super admin routes are auto-activated
+            if ($isSuperAdmin) {
+                $this->db->prepare('UPDATE payment_collection_routes SET active=1 WHERE id=?')->execute([$routeId]);
+            }
             foreach ($this->collectionChannelCodes($accountId, $purpose, $data) as $channelCode) {
                 $routeChannel->execute([$routeId, $channelCode]);
             }
@@ -469,6 +485,127 @@ class AccountsManager extends BaseAPI
 
             return formatResponse(true, ['id' => $id], 'Transaction deleted');
         } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get journal entries for a bank transaction.
+     */
+    public function getBankTransactionJournal($id)
+    {
+        try {
+            $id = (int) $id;
+            $stmt = $this->db->prepare(
+                'SELECT jl.id, jl.journal_batch_id, jl.line_number, jl.description,
+                        jl.debit_amount, jl.credit_amount, jl.entity_type, jl.entity_id,
+                        ca.account_code, ca.account_name, jb.batch_number, jb.posted_at
+                   FROM accounting_journal_lines jl
+                   JOIN accounting_journal_batches jb ON jb.id = jl.journal_batch_id
+                   JOIN chart_of_accounts ca ON ca.id = jl.chart_account_id
+                   JOIN accounting_source_links sl ON sl.journal_batch_id = jb.id
+                  WHERE sl.source_type = "bank_transaction" AND sl.source_id = ?
+                  ORDER BY jl.line_number'
+            );
+            $stmt->execute([$id]);
+            $lines = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            return formatResponse(true, ['journal' => $lines]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Activate a financial account (super admin only - auto-verified).
+     */
+    public function activateFinancialAccount(int $id, int $userId): array
+    {
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare('SELECT * FROM school_financial_accounts WHERE id = ? FOR UPDATE');
+            $q->execute([$id]);
+            $account = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$account) throw new Exception('Financial account not found.');
+
+            $u = $this->db->prepare("UPDATE school_financial_accounts SET status='active', verified_by=?, verified_at=NOW() WHERE id=?");
+            $u->execute([$userId, $id]);
+
+            $this->db->prepare('INSERT INTO accounting_audit_events(actor_user_id,action,entity_type,entity_id,before_state,after_state) VALUES(?,?,?,?,?,?)')
+                ->execute([$userId, 'activated', 'school_financial_account', $id, json_encode($account), json_encode(['status' => 'active'])]);
+
+            $this->db->commit();
+            return formatResponse(true, ['id' => $id, 'status' => 'active'], 'Financial account activated.');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Deactivate a financial account.
+     */
+    public function deactivateFinancialAccount(int $id, int $userId): array
+    {
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare('SELECT * FROM school_financial_accounts WHERE id = ? FOR UPDATE');
+            $q->execute([$id]);
+            $account = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$account) throw new Exception('Financial account not found.');
+
+            $u = $this->db->prepare("UPDATE school_financial_accounts SET status='suspended' WHERE id=?");
+            $u->execute([$id]);
+
+            $this->db->prepare('INSERT INTO accounting_audit_events(actor_user_id,action,entity_type,entity_id,before_state,after_state) VALUES(?,?,?,?,?,?)')
+                ->execute([$userId, 'deactivated', 'school_financial_account', $id, json_encode($account), json_encode(['status' => 'suspended'])]);
+
+            $this->db->commit();
+            return formatResponse(true, ['id' => $id, 'status' => 'suspended'], 'Financial account deactivated.');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Delete a financial account (only if no transactions exist).
+     */
+    public function deleteFinancialAccount(int $id, int $userId): array
+    {
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare('SELECT * FROM school_financial_accounts WHERE id = ? FOR UPDATE');
+            $q->execute([$id]);
+            $account = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$account) throw new Exception('Financial account not found.');
+
+            // Check for dependencies
+            $deps = $this->db->prepare('SELECT COUNT(*) FROM payments WHERE financial_account_id=?');
+            $deps->execute([$id]);
+            if ((int)$deps->fetchColumn() > 0) throw new Exception('Cannot delete account with existing transactions.');
+
+            $deps2 = $this->db->prepare('SELECT COUNT(*) FROM bank_transactions WHERE financial_account_id=?');
+            $deps2->execute([$id]);
+            if ((int)$deps2->fetchColumn() > 0) throw new Exception('Cannot delete account with existing bank transactions.');
+
+            $deps3 = $this->db->prepare('SELECT COUNT(*) FROM payment_collection_routes WHERE financial_account_id=?');
+            $deps3->execute([$id]);
+            if ((int)$deps3->fetchColumn() > 0) throw new Exception('Cannot delete account with collection routes. Delete routes first.');
+
+            $this->db->prepare('DELETE FROM school_financial_account_purposes WHERE financial_account_id=?')->execute([$id]);
+            $this->db->prepare('DELETE FROM school_financial_account_channels WHERE financial_account_id=?')->execute([$id]);
+            $this->db->prepare('DELETE FROM school_financial_account_permissions WHERE financial_account_id=?')->execute([$id]);
+            $this->db->prepare('DELETE FROM school_financial_account_fee_display WHERE financial_account_id=?')->execute([$id]);
+            $this->db->prepare('DELETE FROM school_financial_accounts WHERE id=?')->execute([$id]);
+
+            $this->db->prepare('INSERT INTO accounting_audit_events(actor_user_id,action,entity_type,entity_id,before_state) VALUES(?,?,?,?,?)')
+                ->execute([$userId, 'deleted', 'school_financial_account', $id, json_encode($account)]);
+
+            $this->db->commit();
+            return formatResponse(true, ['id' => $id], 'Financial account deleted.');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->handleException($e);
         }
     }

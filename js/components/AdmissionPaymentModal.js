@@ -32,6 +32,7 @@
                             <div class="col-md-6"><label class="form-label">Amount</label><div class="form-text mb-1">${feeInstruction}</div><input type="number" name="amount" class="form-control" min="${fee}" step="0.01" value="${fee}" required></div>
                             <div class="col-md-6" id="sharedAdmissionPaymentPhoneWrap"><label class="form-label">Parent M-Pesa phone</label><input type="tel" name="phone" class="form-control" value="${esc(phone)}" placeholder="07XXXXXXXX" required><div class="form-text">Loaded from the parent record; change it if another number is paying.</div></div>
                             <div class="col-md-6" id="sharedAdmissionPaymentMethodWrap" style="display:none"><label class="form-label">Method</label><select name="method" class="form-select"><option value="bank_transfer">Bank transfer</option><option value="mpesa">M-Pesa</option></select></div>
+                            <div class="col-md-6" id="sharedAdmissionPaymentFinAccWrap" style="display:none"><label class="form-label">Receiving Account</label><select name="financial_account_id" class="form-select" id="sharedAdmissionPaymentFinAcc"><option value="">Select receiving school account</option></select></div>
                             <div class="col-md-6" id="sharedAdmissionPaymentReferenceWrap" style="display:none"><label class="form-label">Bank / M-Pesa transaction reference</label><input type="text" name="reference" class="form-control" placeholder="KCB reference or M-Pesa code"></div>
                             <div class="col-md-6" id="sharedAdmissionPaymentDateWrap" style="display:none"><label class="form-label">Payment date</label><input type="date" name="payment_date" class="form-control" value="${new Date().toISOString().slice(0, 10)}"></div>
                             <div class="col-12" id="sharedAdmissionPaymentReceiptWrap" style="display:none"><label class="form-label">Bank payment receipt</label><input type="file" name="receipt_file" class="form-control" accept="application/pdf,image/jpeg,image/png"><div class="form-text">Required for a physical bank payment. The receipt is supporting evidence; Finance must still match the transaction to an imported KCB statement.</div></div>
@@ -51,11 +52,12 @@
                 registrationControl.parentElement?.insertAdjacentHTML('afterend', `<div class="col-md-6" id="admissionRegistrationReliefValueWrap"><label class="form-label">Registration relief value</label><input id="admissionRegistrationReliefValue" type="number" min="0" step="0.01" class="form-control" value="${esc(relief.registration_fee_waiver_value || '')}" placeholder="Percentage or KES amount"><div class="form-text">For percentage, enter 50 for half.</div></div>`);
             }
             const action = document.getElementById('sharedAdmissionPaymentAction');
-            const toggle = () => {
+const toggle = () => {
                 const bank = action.value === 'bank';
                 const stk = action.value === 'stk';
                 document.getElementById('sharedAdmissionPaymentPhoneWrap').style.display = stk ? '' : 'none';
                 document.getElementById('sharedAdmissionPaymentMethodWrap').style.display = bank ? '' : 'none';
+                document.getElementById('sharedAdmissionPaymentFinAccWrap').style.display = (bank && form.elements.method.value === 'bank_transfer') ? '' : 'none';
                 document.getElementById('sharedAdmissionPaymentReferenceWrap').style.display = bank ? '' : 'none';
                 document.getElementById('sharedAdmissionPaymentDateWrap').style.display = bank ? '' : 'none';
                 document.getElementById('sharedAdmissionPaymentReceiptWrap').style.display = bank && form.elements.method.value === 'bank_transfer' ? '' : 'none';
@@ -67,6 +69,29 @@
             action.addEventListener('change', toggle);
             form.elements.method.addEventListener('change', toggle);
             toggle();
+            if (form.elements.method.value === 'bank_transfer') {
+                loadFinancialAccounts();
+            }
+            form.elements.method.addEventListener('change', () => {
+                toggle();
+                if (form.elements.method.value === 'bank_transfer') {
+                    loadFinancialAccounts();
+                }
+            });
+            function loadFinancialAccounts() {
+                apiCall('/finance/accounts/available?purpose=fees&channel=bank_transfer', 'GET')
+                    .then(response => {
+                        const select = document.getElementById('sharedAdmissionPaymentFinAcc');
+                        select.innerHTML = '<option value="">Select receiving school account</option>';
+                        (response?.data || response?.accounts || []).forEach(acc => {
+                            const opt = document.createElement('option');
+                            opt.value = acc.id;
+                            opt.textContent = (acc.account_name || '') + ' - ' + (acc.account_identifier || '');
+                            select.appendChild(opt);
+                        });
+                    })
+                    .catch(err => console.error('Failed to load financial accounts:', err));
+            }
             const reliefType = document.getElementById('admissionReliefSchoolType');
             const reliefValueWrap = document.getElementById('admissionReliefValueWrap');
             const registrationValueWrap = document.getElementById('admissionRegistrationReliefValueWrap');
@@ -139,7 +164,7 @@
                             receiptDocumentId = uploaded?.data?.document_id || uploaded?.document_id || null;
                             receiptNote = receiptDocumentId ? `Bank receipt document #${receiptDocumentId}` : 'Bank receipt uploaded to the application';
                         }
-                        await apiCall('/admission/record-fee-payment', 'POST', { application_id: Number(application.id), amount: data.amount, phone: data.phone, method: data.method, reference: data.reference, receipt_document_id: receiptDocumentId, payment_date: data.payment_date, notes: [data.notes, receiptNote].filter(Boolean).join(' | ') });
+                        await apiCall('/admission/record-fee-payment', 'POST', { application_id: Number(application.id), amount: data.amount, phone: data.phone, method: data.method, reference: data.reference, receipt_document_id: receiptDocumentId, payment_date: data.payment_date, notes: [data.notes, receiptNote].filter(Boolean).join(' | '), financial_account_id: data.financial_account_id });
                     }
                     window.showNotification?.('Admission payment action completed successfully.', 'success');
                     modal.hide();

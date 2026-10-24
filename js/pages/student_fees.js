@@ -1840,23 +1840,21 @@ const StudentFeesController = {
     this.ui.sendStkPushBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending...';
 
     try {
-      const admissionNo = this.ui.promptAdmNo.value;
-      const reference = `FEE-${admissionNo}-${Date.now()}`;
-
       const payload = {
-        phone_number: phone,
-        amount: amount,
-        external_reference: reference,
+        student_id: Number(studentId),
         purpose: purpose,
+        amount: amount,
+        phone: phone,
         customer_name: parentName || this.ui.promptStudentName.value,
         description: description,
       };
 
-      const response = await window.API.payments.payheroStkPush(payload);
+      const response = await window.API.payments.initiateCollection(payload);
       const result = response?.data ?? response;
 
       if (result?.accepted) {
-        this.notify(`STK push sent successfully to ${phone}. Parent should check their phone and enter PIN.`, "success");
+        const rail = result?.fallback_used ? " (fallback rail)" : "";
+        this.notify(`Payment prompt sent to ${phone}${rail}. Parent should check their phone and enter PIN.`, "success");
         const modal = bootstrap.Modal.getInstance(this.ui.promptParentModal);
         if (modal) modal.hide();
         setTimeout(() => this.loadPaymentStatus(), 3000);

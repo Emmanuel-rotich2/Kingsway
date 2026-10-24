@@ -70,6 +70,14 @@ const UnmatchedPaymentsController = (() => {
     document.getElementById("statPending").textContent = pending.length;
   }
 
+  function getSourceBadgeClass(source) {
+    const src = (source || "").toLowerCase();
+    if (src === "mpesa" || src === "daraja") return "success";
+    if (src === "payhero" || src === "payhero_africa") return "info";
+    if (src === "kcb" || src === "buni" || src === "kcb_buni") return "primary";
+    return "secondary";
+  }
+
   function renderTable(items) {
     const tbody = document.querySelector("#dataTable tbody");
     if (!items.length) {
@@ -85,7 +93,7 @@ const UnmatchedPaymentsController = (() => {
                 <td><code>${escapeHtml(item.transaction_id || item.id)}</code></td>
                 <td>${item.transaction_date ? new Date(item.transaction_date).toLocaleDateString() : "--"}</td>
                 <td class="fw-bold">KES ${parseFloat(item.amount || 0).toLocaleString()}</td>
-                <td><span class="badge bg-${item.source === "mpesa" ? "success" : "primary"}">${escapeHtml(item.source || "Unknown")}</span></td>
+                <td><span class="badge bg-${getSourceBadgeClass(item.source)}">${escapeHtml(item.source || "Unknown")}</span></td>
                 <td>${escapeHtml(item.payer_name || "--")}</td>
                 <td>${escapeHtml(item.reference || "--")}</td>
                 <td><span class="badge bg-${item.status === "unmatched" ? "danger" : "warning"}">${escapeHtml(item.status || "unmatched")}</span></td>

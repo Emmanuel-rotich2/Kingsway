@@ -457,6 +457,33 @@ final class PayheroPaymentService
         if (!empty($status['failed'])) {
             return false;
         }
+        // Verify amount and phone match the callback
+        $callbackAmount = (float) ($normalized['amount'] ?? 0);
+        $statusAmount = (float) ($status['amount'] ?? 0);
+        if ($callbackAmount > 0 && $statusAmount > 0 && abs($callbackAmount - $statusAmount) > 0.01) {
+            FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => 'payhero',
+                'event' => 'amount_mismatch',
+                'reference' => $normalized['reference'],
+                'callback_amount' => $callbackAmount,
+                'status_amount' => $statusAmount,
+            ]);
+            return false;
+        }
+        $callbackPhone = $normalized['phone'] ?? '';
+        $statusPhone = $status['phone'] ?? '';
+        if ($callbackPhone !== '' && $statusPhone !== '' && $callbackPhone !== $statusPhone) {
+            FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => 'payhero',
+                'event' => 'phone_mismatch',
+                'reference' => $normalized['reference'],
+                'callback_phone' => $callbackPhone,
+                'status_phone' => $statusPhone,
+            ]);
+            return false;
+        }
         return true;
     }
 
@@ -517,13 +544,16 @@ final class PayheroPaymentService
     /** @return array<int, array{account_identifier: string, purpose: string}> */
     private function activeRoutes(): array
     {
-        $stmt = $this->db->query(
+        $env = defined('APP_ENV') ? (string) constant('APP_ENV') : 'sandbox';
+        $stmt = $this->db->prepare(
             "SELECT r.account_identifier, r.purpose
                FROM payment_collection_routes r
                JOIN payment_providers p ON p.id = r.provider_id
               WHERE p.code = 'payhero' AND r.active = 1
+                AND p.environment = ?
               ORDER BY r.purpose, r.id"
         );
+        $stmt->execute([$env]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

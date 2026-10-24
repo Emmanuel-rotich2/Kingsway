@@ -69,7 +69,7 @@ final class CollectionFallbackService
     public function initiate(string $purpose, array $context): array
     {
         $purpose = strtolower(trim($purpose));
-        $providerCode = strtolower(trim((string) ($context['provider_code'] ?? '')));
+        $providerCode = ProviderCodes::canonical((string) ($context['provider_code'] ?? ''));
         $context['purpose'] = $purpose;
 
         $candidates = $this->resolver->candidates(
@@ -170,6 +170,7 @@ final class CollectionFallbackService
                     'provider' => $result,
                 ];
 
+            case 'safaricom_daraja':
             case 'mpesa_daraja':
                 // Daraja Express STK Push (LIPA_NA_MPESA_ONLINE) - FALLBACK only
                 $result = (new MpesaPaymentService())->initiateSTKPush(
