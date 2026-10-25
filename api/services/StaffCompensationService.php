@@ -26,24 +26,30 @@ final class StaffCompensationService
              WHERE r.is_active = 1 ORDER BY r.name"
         )->fetchAll(PDO::FETCH_ASSOC);
         $staff = $this->db->query(
-            "SELECT s.id, s.staff_no, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS full_name,
-                    COALESCE(d.name, '') AS department, primary_role.id AS primary_role_id,
-                    primary_role.name AS primary_role,
+            // The staff_directory projection already flattens person, role and
+             // department, so no joins to those tables are needed. The salary
+             // override is keyed by staff; the role rate by role.
+            "SELECT s.staff_id AS id, s.staff_no, s.full_name,
+                    COALESCE(s.department_name, '') AS department,
+                    s.role_id AS primary_role_id, s.role_name AS primary_role,
                     CASE WHEN override.id IS NULL THEN 0 ELSE 1 END AS salary_override,
                     override.gross_salary AS individual_salary,
                     role_rate.gross_salary AS role_gross_salary
-             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-                 WHERE latest.staff_id = s.id AND latest.effective_from <= CURDATE()
+             FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " s
+             LEFT JOIN staff_salary_overrides override ON override.id = (
+                 SELECT latest.id FROM staff_salary_overrides latest
+                 WHERE latest.staff_id = s.staff_id AND latest.effective_from <= CURDATE()
                    AND (latest.effective_to IS NULL OR latest.effective_to >= CURDATE())
                  ORDER BY latest.effective_from DESC, latest.id DESC LIMIT 1
              )
              LEFT JOIN staff_role_salary_rates role_rate ON role_rate.id = (
                  SELECT latest.id FROM staff_role_salary_rates latest
-                 WHERE latest.role_id = primary_role.id AND latest.effective_from <= CURDATE()
+                 WHERE latest.role_id = s.role_id AND latest.effective_from <= CURDATE()
                    AND (latest.effective_to IS NULL OR latest.effective_to >= CURDATE())
                  ORDER BY latest.effective_from DESC, latest.id DESC LIMIT 1
              )
-             WHERE s.status = 'active' AND s.data_scope = 'live' ORDER BY p.first_name, p.last_name"
+             WHERE s.staff_status = 'active' AND s.data_scope = 'live'
+             ORDER BY s.first_name, s.last_name"
         )->fetchAll(PDO::FETCH_ASSOC);
         $departments = $this->db->query(
             "SELECT id, name FROM departments WHERE status = 'active' ORDER BY name"

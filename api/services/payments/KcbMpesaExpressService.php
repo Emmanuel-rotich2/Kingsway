@@ -5,16 +5,22 @@ namespace App\API\Services\payments;
 use Exception;
 
 /**
- * KCB Buni M-Pesa Express adapter (DEPRECATED).
+ * KCB Buni M-Pesa Express adapter.
  *
  * This is intentionally separate from Daraja STK Push: both initiate an
  * M-Pesa prompt but they have different authentication, headers, endpoint,
  * and acknowledgement envelopes.
  *
- * @deprecated Buni STK Push is deprecated per architecture decision.
- *   PayHero is primary STK aggregator; Daraja Express is fallback.
- *   Buni now only handles C2B/IPN (Lipa na KCB / Lipa Karo) via
- *   /api/payments/kcb-notification.
+ * RAIL ROLE: primary STK rail for fees and transport via
+ * `CollectionRailResolver::STK_PROVIDER_ORDER`. Both purposes settle to KCB
+ * bank accounts, so KCB Buni skips aggregator margin entirely: the prompt is
+ * pushed against the school's own Safaricom shortcode/passkey and the money
+ * settles into KCB directly. There is no service wallet to fund and no
+ * per-transaction service charge.
+ *
+ * The result envelope is answered by the purpose-aware
+ * `PaymentsAPI::processKcbMpesaExpressCallback`, which routes fees, transport
+ * and uniforms through the same reference router the Buni IPNs use.
  */
 class KcbMpesaExpressService
 {
@@ -83,7 +89,10 @@ class KcbMpesaExpressService
             'message_id' => $messageId,
             'checkout_request_id' => $body['CheckoutRequestID'] ?? null,
             'merchant_request_id' => $body['MerchantRequestID'] ?? null,
-            'message' => $body['CustomerMessage'] ?? $header['statusDescription'] ?? 'Buni M-Pesa Express response received.',
+            // The default is deliberately provider-agnostic: this adapter also
+            // serves the parent uniform catalogue, where the message is printed
+            // verbatim. Never name the rail (see PaymentMethodLabels).
+            'message' => $body['CustomerMessage'] ?? $header['statusDescription'] ?? 'Payment request received. Check your phone.',
             'callback_url' => $callback,
             'response' => $response,
         ];

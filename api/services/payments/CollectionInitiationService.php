@@ -264,8 +264,8 @@ final class CollectionInitiationService
                     COALESCE((
                         SELECT SUM(a.amount)
                           FROM transport_entitlement_payment_allocations a
-                          JOIN transport_entitlement_payments p ON p.id=a.payment_id
-                         WHERE a.entitlement_id=e.id AND p.payment_status='confirmed'
+                          JOIN transport_entitlement_payments tp ON tp.id=a.payment_id
+                         WHERE a.entitlement_id=e.id AND tp.payment_status='confirmed'
                     ),0) AS paid_amount
                FROM student_transport_entitlements e
                JOIN transport_entitlement_periods p ON p.id=e.period_id
@@ -287,8 +287,8 @@ final class CollectionInitiationService
                     COALESCE((
                         SELECT SUM(a.amount)
                           FROM transport_entitlement_payment_allocations a
-                          JOIN transport_entitlement_payments p ON p.id=a.payment_id
-                         WHERE a.entitlement_id=e.id AND p.payment_status='confirmed'
+                          JOIN transport_entitlement_payments tp ON tp.id=a.payment_id
+                         WHERE a.entitlement_id=e.id AND tp.payment_status='confirmed'
                     ),0) AS paid_amount
                FROM student_transport_entitlements e
               WHERE e.id=? AND e.student_id=? AND e.entitlement_status='active'

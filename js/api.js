@@ -1045,6 +1045,78 @@ const AuthContext = (() => {
 window.AuthContext = AuthContext;
 startSessionActivityTracking();
 
+/* -------------------------------------------------------------------------
+ * PaymentMethodLabels — parent/staff-safe vocabulary for payment rails.
+ *
+ * Only the System Administrator may see which aggregator carried a payment
+ * (Buni, Daraja, PayHero). Everyone else — parents, finance, inventory,
+ * reconciliation, admission staff — sees only what the payer experienced:
+ * an M-Pesa prompt, a direct deposit, Lipa Karo (KCB mobile app) or
+ * Lipa na M-Pesa (Safaricom app / SIM toolkit). Routed request values keep
+ * their internal codes; this helper only rewrites what is displayed.
+ * ---------------------------------------------------------------------- */
+const PaymentMethodLabels = {
+  // channel / rail / provider code => safe label
+  map: {
+    daraja_mpesa: "M-Pesa",
+    safaricom_daraja: "M-Pesa",
+    mpesa_daraja: "M-Pesa",
+    mpesa_stk: "M-Pesa prompt",
+    safaricom_stk: "M-Pesa prompt",
+    safaricom_c2b: "M-Pesa",
+    buni_mpesa: "KCB Bank",
+    kcb_buni: "KCB Bank",
+    kcb_buni_ipn: "Lipa Karo (KCB mobile app)",
+    payhero: "Online Payment",
+    payhero_mpesa: "Online Payment",
+    payhero_stk: "Online Payment",
+    payhero_africa: "Online Payment",
+    bank_transfer: "Direct deposit",
+    bank_webhook: "Direct deposit",
+    cash: "Cash",
+    cheque: "Cheque",
+    card_pos: "Card",
+    internal_transfer: "Internal transfer",
+  },
+  product: {
+    paybill: "Lipa na M-Pesa (Safaricom app / SIM toolkit)",
+    till: "Lipa na M-Pesa (Safaricom app / SIM toolkit)",
+    buni: "Lipa Karo (KCB mobile app)",
+    bank_collection: "Direct deposit",
+    stk: "M-Pesa prompt",
+  },
+  label(code) {
+    const key = String(code ?? "").trim().toLowerCase();
+    if (!key) return "";
+    if (this.map[key]) return this.map[key];
+    for (const prefix of Object.keys(this.map)) {
+      if (prefix !== "payhero" && key.startsWith(`${prefix}_`)) return this.map[prefix];
+    }
+    return String(code ?? "");
+  },
+  productLabel(product) {
+    const key = String(product ?? "").trim().toLowerCase();
+    return this.product[key] || String(product ?? "");
+  },
+  isInternal(code) {
+    const key = String(code ?? "").trim().toLowerCase();
+    return ["buni", "kcb_buni", "kcb_buni_ipn", "daraja", "mpesa_daraja", "safaricom_daraja", "daraja_mpesa", "payhero", "payhero_mpesa"].includes(key)
+      || key.startsWith("payhero_");
+  },
+  // True when this user is allowed to see proprietary rail names at all.
+  canSeeRails() {
+    return Boolean(
+      window.AuthContext?.hasRole?.("System Administrator") ||
+        window.AuthContext?.hasPermission?.("system.payment_integrations.configure")
+    );
+  },
+  // Convenience: safe label for most users, raw code only for the admin.
+  display(code) {
+    return this.canSeeRails() ? String(code ?? "") : this.label(code);
+  },
+};
+window.PaymentMethodLabels = PaymentMethodLabels;
+
 // Lightweight state refresher registry so mutation calls can auto-refresh linked data
 const APIState = (() => {
   const refreshers = new Map();
@@ -5813,6 +5885,14 @@ window.API = {
       apiCall(`/finance/financial-accounts/${id}/permissions`, "POST", { permissions }),
     getFinancialAccountPermissions: async (id) =>
       apiCall(`/finance/financial-accounts/${id}/permissions`, "GET"),
+    // The settings page wires Delete / Activate / Deactivate buttons; these
+    // were called but never registered, so every click raised a TypeError.
+    deleteFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}`, "DELETE"),
+    activateFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/status`, "PUT", { status: "active" }),
+    deactivateFinancialAccount: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/status`, "PUT", { status: "suspended" }),
     getPaymentPosTerminals: async () =>
       apiCall("/finance/payment-pos-terminals", "GET"),
     createPaymentPosTerminal: async (data) =>
@@ -5887,8 +5967,6 @@ window.API = {
       apiCall("/finance/payrolls-recalculate", "POST", data),
     verifyPayroll: async (data) =>
       apiCall("/finance/payrolls-verify", "POST", data),
-    approvePayroll: async (data) =>
-      apiCall("/finance/payrolls-approve", "POST", data),
     rejectPayroll: async (data) =>
       apiCall("/finance/payrolls-reject", "POST", data),
     processPayroll: async (data) =>
@@ -5933,11 +6011,20 @@ window.API = {
       apiCall(`/finance/payroll-stats?month=${month}&year=${year}`, "GET"),
     getPayrollList: async (filters) =>
       apiCall("/finance/payroll-list", "GET", null, filters),
-    approvePayroll: async (payrollId, approvedBy = null) =>
-      apiCall("/finance/approve-payroll", "POST", {
-        payroll_id: payrollId,
-        approved_by: approvedBy,
-      }),
+    // Accepts either approvePayroll(id, userId) or an object payload
+    // ({payroll_id, user_id, comments}). Both shapes were in use, and passing
+    // an object to the scalar signature bound an array to `WHERE id = ?`.
+    approvePayroll: async (payrollId, approvedBy = null) => {
+      const isObject = payrollId !== null && typeof payrollId === "object";
+      const id = isObject ? (payrollId.payroll_id ?? payrollId.id) : payrollId;
+      const approver =
+        approvedBy ?? (isObject ? (payrollId.user_id ?? payrollId.approved_by) : null);
+      return apiCall("/finance/approve-payroll", "POST", {
+        payroll_id: id,
+        approved_by: approver,
+        comments: isObject ? (payrollId.comments ?? null) : null,
+      });
+    },
     markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null, payslipIds = []) =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
@@ -6594,9 +6681,13 @@ window.API = {
         `/staff/payroll-detailed-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
         "GET",
       ),
+    // There is no /payroll-download-detailed-payslip handler. The router's
+    // fallback resolved that path to StaffController::getStaff, so the "download
+    // payslip" button silently delivered the staff *list* JSON instead.
+    // getPayrollDownloadPayslip already honours staff_id, month and year.
     downloadDetailedPayslip: async (staffId, month, year) =>
       apiCall(
-        `/staff/payroll-download-detailed-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
+        `/staff/payroll-download-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
         "GET",
         null,
         {},
@@ -8360,10 +8451,6 @@ window.API = {
       apiCall("/attendance/my-class", "GET"),
     getFeeStatusByStudent: async () =>
       apiCall("/payments/fee-status", "GET"),
-    getMonthlyFinancialReport: async () =>
-      apiCall("/finance/monthly-report", "GET"),
-    getPayrollStatus: async () =>
-      apiCall("/finance/payroll-status", "GET"),
     getInventoryStockStatus: async () =>
       apiCall("/inventory/stock-status", "GET"),
     getLowStockAlerts: async () =>

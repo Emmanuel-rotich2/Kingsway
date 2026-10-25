@@ -32,7 +32,7 @@
     activeProductId: 0,
     children: [],
     payments: [],
-    checkoutChannel: 'daraja_mpesa',
+    checkoutChannel: 'prompt',
     checkoutAccount: 0,
     statusTimer: null,
   };
@@ -405,8 +405,11 @@
   function renderPaymentOptions() {
     var el = document.getElementById('storeCheckoutPayments');
     if (!el) return;
+    // Parents only ever pick a method, never a rail. The label arrives
+    // parent-safe from the server (PaymentMethodLabels); the account line is
+    // the school's own account, which is not a provider detail.
     var options = (state.payments || []).filter(function (o) {
-      return o.channel !== 'cash' && o.channel !== 'bank_transfer' && o.channel !== 'cheque';
+      return o.channel !== 'cash' && o.channel !== 'bank_transfer' && o.channel !== 'bank_deposit' && o.channel !== 'cheque';
     });
     if (!options.length) {
       el.innerHTML = '<div class="alert alert-warning">No online payment methods are available right now. Please visit the school uniform store to pay in person.</div>';
@@ -416,7 +419,7 @@
       var checked = i === 0 ? ' checked' : '';
       return '<div class="form-check mb-2">' +
         '<input class="form-check-input store-pay-channel" type="radio" name="storePayChannel" value="' + esc(o.channel) + '" data-account="' + Number(account.id || 0) + '"' + checked + ' id="storePay' + i + '">' +
-        '<label class="form-check-label" for="storePay' + i + '"><i class="bi bi-' + (o.channel === 'daraja_mpesa' ? 'phone' : 'bank') + ' me-1"></i>' + esc(o.label) +
+        '<label class="form-check-label" for="storePay' + i + '"><i class="bi bi-' + (o.channel === 'prompt' ? 'phone' : 'bank') + ' me-1"></i>' + esc(window.PaymentMethodLabels ? window.PaymentMethodLabels.label(o.channel) : o.label) +
         (account.account_name ? '<small class="d-block text-muted">' + esc(account.account_name) + ' · ' + esc(account.account_identifier || '') + '</small>' : '') +
         '</label></div>';
     }).join('');
@@ -476,8 +479,8 @@
     hideCheckoutError();
     var studentId = document.getElementById('storeCheckoutStudent').value;
     if (!studentId) { checkoutError('Please select the learner receiving this order.'); return; }
-    var channel = state.checkoutChannel || 'daraja_mpesa';
-    var manual = ['cash', 'bank_transfer', 'cheque'].indexOf(channel) !== -1;
+    var channel = state.checkoutChannel || 'prompt';
+    var manual = ['cash', 'bank_deposit', 'cheque'].indexOf(channel) !== -1;
     if (manual) { checkoutError('In-person payments must be completed at the school uniform store.'); return; }
     if (!state.checkoutAccount) {
       var firstRadio = document.querySelector('.store-pay-channel:checked');
@@ -511,7 +514,7 @@
       }
       document.getElementById('storeCheckoutWaitMsg').textContent = msg;
       var checkoutId = d.checkout_request_id || (d.provider && d.provider.checkout_request_id) || null;
-      if (checkoutId && channel === 'daraja_mpesa') {
+      if (checkoutId && channel === 'prompt') {
         startCheckoutPolling(checkoutId);
       }
     } catch (e) {
@@ -628,7 +631,7 @@
   }
 
   async function retryOrderPayment(orderId) {
-    var channel = state.checkoutChannel || 'daraja_mpesa';
+    var channel = state.checkoutChannel || 'prompt';
     var account = state.checkoutAccount;
     if (!account) {
       var payResp = await P.apiFetch('/uniform-payment-options', 'GET');
@@ -653,7 +656,7 @@
       var resp = await P.apiFetch('/uniform-order-payment-retry/' + orderId, 'POST', payload);
       var d = resp.data !== undefined ? resp.data : resp;
       var checkoutId = d.checkout_request_id || (d.provider && d.provider.checkout_request_id) || null;
-      if (checkoutId && channel === 'daraja_mpesa') startCheckoutPolling(checkoutId);
+      if (checkoutId && channel === 'prompt') startCheckoutPolling(checkoutId);
       renderOrders();
       if (d.provider && d.provider.message) {
         window.alert('Payment prompt sent: ' + d.provider.message);

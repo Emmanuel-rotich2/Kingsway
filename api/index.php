@@ -247,6 +247,17 @@ if (is_array($response) && !empty($response['mcp_raw'])) {
     $idempotencySettled = true;
     return;
 }
+
+// KCB Buni IPN endpoints answer in the provider's own envelope. Those
+// responses are marked by PaymentsController so the application envelope does
+// not nest the fields KCB reads (statusCode, transactionID) under `data`.
+if (is_array($response) && !empty($response['ipn_raw'])) {
+    unset($response['ipn_raw']);
+    ob_end_clean();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $idempotencySettled = true;
+    return;
+}
 $response = \App\API\Includes\ApiResponse::normalize(
     is_array($response) ? $response : ['data' => $response]
 );

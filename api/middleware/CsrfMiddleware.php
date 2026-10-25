@@ -49,6 +49,13 @@ class CsrfMiddleware
         'payments/kcb-notification',
         'payments/kcb-account-notification',
         'payments/kcb-till-notification',
+        // KCB Buni canonical IPN paths — provider-signed callbacks, never
+        // browser-driven, so CSRF does not apply. Matched as a substring of
+        // REQUEST_URI, so the literal path form is required. The router remaps
+        // these to the payments controller after middleware.
+        'ipn/1.0.0/validation',
+        'ipn/1.0.0/till-notification',
+        'ipn/1.0.0/account-notification',
         'payments/bank-webhook',
         'academic/resources/download',
         'download/public',

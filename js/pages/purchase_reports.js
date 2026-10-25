@@ -53,8 +53,10 @@ const purchaseReportsController = {
     if (document.getElementById('puCategory')?.value) params.set('category_id', document.getElementById('puCategory').value);
 
     try {
-      const response = await this.API('GET', '/api/reports/purchases', null, params);
-      this.state.report = response?.data || response || {};
+      // /api/reports/purchases never existed. The inventory module now serves
+      // the report at /api/inventory/purchase-report.
+      const response = await this.API('GET', '/api/inventory/purchase-report', null, params);
+      this.state.report = response?.data?.purchases || response?.data || [];
       this.render();
     } catch (e) { console.error(e); }
   },

@@ -184,7 +184,13 @@ class StudentTransportEntitlementManager
 
     public function recordPayment(int $entitlementId, array $data, int $userId): array
     {
-        $this->db->beginTransaction();
+        // Reuse an ambient transaction when the caller already holds one.
+        // Provider callbacks route through PaymentRoutingService while a
+        // transaction is open, and an unconditional beginTransaction() made
+        // "There is already an active transaction" abort the whole transport
+        // posting — confirmed money with no ledger entry.
+        $owns = !$this->db->inTransaction();
+        if ($owns) { $this->db->beginTransaction(); }
         try {
             $stmt = $this->db->prepare(
                 "SELECT e.*, p.period_start, p.period_end
@@ -221,9 +227,9 @@ class StudentTransportEntitlementManager
                     $ref
                 );
             }
-            $this->db->commit();
+            if ($owns) { $this->db->commit(); }
             return ['payment_id'=>$paymentId, 'entitlement_id'=>$entitlementId, 'amount'=>$amount, 'remaining_balance'=>max(0,$remaining-$amount), 'period_start'=>$e['period_start'], 'period_end'=>$e['period_end']];
-        } catch (\Throwable $error) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $error; }
+        } catch (\Throwable $error) { if ($owns && $this->db->inTransaction()) $this->db->rollBack(); throw $error; }
     }
 
     public function getAccess(int $studentId, int $routeId, string $date): array

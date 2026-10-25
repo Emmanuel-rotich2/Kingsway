@@ -20,6 +20,70 @@ class PurchaseOrdersManager extends BaseAPI
         parent::__construct('inventory');
     }
 
+    /**
+     * Line-level purchase report: one row per purchased item, with the
+     * supplier and order context. The purchase-reports page renders exactly
+     * this shape; there was previously no endpoint behind it at all.
+     *
+     * @param array $params supplier_id, item_id, category_id, status, from, to
+     */
+    public function purchaseReport($params = [])
+    {
+        try {
+            $where = ["t.reference_type = 'purchase'"];
+            $bindings = [];
+
+            if (!empty($params['supplier_id'])) {
+                $where[] = "po.supplier_id = ?";
+                $bindings[] = $params['supplier_id'];
+            }
+            if (!empty($params['item_id'])) {
+                $where[] = "t.item_id = ?";
+                $bindings[] = $params['item_id'];
+            }
+            if (!empty($params['category_id'])) {
+                $where[] = "i.category_id = ?";
+                $bindings[] = $params['category_id'];
+            }
+            if (!empty($params['status'])) {
+                $where[] = "po.status = ?";
+                $bindings[] = $params['status'];
+            }
+            if (!empty($params['from'])) {
+                $where[] = "po.order_date >= ?";
+                $bindings[] = $params['from'];
+            }
+            if (!empty($params['to'])) {
+                $where[] = "po.order_date <= ?";
+                $bindings[] = $params['to'];
+            }
+
+            $sql = "
+                SELECT po.order_number AS order_no,
+                       COALESCE(s.supplier_name, '—') AS supplier_name,
+                       i.item_name AS item_name,
+                       i.category_id,
+                       t.quantity,
+                       t.unit_cost AS unit_price,
+                       (t.quantity * t.unit_cost) AS total,
+                       po.order_date,
+                       po.status
+                  FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t
+                  JOIN " . ReadReplicaService::qualifiedRef("purchase_orders") . " po ON po.id = t.reference_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON s.id = po.supplier_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_items") . " i ON i.id = t.item_id
+                 WHERE " . implode(' AND ', $where) . "
+              ORDER BY po.order_date DESC, po.id DESC";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+
+            return formatResponse(true, ['purchases' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function listPurchaseOrders($params = [])
     {
         try {
@@ -59,7 +123,7 @@ class PurchaseOrdersManager extends BaseAPI
                     s.contact_person,
                     s.email as supplier_email,
                     COUNT(DISTINCT t.id) as item_count
-                FROM " . ReadReplicaService::qualifiedRef("purchase_orders") . "
+                FROM " . ReadReplicaService::qualifiedRef("purchase_orders") . " po
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON po.supplier_id = s.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_transactions") . " t ON t.reference_type = 'purchase' AND t.reference_id = po.id
                 $whereClause
@@ -97,7 +161,7 @@ class PurchaseOrdersManager extends BaseAPI
                     s.email,
                     s.phone,
                     s.address
-                FROM " . ReadReplicaService::qualifiedRef("inventory_transactions") . "
+                FROM " . ReadReplicaService::qualifiedRef("purchase_orders") . " po
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("suppliers") . " s ON po.supplier_id = s.id
                 WHERE po.id = ?
             ");

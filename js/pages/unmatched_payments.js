@@ -93,7 +93,7 @@ const UnmatchedPaymentsController = (() => {
                 <td><code>${escapeHtml(item.transaction_id || item.id)}</code></td>
                 <td>${item.transaction_date ? new Date(item.transaction_date).toLocaleDateString() : "--"}</td>
                 <td class="fw-bold">KES ${parseFloat(item.amount || 0).toLocaleString()}</td>
-                <td><span class="badge bg-${getSourceBadgeClass(item.source)}">${escapeHtml(item.source || "Unknown")}</span></td>
+                <td><span class="badge bg-${getSourceBadgeClass(item.source)}">${escapeHtml(window.PaymentMethodLabels?.display(item.source) || "Unknown")}</span></td>
                 <td>${escapeHtml(item.payer_name || "--")}</td>
                 <td>${escapeHtml(item.reference || "--")}</td>
                 <td><span class="badge bg-${item.status === "unmatched" ? "danger" : "warning"}">${escapeHtml(item.status || "unmatched")}</span></td>

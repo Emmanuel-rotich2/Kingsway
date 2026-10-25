@@ -355,11 +355,10 @@
                     <div class="col-6">
                         <label class="form-label fw-semibold">Payment Method</label>
                         <select id="upMethod" class="form-select">
+                            <option value="prompt">Prompt (M-Pesa push to the parent's phone)</option>
+                            <option value="mobile_money">Lipa na M-Pesa / Lipa Karo (parent pays a paybill/till)</option>
+                            <option value="bank_deposit">Bank deposit</option>
                             <option value="cash">Cash</option>
-                            <option value="daraja_mpesa">M-Pesa STK Push</option>
-                            <option value="buni_mpesa">KCB/Buni M-Pesa Express</option>
-                            <option value="c2b_mpesa">M-Pesa PayBill / Till</option>
-                            <option value="bank_transfer">Bank Transfer</option>
                             <option value="cheque">Cheque</option>
                         </select>
                     </div>
@@ -368,7 +367,7 @@
                         <select id="upFinancialAccount" class="form-select" required><option value="">Loading authorized uniform accounts…</option></select>
                     </div>
                     <div class="col-12" id="upPhoneGroup">
-                        <label class="form-label">Parent phone <span class="text-muted">(required for STK)</span></label>
+                        <label class="form-label">Parent phone <span class="text-muted">(required for a prompt)</span></label>
                         <input type="tel" id="upPhone" class="form-control" placeholder="2547XXXXXXXX">
                     </div>
                     <div class="col-12">

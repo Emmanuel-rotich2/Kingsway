@@ -7,23 +7,38 @@ use PDO;
 use Throwable;
 use App\API\Includes\FileLogger;
 use App\API\Modules\communications\CommunicationsManager;
+use App\API\Services\CommunicationTemplateRenderer;
 use App\API\Services\PhoneNumberNormalizer;
 use App\API\Services\ReadReplicaService;
+use App\API\Services\TemplateManager;
 
 /**
  * Queues the parental fee-receipt SMS after money has been credited to the
  * learner's fee ledger.
  *
- * - Guardian-first: the primary contact on record gets the message; the payer
- *   phone is only used when no guardian phone can be resolved.
- * - Balances come from the master views (vw_academic_term,
- *   vw_student_fee_balances) so the current-term and academic-year figures
- *   include the payment that triggered the message.
- * - Delivery is handed to the communications outbox; the payment path is
- *   never blocked or failed by an SMS problem.
+ * Recipient rule (how the money moved decides who is told):
+ *   - a prompt / Lipa na M-Pesa debited one specific line, so the receipt
+ *     belongs to that number. The payer is notified first and the guardian
+ *     only when the paying number is unknown.
+ *   - a direct deposit / Lipa Karo / bank or cheque tells the household, so
+ *     the guardian contacts on record lead and the payer is the fallback.
+ *
+ * The message states the learner, class, admission number, the year's total
+ * fees, and the outstanding current-term and academic-year balances, so a
+ * parent sees what was charged, what was paid and what remains.
+ *
+ * Balances come from the master views (vw_academic_term,
+ * vw_student_fee_balances) so the current-term and academic-year figures
+ * include the payment that triggered the message.
+ *
+ * Delivery is handed to the communications outbox; the payment path is
+ * never blocked or failed by an SMS problem.
  */
 class FeePaymentReceiptNotifier
 {
+    /** Catalogue entry that holds the payer-facing receipt wording. */
+    public const TEMPLATE_CODE = 'sms.fee_receipt';
+
     private PDO $db;
 
     public function __construct(PDO $db)
@@ -50,10 +65,14 @@ class FeePaymentReceiptNotifier
             }
 
             $student = $studentId > 0 ? $this->studentContext($studentId) : null;
-            $recipient = self::pickPhone(
-                array_values(array_filter((array) ($student['guardian_phones'] ?? []))),
-                $payerPhone
-            );
+            $guardianPhones = array_values(array_filter((array) ($student['guardian_phones'] ?? [])));
+            // A prompt debited one line: that number owns the receipt. A
+            // deposit/lipa karo is a household payment: the contacts on record
+            // are told and the payer is the fallback.
+            $payerFirst = self::isPayerDirected($providerCode);
+            $recipient = $payerFirst
+                ? self::pickPhone([], $payerPhone) ?? self::pickPhone($guardianPhones, $payerPhone)
+                : self::pickPhone($guardianPhones, $payerPhone) ?? self::pickPhone([], $payerPhone);
             if ($recipient === null) {
                 FileLogger::write('payments', [
                     'type' => 'fee_receipt_sms',
@@ -66,14 +85,13 @@ class FeePaymentReceiptNotifier
                 return false;
             }
 
-            $balances = $studentId > 0 ? $this->feeBalances($studentId) : [null, null];
-            $message = self::composeMessage(
+            $balances = $studentId > 0 ? $this->feeBalances($studentId) : [null, null, null, null];
+            $message = $this->receiptBody(
                 $amount,
-                (string) ($student['student_name'] ?? ''),
-                (string) ($student['admission_no'] ?? ''),
+                $student,
                 $reference,
-                $balances[0],
-                $balances[1]
+                $recipient['source'] === 'payer' ? $recipient['phone'] : null,
+                $balances
             );
 
             $communication = (new CommunicationsManager($this->db))->createCommunication([
@@ -129,6 +147,19 @@ class FeePaymentReceiptNotifier
     }
 
     /**
+     * True when the money left a specific M-Pesa line, so the receipt belongs
+     * to whoever owned that line. This is about HOW it was paid, never about
+     * which aggregator carried it — Buni, Daraja and PayHero STK are all a
+     * prompt to one number, exactly as a bank deposit is not.
+     */
+    public static function isPayerDirected(string $providerCode): bool
+    {
+        // The payment channel identifies the rail in the callback payload:
+        // safaricom_stk / kcb_buni_ipn / payhero_stk are all STK prompts.
+        return in_array(strtolower(trim($providerCode)), ['safaricom_stk', 'kcb_buni_ipn', 'payhero_stk'], true);
+    }
+
+    /**
      * Guardian phones win (already ordered primary-first); the payer is the
      * fallback. Returns the chosen phone and where it came from.
      *
@@ -150,26 +181,112 @@ class FeePaymentReceiptNotifier
         return null;
     }
 
+    /**
+     * The receipt a parent reads. States what was paid, for which learner and
+     * class, what the year costs in total, and what is still owed — so the
+     * message is an appreciation, not just a transaction echo.
+     */
+    /**
+     * The receipt text. Rendered from the `sms.fee_receipt` template so an
+     * operator can change the wording in the template catalogue; the inline
+     * wording is only the fallback for a database where the template has not
+     * been applied, so a payment is never left unsent over template data.
+     */
+    private function receiptBody(
+        float $amount,
+        array $student,
+        string $reference,
+        ?string $payerPhone,
+        array $balances
+    ): string {
+        $termBalance = $balances[0] ?? null;
+        $annualBalance = $balances[1] ?? null;
+        $annualBilled = $balances[2] ?? null;
+        $className = $balances[3] ?? null;
+
+        $variables = [
+            'amount_paid' => self::plainMoney($amount),
+            'admission_no' => (string) ($student['admission_no'] ?? ''),
+            'student_name' => (string) ($student['student_name'] ?? ''),
+            'class_name' => $className !== null && trim((string) $className) !== '' ? trim((string) $className) : '-',
+            'annual_fees' => $annualBilled !== null ? self::plainMoney($annualBilled) : '-',
+            'term_balance' => $termBalance !== null ? self::plainMoney($termBalance) : '-',
+            'year_balance' => $annualBalance !== null ? self::plainMoney($annualBalance) : '-',
+            'reference' => trim($reference),
+            'payer_name' => trim((string) ($student['payer_name'] ?? '')),
+            'payer_phone' => $payerPhone !== null ? (string) $payerPhone : '',
+        ];
+
+        try {
+            $template = (new TemplateManager($this->db))->getTemplateByCode(self::TEMPLATE_CODE);
+            if ($template !== null) {
+                foreach ($template['versions'] ?? [] as $version) {
+                    if (($version['status'] ?? '') !== 'active') {
+                        continue;
+                    }
+                    foreach ($version['channels'] ?? [] as $channel) {
+                        if (($channel['channel'] ?? '') !== 'sms' || empty($channel['body'])) {
+                            continue;
+                        }
+                        return (new CommunicationTemplateRenderer())->render((string) $channel['body'], $variables, 'sms');
+                    }
+                }
+            }
+        } catch (Throwable $error) {
+            FileLogger::write('payments', [
+                'type' => 'fee_receipt_sms',
+                'status' => 'template_render_failed',
+                'student_id' => $student['student_id'] ?? null,
+                'error' => $error->getMessage(),
+            ], 'error');
+        }
+
+        return self::composeMessage(
+            $amount,
+            (string) ($student['student_name'] ?? ''),
+            (string) ($student['admission_no'] ?? ''),
+            $reference,
+            $termBalance,
+            $annualBalance,
+            $annualBilled,
+            $className
+        );
+    }
+
+    /** Amount without the currency prefix: the template carries "KES". */
+    private static function plainMoney(float $value): string
+    {
+        return number_format($value, $value == floor($value) ? 0 : 2);
+    }
+
     public static function composeMessage(
         float $amount,
         string $studentName,
         string $admissionNo,
         string $reference,
         ?float $termBalance,
-        ?float $annualBalance
+        ?float $annualBalance,
+        ?float $annualBilled = null,
+        ?string $className = null
     ): string {
         $school = defined('SCHOOL_NAME') ? (string) SCHOOL_NAME : 'Kingsway Preparatory School';
         $learner = trim($admissionNo . ' ' . $studentName);
-        $message = self::money($amount) . ' fee payment received';
+        if ($className !== null && trim($className) !== '') {
+            $learner .= ' (' . trim($className) . ')';
+        }
+        $message = 'Thank you. ' . self::money($amount) . ' fee payment received';
         if ($learner !== '') {
             $message .= ' for ' . $learner;
         }
         $message .= '.';
+        if ($annualBilled !== null) {
+            $message .= ' Total fees this year: ' . self::money($annualBilled) . '.';
+        }
         if ($termBalance !== null) {
-            $message .= ' Term bal: ' . self::money($termBalance) . '.';
+            $message .= ' Term balance: ' . self::money($termBalance) . '.';
         }
         if ($annualBalance !== null) {
-            $message .= ' Year bal: ' . self::money($annualBalance) . '.';
+            $message .= ' Year balance: ' . self::money($annualBalance) . '.';
         }
         $reference = trim($reference);
         if ($reference !== '') {
@@ -223,10 +340,11 @@ class FeePaymentReceiptNotifier
     }
 
     /**
-     * Current-term balance and current-academic-year balance, read from the
-     * master views immediately after the payment was credited.
+     * Current-term balance, current-year balance, the year's billed total and
+     * the learner's class, read from the master views immediately after the
+     * payment was credited.
      *
-     * @return array{0: float|null, 1: float|null}
+     * @return array{0: float|null, 1: float|null, 2: float|null, 3: string|null}
      */
     private function feeBalances(int $studentId): array
     {
@@ -238,7 +356,7 @@ class FeePaymentReceiptNotifier
                   LIMIT 1"
             )->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
-                return [null, null];
+                return [null, null, null, null];
             }
 
             $term = $this->db->prepare(
@@ -249,16 +367,26 @@ class FeePaymentReceiptNotifier
             $term->execute([$studentId, (int) $current['ayt_id']]);
             $termBalance = $term->fetchColumn();
 
-            $annual = $this->db->prepare(
-                "SELECT SUM(balance) FROM " . ReadReplicaService::masterSourceRef('student_fee_balances') . "
+            $year = $this->db->prepare(
+                "SELECT SUM(balance) AS bal, SUM(amount_due) AS due
+                   FROM " . ReadReplicaService::masterSourceRef('student_fee_balances') . "
                   WHERE student_id = ? AND academic_year = ?"
             );
-            $annual->execute([$studentId, (string) $current['ay_code']]);
-            $annualBalance = $annual->fetchColumn();
+            $year->execute([$studentId, (string) $current['ay_code']]);
+            $yearRow = $year->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $class = $this->db->prepare(
+                "SELECT class_name FROM " . ReadReplicaService::masterSourceRef('student_directory') . "
+                  WHERE student_id = ? ORDER BY academic_year_class_id DESC LIMIT 1"
+            );
+            $class->execute([$studentId]);
+            $className = $class->fetchColumn();
 
             return [
                 $termBalance !== false ? (float) $termBalance : null,
-                $annualBalance !== false ? (float) $annualBalance : null,
+                isset($yearRow['bal']) ? (float) $yearRow['bal'] : null,
+                !empty($yearRow['due']) ? (float) $yearRow['due'] : null,
+                is_string($className) && trim($className) !== '' ? trim($className) : null,
             ];
         } catch (Throwable $error) {
             FileLogger::write('payments', [
@@ -267,7 +395,7 @@ class FeePaymentReceiptNotifier
                 'student_id' => $studentId,
                 'error' => $error->getMessage(),
             ], 'error');
-            return [null, null];
+            return [null, null, null, null];
         }
     }
 }

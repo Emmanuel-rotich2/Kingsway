@@ -25,6 +25,17 @@ class PaymentsAPI extends BaseAPI
 
     private $commAPI;
 
+    /**
+     * Exception code marking a deterministic webhook rejection (bad payload,
+     * unknown reference). These are provider-safe to acknowledge as received:
+     * retrying will never succeed, so the caller stops the retry loop and logs
+     * the reference for manual allocation instead. System failures (database,
+     * stale projection, ledger write) must leave this code unset so they are
+     * reported as retryable — acknowledged money with no journal is otherwise
+     * stranded with no automated recovery.
+     */
+    private const KCB_REJECTION = 4;
+
     public function __construct()
     {
         parent::__construct('payments');
@@ -316,7 +327,11 @@ class PaymentsAPI extends BaseAPI
                     return ['ResultCode'=>0,'ResultDesc'=>$routedSuccessfully ? 'Payment routed successfully' : 'Payment received for reconciliation'];
                 } catch (\Throwable $routingError) {
                     \App\API\Services\Logger::legacyError('[PaymentsAPI] C2B routing error: '.$routingError->getMessage());
-                    return ['ResultCode'=>0,'ResultDesc'=>'Payment received for manual reconciliation'];
+                    // ResultCode 0 tells Daraja the payment is fully handled and
+                    // it stops retrying. Acknowledging an internal failure would
+                    // strand confirmed money outside the ledger, so report a
+                    // retryable failure instead.
+                    return ['ResultCode'=>1,'ResultDesc'=>'Payment could not be processed; will retry'];
                 }
             }
 
@@ -744,15 +759,39 @@ class PaymentsAPI extends BaseAPI
     }
 
     /**
-     * Process a PayHero STK / collection callback. Always answers a 2xx
-     * envelope so PayHero never retries a poison payload; anything the router
-     * cannot place is kept in the unmatched queue for staff reconciliation.
+     * Process a PayHero STK / collection callback.
+     *
+     * Deterministic outcomes (unparseable payload, failed or unverifiable
+     * provider report, missing reference) are answered 2xx so PayHero never
+     * retries a poison payload; the payload stays in the journal for staff
+     * reconciliation. processCallback() reports those as provider_status
+     * 'failed' / 'unroutable' / 'verification_failed'.
+     *
+     * provider_status 'error' is different: it means the write failed — a
+     * database error, a stale read projection, a rejected ledger entry.
+     * Acknowledging that as success would strand money PayHero has already
+     * confirmed with no ledger entry, and PayHero would never re-deliver. Every
+     * posting path (fees, transport, uniforms) is idempotent on the provider
+     * transaction, so a retry re-runs to success instead of double-crediting.
+     * Those are therefore answered as a retryable server error.
      */
     public function processPayheroCallback(array $callbackData, array $headers)
     {
         try {
             $result = (new \App\API\Services\payments\PayheroPaymentService($this->db))->processCallback($callbackData);
             $ok = !empty($result['processed']);
+
+            if (($result['provider_status'] ?? '') === 'error') {
+                \App\API\Services\Logger::legacyError(
+                    '[PaymentsAPI] PayHero callback journalling failed, PayHero will retry: ' . ($result['reason'] ?? 'routing failure')
+                );
+                return [
+                    'status' => 'error',
+                    'code' => 500,
+                    'message' => 'PayHero callback could not be journalled; provider will retry',
+                ];
+            }
+
             return [
                 'status' => 'success',
                 'data' => $result,
@@ -760,7 +799,11 @@ class PaymentsAPI extends BaseAPI
             ];
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[PaymentsAPI] PayHero callback error: ' . $e->getMessage());
-            return ['status' => 'success', 'data' => ['processed' => false], 'message' => 'PayHero callback received for reconciliation'];
+            return [
+                'status' => 'error',
+                'code' => 500,
+                'message' => 'PayHero callback could not be processed; provider will retry',
+            ];
         }
     }
 
@@ -951,6 +994,19 @@ class PaymentsAPI extends BaseAPI
             "Body: " . json_encode($validationData) . "\n\n",
             FILE_APPEND
         );
+        // Hoisted above the try: an empty or malformed body throws before the
+        // inner assignments below run, and the catch block still reads these
+        // variables. Left undefined there, the catch itself raised a warning that
+        // index.php escalates into an uncaught ErrorException, turning every
+        // malformed KCB validation callback into a 500 instead of the provider's
+        // own rejection envelope.
+        $requestId = $validationData['requestId'] ?? 'UNKNOWN';
+        $customerReference = $validationData['customerReference'] ?? '';
+        $organizationReference = $validationData['organizationReference'] ?? '';
+        $creditAccountIdentifier = '';
+        $structuredStudentId = 0;
+        $structuredStudentName = '';
+        $structuredPurpose = '';
         try {
             if (!$validationData || !is_array($validationData)) {
                 throw new \Exception("Invalid or missing JSON data");
@@ -964,33 +1020,49 @@ class PaymentsAPI extends BaseAPI
             $customerReference = $validationData['customerReference'] ?? '';
             $organizationReference = $validationData['organizationReference'] ?? '';
             $creditAccountIdentifier = '';
+            $structuredStudentId = 0;
+            $structuredStudentName = '';
+            $structuredPurpose = '';
 
-            // Handle structured references (TRN-/U-) via PaymentRoutingService to get correct credit account
-            if (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$customerReference) || preg_match('/^T-/i', (string)$customerReference)) {
-                try {
-                    $route = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming(
-                        'kcb_buni',
-                        $validationData,
-                        $validationData['requestId'] ?? '',
-                        0, // amount unknown at validation time
-                        $validationData['creditAccountIdentifier'] ?? null,
-                        $customerReference
-                    );
-                    if (!empty($route['status']) && $route['status'] === 'processed') {
-                        // Find the settlement account for this route
-                        $settleStmt = $this->db->prepare(
-                            "SELECT COALESCE(r.settlement_financial_account_id, r.financial_account_id)
-                             FROM " . ReadReplicaService::qualifiedRef("payment_collection_routes") . " r
-                             JOIN payment_providers p ON p.id = r.provider_id
-                             WHERE p.code = 'kcb_buni' AND r.normalized_account_identifier = ?
-                               AND r.active = 1 ORDER BY r.id LIMIT 1"
-                        );
-                        $settleStmt->execute([preg_replace('/[^0-9A-Za-z]/', '', (string)($validationData['creditAccountIdentifier'] ?? ''))]);
-                        $creditAccountIdentifier = (string) $settleStmt->fetchColumn();
-                    }
-                } catch (\Throwable $e) {
-                    \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB validation routing error: ' . $e->getMessage());
-                }
+            // Resolve the destination ledger read-only.
+            // Validation is a PRE-AUTHORISATION callback: KCB asks whether to
+            // accept the money BEFORE the customer pays, so this must never
+            // create a ledger entry. routeIncoming() posts money and must not
+            // be called here. This covers structured (TRN-/U-) references and
+            // bare admission numbers through one resolver instead of two
+            // parallel lookup paths.
+            $resolved = (new \App\API\Services\payments\PaymentRoutingService($this->db))->resolveReference(
+                'kcb_buni',
+                $customerReference,
+                $validationData['creditAccountIdentifier'] ?? null
+            );
+            if ($resolved['ok']) {
+                $structuredStudentId = (int) $resolved['student_id'];
+                $structuredStudentName = (string) $resolved['student_name'];
+                $structuredPurpose = (string) $resolved['purpose'];
+                // Echo the provider-side collection point for this purpose; an
+                // empty creditAccountIdentifier leaves KCB without a
+                // destination account to credit.
+                $creditAccountIdentifier = (string) ($resolved['collection_account_identifier'] ?? '');
+            } elseif (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$customerReference) || preg_match('/^T-/i', (string)$customerReference)) {
+                // A structured reference must resolve to a registered bill.
+                // Reject it here so KCB refuses the money rather than accepting
+                // it into an unreconcilable state.
+                (new \App\API\Services\UploadService())->writeFile(
+                    $logFile,
+                    $this->timestamp . " - REJECTED: Structured reference '{$customerReference}' unresolvable ({$resolved['reason']})\n\n",
+                    FILE_APPEND
+                );
+                return [
+                    'transactionID' => $requestId,
+                    'statusCode' => '1',
+                    'statusMessage' => 'Payment reference ' . $customerReference . ' is not valid (' . $resolved['reason'] . ')',
+                    'CustomerName' => '',
+                    'billAmount' => '0.00',
+                    'currency' => 'KES',
+                    'billType' => 'PARTIAL',
+                    'creditAccountIdentifier' => (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
+                ];
             }
 
             if (empty($customerReference)) {
@@ -1010,6 +1082,18 @@ class PaymentsAPI extends BaseAPI
                     'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
                 ];
             }
+            $student = null;
+            if (!empty($structuredStudentId)) {
+                // A structured reference already resolved read-only above.
+                $student = [
+                    'id' => $structuredStudentId,
+                    'admission_no' => $customerReference,
+                    'full_name' => $structuredStudentName,
+                    'status' => 'active',
+                    'current_balance' => 0,
+                ];
+            }
+            if ($student === null) {
             $studentDirectory = \App\API\Services\ReadReplicaService::qualifiedRef('student_directory');
             $stmt = $this->db->prepare("SELECT student_id AS id, admission_no, CONCAT(first_name, ' ', last_name) AS full_name, student_status AS status FROM {$studentDirectory} WHERE admission_no = :admission_no LIMIT 1");
             $stmt->execute(['admission_no' => $customerReference]);
@@ -1019,6 +1103,7 @@ class PaymentsAPI extends BaseAPI
                 $balanceStmt = $this->db->prepare("SELECT COALESCE(SUM(balance), 0) FROM {$feeBalances} WHERE student_id = :student_id");
                 $balanceStmt->execute(['student_id' => $student['id']]);
                 $student['current_balance'] = (float) $balanceStmt->fetchColumn();
+            }
             }
             if (!$student) {
                 (new \App\API\Services\UploadService())->writeFile(
@@ -1054,12 +1139,59 @@ class PaymentsAPI extends BaseAPI
                     'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
                 ];
             }
+            // billAmount is the amount outstanding for THIS reference, not the
+            // learner's whole ledger. For a bare admission number that is the
+            // fee balance; a TRN- reference is the active transport
+            // entitlement and a U-/UC- reference the uniform balance.
+            $billAmount = (float) ($student['current_balance'] ?? 0);
+            if ($structuredPurpose === 'fees' || $structuredPurpose === '') {
+                // Structured (FEE-) and legacy bare-admission refs: the fee balance.
+                // billType below is PARTIAL, so the amount is advisory — a stale
+                // balance projection must never fail a money-gating decision and
+                // make KCB refuse a legitimate payment.
+                if ($structuredPurpose === 'fees') {
+                    try {
+                        $feeBalances = \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances');
+                        $balanceStmt = $this->db->prepare("SELECT COALESCE(SUM(balance), 0) FROM {$feeBalances} WHERE student_id = :student_id");
+                        $balanceStmt->execute(['student_id' => (int) $student['id']]);
+                        $billAmount = (float) $balanceStmt->fetchColumn();
+                    } catch (\Throwable $balanceError) {
+                        $billAmount = 0.0;
+                        \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB validation balance unavailable: ' . $balanceError->getMessage());
+                    }
+                }
+            }
+            if ($structuredPurpose === 'transport') {
+                $t = $this->db->prepare(
+                    "SELECT COALESCE(MAX(GREATEST(e.amount_due - COALESCE((
+                        SELECT SUM(a.amount) FROM transport_entitlement_payment_allocations a
+                        JOIN transport_entitlement_payments p2 ON p2.id=a.payment_id
+                        WHERE a.entitlement_id=e.id AND p2.payment_status='confirmed'
+                    ), 0), 0)), 0)
+                     FROM " . \App\API\Services\ReadReplicaService::qualifiedRef("student_transport_entitlements") . " e
+                     JOIN transport_entitlement_periods p ON p.id=e.period_id
+                     WHERE e.student_id=? AND e.entitlement_status='active'
+                       AND p.period_start<=CURDATE() AND p.period_end>=CURDATE()"
+                );
+                $t->execute([(int) $student['id']]);
+                $billAmount = (float) $t->fetchColumn();
+            } elseif ($structuredPurpose === 'uniforms') {
+                $u = $this->db->prepare(
+                    "SELECT COALESCE(SUM(GREATEST(us.quantity*us.unit_price - COALESCE((
+                        SELECT SUM(upr.amount) FROM uniform_payment_records upr WHERE upr.sale_id=us.id
+                    ), 0), 0)), 0)
+                     FROM uniform_sales us
+                     WHERE us.student_id=? AND us.payment_status IN ('pending','partial')"
+                );
+                $u->execute([(int) $student['id']]);
+                $billAmount = (float) $u->fetchColumn();
+            }
             $response = [
                 'transactionID' => $requestId,
                 'statusCode' => '0',
                 'statusMessage' => 'Success',
                 'CustomerName' => $student['full_name'],
-                'billAmount' => number_format($student['current_balance'], 2, '.', ''),
+                'billAmount' => number_format($billAmount, 2, '.', ''),
                 'currency' => 'KES',
                 'billType' => 'PARTIAL',
                 'creditAccountIdentifier' => $creditAccountIdentifier ?: (defined('KCB_CREDIT_ACCOUNT') ? KCB_CREDIT_ACCOUNT : '')
@@ -1408,7 +1540,7 @@ class PaymentsAPI extends BaseAPI
         );
         try {
             if (!$notificationData || !is_array($notificationData)) {
-                throw new \Exception("Invalid or missing JSON data");
+                throw new \Exception("Invalid or missing JSON data", self::KCB_REJECTION);
             }
             (new \App\API\Services\UploadService())->writeFile(
                 $this->logDir . '/kcb_notification.log',
@@ -1437,7 +1569,7 @@ class PaymentsAPI extends BaseAPI
                 return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>'Failed provider notification acknowledged; no payment was posted'];
             }
             if (empty($transactionReference) || empty($customerReference) || $transactionAmount <= 0) {
-                throw new \Exception("Missing required fields: TransRef={$transactionReference}, CustRef={$customerReference}, Amount={$transactionAmount}");
+                throw new \Exception("Missing required fields: TransRef={$transactionReference}, CustRef={$customerReference}, Amount={$transactionAmount}", self::KCB_REJECTION);
             }
             if (preg_match('/^(FEE|TRN|U|UC|UNIFORM)-/i', (string)$customerReference) || preg_match('/^T-/i', (string)$customerReference) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('kcb_buni', $notificationData['creditAccountIdentifier'] ?? null)) {
                 try {
@@ -1445,7 +1577,13 @@ class PaymentsAPI extends BaseAPI
                     return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>($routed['status'] ?? '') === 'processed' ? 'Notification received successfully' : 'Received for manual reconciliation'];
                 } catch (\Throwable $routingError) {
                     \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB routing error: '.$routingError->getMessage());
-                    return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>'Received for manual reconciliation'];
+                    // An internal failure — a stale read projection, a database
+                    // error, a failed ledger posting — must never be acknowledged
+                    // as success. KCB treats statusCode 0 as final and stops
+                    // retrying, which would leave confirmed money in the bank
+                    // with no journal and no automated recovery. Return a
+                    // retryable failure so the provider re-delivers.
+                    return ['transactionID'=>$requestId,'statusCode'=>'1','statusMessage'=>'Notification could not be processed; provider will retry'];
                 }
             }
             $this->db->beginTransaction();
@@ -1456,7 +1594,7 @@ class PaymentsAPI extends BaseAPI
                 $stmt->execute(['admission_no' => $customerReference]);
                 $student = $stmt->fetch(\PDO::FETCH_ASSOC);
                 if (!$student) {
-                    throw new \Exception("Student not found: Admission number {$customerReference}");
+                    throw new \Exception("Student not found: Admission number {$customerReference}", self::KCB_REJECTION);
                 }
                 $studentId = $student['id'];
                 $duplicateCheck = "SELECT id, status FROM bank_transactions WHERE transaction_ref = :transaction_ref LIMIT 1";
@@ -1521,7 +1659,25 @@ class PaymentsAPI extends BaseAPI
                     $transDateFormatted,
                     $notes
                 ]);
+                $spResult = $spStmt->fetch(\PDO::FETCH_ASSOC);
                 $spStmt->closeCursor();
+                $studentPaymentId = (int)($spResult['transaction_id'] ?? 0);
+
+                // The routed path posts a collection journal through
+                // FinancialPostingCoordinator. Legacy (bare admission number)
+                // notifications bypassed it, so transport and uniform cash
+                // arrived over Buni with no general-ledger entry at all —
+                // correct learner balance, invisible finance. Post inside this
+                // transaction so the ledger entry is atomic with the payment:
+                // a journal failure rolls the payment back and the provider
+                // re-delivers, rather than leaving un-journalled money.
+                if ($studentPaymentId > 0) {
+                    $feesAccount = (new \App\API\Services\payments\FinancialAccountService($this->db))->requireFor(0, 'fees', 'bank_transfer');
+                    (new FinancialPostingCoordinator($this->db))->postIncoming(
+                        'payment', $studentPaymentId, (int)$feesAccount['id'], 'fees',
+                        (string)$transactionAmount, 1, $transactionReference
+                    );
+                }
                 \App\API\Includes\FileLogger::write('payments', [
                     'type' => 'webhook',
                     'source' => 'kcb_bank',
@@ -1560,21 +1716,36 @@ class PaymentsAPI extends BaseAPI
                     'statusCode' => '0',
                     'statusMessage' => 'Notification received successfully'
                 ];
-            } catch (\Exception $e) {
-                $this->db->rollback();
+            } catch (\Throwable $e) {
+                if ($this->db->inTransaction()) {
+                    $this->db->rollBack();
+                }
                 throw $e;
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             (new \App\API\Services\UploadService())->writeFile(
                 $this->logDir . '/kcb_notification_errors.log',
                 $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n",
                 FILE_APPEND
             );
-            // Return success to KCB to avoid retries, but log for manual processing
+            \App\API\Services\Logger::legacyError('[PaymentsAPI] KCB notification failed: ' . $e->getMessage());
+
+            // A deterministic rejection (malformed payload, unmatched
+            // reference) is acknowledged so the provider stops retrying; the
+            // log above is the manual-allocation queue. Everything else is an
+            // internal failure, and acknowledging it would strand confirmed
+            // money with no journal, so report a retryable failure.
+            if ($e->getCode() === self::KCB_REJECTION) {
+                return [
+                    'transactionID' => $notificationData['requestId'] ?? 'UNKNOWN',
+                    'statusCode' => '0',
+                    'statusMessage' => 'Received. Reference held for manual allocation.'
+                ];
+            }
             return [
                 'transactionID' => $notificationData['requestId'] ?? 'UNKNOWN',
-                'statusCode' => '0',
-                'statusMessage' => 'Received. Processing offline.'
+                'statusCode' => '1',
+                'statusMessage' => 'Notification could not be processed; provider will retry'
             ];
         }
     }

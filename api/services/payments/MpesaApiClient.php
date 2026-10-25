@@ -132,6 +132,21 @@ class MpesaApiClient
         return $override !== null && trim($override) !== '' ? trim($override) : $this->sharedShortcode;
     }
 
+    /**
+     * The collection point a Daraja payload is addressed to, when it carries
+     * one. STK push uses BusinessShortCode; the remaining APIs use ShortCode.
+     */
+    private function shortcodeFromPayload(array $payload): ?string
+    {
+        foreach (['BusinessShortCode', 'ShortCode'] as $key) {
+            if (!empty($payload[$key])) {
+                return (string) $payload[$key];
+            }
+        }
+
+        return null;
+    }
+
     public function getInitiatorName(?string $shortcode = null): string
     {
         $creds = $this->resolveCredentials($shortcode ?? $this->sharedShortcode);
@@ -239,6 +254,11 @@ class MpesaApiClient
         $consumerSecret = $creds['consumer_secret'] ?? '';
 
         if ($consumerKey === '' || $consumerSecret === '') {
+            if ($sc === '') {
+                throw new Exception(
+                    'M-Pesa credentials not configured: no shortcode on the request and no shared MPESA_SHORTCODE is set.'
+                );
+            }
             throw new Exception('M-Pesa credentials not configured for shortcode: ' . $sc);
         }
 
@@ -278,7 +298,13 @@ class MpesaApiClient
      */
     public function post(string $path, array $payload, ?string $shortcode = null): array
     {
-        $token = $this->getAccessToken($shortcode);
+        // The Daraja payload names its own collection point
+        // (BusinessShortCode for STK, ShortCode for every other API), so the
+        // token is resolved from the payload itself. Call sites therefore do
+        // not each have to remember to forward the shortcode, which is what
+        // previously made every auxiliary API authenticate against the wrong
+        // (or an empty) shortcode.
+        $token = $this->getAccessToken($shortcode ?? $this->shortcodeFromPayload($payload));
         $encoded = (string) json_encode($payload);
         $headers = [
             'Content-Type' => 'application/json',

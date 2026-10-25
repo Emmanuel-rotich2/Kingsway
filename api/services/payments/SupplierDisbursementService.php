@@ -76,10 +76,10 @@ class SupplierDisbursementService
         $reference = strtoupper(substr((string) ($data['payment_reference'] ?? ('SUP' . bin2hex(random_bytes(5)))), 0, 12));
         $insert = $this->db->prepare(
             "INSERT INTO disbursement_transactions
-                (disbursement_type, expense_id, recipient_id, recipient_name,
+                (disbursement_type, expense_id, recipient_id, recipient_type, recipient_name,
                  payment_purpose, source_financial_account_id, idempotency_reference,
                  amount, account_number, bank_code, bank_name, channel, status)
-             VALUES ('supplier', ?, ?, ?, 'suppliers', ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending')"
+             VALUES ('supplier', ?, ?, 'supplier', ?, 'suppliers', ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending')"
         );
         $insert->execute([
             $expenseId, $expense['vendor_id'], $expense['supplier_name'],

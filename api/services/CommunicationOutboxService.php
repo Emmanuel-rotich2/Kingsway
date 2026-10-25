@@ -277,7 +277,13 @@ class CommunicationOutboxService
     private function providerId($response): ?string
     {
         if (!is_array($response)) return null;
-        foreach (['messageId', 'message_id', 'provider_message_id', 'id'] as $key) if (!empty($response[$key])) return (string) $response[$key];
+        // Top-level keys win, then the provider envelope. queue_uid is what
+        // TalksaSA (bulksms api/v3) hands back in place of a message id: it
+        // is the only handle that can later prove a message was delivered,
+        // so it must be persisted as provider_message_id.
+        foreach (['messageId', 'message_id', 'provider_message_id', 'queue_uid', 'queueUid', 'id'] as $key) {
+            if (!empty($response[$key])) return (string) $response[$key];
+        }
         if (isset($response['data']) && is_array($response['data'])) return $this->providerId($response['data']);
         return null;
     }

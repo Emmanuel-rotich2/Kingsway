@@ -6,6 +6,7 @@ namespace App\API\Services\payments;
 use PDO;
 use RuntimeException;
 use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\PhoneNumberNormalizer;
 use App\API\Services\ReadReplicaService;
 
 /** Resolves incoming money to fees or transport without guessing. */
@@ -46,11 +47,19 @@ class PaymentRoutingService
         $referencePurpose=$referenceRow['purpose'] ?? $this->prefixPurpose($reference);
         if ($routePurpose && $referencePurpose && $routePurpose !== $referencePurpose) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'conflict','Collection account and reference identify different ledgers',$payload);
         $purpose=$referencePurpose ?: $routePurpose;
-        if (!$referenceRow && $purpose === 'fees') {
+        if (!$referenceRow && ($purpose === 'fees' || $purpose === null)) {
+            // A collection account serving several purposes (the school holds
+            // one Daraja paybill for fees, transport and uniforms) cannot
+            // identify the ledger on its own, so a bare admission number
+            // arrives with no purpose at all. Admission numbers are reusable
+            // parent-facing references, so a match on an active learner is a
+            // fee payment — the same reading the legacy bank and Buni paths
+            // give it. A reference that matches no learner keeps no purpose
+            // and is rejected below rather than misallocated.
             $student=$this->db->prepare('SELECT id FROM students WHERE admission_no=? AND status IN ("active","enrolled") LIMIT 1');
             $student->execute([$rawReference]);
             $studentId=(int)$student->fetchColumn();
-            if ($studentId) $referenceRow=['id'=>0,'student_id'=>$studentId,'purpose'=>'fees'];
+            if ($studentId) { $purpose='fees'; $referenceRow=['id'=>0,'student_id'=>$studentId,'purpose'=>'fees']; }
         }
         if (!$purpose || !$referenceRow) {
             // Separate transport collection accounts may use the student's
@@ -85,6 +94,12 @@ class PaymentRoutingService
             $financialAccountId=$this->accountFinancialId($providerId,$accountIdentifier,'fees');
             if (!$financialAccountId) return $this->unmatched($providerId,$providerTransactionId,$accountIdentifier,$amount,$rawReference,$reference,'fees','Fees collection account is not mapped to a financial ledger account',$payload);
             $feePaymentId=$this->recordFee($referenceRow['student_id'],$amount,$providerCode,$reference,$providerTransactionId,$payload,$financialAccountId);
+            if (!empty($feePaymentId)) {
+                // The provider transaction id and the payer contact are the
+                // only facts a parent can present later; keep them indexed on
+                // the payment row rather than in the free-text notes.
+                $this->persistPaymentTraceability($feePaymentId,$providerTransactionId,$payload);
+            }
         }
         if (!empty($referenceRow['id'])) {
             $this->db->prepare("UPDATE payment_routing_references SET status='consumed' WHERE id=? AND status='active'")->execute([(int)$referenceRow['id']]);
@@ -93,11 +108,17 @@ class PaymentRoutingService
         if (!empty($feePaymentId)) {
             // Queue the parent receipt only after the fee ledger has been
             // credited, so term/annual balances are post-payment.
+            //
+            // The channel decides who is told, not the provider: a prompt
+            // (safaricom_stk / kcb_buni_ipn / payhero_stk) debited one line so
+            // that line gets the receipt, while a deposit, Lipa Karo or a
+            // cheque goes to the household's contacts on record.
+            $railChannel = (string)($this->extract($payload, ['channel', 'rail_channel', 'payment_channel']) ?: $providerCode);
             (new FeePaymentReceiptNotifier($this->db))->notify(
                 (int)$referenceRow['student_id'],
                 $amount,
                 $reference,
-                $providerCode,
+                $railChannel,
                 $providerTransactionId,
                 $this->extract($payload,['MSISDN','phone_number','payerPhone','phone','mobile'])
             );
@@ -136,6 +157,99 @@ class PaymentRoutingService
 
     public function isConfiguredAccount(string $providerCode, ?string $account): bool
     { if (!$account) return false; $pid=$this->providerId($providerCode); $normalized=$this->normalizer->accountIdentifier($account); $s=$this->db->prepare('SELECT 1 FROM payment_collection_routes WHERE provider_id=? AND normalized_account_identifier=? AND active=1 LIMIT 1'); $s->execute([$pid,$normalized]); return (bool)$s->fetchColumn(); }
+
+    /**
+     * Read-only validation resolution: which ledger should a payment for this
+     * reference be credited to, and does it resolve to a known learner?
+     *
+     * Provider validation callbacks (KCB Buni IPN /ipn/1.0.0/validation) are
+     * PRE-AUTHORISATION: the provider asks whether to accept the money before
+     * the customer has paid. Answering must never create a ledger entry, so
+     * this mirrors routeIncoming()'s resolution without any of its posting,
+     * reference consumption, or family/receipt side effects.
+     *
+     * @return array{ok:bool,purpose:?string,student_id:int,student_name:string,financial_account_id:?int,reason:string}
+     */
+    public function resolveReference(string $providerCode, ?string $reference, ?string $accountIdentifier = null): array
+    {
+        $rawReference = trim((string) $reference);
+        $reference = $this->normalizer->reference($rawReference);
+        $accountIdentifier = $this->normalizer->accountIdentifier((string) $accountIdentifier);
+        $providerId = $this->providerId($providerCode);
+
+        $routePurpose = $this->accountPurpose($providerId, $accountIdentifier);
+        $referenceRow = $this->reference($rawReference);
+        $referencePurpose = $referenceRow['purpose'] ?? $this->prefixPurpose($reference);
+
+        // Resolve the purpose first (same order as routeIncoming): a bare
+        // admission number carries no prefix, so the collection account's
+        // purpose is what identifies it as a fees bill.
+        $purpose = $referencePurpose ?: $routePurpose;
+
+        $studentId = (int) ($referenceRow['student_id'] ?? 0);
+        if ($studentId <= 0 && !$referenceRow && ($purpose === 'fees' || $purpose === null)) {
+            // A collection account shared by several purposes cannot identify
+            // the ledger by itself, so an admission-number reference falls
+            // through with no purpose. Admission numbers are reusable
+            // parent-facing references: when one resolves to an active learner
+            // it is a fee payment, the same reading the legacy bank and Buni
+            // paths give it.
+            $s = $this->db->prepare('SELECT id FROM students WHERE admission_no=? AND status IN ("active","enrolled") LIMIT 1');
+            $s->execute([$rawReference]);
+            $studentId = (int) $s->fetchColumn();
+            if ($studentId > 0 && $purpose === null) {
+                $purpose = 'fees';
+            }
+        }
+
+        if ($purpose === null && $studentId > 0) {
+            $purpose = 'fees';
+        }
+        $reason = '';
+        if ($purpose === null) {
+            $reason = 'Reference does not resolve to a known payment purpose';
+        } elseif ($studentId <= 0) {
+            $reason = 'Reference is not registered';
+        } elseif ($routePurpose !== null && $referencePurpose !== null && $routePurpose !== $referencePurpose) {
+            $reason = 'Collection account and reference identify different ledgers';
+        }
+
+        $financialAccountId = $purpose !== null
+            ? $this->accountFinancialId($providerId, $accountIdentifier, $purpose)
+            : null;
+
+        // The provider-side collection point for this purpose, echoed back in
+        // the validation response so the provider knows which account to
+        // credit. This is the route's account_identifier (what the provider
+        // sent), not the internal ledger account id.
+        $collectionAccountIdentifier = null;
+        if ($purpose !== null && $accountIdentifier !== '') {
+            $c = $this->db->prepare(
+                'SELECT account_identifier FROM payment_collection_routes
+                 WHERE provider_id=? AND normalized_account_identifier=? AND active=1 AND purpose=?
+                 ORDER BY id LIMIT 1'
+            );
+            $c->execute([$providerId, $accountIdentifier, $purpose]);
+            $collectionAccountIdentifier = $c->fetchColumn() ?: null;
+        }
+
+        $studentName = '';
+        if ($studentId > 0) {
+            $n = $this->db->prepare("SELECT CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) FROM students s LEFT JOIN persons p ON p.id=s.person_id WHERE s.id=? LIMIT 1");
+            $n->execute([$studentId]);
+            $studentName = trim((string) $n->fetchColumn());
+        }
+
+        return [
+            'ok' => $reason === '',
+            'purpose' => $purpose,
+            'student_id' => $studentId,
+            'student_name' => $studentName,
+            'financial_account_id' => $financialAccountId,
+            'collection_account_identifier' => $collectionAccountIdentifier !== null ? (string) $collectionAccountIdentifier : null,
+            'reason' => $reason,
+        ];
+    }
 
     public function saveRoute(array $data): array
     {
@@ -195,6 +309,32 @@ class PaymentRoutingService
             }
             return ['id'=>$id,'status'=>'resolved','purpose'=>$purpose,'student_id'=>$studentId];
         } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
+    /**
+     * Persist the provider transaction id and the payer contact on the payment.
+     *
+     * A parent who disputes a payment presents an M-Pesa/Safaricom message:
+     * the provider transaction id and the sending number. Before these
+     * columns existed the id survived only inside the free-text `notes`
+     * (a full-table LIKE scan) and the paying number was not stored at all.
+     *
+     * @param array<string,mixed> $payload provider callback payload
+     */
+    private function persistPaymentTraceability(int $paymentId,string $providerTransactionId,array $payload): void
+    {
+        try {
+            $phone=$this->extract($payload,['MSISDN','phone_number','phoneNumber','payerPhone','payer_phone','phone','mobile']);
+            $phone=$phone!==null && $phone!=='' ? PhoneNumberNormalizer::normalize((string)$phone) : null;
+            $name=$this->extract($payload,['payerName','payer_name','customerName','customer_name','senderName','sender_name','name']);
+            $name=$name!==null && trim((string)$name)!=='' ? trim((string)$name) : null;
+            if ($providerTransactionId==='' && $phone===null && $name===null) return;
+            $this->db->prepare('UPDATE payments SET provider_transaction_id=COALESCE(?,provider_transaction_id),payer_phone=COALESCE(?,payer_phone),payer_name=COALESCE(?,payer_name) WHERE id=?')
+                ->execute([$providerTransactionId!==''?$providerTransactionId:null,$phone,$name,$paymentId]);
+        } catch (\Throwable $e) {
+            // Never fail a posted payment for audit metadata.
+            \App\API\Services\Logger::legacyError('[PaymentRoutingService] payment traceability update failed: '.$e->getMessage());
+        }
     }
 
     private function recordFee(int $studentId,float $amount,string $provider,string $reference,string $providerTransactionId,array $payload,int $financialAccountId): ?int

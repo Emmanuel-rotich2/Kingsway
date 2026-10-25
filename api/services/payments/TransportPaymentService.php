@@ -26,11 +26,10 @@ class TransportPaymentService
     public function initiate(array $data, int $userId): array
     {
         $entitlementId = (int)($data['entitlement_id'] ?? 0);
-        $channel = strtolower(trim((string)($data['channel'] ?? '')));
+        $method = CollectionMethods::normalize((string)($data['channel'] ?? ''));
         $amount = (float)($data['amount'] ?? 0);
-        $allowed = ['auto', 'daraja_mpesa', 'payhero_mpesa', 'c2b_mpesa', 'bank_transfer', 'cash', 'cheque'];
-        if (!$entitlementId || !in_array($channel, $allowed, true) || $amount <= 0) {
-            throw new RuntimeException('entitlement_id, a valid channel and a positive amount are required');
+        if (!$entitlementId || $amount <= 0) {
+            throw new RuntimeException('entitlement_id, a payment method and a positive amount are required');
         }
         $e = $this->entitlements->getEntitlement($entitlementId);
         if (!$e) throw new RuntimeException('Transport entitlement not found');
@@ -39,27 +38,27 @@ class TransportPaymentService
         if ($reference === '') $reference = 'TRN-' . date('YmdHis') . '-' . bin2hex(random_bytes(4));
         $phone = preg_replace('/\D+/', '', (string)($data['phone_number'] ?? $data['phone'] ?? ''));
 
-        // `auto` walks the DB-driven rail list (priority order, e.g. Buni ->
-        // PayHero -> Daraja) and fails over only at initiation time; explicit
-        // channels keep their single configured account.
+        // The client submits only the method. A prompt's rail is a system
+        // decision: purpose + configured collection-point priority, walked in
+        // order with failover at initiation time only.
         $candidates = [];
-        if ($channel === 'auto') {
+        if (CollectionMethods::isPrompt($method)) {
             $candidates = (new CollectionRailResolver($this->db))->candidates('transport', $financialAccountId);
             if ($candidates === []) throw new RuntimeException('No active online collection rail is configured for transport.');
-            $intentChannel = $this->intentChannel($candidates[0]['provider_code']);
+            $intentChannel = CollectionMethods::PROMPT;
             $accountId = $candidates[0]['financial_account_id'];
             $status = 'pending';
         } else {
-            $account = $this->accounts->requireFor($financialAccountId, 'transport', $this->channelCode($channel));
-            $intentChannel = $channel;
+            $account = $this->accounts->requireFor($financialAccountId, 'transport', $this->channelCode($method));
+            $intentChannel = $method;
             $accountId = (int)$account['id'];
-            $status = in_array($channel, ['cash', 'bank_transfer', 'cheque'], true) ? 'manual_review' : 'pending';
+            $status = CollectionMethods::isManual($method) ? 'manual_review' : 'pending';
         }
 
         $stmt = $this->db->prepare("INSERT INTO transport_payment_intents
             (entitlement_id,student_id,financial_account_id,channel,amount,phone_number,idempotency_reference,status,request_payload,created_by)
             VALUES (?,?,?,?,?,?,?,?,?, ?)");
-        $payload = ['channel' => $channel, 'amount' => $amount, 'phone_number' => $phone ?: null];
+        $payload = ['channel' => $intentChannel, 'amount' => $amount, 'phone_number' => $phone ?: null];
         $stmt->execute([$entitlementId, (int)$e['student_id'], $accountId, $intentChannel, $amount, $phone ?: null, $reference, $status, json_encode($payload), $userId]);
         $intentId = (int)$this->db->lastInsertId();
         try {
@@ -68,7 +67,7 @@ class TransportPaymentService
                 ->execute([$routingReference, (new ReferenceNormalizer())->reference($routingReference), 'transport', (int)$e['student_id'], $intentId]);
         } catch (\Throwable $routingError) { \App\API\Services\Logger::legacyError('[TransportPaymentService] routing reference registration failed: '.$routingError->getMessage()); }
 
-        if ($channel === 'auto') {
+        if (CollectionMethods::isPrompt($method)) {
             $result = (new CollectionFallbackService($this->db))->initiate('transport', [
                 'amount' => $amount,
                 'phone' => $phone,
@@ -81,28 +80,17 @@ class TransportPaymentService
                 throw new RuntimeException($result['message'] ?: 'No configured collection rail accepted the transport payment.');
             }
             // The rail that accepted owns the money: pin the intent to its
-            // channel + receiving account so the callback reconciles there.
-            $acceptedChannel = $this->intentChannel((string)$result['provider_code']);
-            $this->db->prepare('UPDATE transport_payment_intents SET channel=?, financial_account_id=? WHERE id=?')
-                ->execute([$acceptedChannel, (int)$result['financial_account_id'], $intentId]);
-        } elseif ($channel === 'daraja_mpesa') {
-            $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$accountId);
-            $this->updateProviderResult($intentId, $result, $result['data']['checkout_request_id'] ?? $result['checkout_request_id'] ?? null);
-        } elseif ($channel === 'payhero_mpesa') {
-            $result = (new PayheroPaymentService($this->db))->initiate([
-                'phone_number' => $phone,
-                'amount' => $amount,
-                'external_reference' => 'TRN-' . $intentId,
-                'purpose' => 'transport',
-            ]);
-            $this->updateProviderResult($intentId, $result, $result['checkout_request_id'] ?? $result['reference'] ?? null);
+            // receiving account so the callback reconciles there. The method
+            // stays 'prompt' — which rail carried it is the system's business.
+            $this->db->prepare('UPDATE transport_payment_intents SET financial_account_id=? WHERE id=?')
+                ->execute([(int)$result['financial_account_id'], $intentId]);
         }
         return $this->getIntent($intentId);
     }
 
-    private function intentChannel(string $providerCode): string
+    private function channelCode(string $method): string
     {
-        return ['kcb_buni' => 'buni_mpesa', 'payhero' => 'payhero_mpesa', 'safaricom_daraja' => 'daraja_mpesa','mpesa_daraja' => 'daraja_mpesa'][$providerCode] ?? $providerCode;
+        return ['mobile_money'=>'safaricom_c2b','c2b_mpesa'=>'safaricom_c2b','bank_deposit'=>'bank_transfer','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$method] ?? $method;
     }
 
     public function confirmManual(int $intentId, int $userId): array
@@ -127,8 +115,9 @@ class TransportPaymentService
 
     public function reconcileDaraja(string $checkoutId, ?string $providerReference, float $amount): bool
     {
-        $stmt = $this->db->prepare("SELECT * FROM transport_payment_intents WHERE channel='daraja_mpesa' AND (provider_request_id=? OR idempotency_reference=?) AND status IN ('pending','accepted') LIMIT 1");
-        $stmt->execute([$checkoutId, $checkoutId]); $intent = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt = $this->db->prepare("SELECT * FROM transport_payment_intents WHERE channel=? AND (provider_request_id=? OR idempotency_reference=?) AND status IN ('pending','accepted') LIMIT 1");
+        $stmt->execute([CollectionMethods::PROMPT, $checkoutId, $checkoutId]); $intent = $stmt->fetch(PDO::FETCH_ASSOC);
+        
         if (!$intent) return false;
         if (abs((float)$intent['amount'] - $amount) > 0.01) throw new RuntimeException('Transport payment amount mismatch');
         $payment = $this->recordConfirmed((int)$intent['entitlement_id'], ['amount'=>$amount,'payment_method'=>'mpesa','provider_name'=>'mpesa_daraja','provider_reference'=>$providerReference ?: $checkoutId,'verified_provider_callback'=>true,'financial_account_id'=>(int)$intent['financial_account_id']], 0, (int)$intent['financial_account_id']);
@@ -149,7 +138,7 @@ class TransportPaymentService
         $success = in_array(strtolower((string)($flat['status'] ?? $flat['statusCode'] ?? $flat['statusDescription'] ?? 'success')), ['0','success','successful','completed','confirmed'], true);
         if (!$success || $amount <= 0) return false;
         $intent = $this->getIntent((int)$m[1]);
-        if (!$intent || $intent['channel'] !== 'buni_mpesa' || in_array($intent['status'], ['confirmed','failed','cancelled'], true)) return $intent && $intent['status'] === 'confirmed';
+        if (!$intent || $intent['channel'] !== CollectionMethods::PROMPT || in_array($intent['status'], ['confirmed','failed','cancelled'], true)) return $intent && $intent['status'] === 'confirmed';
         if (abs((float)$intent['amount'] - $amount) > 0.01) throw new RuntimeException('Buni transport payment amount mismatch');
         $payment = $this->recordConfirmed((int)$intent['entitlement_id'], ['amount'=>$amount,'payment_method'=>'mpesa','provider_name'=>'kcb_buni','provider_reference'=>$reference,'verified_provider_callback'=>true,'financial_account_id'=>(int)$intent['financial_account_id']], 0, (int)$intent['financial_account_id']);
         $this->markConfirmed((int)$intent['id'], $reference); $this->notifyParent((int)$intent['student_id'], $amount, $reference);
@@ -159,7 +148,7 @@ class TransportPaymentService
     public function reconcileIntentReference(string $reference, float $amount, string $provider, string $providerReference): bool
     {
         $reference = (new ReferenceNormalizer())->reference($reference);
-        $s=$this->db->prepare("SELECT i.* FROM transport_payment_intents JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
+        $s=$this->db->prepare("SELECT i.* FROM transport_payment_intents i JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
         if (!$intent) return false;
         if ($intent['status']==='confirmed') return true;
         if (!in_array($intent['status'], ['pending','accepted','manual_review'], true) || abs((float)$intent['amount']-$amount)>0.01) return false;
@@ -200,11 +189,6 @@ class TransportPaymentService
         // its journal in the same transaction. Keep one posting boundary so
         // a verified callback cannot create a second accounting attempt.
         return $payment;
-    }
-
-    private function channelCode(string $channel): string
-    {
-        return ['daraja_mpesa'=>'safaricom_stk','payhero_mpesa'=>'payhero_stk','c2b_mpesa'=>'safaricom_c2b','bank_transfer'=>'bank_transfer','cash'=>'cash','cheque'=>'cheque'][$channel] ?? $channel;
     }
 
     private function notifyParent(int $studentId, float $amount, string $reference): void

@@ -129,8 +129,9 @@ class AccountsManager extends BaseAPI
             // Super admin accounts are auto-verified; others need manual verification
             $isSuperAdmin = false;
             if ($userId > 0) {
-                // System Administrator (id=2, scope='system', is_system=1) is the super admin
-                $roleCheck = $this->db->prepare("SELECT 1 FROM user_roles ur JOIN user_role_assignments ura ON ura.role_id=ur.id WHERE ura.user_id=? AND ur.id=2 AND ur.is_system=1 LIMIT 1");
+                // System Administrator (role id 2, scope='system', is_system=1)
+                // is the super admin. `is_system` lives on `roles`.
+                $roleCheck = $this->db->prepare("SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND r.is_system=1 LIMIT 1");
                 $roleCheck->execute([$userId]);
                 $isSuperAdmin = (bool)$roleCheck->fetchColumn();
             }

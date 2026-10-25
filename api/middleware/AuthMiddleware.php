@@ -66,6 +66,14 @@ class AuthMiddleware
             'payments/kcb-notification',
             'payments/kcb-account-notification',
             'payments/kcb-till-notification',
+            // KCB Buni canonical IPN paths — the URLs the provider is actually
+            // configured to call. Matched as a substring of REQUEST_URI, so the
+            // literal path form is required. ControllerRouter remaps these to
+            // the payments controller; without them every Buni callback 401s
+            // before reaching the payment code.
+            'ipn/1.0.0/validation',
+            'ipn/1.0.0/till-notification',
+            'ipn/1.0.0/account-notification',
             'payments/bank-webhook',
             // Public, read-only entry points: invitation flags are token-scoped;
             // learner card verification applies its own public/staff view policy.

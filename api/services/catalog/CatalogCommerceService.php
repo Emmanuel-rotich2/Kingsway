@@ -10,6 +10,9 @@ use App\API\Services\UploadService;
 use App\API\Services\payments\FinancialAccountService;
 use App\API\Services\payments\KcbMpesaExpressService;
 use App\API\Services\payments\MpesaPaymentService;
+use App\API\Services\payments\CollectionMethods;
+use App\API\Services\payments\CollectionFallbackService;
+use App\API\Services\payments\PaymentMethodLabels;
 use App\API\Services\payments\ReferenceNormalizer;
 use PDO;
 use RuntimeException;
@@ -60,7 +63,21 @@ final class CatalogCommerceService
 
     public function paymentOptions(bool $includeManual=false): array
     {
-        $service=new FinancialAccountService($this->db);$map=['daraja_mpesa'=>'mpesa_stk','buni_mpesa'=>'buni_ipn'];if($includeManual)$map+=['cash'=>'cash','bank_transfer'=>'bank_transfer','cheque'=>'cheque'];$result=[];foreach($map as $channel=>$code){$accounts=$service->listAvailable('uniforms',$code);if($accounts)$result[]=['channel'=>$channel,'label'=>['daraja_mpesa'=>'M-Pesa STK Push','buni_mpesa'=>'KCB Buni M-Pesa','cash'=>'Cash','bank_transfer'=>'Bank transfer','cheque'=>'Cheque'][$channel],'accounts'=>$accounts];}return $result;
+        // A prompt is a prompt: offer the method once, whatever rails are
+        // configured behind it. A method is listed only when an active
+        // collection point can actually serve it for this purpose.
+        $service=new FinancialAccountService($this->db);
+        $methodChannels=[
+            CollectionMethods::PROMPT=>['safaricom_stk','kcb_buni_ipn','payhero_stk'],
+            CollectionMethods::MOBILE_MONEY=>['safaricom_c2b','payhero_c2b'],
+            CollectionMethods::BANK_DEPOSIT=>['bank_transfer','bank_statement_webhook'],
+            CollectionMethods::CASH=>['cash'],
+            CollectionMethods::CHEQUE=>['cheque'],
+        ];
+        if(!$includeManual)unset($methodChannels[CollectionMethods::CASH],$methodChannels[CollectionMethods::CHEQUE]);
+        $result=[];foreach($methodChannels as $method=>$codes){$accounts=[];foreach($codes as $code){$a=$service->listAvailable('uniforms',$code);if($a)$accounts=array_merge($accounts,$a);}
+            if($accounts){$seen=[];$accounts=array_values(array_filter($accounts,function($x)use(&$seen){$k=(int)($x['id']??0);if($k&&$seen[$k]??false)return false;$seen[$k]=true;return true;}));$result[]=['channel'=>$method,'label'=>PaymentMethodLabels::label($method),'accounts'=>$accounts];}}
+        return $result;
     }
 
     private function purchasableLine(int $productId,?int $variantId,int $sizeId,string $type,bool $lock=false): array
@@ -92,7 +109,7 @@ final class CatalogCommerceService
     public function checkout(string $type,int $buyerId,array $data,int $actorUserId=0): array
     {
         $this->buyer($type,$buyerId);$studentId=(int)($data['student_id']??0)?:null;if($type==='parent'&&!$studentId)throw new RuntimeException('Select the learner receiving this order');if($type==='parent'){$v=$this->db->prepare('SELECT 1 FROM student_parents WHERE parent_id=? AND student_id=? LIMIT 1');$v->execute([$buyerId,$studentId]);if(!$v->fetchColumn())throw new RuntimeException('The selected learner is not connected to this parent');}
-        $channel=(string)($data['channel']??'daraja_mpesa');if(!in_array($channel,['daraja_mpesa','buni_mpesa','cash','bank_transfer','cheque'],true))throw new RuntimeException('Unsupported payment channel');if(in_array($channel,['cash','bank_transfer','cheque'],true)&&empty($data['allow_manual']))throw new RuntimeException('Manual payments must be recorded at the Uniform Store');
+        $channel=(string)($data['channel']??'daraja_mpesa');if(!CollectionMethods::isAccepted($channel))throw new RuntimeException('Unsupported payment method');if(in_array($channel,['cash','bank_transfer','cheque'],true)&&empty($data['allow_manual']))throw new RuntimeException('Manual payments must be recorded at the Uniform Store');
         $this->db->beginTransaction();try{$cartId=$this->openCart($type,$buyerId,false);if(!$cartId)throw new RuntimeException('Your cart is empty');$items=$this->db->prepare('SELECT * FROM catalog_cart_items WHERE cart_id=? ORDER BY id FOR UPDATE');$items->execute([$cartId]);$cartItems=$items->fetchAll(PDO::FETCH_ASSOC);if(!$cartItems)throw new RuntimeException('Your cart is empty');$lines=[];$subtotal=0.0;foreach($cartItems as $item){$line=$this->purchasableLine((int)$item['product_id'],(int)$item['variant_id']?:null,(int)$item['size_id'],$type,true);$qty=(int)$item['quantity'];if((int)$line['quantity_available']-(int)$line['quantity_reserved']<$qty)throw new RuntimeException($line['title'].' no longer has enough stock');$line['quantity']=$qty;$line['line_total']=$qty*(float)$line['unit_price'];$subtotal+=(float)$line['line_total'];$lines[]=$line;}
             $source=$type==='parent'?'online':'internal';$discountChannel=$type==='parent'?'public':'internal';$stock=new CatalogStockService($this->db);$quote=$stock->quoteDiscount($data['discount_code']??null,$discountChannel,$subtotal,$lines,$type,$buyerId);$discount=(float)($quote['amount']??0);$total=max(0,$subtotal-$discount);
             $ref='KPS-'.strtoupper($type[0]).'-'.date('ymd').'-'.strtoupper(bin2hex(random_bytes(4)));$this->db->prepare("INSERT INTO catalog_orders(order_reference,buyer_type,buyer_id,student_id,source,status,payment_status,subtotal,discount_total,total_amount,customer_note,placed_by) VALUES(?,?,?,?,?,'pending_payment','pending',?,?,?,?,?)")->execute([$ref,$type,$buyerId,$studentId,$source,$subtotal,$discount,$total,$data['note']??null,$actorUserId?:null]);$orderId=(int)$this->db->lastInsertId();$insert=$this->db->prepare('INSERT INTO catalog_order_items(order_id,product_id,variant_id,size_id,item_id,product_title,variant_name,size_label,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?,?,?,?,?)');$reserve=$this->db->prepare('UPDATE uniform_sizes SET quantity_reserved=quantity_reserved+? WHERE id=?');foreach($lines as $line){$insert->execute([$orderId,$line['product_id'],$line['variant_id']?:null,$line['size_id'],$line['item_id'],$line['title'],$line['variant_name'],$line['size_label']?:$line['size'],$line['quantity'],$line['unit_price'],$line['line_total']]);$reserve->execute([$line['quantity'],$line['size_id']]);}if($quote)$stock->recordDiscount($orderId,$quote,$type,$buyerId,$actorUserId);$this->db->prepare("UPDATE catalog_carts SET status='converted' WHERE id=?")->execute([$cartId]);$this->event($orderId,'order_placed',null,'pending_payment',$data['note']??null,$actorUserId);$this->db->commit();
@@ -100,16 +117,26 @@ final class CatalogCommerceService
         }catch(\Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
 
-    private function startPayment(int $orderId,string $channel,array $data,int $actor): array
+    private function startPayment(int $orderId,string $channel,array $data,int $actor,string $type='internal'): array
     {
-        $order=$this->order($orderId);$channelCode=['daraja_mpesa'=>'mpesa_stk','buni_mpesa'=>'buni_ipn','cash'=>'cash','bank_transfer'=>'bank_transfer','cheque'=>'cheque'][$channel];$account=(new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id']??0),'uniforms',$channelCode);$attemptCount=$this->db->prepare('SELECT COUNT(*) FROM catalog_payment_attempts WHERE order_id=?');$attemptCount->execute([$orderId]);$number=(int)$attemptCount->fetchColumn()+1;$ref=$order['order_reference'].($number>1?'-R'.$number:'');$status=in_array($channel,['cash','bank_transfer','cheque'],true)?'manual_review':'pending';$this->db->prepare('INSERT INTO catalog_payment_attempts(order_id,channel,amount,status,idempotency_reference,financial_account_id,request_json,created_by) VALUES(?,?,?,?,?,?,?,?)')->execute([$orderId,$channel,$order['total_amount'],$status,$ref,$account['id'],json_encode($data),$actor?:null]);$attempt=(int)$this->db->lastInsertId();$provider=[];
+        $order=$this->order($orderId);$method=CollectionMethods::normalize($channel);$channelCode=CollectionMethods::isPrompt($method)?'prompt':$method;$account=(new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id']??0),'uniforms',$channelCode);$attemptCount=$this->db->prepare('SELECT COUNT(*) FROM catalog_payment_attempts WHERE order_id=?');$attemptCount->execute([$orderId]);$number=(int)$attemptCount->fetchColumn()+1;$ref=$order['order_reference'].($number>1?'-R'.$number:'');$status=CollectionMethods::isManual($method)?'manual_review':'pending';$this->db->prepare('INSERT INTO catalog_payment_attempts(order_id,channel,amount,status,idempotency_reference,financial_account_id,request_json,created_by) VALUES(?,?,?,?,?,?,?,?)')->execute([$orderId,$method,$order['total_amount'],$status,$ref,$account['id'],json_encode($data),$actor?:null]);$attempt=(int)$this->db->lastInsertId();$provider=[];
         if (!empty($order['student_id'])) {
             $normalized=(new ReferenceNormalizer())->reference($ref);
             $this->db->prepare("INSERT IGNORE INTO payment_routing_references(reference,normalized_reference,purpose,student_id,expires_at) VALUES(?,?, 'uniforms',?,DATE_ADD(NOW(),INTERVAL 30 DAY))")->execute([$ref,$normalized,(int)$order['student_id']]);
         }
         try {
-            if($channel==='daraja_mpesa'){$provider=(new MpesaPaymentService())->initiateSTKPush($ref,(string)($data['phone']??''),(float)$order['total_amount'],'Kingsway catalogue order',(int)$account['id']);$request=$provider['data']['checkout_request_id']??$provider['checkout_request_id']??null;$ok=($provider['accepted']??false)||(($provider['status']??'')==='pending');$this->db->prepare('UPDATE catalog_payment_attempts SET status=?,provider_request_id=?,response_json=? WHERE id=?')->execute([$ok?'accepted':'failed',$request,json_encode($provider),$attempt]);$this->db->prepare("UPDATE catalog_orders SET status=? WHERE id=?")->execute([$ok?'payment_processing':'pending_payment',$orderId]);}
-            elseif($channel==='buni_mpesa'){$base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:'');$provider=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??'','amount'=>$order['total_amount'],'invoice_number'=>$ref,'org_short_code'=>(string)$account['account_identifier'],'description'=>'Kingsway catalogue order','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']);$request=$provider['checkout_request_id']??$provider['message_id']??null;$this->db->prepare("UPDATE catalog_payment_attempts SET status='accepted',provider_request_id=?,response_json=? WHERE id=?")->execute([$request,json_encode($provider),$attempt]);$this->db->prepare("UPDATE catalog_orders SET status='payment_processing' WHERE id=?")->execute([$orderId]);}
+            // One method, one path: the rail is the system's decision.
+            // CollectionFallbackService walks the purpose's configured rail
+            // priority (uniforms => Daraja then PayHero) and fails over at
+            // initiation time. The client never names a provider.
+            if(CollectionMethods::isPrompt($method)){
+                $result=(new CollectionFallbackService($this->db))->initiate('uniforms',['amount'=>(float)$order['total_amount'],'phone'=>(string)($data['phone']??''),'reference'=>$ref,'customer_name'=>(string)($data['customer_name']??''),'description'=>'Kingsway catalogue order','financial_account_id'=>(int)$account['id']]);
+                $provider=$result['result']??['accepted'=>(bool)($result['accepted']??false),'message'=>(string)($result['message']??'')];
+                $request=(string)($result['request_id']??'')!==''?(string)$result['request_id']:null;
+                $ok=(bool)($result['accepted']??false);
+                $this->db->prepare('UPDATE catalog_payment_attempts SET status=?,provider_request_id=?,response_json=? WHERE id=?')->execute([$ok?'accepted':'failed',$request,json_encode($result),$attempt]);
+                $this->db->prepare("UPDATE catalog_orders SET status=? WHERE id=?")->execute([$ok?'payment_processing':'pending_payment',$orderId]);
+            }
         } catch (\Throwable $e) {
             $provider=['accepted'=>false,'message'=>'Payment request could not be started. Retry from your order history.'];$this->db->prepare("UPDATE catalog_payment_attempts SET status='failed',response_json=? WHERE id=?")->execute([json_encode(['error'=>$e->getMessage()]),$attempt]);$this->db->prepare("UPDATE catalog_orders SET status='pending_payment' WHERE id=?")->execute([$orderId]);
         }
@@ -118,7 +145,7 @@ final class CatalogCommerceService
 
     public function retryPayment(int $orderId,string $type,int $buyerId,array $data,int $actor=0): array
     {
-        $this->buyer($type,$buyerId);$order=$this->order($orderId);if($order['buyer_type']!==$type||(int)$order['buyer_id']!==$buyerId)throw new RuntimeException('Order not found');if(!in_array($order['status'],['pending_payment','payment_processing'],true)||$order['payment_status']==='paid')throw new RuntimeException('This order is not awaiting payment');$channel=(string)($data['channel']??'daraja_mpesa');if(!in_array($channel,['daraja_mpesa','buni_mpesa'],true))throw new RuntimeException('Choose a supported online payment method');return $this->startPayment($orderId,$channel,$data,$actor);
+        $this->buyer($type,$buyerId);$order=$this->order($orderId);if($order['buyer_type']!==$type||(int)$order['buyer_id']!==$buyerId)throw new RuntimeException('Order not found');if(!in_array($order['status'],['pending_payment','payment_processing'],true)||$order['payment_status']==='paid')throw new RuntimeException('This order is not awaiting payment');$channel=(string)($data['channel']??'daraja_mpesa');if(!CollectionMethods::isPrompt($channel))throw new RuntimeException('Choose a supported payment method');return $this->startPayment($orderId,$channel,$data,$actor);
     }
 
     public function pointOfSaleOptions(): array

@@ -78,7 +78,9 @@ const paymentReconciliationController = {
     const purpose = document.getElementById('routingPurpose').value;
     if (!purpose) return this.notify('Select a resolution purpose.', 'warning');
     try {
-      await window.API.finance.resolvePaymentRouting(id, { purpose });
+      // The registered client method is resolvePaymentRoutingCase; the route
+      // and backend handler both exist — only this call name was wrong.
+      await window.API.finance.resolvePaymentRoutingCase(id, { purpose });
       this.notify('Routing case resolved', 'success');
       new bootstrap.Modal.getInstance(document.getElementById('routingResolveModal'))?.hide();
       await this.load();
@@ -125,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await window.API.finance.getPaymentCollectionRoutes();
       const rows = r?.data?.routes || [];
       document.getElementById('collectionRoutesList').textContent = rows.map(x =>
-        `${x.provider_code}: ${x.account_identifier} → ${x.purpose} (${x.reference_prefix})`
+        `${window.PaymentMethodLabels?.display(x.provider_code) ?? x.provider_code}: ${x.account_identifier} → ${x.purpose} (${x.reference_prefix})`
       ).join(' | ') || 'No collection routes configured.';
     } catch (e) {
       document.getElementById('collectionRoutesList').textContent = 'Unable to load collection routes.';

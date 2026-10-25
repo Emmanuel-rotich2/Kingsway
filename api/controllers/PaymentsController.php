@@ -218,11 +218,40 @@ class PaymentsController extends BaseController
      * POST /api/payments/kcb-validation
      * FIX: Pass actual request headers for webhook signature validation
      */
+    /**
+     * KCB IPN responses must reach the provider as the bare payload it expects.
+     * KCB reads statusCode/transactionID at the TOP level of the response body,
+     * so wrapping it in the application's {success,status,data,...} envelope
+     * leaves the fields nested under data and the provider cannot parse them.
+     * Mirrors the mcp_raw escape hatch used by McpController.
+     */
+    private function ipnResponse(array $result): array
+    {
+        $payload = is_array($result['data'] ?? null) ? $result['data'] : $result;
+        if (isset($result['success']) && !$result['success'] && empty($payload['transactionID'])) {
+            $payload = [
+                'transactionID' => '',
+                'statusCode' => '1',
+                'statusMessage' => (string) ($result['message'] ?? 'Request failed'),
+            ];
+        }
+        if (!is_array($payload) || $payload === []) {
+            $payload = ['transactionID' => '', 'statusCode' => '1', 'statusMessage' => 'Request failed'];
+        }
+
+        return ['ipn_raw' => true] + $payload;
+    }
+
     public function postKcbValidation($id = null, $data = [], $segments = [])
     {
         $headers = function_exists('getallheaders') ? getallheaders() : [];
+        // KCB signs the exact bytes it posted. Re-encoding the parsed array
+        // changes key order and whitespace, which breaks the signature check,
+        // so the true raw body is always supplied.
+        $raw = (string) (file_get_contents('php://input') ?: '');
+        $headers['__raw_body'] = $raw !== '' ? $raw : json_encode($data);
         $result = $this->api->processKcbValidation($data, $headers);
-        return $this->handleResponse($result);
+        return $this->ipnResponse($result);
     }
 
     /**
@@ -246,7 +275,7 @@ class PaymentsController extends BaseController
         $headers = function_exists('getallheaders') ? getallheaders() : [];
         $headers['__raw_body'] = (string) (file_get_contents('php://input') ?: json_encode($data));
         $result = $this->api->processKcbNotification($data, $headers);
-        return $this->handleResponse($result);
+        return $this->ipnResponse($result);
     }
 
     /** POST /api/payments/kcb-account-notification */

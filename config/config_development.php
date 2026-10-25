@@ -480,6 +480,10 @@ define('PAYHERO_WALLET_PATH', $_ENV['PAYHERO_WALLET_PATH'] ?? '/api/v2/wallets')
 define('PAYHERO_PAYMENT_CHANNELS_PATH', $_ENV['PAYHERO_PAYMENT_CHANNELS_PATH'] ?? '/api/v2/payment_channels');
 define('PAYHERO_CALLBACK_BASE_URL', $_ENV['PAYHERO_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
 define('PAYHERO_VERIFY_CALLBACK_STATUS', filter_var($_ENV['PAYHERO_VERIFY_CALLBACK_STATUS'] ?? '0', FILTER_VALIDATE_BOOLEAN));
+// Routes the collection through the school's own Daraja credentials instead of
+// a PayHero bank channel: the money settles on the school paybill, so PayHero
+// has nothing to settle and charges no service fee. Unset = use the channel.
+define('PAYHERO_CREDENTIAL_ID', (int) ($_ENV['PAYHERO_CREDENTIAL_ID'] ?? 0));
 define('PAYHERO_TIMEOUT_SECONDS', max(5, (int) ($_ENV['PAYHERO_TIMEOUT_SECONDS'] ?? 30)));
 
 /*

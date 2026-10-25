@@ -273,9 +273,11 @@ const financeController = {
      */
     verifyPayroll: async function(payrollId) {
         try {
+            // The handler reads user_id; verified_by was silently ignored and
+            // every verify failed with "Payroll ID and User ID required".
             await API.finance.verifyPayroll({
                 payroll_id: payrollId,
-                verified_by: AuthContext.getUser().user_id
+                user_id: AuthContext.getUser().user_id
             });
             showNotification('Payroll verified successfully', 'success');
             await this.loadPayrolls();
@@ -311,7 +313,7 @@ const financeController = {
         if (!(await window.confirmAction('Confirm', 'Process this payroll? This will initiate payments.'))) return;
 
         try {
-            await API.finance.processPayroll({ payroll_id: payrollId });
+            await API.finance.processPayroll({ payroll_id: payrollId, user_id: AuthContext.getUser().user_id });
             showNotification('Payroll processing initiated', 'success');
             await this.loadPayrolls();
         } catch (error) {

@@ -149,6 +149,35 @@ final class CollectionFallbackService
         $description = (string) ($context['description'] ?? ucfirst($purpose) . ' payment');
 
         switch ($candidate['provider_code']) {
+            case 'kcb_buni':
+                $base = defined('KCB_CALLBACK_BASE_URL') && KCB_CALLBACK_BASE_URL !== ''
+                    ? KCB_CALLBACK_BASE_URL
+                    : (defined('BASE_URL') ? BASE_URL : '');
+                $callback = (string) ($context['callback_url'] ?? '');
+                if ($callback === '') {
+                    $callback = rtrim((string) $base, '/') . '/api/payments/kcb-mpesa-express-callback';
+                }
+                $result = (new KcbMpesaExpressService())->initiate([
+                    'phone_number' => $phone,
+                    'amount' => $amount,
+                    'invoice_number' => $reference,
+                    'description' => $description,
+                    'callback_url' => $callback,
+                    'shared_short_code' => (bool) ($context['shared_short_code'] ?? true),
+                    'org_short_code' => (string) ($context['org_short_code'] ?? ''),
+                    'org_pass_key' => (string) ($context['org_pass_key'] ?? ''),
+                ]);
+
+                return [
+                    'accepted' => !empty($result['accepted']),
+                    'request_id' => (string) ($result['checkout_request_id'] ?? '') !== ''
+                        ? (string) $result['checkout_request_id']
+                        : ($result['message_id'] ?? null),
+                    'message' => (string) ($result['message'] ?? ''),
+                    'status' => (string) ($result['status'] ?? ''),
+                    'provider' => $result,
+                ];
+
             case 'payhero':
                 $result = (new PayheroPaymentService($this->db))->initiate([
                     'phone_number' => $phone,

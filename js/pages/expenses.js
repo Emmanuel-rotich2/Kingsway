@@ -351,9 +351,11 @@ const expensesController = {
 
     const statusMap = {approve: 'approved', reject: 'rejected', pay: 'paid'};
     try {
+      // The reject handler reads `reason`; sending only `rejection_reason`
+      // made every rejection fail validation. Approval notes use `notes`.
       await callAPI('/finance/expenses/' + id, 'PUT', {
-        status:           statusMap[action],
-        rejection_reason: action === 'reject' ? notes : undefined,
+        status: statusMap[action],
+        ...(action === 'reject' ? { reason: notes, rejection_reason: notes } : { notes: notes }),
       });
       showNotification('Expense ' + (statusMap[action]) + ' successfully.', 'success');
       this._approvalModal.hide();

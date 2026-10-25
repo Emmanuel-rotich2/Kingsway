@@ -53,6 +53,38 @@ final class PaymentGatewayPythonRelay
     }
 
     /**
+     * Canonical header shape for the platform: a {name: value} map.
+     *
+     * Callers pass either a map or a list of "Name: Value" wire lines; the
+     * list form used to be forwarded verbatim, which the platform silently
+     * discarded, stripping Authorization from every provider call.
+     *
+     * @param array<string,string>|list<string> $headers
+     * @return array<string,string>|null
+     */
+    private static function normalizeHeaders(array $headers): ?array
+    {
+        $normalized = [];
+        foreach ($headers as $name => $value) {
+            if (is_int($name)) {
+                $line = trim((string) $value);
+                if ($line === '') {
+                    continue;
+                }
+                $position = strpos($line, ':');
+                if ($position === false) {
+                    continue;
+                }
+                $normalized[trim(substr($line, 0, $position))] = trim(substr($line, $position + 1));
+                continue;
+            }
+            $normalized[(string) $name] = (string) $value;
+        }
+
+        return $normalized === [] ? null : $normalized;
+    }
+
+    /**
      * Relay one gateway HTTP exchange.
      *
      * @param array<string,string> $headers Header name => value map.
@@ -73,7 +105,7 @@ final class PaymentGatewayPythonRelay
             'params' => [
                 'method' => strtoupper($method),
                 'url' => $url,
-                'headers' => $headers ?: null,
+                'headers' => self::normalizeHeaders($headers),
                 'body' => $body,
                 'timeout' => $timeout,
             ],

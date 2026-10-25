@@ -337,7 +337,7 @@ class MpesaPaymentService
 
         try {
             $stmt = $this->getDb()->prepare(
-                "SELECT id, status, bill_ref_number, amount, collection_account_identifier
+                "SELECT id, status, bill_ref_number, amount, collection_account_identifier, phone_number
                  FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
             );
             $stmt->execute(['checkout' => $checkoutRequestId]);
@@ -358,7 +358,10 @@ class MpesaPaymentService
                 }
             }
             $mpesaReceipt = $kv['MpesaReceiptNumber'] ?? null;
-            $phone = $kv['PhoneNumber'] ?? null;
+            // The callback's PhoneNumber is the line that was prompted; the
+            // stored STK row is the fallback. Losing this is what sent fee
+            // receipts to the registered guardian instead of the payer.
+            $phone = $kv['PhoneNumber'] ?? ($row['phone_number'] ?? null);
             $amount = $kv['Amount'] ?? null;
             $billRef = trim((string) ($row['bill_ref_number'] ?? ''));
             $normalizedBillRef = (new ReferenceNormalizer())->reference($billRef);
@@ -446,6 +449,11 @@ class MpesaPaymentService
                             'BusinessShortCode' => $row['collection_account_identifier'] ?? null,
                             'BillRefNumber' => $billRef,
                             'channel' => 'safaricom_stk',
+                            // The number that actually paid. Discarding this is
+                            // what sent fee receipts to the registered guardian
+                            // instead of the payer, so a parent who paid from a
+                            // different line never received the SMS.
+                            'MSISDN' => $phone,
                         ],
                         (string) ($mpesaReceipt ?: $checkoutRequestId),
                         (float) ($amount ?: $row['amount'] ?: 0),
@@ -645,9 +653,9 @@ class MpesaPaymentService
 
         $db = $this->getDb();
         $student = $db->prepare(
-            "SELECT s.id AS student_id, sp.parent_id, s.admission_no
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-            WHERE s.admission_no IN (:raw_reference, :reference)
+            "SELECT student_id, admission_no
+             FROM " . ReadReplicaService::qualifiedRef("student_directory") . "
+            WHERE admission_no IN (:raw_reference, :reference)
              LIMIT 1"
         );
         $student->execute(['raw_reference' => $rawReference, 'reference' => $reference]);
