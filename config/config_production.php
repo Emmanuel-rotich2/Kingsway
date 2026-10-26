@@ -457,6 +457,9 @@ define('KCB_STATUS_POLL_INITIAL_DELAY_SECONDS', max(60, (int) ($_ENV['KCB_STATUS
 define('KCB_STATUS_POLL_MAX_ATTEMPTS', max(1, (int) ($_ENV['KCB_STATUS_POLL_MAX_ATTEMPTS'] ?? 5)));
 define('KCB_STATUS_EXCEPTION_AFTER_MINUTES', max(5, (int) ($_ENV['KCB_STATUS_EXCEPTION_AFTER_MINUTES'] ?? 60)));
 define('KCB_RECONCILIATION_WORKER_SECRET', $_ENV['KCB_RECONCILIATION_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
+// The STK timeout sweeper falls back to the shared worker secret so an
+// unset constant cannot lock the cron job out of its own endpoint.
+define('PAYMENT_SWEEP_WORKER_SECRET', $_ENV['PAYMENT_SWEEP_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
 
 define(
     'KCB_PUBLIC_KEY_PATH',

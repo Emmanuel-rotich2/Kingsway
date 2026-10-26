@@ -415,7 +415,7 @@ final class AiPythonBridge
             ]);
             $completed = curl_exec($ch) !== false;
             $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            curl_close($ch);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
         } else {
             // The Apache runtime may not load the cURL extension (extensions
             // are runtime capabilities, never Composer packages), but the
@@ -547,7 +547,7 @@ final class AiPythonBridge
             ]);
             $completed = curl_exec($ch) !== false;
             $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            curl_close($ch);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
         } else {
             $context = stream_context_create([
                 'http' => [

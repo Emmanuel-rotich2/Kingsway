@@ -84,6 +84,30 @@ final class CollectionFallbackService
                 : "No active online collection rail is configured for {$purpose}.");
         }
 
+        // A mistyped reference cannot be refused by the provider: Safaricom's
+        // STK Push carries no account validation, and Buni accepts any
+        // non-empty invoiceNumber. The money would leave the payer's line and
+        // then match no learner, landing in payment_unmatched_cases with no
+        // ledger posting. Refusing it here is cheap; undoing it afterwards is
+        // not. Checked once for the whole attempt, not per rail.
+        $routing = $this->referenceIsRoutable((string) ($context['reference'] ?? ''), $purpose);
+        if (!$routing['routable']) {
+            $this->journal($context, $candidates[0], false, $routing['message'], 'reference_unroutable');
+            return [
+                'accepted' => false,
+                'reason' => 'reference_unroutable',
+                'message' => $routing['message'],
+                'provider_code' => null,
+                'channel' => null,
+                'route_id' => null,
+                'financial_account_id' => null,
+                'settlement_financial_account_id' => null,
+                'request_id' => null,
+                'fallback_used' => false,
+                'attempts' => [],
+            ];
+        }
+
         $attempts = [];
         foreach ($candidates as $candidate) {
             try {
@@ -234,6 +258,79 @@ final class CollectionFallbackService
         ];
     }
 
+    /**
+     * Whether a routing reference identifies a payable target, checked before
+     * any prompt leaves the building.
+     *
+     * Fees use the bare admission number, so an active learner must own it.
+     * Transport (TRN-…) and uniforms (U-…) use a routed reference, so an
+     * unexpired payment_routing_references row for this purpose must exist.
+     * An empty reference is the payer's own omission and is reported as such.
+     *
+     * This check Fails open on a database error: an unreadable lookup must
+     * never become the reason a parent's legit payment is refused. When the
+     * lookup fails the prompt proceeds and the existing unmatched-case safety
+     * net catches a genuinely wrong reference afterwards.
+     *
+     * @return array{routable:bool,message:string}
+     */
+    private function referenceIsRoutable(string $reference, string $purpose): array
+    {
+        $reference = trim($reference);
+        if ($reference === '') {
+            return ['routable' => false, 'message' => 'A payment reference is required.'];
+        }
+
+        try {
+            if ($purpose === 'fees') {
+                $learner = $this->db->prepare(
+                    'SELECT admission_no FROM students WHERE admission_no = ? AND status IN ("active","enrolled") LIMIT 1'
+                );
+                $learner->execute([$reference]);
+                $admissionNo = (string) $learner->fetchColumn();
+                if ($admissionNo === '') {
+                    return [
+                        'routable' => false,
+                        'message' => 'No active learner has admission number ' . $reference . '. Check the number and try again.',
+                    ];
+                }
+                return ['routable' => true, 'message' => ''];
+            }
+
+            if ($purpose === 'transport' || $purpose === 'uniforms') {
+                // The expiry comparison takes the clock from the application
+                // rather than the database: a routed reference is read from the
+                // replica, and NOW() would bind it to the read node's clock.
+                $row = $this->db->prepare(
+                    'SELECT id FROM payment_routing_references
+                      WHERE reference = ? AND purpose = ? AND status IN ("active","consumed")
+                        AND (expires_at IS NULL OR expires_at >= ?)
+                      LIMIT 1'
+                );
+                $row->execute([$reference, $purpose, date('Y-m-d H:i:s')]);
+                if (!$row->fetchColumn()) {
+                    return [
+                        'routable' => false,
+                        'message' => 'This ' . $purpose . ' reference is not active or has expired. Request a new payment reference.',
+                    ];
+                }
+                return ['routable' => true, 'message' => ''];
+            }
+        } catch (Throwable $error) {
+            FileLogger::write('payments', [
+                'type' => 'reference_routing_check',
+                'status' => 'failed_open',
+                'purpose' => $purpose,
+                'error' => $error->getMessage(),
+            ], 'warning');
+            return ['routable' => true, 'message' => ''];
+        }
+
+        // An unknown purpose is rejected upstream by the rail resolver, which
+        // refuses to select any candidate for it.
+        return ['routable' => true, 'message' => ''];
+    }
+
     private function failureMessage(array $attempts): string
     {
         $parts = [];
@@ -246,7 +343,7 @@ final class CollectionFallbackService
         return $parts !== [] ? implode(' | ', $parts) : 'No configured collection rail accepted the payment.';
     }
 
-    private function journal(array $context, array $candidate, bool $accepted, string $message): void
+    private function journal(array $context, array $candidate, bool $accepted, string $message, string $reason = ''): void
     {
         try {
             FileLogger::write('payments', [
@@ -259,6 +356,7 @@ final class CollectionFallbackService
                 'financial_account_id' => $candidate['financial_account_id'],
                 'accepted' => $accepted,
                 'message' => $message,
+                'reason' => $reason,
             ]);
         } catch (Throwable $e) {
             // journalling must never break a payment attempt

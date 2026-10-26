@@ -335,7 +335,7 @@ final class InterServiceClient
         $raw = curl_exec($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
+        // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
 
         if ($raw === false || $status <= 0) {
             return [false, $status, $error !== '' ? $error : 'request failed'];

@@ -66,13 +66,14 @@ class FeePaymentReceiptNotifier
 
             $student = $studentId > 0 ? $this->studentContext($studentId) : null;
             $guardianPhones = array_values(array_filter((array) ($student['guardian_phones'] ?? [])));
+            $guardianNames = array_values(array_filter((array) ($student['guardian_names'] ?? [])));
             // A prompt debited one line: that number owns the receipt. A
             // deposit/lipa karo is a household payment: the contacts on record
             // are told and the payer is the fallback.
             $payerFirst = self::isPayerDirected($providerCode);
             $recipient = $payerFirst
-                ? self::pickPhone([], $payerPhone) ?? self::pickPhone($guardianPhones, $payerPhone)
-                : self::pickPhone($guardianPhones, $payerPhone) ?? self::pickPhone([], $payerPhone);
+                ? self::pickPhone([], $payerPhone, []) ?? self::pickPhone($guardianPhones, $payerPhone, $guardianNames)
+                : self::pickPhone($guardianPhones, $payerPhone, $guardianNames) ?? self::pickPhone([], $payerPhone, []);
             if ($recipient === null) {
                 FileLogger::write('payments', [
                     'type' => 'fee_receipt_sms',
@@ -91,7 +92,8 @@ class FeePaymentReceiptNotifier
                 $student,
                 $reference,
                 $recipient['source'] === 'payer' ? $recipient['phone'] : null,
-                $balances
+                $balances,
+                $recipient
             );
 
             $communication = (new CommunicationsManager($this->db))->createCommunication([
@@ -166,17 +168,21 @@ class FeePaymentReceiptNotifier
      * @param string[] $guardianPhones
      * @return array{phone: string, source: string}|null
      */
-    public static function pickPhone(array $guardianPhones, ?string $payerPhone): ?array
+    public static function pickPhone(array $guardianPhones, ?string $payerPhone, array $guardianNames = []): ?array
     {
-        foreach ($guardianPhones as $candidate) {
+        foreach ($guardianPhones as $index => $candidate) {
             $normalized = PhoneNumberNormalizer::normalize((string) $candidate);
             if ($normalized !== null) {
-                return ['phone' => $normalized, 'source' => 'guardian'];
+                return [
+                    'phone' => $normalized,
+                    'source' => 'guardian',
+                    'name' => trim((string) ($guardianNames[$index] ?? '')),
+                ];
             }
         }
         $normalizedPayer = PhoneNumberNormalizer::normalize($payerPhone);
         if ($normalizedPayer !== null) {
-            return ['phone' => $normalizedPayer, 'source' => 'payer'];
+            return ['phone' => $normalizedPayer, 'source' => 'payer', 'name' => ''];
         }
         return null;
     }
@@ -197,14 +203,33 @@ class FeePaymentReceiptNotifier
         array $student,
         string $reference,
         ?string $payerPhone,
-        array $balances
+        array $balances,
+        ?array $recipient = null
     ): string {
         $termBalance = $balances[0] ?? null;
         $annualBalance = $balances[1] ?? null;
         $annualBilled = $balances[2] ?? null;
         $className = $balances[3] ?? null;
 
+        // The salutation names whoever is actually receiving this receipt: the
+        // primary guardian when the household is being told, the paying line's
+        // owner when a prompt debited that one number directly.
+        $recipientName = '';
+        if ($recipient !== null) {
+            if ($recipient['source'] === 'payer' && trim((string) ($recipient['name'] ?? '')) !== '') {
+                $recipientName = trim((string) $recipient['name']);
+            } else {
+                $guardianNames = (array) ($student['guardian_names'] ?? []);
+                $recipientName = trim((string) ($guardianNames[0] ?? ''));
+                if ($recipientName === '' && !empty($recipient['name'])) {
+                    $recipientName = trim((string) $recipient['name']);
+                }
+            }
+        }
+
         $variables = [
+            'guardian_name' => self::salutationName($recipientName),
+            'payer_name' => self::salutationName($recipientName),
             'amount_paid' => self::plainMoney($amount),
             'admission_no' => (string) ($student['admission_no'] ?? ''),
             'student_name' => (string) ($student['student_name'] ?? ''),
@@ -213,8 +238,8 @@ class FeePaymentReceiptNotifier
             'term_balance' => $termBalance !== null ? self::plainMoney($termBalance) : '-',
             'year_balance' => $annualBalance !== null ? self::plainMoney($annualBalance) : '-',
             'reference' => trim($reference),
-            'payer_name' => trim((string) ($student['payer_name'] ?? '')),
             'payer_phone' => $payerPhone !== null ? (string) $payerPhone : '',
+            'school_name' => defined('SCHOOL_NAME') ? (string) SCHOOL_NAME : 'Kingsway Preparatory School',
         ];
 
         try {
@@ -249,7 +274,8 @@ class FeePaymentReceiptNotifier
             $termBalance,
             $annualBalance,
             $annualBilled,
-            $className
+            $className,
+            $recipientName
         );
     }
 
@@ -257,6 +283,33 @@ class FeePaymentReceiptNotifier
     private static function plainMoney(float $value): string
     {
         return number_format($value, $value == floor($value) ? 0 : 2);
+    }
+
+    /**
+     * Reduce a full name to a salutation-safe form. A name is reduced to its
+     * first token and, where a title is present, it is kept, so a message
+     * reads "Dear Mr. Bett" rather than "Dear Bett" or the whole lineage.
+     */
+    public static function salutationName(string $name): string
+    {
+        $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+        if ($name === '') {
+            return 'Parent/Guardian';
+        }
+
+        $parts = explode(' ', $name);
+        $title = '';
+        if (preg_match('/^(Mr|Mrs|Ms|Miss|Dr|Prof|Hon|Rev)\.?$/i', $parts[0]) === 1) {
+            $title = ucfirst(strtolower(rtrim($parts[0], '.')));
+            array_shift($parts);
+        }
+        $first = $parts[0] ?? '';
+        if ($first === '') {
+            return 'Parent/Guardian';
+        }
+        $first = ucfirst(mb_strtolower($first, 'UTF-8'));
+
+        return $title !== '' ? $title . '. ' . $first : $first;
     }
 
     public static function composeMessage(
@@ -267,32 +320,53 @@ class FeePaymentReceiptNotifier
         ?float $termBalance,
         ?float $annualBalance,
         ?float $annualBilled = null,
-        ?string $className = null
+        ?string $className = null,
+        string $guardianName = ''
     ): string {
         $school = defined('SCHOOL_NAME') ? (string) SCHOOL_NAME : 'Kingsway Preparatory School';
-        $learner = trim($admissionNo . ' ' . $studentName);
-        if ($className !== null && trim($className) !== '') {
-            $learner .= ' (' . trim($className) . ')';
+        $salutation = self::salutationName($guardianName);
+        $learner = trim($studentName);
+        if ($learner === '') {
+            $learner = trim($admissionNo);
         }
-        $message = 'Thank you. ' . self::money($amount) . ' fee payment received';
-        if ($learner !== '') {
-            $message .= ' for ' . $learner;
+        if ($admissionNo !== '' && $studentName !== '') {
+            $learner .= ' (Adm: ' . trim($admissionNo) . ')';
         }
-        $message .= '.';
-        if ($annualBilled !== null) {
-            $message .= ' Total fees this year: ' . self::money($annualBilled) . '.';
+        if ($className !== null && trim($className) !== '' && $className !== '-') {
+            $learner .= ' - ' . trim($className);
         }
+
+        $lines = [];
+        $lines[] = 'Dear ' . $salutation . ',';
+        $lines[] = '';
+        $lines[] = $learner !== ''
+            ? 'Payment of KES ' . self::plainMoney($amount) . ' received for ' . $learner . '.'
+            : 'Payment of KES ' . self::plainMoney($amount) . ' received against your school fees account.';
+        $lines[] = '';
+        // An unread balance is omitted, never printed as a dash: a parent must
+        // not misread "KES -" as a zero balance.
         if ($termBalance !== null) {
-            $message .= ' Term balance: ' . self::money($termBalance) . '.';
+            $lines[] = 'Term balance: KES ' . self::plainMoney($termBalance);
         }
         if ($annualBalance !== null) {
-            $message .= ' Year balance: ' . self::money($annualBalance) . '.';
+            $lines[] = 'Academic year balance: KES ' . self::plainMoney($annualBalance);
         }
+        if ($annualBilled !== null) {
+            $lines[] = 'Total fees this year: KES ' . self::plainMoney($annualBilled);
+        }
+        if ($termBalance === null && $annualBalance === null && $annualBilled === null) {
+            $lines[] = 'Your updated fee statement is available from the school office.';
+        }
+        $lines[] = '';
         $reference = trim($reference);
         if ($reference !== '') {
-            $message .= ' Ref: ' . $reference . '.';
+            $lines[] = 'Receipt no: ' . $reference;
         }
-        return $message . ' -' . $school;
+        $lines[] = '';
+        $lines[] = 'Thank you.';
+        $lines[] = $school;
+
+        return implode("\n", $lines);
     }
 
     public static function money(float $value): string
@@ -315,7 +389,7 @@ class FeePaymentReceiptNotifier
     private function studentContext(int $studentId): array
     {
         $guardians = $this->db->prepare(
-            "SELECT parent_phone, student_full_name, admission_no
+            "SELECT parent_phone, parent_full_name, student_full_name, admission_no
                FROM " . ReadReplicaService::masterSourceRef('guardian_link') . "
               WHERE student_id = ?
               ORDER BY is_primary_contact DESC, parent_id ASC
@@ -325,16 +399,22 @@ class FeePaymentReceiptNotifier
         $rows = $guardians->fetchAll(PDO::FETCH_ASSOC);
 
         $phones = [];
+        $names = [];
         foreach ($rows as $row) {
             $phone = trim((string) ($row['parent_phone'] ?? ''));
             if ($phone !== '') {
                 $phones[] = $phone;
+            }
+            $name = trim((string) ($row['parent_full_name'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
             }
         }
 
         return [
             'student_name' => trim((string) ($rows[0]['student_full_name'] ?? '')),
             'admission_no' => trim((string) ($rows[0]['admission_no'] ?? '')),
+            'guardian_names' => $names,
             'guardian_phones' => $phones,
         ];
     }

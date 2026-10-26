@@ -309,7 +309,7 @@ final class CurriculumPolicyWatchAgent
             ]);
             $body = curl_exec($curl);
             $errno = curl_errno($curl);
-            curl_close($curl);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
             if ($body === false || $errno !== 0) {
                 throw new DomainException('Unable to fetch the KICD policy source.', 502);
             }

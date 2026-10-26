@@ -154,6 +154,8 @@ class AuthMiddleware
             'attendance/process-register-reminders',
             // Protected by KCB_RECONCILIATION_WORKER_SECRET rather than staff JWT.
             'finance/kcb-reconciliation-worker',
+            // Protected by PAYMENT_SWEEP_WORKER_SECRET rather than staff JWT.
+            'payments/stk-sweep-worker',
             // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
             'realtime/worker',
             'realtime/cleanup',

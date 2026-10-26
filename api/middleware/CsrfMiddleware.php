@@ -91,10 +91,12 @@ class CsrfMiddleware
         'communications/process-outbox',
         'staff-migration/process-invitation-email',
         'attendance/gate-event',
-        // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
-        'attendance/process-register-reminders',
-        'finance/kcb-reconciliation-worker',
-        // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
+            // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
+            'attendance/process-register-reminders',
+            'finance/kcb-reconciliation-worker',
+            // Internal cron callback authenticates with PAYMENT_SWEEP_WORKER_SECRET.
+            'payments/stk-sweep-worker',
+            // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'realtime/worker',
         'realtime/cleanup',
         'realtime/maintenance',

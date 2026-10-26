@@ -977,7 +977,7 @@ final class SystemAdminAnalyticsService
         }
         $details = $this->loadUserDetails($userIds);
         foreach ($events as &$event) {
-            $detail = $details[$event['user_id']] ?? null;
+            $detail = $details[(int) ($event['user_id'] ?? 0)] ?? null;
             if (!$detail) {
                 continue;
             }
@@ -1008,7 +1008,7 @@ final class SystemAdminAnalyticsService
         $details = $this->loadUserDetails($userIds);
         $lockedCount = 0;
         foreach ($rows as &$row) {
-            $detail = $details[$row['user_id']] ?? null;
+            $detail = $details[(int) ($row['user_id'] ?? 0)] ?? null;
             if (!$detail) {
                 continue;
             }

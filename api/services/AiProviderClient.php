@@ -471,7 +471,8 @@ class AiProviderClient implements AiCompletionProvider
         $raw = curl_exec($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5; the
+        // handle is released when $ch goes out of scope.
         return [$raw, $status, $error];
     }
 }

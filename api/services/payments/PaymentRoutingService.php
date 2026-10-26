@@ -285,8 +285,37 @@ class PaymentRoutingService
     public function updateRoute(int $id, array $data): array { if ($id<=0) throw new RuntimeException('Collection route ID is required.'); $data['id']=$id; return $this->saveRoute($data); }
     public function deleteRoute(int $id): array { if ($id<=0) throw new RuntimeException('Collection route ID is required.'); $s=$this->db->prepare("UPDATE payment_collection_routes SET active=0 WHERE id=? AND active=1"); $s->execute([$id]); if (!$s->rowCount()) throw new RuntimeException('Collection route not found or already inactive.'); return ['id'=>$id,'status'=>'inactive']; }
 
+    /**
+     * List unallocated payments for the reconciliation queue.
+     *
+     * A blank status means "every case", so a payment that was already
+     * allocated stays visible with who allocated it and when — an operator
+     * answering a parent's "where did my money go" needs the history, not just
+     * the live queue. An unrecognised status is inferred to mean the default
+     * queue rather than silently returning nothing.
+     */
     public function listUnmatchedCases(array $filters=[]): array
-    { $sql='SELECT u.*,p.code provider_code FROM ' . ReadReplicaService::qualifiedRef('payment_unmatched_cases') . ' u JOIN payment_providers p ON p.id=u.provider_id WHERE u.status=? ORDER BY u.created_at DESC LIMIT 300'; $s=$this->db->prepare($sql); $s->execute([$filters['status']??'unmatched']); return $s->fetchAll(PDO::FETCH_ASSOC); }
+    {
+        $base = 'SELECT u.*,p.code provider_code FROM '
+            . ReadReplicaService::qualifiedRef('payment_unmatched_cases')
+            . ' u JOIN payment_providers p ON p.id=u.provider_id';
+        $order = ' ORDER BY u.created_at DESC LIMIT 300';
+
+        $status = trim((string) ($filters['status'] ?? 'unmatched'));
+        $params = [];
+        if ($status === '') {
+            $sql = $base . $order;
+        } elseif (in_array($status, ['unmatched', 'resolved', 'rejected'], true)) {
+            $sql = $base . ' WHERE u.status=?' . $order;
+            $params[] = $status;
+        } else {
+            $sql = $base . ' WHERE u.status="unmatched"' . $order;
+        }
+
+        $s = $this->db->prepare($sql);
+        $s->execute($params);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     public function resolveCase(int $id, array $data, int $userId): array
     {

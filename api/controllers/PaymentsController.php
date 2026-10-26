@@ -694,4 +694,35 @@ class PaymentsController extends BaseController
         }
         return $this->handleResponse($this->api->getMpesaResults($filters));
     }
+
+    /**
+     * POST /api/payments/stk-sweep-worker — curl crontab worker.
+     *
+     * Safaricom does not call back on every STK push, so a cancelled prompt,
+     * a mistyped PIN, or a parent who simply walked away leaves the transaction
+     * 'pending' forever and the payer-facing poll never settles. This asks the
+     * provider directly for each stalled checkout and closes it with the
+     * provider's own verdict.
+     */
+    public function postStkSweepWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('PAYMENT_SWEEP_WORKER_SECRET') ? (string) PAYMENT_SWEEP_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+
+        try {
+            $service = new \App\API\Services\payments\MpesaPaymentService();
+            $result = $service->sweepStalledStkPushes(
+                (int) ($data['limit'] ?? 25),
+                (int) ($data['stall_minutes'] ?? 30)
+            );
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsController] STK sweep worker: ' . $e->getMessage());
+            return $this->serverError('STK sweep worker failed.');
+        }
+
+        return $this->success($result, 'STK sweep worker completed.');
+    }
 }

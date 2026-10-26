@@ -1156,4 +1156,149 @@ class MpesaPaymentService
             \App\API\Services\Logger::legacyError('[MpesaPaymentService] logWebhook error: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Classify one STK Query response into a settled outcome.
+     *
+     * Returns 'paid' only for ResultCode 0, 'failed' only for a code the
+     * provider uses to declare the transaction dead, and 'unknown' for anything
+     * else. The distinction matters: an unreachable provider or a code that
+     * does not decide the payment must leave the row pending, never be
+     * recorded as a payment that failed, because a parent who in fact paid is
+     * then told their money did not arrive.
+     *
+     * @return array{outcome:string, code:string, desc:string}
+     */
+    public static function describeStkOutcome(array $providerResponse): array
+    {
+        $code = (string) ($providerResponse['ResultCode'] ?? '');
+        $desc = (string) ($providerResponse['ResultDesc'] ?? '');
+
+        if ($code === '0') {
+            return ['outcome' => 'paid', 'code' => $code, 'desc' => $desc];
+        }
+
+        // Daraja terminal codes: generic request failure, parent cancelled the
+        // prompt, prompt expired unanswered, wrong PIN / insufficient balance.
+        if (in_array($code, ['1', '1032', '1037', '2001'], true)) {
+            return ['outcome' => 'failed', 'code' => $code, 'desc' => $desc];
+        }
+
+        return ['outcome' => 'unknown', 'code' => $code, 'desc' => $desc];
+    }
+
+    /**
+     * Safaricom does not reliably call back on every STK push. A parent who
+     * cancels the prompt, mistypes their PIN, or simply walks away leaves the
+     * mpesa_transactions row 'pending' forever, and the payer-facing status poll
+     * shows a payment that never resolves.
+     *
+     * This re-queries each stalled checkout through the provider's own STK Query
+     * API and closes it with the provider's verdict:
+     *
+     *   ResultCode 0        -> the callback already handled it; recordStkSuccess
+     *                         posts the ledger entry and the parent receipt.
+     *   A terminal failure  -> the row is marked 'failed' with the provider's
+     *                         reason, so the payer sees a settled answer.
+     *   Anything else       -> the row stays pending and is retried next run; an
+     *                         unreachable provider is never read as a failure.
+     *
+     * @param int $maxAttempts Per-run safety cap, so one run cannot hammer the
+     *                         provider when a backlog accumulates.
+     * @return array{checked:int, resolved:int, failed:int, still_pending:int, errors:int}
+     */
+    public function sweepStalledStkPushes(int $maxAttempts = 25, int $stallMinutes = 30): array
+    {
+        $summary = ['checked' => 0, 'resolved' => 0, 'failed' => 0, 'still_pending' => 0, 'errors' => 0];
+
+        try {
+            $stmt = $this->getDb()->prepare(
+                "SELECT id, checkout_request_id
+                   FROM mpesa_transactions
+                  WHERE status = 'pending'
+                    AND checkout_request_id IS NOT NULL
+                    AND checkout_request_id <> ''
+                    AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)
+                  ORDER BY created_at ASC
+                  LIMIT ?"
+            );
+            $stmt->execute([$stallMinutes, $maxAttempts]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK sweep select failed: ' . $e->getMessage());
+            $summary['errors']++;
+            return $summary;
+        }
+
+        foreach ($rows as $row) {
+            $checkoutId = (string) ($row['checkout_request_id'] ?? '');
+            if ($checkoutId === '') {
+                continue;
+            }
+            $summary['checked']++;
+
+            try {
+                $result = $this->queryTransactionStatus($checkoutId);
+                $outcome = self::describeStkOutcome((array) ($result['data'] ?? []));
+
+                if ($outcome['outcome'] === 'paid') {
+                    // Money arrived and the ledger has been posted by
+                    // recordStkSuccess(); the receipt is queued there too.
+                    $summary['resolved']++;
+                    continue;
+                }
+
+                if ($outcome['outcome'] === 'failed') {
+                    $this->closeStalledStk((int) $row['id'], $checkoutId, $outcome['code'], $outcome['desc']);
+                    $summary['failed']++;
+                    continue;
+                }
+
+                // Ambiguous: the provider could not be reached, or returned a
+                // code that does not decide the payment. Leave it pending rather
+                // than guessing that money was not received.
+                $summary['still_pending']++;
+            } catch (Exception $e) {
+                $summary['errors']++;
+                \App\API\Services\Logger::legacyError('[MpesaPaymentService] STK sweep row ' . $row['id'] . ': ' . $e->getMessage());
+            }
+        }
+
+        if ($summary['checked'] > 0) {
+            $this->logWebhook('mpesa_stk', [
+                'sweep' => true,
+                'stall_minutes' => $stallMinutes,
+                'summary' => $summary,
+            ], 'processed');
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Close a stalled checkout whose failure the provider has confirmed. The
+     * provider's own wording is kept so a bursar sees the same reason the
+     * parent saw on their phone.
+     */
+    private function closeStalledStk(int $id, string $checkoutId, string $resultCode, string $resultDesc): void
+    {
+        $update = $this->getDb()->prepare(
+            "UPDATE mpesa_transactions
+                SET status = 'failed',
+                    webhook_data = JSON_SET(COALESCE(webhook_data, '{}'), '$.sweep_result_code', :code, '$.sweep_result_desc', :desc, '$.swept_at', :swept_at)
+              WHERE id = :id AND status = 'pending'"
+        );
+        $update->execute([
+            'code' => $resultCode,
+            'desc' => $resultDesc !== '' ? $resultDesc : 'Payment not completed',
+            'swept_at' => date('c'),
+            'id' => $id,
+        ]);
+
+        $this->logWebhook('mpesa_stk', [
+            'checkout_request_id' => $checkoutId,
+            'sweep_result_code' => $resultCode,
+            'sweep_result_desc' => $resultDesc,
+        ], 'failed');
+    }
 }
