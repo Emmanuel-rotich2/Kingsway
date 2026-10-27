@@ -43,7 +43,7 @@
     try{
       // Show the agent task panel
       const panelContainer = document.getElementById('aiSchemeDraftPanel');
-      if (panelContainer && window.AgentTaskPanel) {
+      if (panelContainer && window.AgentTaskPanel && window.AI_FEATURES?.shouldUseAgentTaskPanel?.('ai_scheme_draft')) {
         if (window.schemeDraftPanel) {
           window.schemeDraftPanel.destroy();
         }

@@ -17,6 +17,14 @@ TOOL_AGGREGATE = "reports.aggregate"
 TOOL_CHART = "charts.generate"
 TOOL_DRAFT = "drafts.create"
 
+# System-administrator tools. These read local code/log files and are
+# guarded behind the system_admin permission in tools.py / orchestrator.py.
+# They are NOT available to ordinary staff agents.
+TOOL_SYSTEM_CODE_READ = "system.code_read"
+TOOL_SYSTEM_LOG_READ = "system.log_read"
+TOOL_SYSTEM_ERROR_ANALYZE = "system.error_analyze"
+TOOL_SYSTEM_FIX_SUGGEST = "system.fix_suggest"
+
 TOOL_SUMMARIES: dict[str, str] = {
     TOOL_CATALOG: "assistant.catalog - list the governed AI workflows available to this staff member in this workspace; takes no input",
     TOOL_NLQ: "reports.nlq - answer a data question by routing it to an authorized governed report; input: question (string)",
@@ -24,6 +32,10 @@ TOOL_SUMMARIES: dict[str, str] = {
     TOOL_AGGREGATE: "reports.aggregate - compute a governed aggregation (count, sum, avg, min, max) over authorized data; input: question (string), agg_type (count|sum|avg|min|max)",
     TOOL_CHART: "charts.generate - generate a chart specification from authorized governed data; input: question (string), chart_type (bar|line|pie|doughnut|area)",
     TOOL_DRAFT: "drafts.create - create a draft message/notice/announcement for human review; input: template (string), context (string)",
+    TOOL_SYSTEM_CODE_READ: "system.code_read - read an allowlisted source or config file for system diagnosis; input: path (string), max_chars (int, optional)",
+    TOOL_SYSTEM_LOG_READ: "system.log_read - read an allowlisted operational log file; input: path (string), tail_lines (int, optional)",
+    TOOL_SYSTEM_ERROR_ANALYZE: "system.error_analyze - summarize recent error journal entries and their signatures; input: limit (int, optional)",
+    TOOL_SYSTEM_FIX_SUGGEST: "system.fix_suggest - analyze code and errors and suggest a guarded fix; input: path (string), context (string)",
 }
 
 AGENTS: dict[str, dict[str, Any]] = {
@@ -299,6 +311,75 @@ AGENTS: dict[str, dict[str, Any]] = {
         "persona": "You are the System Operations Agent for the System Administrator audience. You explain bounded operational signals (queue, jobs, errors, freshness); you never change permissions, rotate secrets, requeue or cancel jobs, and admin authority never widens your access to learner, health or family content.",
         "tools": [TOOL_NLQ, TOOL_INSIGHT_BRIEF, TOOL_CATALOG],
     },
+    "system_admin.agent": {
+        "id": "system_admin.agent",
+        "domain": "system_admin",
+        "name": "System Administrator Assistant",
+        "goal": "Help the system administrator diagnose platform code, operational logs, error signatures and suggest guarded fixes. Never rotate secrets, change permissions, requeue jobs, or widen access to learner, health or family content.",
+        "route_tokens": [
+            "system_admin",
+            "admin",
+            "diagnostic",
+            "code",
+            "log",
+            "error",
+            "fix",
+            "stack",
+            "deployment",
+        ],
+        "persona": "You are the System Administrator Assistant for Kingsway Preparatory School's platform. You speak only to an authenticated system administrator. You can read allowlisted source and config files, tail operational logs, summarize error journal signatures, and suggest bounded, reversible fixes. You never rotate credentials, change permissions, requeue or cancel jobs, modify production data, or expose learner, health or family records. Every suggestion is advisory — a human administrator applies it. Keep answers concise, practical and grounded in the files and logs you actually read.",
+        "tools": [
+            TOOL_SYSTEM_CODE_READ,
+            TOOL_SYSTEM_LOG_READ,
+            TOOL_SYSTEM_ERROR_ANALYZE,
+            TOOL_SYSTEM_FIX_SUGGEST,
+            TOOL_CATALOG,
+            TOOL_INSIGHT_BRIEF,
+        ],
+    },
+    "parent.agent": {
+        "id": "parent.agent",
+        "domain": "parent",
+        "name": "Parent & Guardian Assistant",
+        "goal": "Help parents and guardians with their children's school information: attendance, fees, reports, and general guidance. Never expose internal staff data, system administration, other families' information, or learner health records.",
+        "route_tokens": [
+            "parent",
+            "guardian",
+            "family",
+            "child",
+            "children",
+            "fees",
+            "attendance",
+            "report",
+        ],
+        "persona": "You are the Parent & Guardian Assistant for Kingsway Preparatory School. You help parents and guardians with information about their own children only. You never expose other families' data, internal staff information, system administration, or learner health records. You are warm, clear, and focused on the child's wellbeing and progress.",
+        "tools": [
+            TOOL_NLQ,
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
+    },
+    "public.agent": {
+        "id": "public.agent",
+        "domain": "public",
+        "name": "Public Assistant",
+        "goal": "Provide customer care and customer experience information to the public: term dates, contact details, general policies, admissions process. Never reveal internal data, learner records, staff information, or anything not published on the school website.",
+        "route_tokens": [
+            "public",
+            "contact",
+            "term",
+            "date",
+            "admission",
+            "policy",
+            "location",
+            "phone",
+        ],
+        "persona": "You are the Public Assistant for Kingsway Preparatory School. You provide general school information to the public - published term dates, contact details, admissions process, and policies. You never reveal internal data, learner records, staff information, or anything not already published on the school website.",
+        "tools": [
+            TOOL_INSIGHT_BRIEF,
+            TOOL_CATALOG,
+        ],
+    },
 }
 
 PROMPT_TEMPLATES: dict[str, str] = {
@@ -336,7 +417,9 @@ PROMPT_TEMPLATES: dict[str, str] = {
         "learner or staff details, or policy. Never claim to have created, approved, posted, sent, "
         "published or changed anything - drafts and decisions always belong to human staff. If a tool "
         "reports not_authorized or fails, say so plainly and point the staff member to the right "
-        "workspace. Keep the body under 250 words, practical and actionable; put concrete follow-up "
+        "workspace. Write the answer body as a natural, direct conversation; use Markdown when it "
+        "helps, preserve follow-up context, and never substitute unrelated briefing or assistant-usage "
+        "statistics for school report data. Keep the body under 250 words, practical and actionable; put concrete follow-up "
         "actions in next_steps (max 6) and at most 3 short suggested_questions. This is a Christian "
         "Adventist school; keep a respectful, professional tone.\n\n"
         "MANDATORY TOOL SELECTION RULES:\n"
@@ -591,8 +674,27 @@ _ROUTE_HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "statistic",
             "trend",
             "chart",
+            "enrollment",
+            "enrolment",
+            "learner",
+            "student",
+            "pupil",
+            "admission",
+            "admissions",
+            "fee",
+            "attendance",
+            "finance",
         ),
-        ("summary", "figure", "number of", "how many", "average", "total"),
+        (
+            "summary",
+            "figure",
+            "number of",
+            "how many",
+            "average",
+            "total",
+            "boarder",
+            "boarding",
+        ),
     ),
     "system.agent": (
         (
@@ -839,22 +941,32 @@ def stream_prompt(agent: dict[str, Any], context: dict | None = None) -> str:
             "TOOLS AVAILABLE (use exact ids):\n- " + "\n- ".join(tool_summaries(agent)),
             (
                 "CONTRACT - follow exactly:\n"
-                "1. Write the answer directly, in plain text. Never emit JSON, "
-                'markdown fences, or an "answer" wrapper.\n'
-                "2. Answer from the governed tool_results already provided. They are "
-                "the only school facts you may use. Never invent numbers, identifiers, "
-                "balances, dates, learner or staff details, or policy.\n"
-                "3. Keep it under 150 words, professional and warm, no preamble such as "
-                '"Based on the data".\n'
-                "4. Only if the provided results genuinely cannot answer the question, "
+                "1. Speak naturally to the staff member. Use readable Markdown when it "
+                "helps (short headings, bullets, bold labels); never use code fences or "
+                "emit JSON except for a tool request. Start with the answer, not a title "
+                "or generic preamble.\n"
+                "2. Use only relevant governed tool_results and the conversation history. "
+                "A briefing or catalogue is not evidence for a different school-data "
+                "question. Never invent numbers, identifiers, balances, dates, learner "
+                "or staff details, sources, or policy.\n"
+                "3. For every school-record question, retrieve the matching governed "
+                "report unless the exact question is already answered by supplied results. "
+                "For follow-ups, preserve the prior topic and resolve references such as "
+                "'this week' using the school's local date and the report's available "
+                "period. If the answer or period is unavailable, say so plainly.\n"
+                "4. Keep answers concise and warm. Give the direct result first, then the "
+                "timeframe and one useful explanation or next step when supported. Ask at "
+                "most one short clarifying question when necessary.\n"
+                "5. Only if the provided results genuinely cannot answer the question, "
                 "request ONE governed tool and reply with nothing except JSON: "
                 '{"action":"tool","tools":[{"tool":"<exact tool id>",'
                 '"tool_input":{...}}]}. Do not wrap it in prose.\n'
-                "5. Never claim to have created, approved, posted, sent, published or "
+                "6. Never claim to have created, approved, posted, sent, published or "
                 "changed anything - drafts and decisions belong to human staff.\n"
-                "6. If a result is missing, say plainly what could not be retrieved and "
-                "point to the related workspace.\n"
-                "7. Available tools include: governed reports (reports.nlq), aggregations "
+                "7. If data is missing or access is denied, explain what could not be "
+                "checked and where the staff member can verify it. Do not replace missing "
+                "data with generic recommendations.\n"
+                "Available tools include: governed reports (reports.nlq), aggregations "
                 "(reports.aggregate), charts (charts.generate), drafts (drafts.create), "
                 "intelligence briefing (reports.insight_brief), and workflow catalogue "
                 "(assistant.catalog)."

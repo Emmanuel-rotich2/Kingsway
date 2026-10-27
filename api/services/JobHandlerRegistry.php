@@ -142,16 +142,28 @@ class JobHandlerRegistry
             'ai.workflow.draft' => static function (array $payload, PDO $pdo): void {
                 $workflowId = (string) ($payload['workflow_id'] ?? '');
                 $input = isset($payload['input']) && is_array($payload['input']) ? $payload['input'] : [];
+                $operatorId = (int) ($payload['user_id'] ?? 0);
                 if ($workflowId === '') {
                     throw new RuntimeException('ai.workflow.draft: missing workflow_id');
                 }
+                if ($operatorId < 1) {
+                    throw new RuntimeException('ai.workflow.draft: missing operator');
+                }
+                // Permissions in the queue payload are only an audit hint. A
+                // user's role may have changed while the job waited, so resolve
+                // the authoritative grants again immediately before generation.
+                $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $operatorId);
+                if ($permissions === []) {
+                    throw new RuntimeException('ai.workflow.draft: operator permissions could not be resolved');
+                }
+                $metadata = isset($payload['metadata']) && is_array($payload['metadata'])
+                    ? $payload['metadata'] : [];
+                $metadata['queue_job_id'] = (int) ($payload['_job_id'] ?? 0);
                 (new AiDraftService())->create($pdo, $workflowId, [
-                    'user_id' => (int) ($payload['user_id'] ?? 0),
-                    'permissions' => isset($payload['permissions']) && is_array($payload['permissions'])
-                        ? $payload['permissions'] : [],
+                    'user_id' => $operatorId,
+                    'permissions' => $permissions,
                     'request_id' => (string) ($payload['request_id'] ?? ''),
-                ], $input, isset($payload['metadata']) && is_array($payload['metadata'])
-                    ? $payload['metadata'] : []);
+                ], $input, $metadata);
             },
             'ai.analytics.insight' => static function (array $payload, PDO $pdo): void {
                 (new AiAnalyticsInsightService())->execute($pdo, $payload);
@@ -183,6 +195,9 @@ class JobHandlerRegistry
                     return;
                 }
                 (new AiAgentService())->runBackground($pdo, $payload);
+            },
+            'ai.agent.task' => static function (array $payload, PDO $pdo): void {
+                (new AiAgentTaskService())->execute($pdo, $payload);
             },
             // Governed, non-AI automations computed by the Python engine
             // (registry-authorised; payload already bounded at enqueue time).

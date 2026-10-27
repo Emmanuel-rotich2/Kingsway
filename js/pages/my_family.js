@@ -676,11 +676,12 @@ const MyFamilyController = {
         if (errEl) errEl.classList.add('d-none');
         if (!amount || parseFloat(amount) <= 0) { if (errEl) { errEl.textContent = 'Invalid amount'; errEl.classList.remove('d-none'); } return; }
         if (!phone) { if (errEl) { errEl.textContent = 'Phone number is required'; errEl.classList.remove('d-none'); } return; }
+        // No provider is ever chosen here: the backend reads the purpose
+        // (fees) and the configured collection-point priority, then pushes.
         this.apiFetch('/initiate-mpesa-payment', 'POST', {
             student_id: this.state.selectedStudentId,
             amount: parseFloat(amount),
             phone,
-            provider: 'daraja',
         }).then((resp) => {
             const d = resp.data || resp;
             if (d.checkout_request_id) {
@@ -720,10 +721,16 @@ const MyFamilyController = {
     },
 
     checkMpesaStatus(checkoutRequestId, callback) {
+        const self = this;
+        const statusEl = document.getElementById('mfMpesaPollingStatus');
         this.apiFetch('/mpesa-status/' + checkoutRequestId, 'GET')
             .then((resp) => {
                 const d = resp.data || resp;
-                if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') callback(true);
+                if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') {
+                    callback(true);
+                } else if (resp.status === 503 || d.message === 'STK payment is still being reconciled') {
+                    if (statusEl) statusEl.textContent = 'Still reconciling with M-Pesa...';
+                }
             }).catch(() => {});
     },
 

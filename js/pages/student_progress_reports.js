@@ -37,8 +37,8 @@ const studentProgressReportsController = {
   render() {
     const reports = this.state.reports;
     const student = this.state.student;
-    document.getElementById('sprStudentName')?.textContent = student?.name || '—';
-    document.getElementById('sprAdmissionNo')?.textContent = student?.admission_number || '—';
+    { const el = document.getElementById('sprStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('sprAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
     const body = document.getElementById('sprReportsBody');
     if (!reports.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No progress reports.</td></tr>'; return; }
     body.innerHTML = reports.map(r => `<tr>

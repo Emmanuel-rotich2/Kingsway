@@ -140,7 +140,7 @@
     return fallbackRoute;
   }
 
-  async function navigateWithFullPageShell(route) {
+  async function navigateWithSoftPageShell(route) {
     const routeData = getRouteDataFromUrl(route);
     const normalizedRoute = routeData.route;
 
@@ -160,36 +160,28 @@
       return false;
     }
 
-    const suffix = routeData.params
-      ? `&${routeData.params}`
-      : "";
+    // Persist route before navigating (survives full-refresh fallback)
+    window.UIStateManager?.saveRoute?.(normalizedRoute);
 
-    window.location.href =
-      `${window.APP_BASE || ""}/home.php?route=` +
-      `${encodeURIComponent(normalizedRoute)}${suffix}`;
+    const params = routeData.params || "";
+
+    // Prefer soft navigation: keeps header + sidebar intact, swaps only main content.
+    // Falls back to full reload if soft navigation is unavailable.
+    if (window.SoftNavigation?.load) {
+      window.SoftNavigation.load(normalizedRoute, params);
+    } else {
+      window.location.href =
+        `${window.APP_BASE || ""}/home.php?route=` +
+        `${encodeURIComponent(normalizedRoute)}${params ? `&${params}` : ""}`;
+    }
 
     return true;
   }
 
-  document.addEventListener("click", (event) => {
-    const link = event.target.closest?.(".sidebar-link");
-    if (!link) return;
-
-    event.preventDefault();
-
-    const route = link.dataset.route;
-    if (!route) return;
-
-    if (window.innerWidth < 992) {
-      window.KingswayShell?.closeMobileSidebar?.();
-    }
-
-    void navigateWithFullPageShell(route);
-  });
-
+  // Single navigation entry point: authorization -> soft navigation.
   window.AppRouter = {
     ...(window.AppRouter || {}),
-    go: navigateWithFullPageShell,
+    go: navigateWithSoftPageShell,
   };
 
   window.AppRouteAccess = {
@@ -202,5 +194,6 @@
     normalizeRoute: getRouteFromUrl,
   };
 
-  window.navigateToRoute = navigateWithFullPageShell;
+  // Backward-compat alias for any inline handlers still referencing it.
+  window.navigateToRoute = navigateWithSoftPageShell;
 })();

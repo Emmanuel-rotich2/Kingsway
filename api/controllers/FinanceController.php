@@ -446,6 +446,36 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/financial-accounts/{id}/permissions
+     *
+     * The router hyphen-joins the remaining path segments, so this route
+     * resolves to getFinancialAccountsPermissions (plural). Without this alias
+     * the lookup 404'd while the POST sibling resolved, leaving the
+     * permissions panel unable to read what it had just written.
+     */
+    public function getFinancialAccountsPermissions($id = null, $data = [], $segments = [])
+    {
+        return $this->getFinancialAccountPermissions($id, $data, $segments);
+    }
+
+    /** DELETE /api/finance/financial-accounts/{id} */
+    public function deleteFinancialAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('Financial account ID required');
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may remove accounts');
+        return $this->handleResponse($this->api->deleteFinancialAccount((int)$id, (int)$this->getUserId()));
+    }
+
+    /** PUT /api/finance/financial-accounts/{id}/status — activate or suspend */
+    public function putFinancialAccountsStatus($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('Financial account ID required');
+        $status = (string)($data['status'] ?? 'active');
+        if (!in_array($status, ['active', 'suspended'], true)) return $this->badRequest('status must be active or suspended');
+        return $this->api->verifyFinancialAccount((int)$id, (int)$this->getUserId(), $status);
+    }
+
+    /**
      * GET /api/finance/supplier-payables
      * Returns approved supplier expenses with outstanding balances and verified
      * payout accounts so the finance UI never asks users to type IDs.

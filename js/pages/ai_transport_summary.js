@@ -29,10 +29,10 @@ const aiTransportSummaryController = {
   render() {
     const summary = this.state.summary;
     const insights = this.state.insights;
-    document.getElementById('atsSummaryText')?.textContent = summary?.overview || 'No summary available.';
-    document.getElementById('atsEfficiency')?.textContent = `${summary?.efficiency_score ?? '—'}%`;
-    document.getElementById('atsCostPerKm')?.textContent = `KES ${Number(summary?.cost_per_km || 0).toLocaleString()}`;
-    document.getElementById('atsRecommendations')?.textContent = summary?.recommendations || '—';
+    { const el = document.getElementById('atsSummaryText'); if (el) el.textContent = summary?.overview || 'No summary available.'; }
+    { const el = document.getElementById('atsEfficiency'); if (el) el.textContent = `${summary?.efficiency_score ?? '—'}%`; }
+    { const el = document.getElementById('atsCostPerKm'); if (el) el.textContent = `KES ${Number(summary?.cost_per_km || 0).toLocaleString()}`; }
+    { const el = document.getElementById('atsRecommendations'); if (el) el.textContent = summary?.recommendations || '—'; }
     const insightsBody = document.getElementById('atsInsightsBody');
     if (!insights.length) { insightsBody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No AI insights.</td></tr>'; return; }
     insightsBody.innerHTML = insights.map(i => `<tr>

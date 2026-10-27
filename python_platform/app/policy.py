@@ -32,6 +32,12 @@ FIELDS: dict[str, list[str]] = {
         # quick-command instruction. Both are capped by the caller and carry
         # no learner identity.
         "conversation",
+        # Session-level continuity: stable topic labels, the operator's stated
+        # preferences, and where they are in the app. All are short labels with
+        # no learner identity.
+        "session_topics",
+        "preferences",
+        "navigation",
         "instruction",
         "question",
     ],

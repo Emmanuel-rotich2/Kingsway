@@ -52,8 +52,9 @@
                 }
             });
 
-            document.getElementById('queueAiAttendanceLateness')?.addEventListener('click', async () => {
-                const button = document.getElementById('queueAiAttendanceLateness');
+            const latenessButton = document.querySelector('#queueAiAttendanceLateness, #queueAiLatenessPattern');
+            latenessButton?.addEventListener('click', async () => {
+                const button = latenessButton;
                 if (!button) return;
                 button.disabled = true;
                 try {
@@ -68,7 +69,7 @@
                                 : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
                         return { date_from: document.getElementById('arDateFrom')?.value || from, date_to: document.getElementById('arDateTo')?.value || to };
                     };
-                    panel.question = `Generate a lateness pattern review for the period ${range().date_from} to ${range().date_to}. Analyze student lateness patterns, identify persistent offenders, and recommend interventions.`;
+                    panel.question = `Generate a supportive lateness pattern review for ${range().date_from} to ${range().date_to}. Summarize recurring patterns using only authorized aggregate attendance data, identify where staff should verify the register, and suggest respectful follow-up. Do not label or rank individual learners, infer causes, or recommend punishment.`;
                     await panel.start();
                 } catch (error) {
                     notify(error.message || 'Unable to queue lateness review', 'danger');
@@ -109,6 +110,55 @@
                         window.showNotification?.(`Parent follow-up queued${result?.job_id ? ` (job ${result.job_id})` : ''}. Complete recipient review in Communications.`, 'info');
                     } catch (error) { window.showNotification?.(error.message || 'Unable to queue parent follow-up', 'danger'); }
                 }));
+                // Generate buttons are inert on the legacy path without these
+                // listeners: the AgentTaskPanel branch that used to wire them
+                // never runs while the Node gateway flag is off.
+                const summaryButton = document.getElementById('queueAiAttendanceSummary');
+                if (summaryButton) {
+                    summaryButton.addEventListener('click', async () => {
+                        summaryButton.disabled = true;
+                        try {
+                            const today = new Date().toISOString().slice(0, 10);
+                            await window.API.attendance.queueAiExceptionSummary({
+                                summary_type: 'daily_attendance_exceptions',
+                                date_from: today,
+                                date_to: today
+                            });
+                            notify('Attendance summary queued. It appears here when ready.', 'success');
+                            await init();
+                        } catch (error) {
+                            notify(error.message || 'Unable to queue attendance summary', 'danger');
+                        } finally {
+                            summaryButton.disabled = false;
+                        }
+                    });
+                }
+                const latenessButton = document.querySelector('#queueAiAttendanceLateness, #queueAiLatenessPattern');
+                if (latenessButton) {
+                    latenessButton.addEventListener('click', async () => {
+                        const span = () => {
+                            const period = document.getElementById('arPeriod')?.value;
+                            const now = new Date();
+                            const to = new Date().toISOString().slice(0, 10);
+                            const from = period === 'this_week'
+                                ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6).toISOString().slice(0, 10)
+                                : period === 'this_term'
+                                    ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90).toISOString().slice(0, 10)
+                                    : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+                            return { date_from: document.getElementById('arDateFrom')?.value || from, date_to: document.getElementById('arDateTo')?.value || to };
+                        };
+                        latenessButton.disabled = true;
+                        try {
+                            await window.API.attendance.queueAiLatenessPattern({ ...span() });
+                            notify('Lateness pattern review queued. It appears here when ready.', 'success');
+                            await init();
+                        } catch (error) {
+                            notify(error.message || 'Unable to queue lateness review', 'danger');
+                        } finally {
+                            latenessButton.disabled = false;
+                        }
+                    });
+                }
                 const latenessHost = document.getElementById('aiAttendanceLatenessReviews');
                 if (latenessHost) {
                     const lateness = rows.filter((draft) => draft.metadata?.subject_type === 'attendance_lateness_pattern');

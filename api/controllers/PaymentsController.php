@@ -218,11 +218,40 @@ class PaymentsController extends BaseController
      * POST /api/payments/kcb-validation
      * FIX: Pass actual request headers for webhook signature validation
      */
+    /**
+     * KCB IPN responses must reach the provider as the bare payload it expects.
+     * KCB reads statusCode/transactionID at the TOP level of the response body,
+     * so wrapping it in the application's {success,status,data,...} envelope
+     * leaves the fields nested under data and the provider cannot parse them.
+     * Mirrors the mcp_raw escape hatch used by McpController.
+     */
+    private function ipnResponse(array $result): array
+    {
+        $payload = is_array($result['data'] ?? null) ? $result['data'] : $result;
+        if (isset($result['success']) && !$result['success'] && empty($payload['transactionID'])) {
+            $payload = [
+                'transactionID' => '',
+                'statusCode' => '1',
+                'statusMessage' => (string) ($result['message'] ?? 'Request failed'),
+            ];
+        }
+        if (!is_array($payload) || $payload === []) {
+            $payload = ['transactionID' => '', 'statusCode' => '1', 'statusMessage' => 'Request failed'];
+        }
+
+        return ['ipn_raw' => true] + $payload;
+    }
+
     public function postKcbValidation($id = null, $data = [], $segments = [])
     {
         $headers = function_exists('getallheaders') ? getallheaders() : [];
+        // KCB signs the exact bytes it posted. Re-encoding the parsed array
+        // changes key order and whitespace, which breaks the signature check,
+        // so the true raw body is always supplied.
+        $raw = (string) (file_get_contents('php://input') ?: '');
+        $headers['__raw_body'] = $raw !== '' ? $raw : json_encode($data);
         $result = $this->api->processKcbValidation($data, $headers);
-        return $this->handleResponse($result);
+        return $this->ipnResponse($result);
     }
 
     /**
@@ -246,7 +275,7 @@ class PaymentsController extends BaseController
         $headers = function_exists('getallheaders') ? getallheaders() : [];
         $headers['__raw_body'] = (string) (file_get_contents('php://input') ?: json_encode($data));
         $result = $this->api->processKcbNotification($data, $headers);
-        return $this->handleResponse($result);
+        return $this->ipnResponse($result);
     }
 
     /** POST /api/payments/kcb-account-notification */
@@ -513,6 +542,26 @@ class PaymentsController extends BaseController
         return $this->mpesaActionResult($guard, $this->api->triggerPayheroChannelRegister($data));
     }
 
+    /** POST /api/payments/initiate-collection */
+    public function postInitiateCollection($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerInitiateCollection($data));
+    }
+
+    /** POST /api/payments/payhero-stk-push */
+    public function postPayheroStkPush($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerPayheroStkPush($data));
+    }
+
     /** GET /api/payments/payhero-channels */
     public function getPayheroChannels($id = null, $data = [], $segments = [])
     {
@@ -644,5 +693,36 @@ class PaymentsController extends BaseController
             $filters = array_merge($filters, $data);
         }
         return $this->handleResponse($this->api->getMpesaResults($filters));
+    }
+
+    /**
+     * POST /api/payments/stk-sweep-worker — curl crontab worker.
+     *
+     * Safaricom does not call back on every STK push, so a cancelled prompt,
+     * a mistyped PIN, or a parent who simply walked away leaves the transaction
+     * 'pending' forever and the payer-facing poll never settles. This asks the
+     * provider directly for each stalled checkout and closes it with the
+     * provider's own verdict.
+     */
+    public function postStkSweepWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('PAYMENT_SWEEP_WORKER_SECRET') ? (string) PAYMENT_SWEEP_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+
+        try {
+            $service = new \App\API\Services\payments\MpesaPaymentService();
+            $result = $service->sweepStalledStkPushes(
+                (int) ($data['limit'] ?? 25),
+                (int) ($data['stall_minutes'] ?? 30)
+            );
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[PaymentsController] STK sweep worker: ' . $e->getMessage());
+            return $this->serverError('STK sweep worker failed.');
+        }
+
+        return $this->success($result, 'STK sweep worker completed.');
     }
 }

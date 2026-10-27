@@ -194,10 +194,10 @@ class MpesaB2CService
         try {
             $this->getDb()->prepare(
                 "INSERT INTO disbursement_transactions
-                    (disbursement_type, payroll_id, payslip_id, refund_request_id, recipient_id, recipient_name,
+                    (disbursement_type, payroll_id, payslip_id, refund_request_id, recipient_id, recipient_type, recipient_name,
                      payment_purpose, source_financial_account_id, idempotency_reference, amount, phone_number, channel, conversation_id, originator_conversation_id,
                      transaction_ref, status, result_description, callback_data, created_at)
-                 VALUES (:dtype, :payroll_id, :payslip_id, :refund_request_id, :recipient_id, :recipient_name,
+                 VALUES (:dtype, :payroll_id, :payslip_id, :refund_request_id, :recipient_id, :recipient_type, :recipient_name,
                          :purpose, :source_account_id, :idempotency_reference, :amount, :phone, 'mpesa_b2c', :conv, :originator,
                          :txref, 'pending', :desc, :callback, NOW())"
             )->execute([
@@ -206,6 +206,10 @@ class MpesaB2CService
                 'payslip_id'  => $data['payslip_id'] ?? null,
                 'refund_request_id' => $data['refund_request_id'] ?? null,
                 'recipient_id' => $data['recipient_id'] ?? null,
+                // Which table recipient_id belongs to. Salary pays staff;
+                // a refund pays a parent. Never leave this unset.
+                'recipient_type' => $data['recipient_type']
+                    ?? (($data['disbursement_type'] ?? '') === 'refund' ? 'parent' : 'staff'),
                 'recipient_name' => $data['recipient_name'] ?? null,
                 'purpose' => $data['payment_purpose'] ?? ($data['disbursement_type'] ?? 'operations'),
                 'source_account_id' => $data['source_financial_account_id'] ?? null,

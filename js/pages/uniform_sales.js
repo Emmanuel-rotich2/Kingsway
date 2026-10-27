@@ -777,7 +777,18 @@ const UniformSalesController = {
         document.getElementById('upPhone').value = '';
         document.getElementById('upNotes').value = '';
         document.getElementById('upError').classList.add('d-none');
+        this.syncUniformPhoneField();
         new bootstrap.Modal(document.getElementById('uniformPaymentModal')).show();
+    },
+
+    /** A phone number is only meaningful for a prompt. */
+    syncUniformPhoneField: function() {
+        const select = document.getElementById('upMethod');
+        const group = document.getElementById('upPhoneGroup');
+        if (!select || !group) return;
+        const isPrompt = select.value === 'prompt';
+        group.classList.toggle('d-none', !isPrompt);
+        if (!isPrompt) document.getElementById('upPhone').value = '';
     },
 
     /**
@@ -795,15 +806,20 @@ const UniformSalesController = {
             return;
         }
         if (!financialAccountId) { errEl.textContent = 'Select the authorized uniform receiving account.'; errEl.classList.remove('d-none'); return; }
+        const method = document.getElementById('upMethod').value;
+        if (method === 'prompt' && !document.getElementById('upPhone').value.trim()) {
+            errEl.textContent = 'Enter the parent phone number for the prompt.';
+            errEl.classList.remove('d-none');
+            return;
+        }
         const saveBtn = document.getElementById('upSaveBtn');
         saveBtn.disabled = true;
         try {
-            const channel = document.getElementById('upMethod').value;
             const response = await (API.inventory.createUniformPaymentIntent
                 ? API.inventory.createUniformPaymentIntent({
                     sale_id: Number(saleId),
                     amount: amount,
-                    channel: channel,
+                    channel: method,
                     financial_account_id: financialAccountId,
                     phone: document.getElementById('upPhone').value || null,
                     provider_reference: document.getElementById('upReference').value || null,
@@ -811,16 +827,16 @@ const UniformSalesController = {
                 })
                 : callAPI('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
                     amount_paid: amount,
-                    payment_method: channel,
+                    payment_method: method,
                     reference_no: document.getElementById('upReference').value || null,
                     notes: document.getElementById('upNotes').value || null,
                 }));
             const intent = response && (response.data || response);
-            if ((channel === 'cash' || channel === 'bank_transfer' || channel === 'cheque') && intent && intent.id && API.inventory.confirmUniformPaymentIntent) {
+            if ((method === 'cash' || method === 'bank_deposit' || method === 'cheque') && intent && intent.id && API.inventory.confirmUniformPaymentIntent) {
                 await API.inventory.confirmUniformPaymentIntent(intent.id);
             }
             bootstrap.Modal.getInstance(document.getElementById('uniformPaymentModal')).hide();
-            this.showSuccess(channel === 'cash' ? 'Uniform payment recorded successfully' : 'Uniform payment request submitted');
+            this.showSuccess(method === 'prompt' ? 'Payment prompt sent' : 'Uniform payment recorded');
             this.loadSales();
             this.loadDashboard();
         } catch (e) {

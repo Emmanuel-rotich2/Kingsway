@@ -46,6 +46,8 @@ security:
     - "https://kingswaypreparatoryschool.sc.ke"
     - "https://www.kingswaypreparatoryschool.sc.ke"
     - "https://realtime.kingswaypreparatoryschool.sc.ke"
+    - "https://localhost"
+    - "http://localhost"
   publishAllowIps:
     - "127.0.0.1"
     - "::1"

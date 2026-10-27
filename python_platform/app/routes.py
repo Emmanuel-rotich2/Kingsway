@@ -35,6 +35,7 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request
 
+from . import agents as agent_registry
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
@@ -5975,7 +5976,8 @@ def create_app(config: Config | None = None) -> Flask:
                 yield _event(
                     "error",
                     {
-                        "message": "the response was interrupted — please try again",
+                        "message": "I couldn’t finish that answer. Please try again.",
+                        "terminal": True,
                     },
                 )
             yield _event(
@@ -6009,7 +6011,12 @@ def create_app(config: Config | None = None) -> Flask:
         if user_id < 1:
             return jsonify({"success": False, "message": "user_id required"}), 422
         limit = min(max(int(request.args.get("limit", 30)), 1), 100)
-        sessions = chat_sessions.list_sessions(user_id, limit)
+        assistant_domain = (
+            "system_admin"
+            if request.args.get("assistant_domain") == "system_admin"
+            else "staff"
+        )
+        sessions = chat_sessions.list_sessions(user_id, limit, assistant_domain)
         return jsonify(
             {"success": True, "data": sessions, "message": "Sessions retrieved"}
         )
@@ -6026,9 +6033,10 @@ def create_app(config: Config | None = None) -> Flask:
         except (ValueError, PermissionError) as error:
             return jsonify({"success": False, "message": str(error)}), 422
         user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
         route = str(payload.get("route") or "")[:120]
         title = str(payload.get("title") or "")[:80]
-        session = chat_sessions.create(user_id, route, title)
+        session = chat_sessions.create(user_id, route, title, assistant_domain)
         return jsonify({"success": True, "data": session, "message": "Session created"})
 
     @app.post("/api/agents/sessions/get")
@@ -6043,11 +6051,14 @@ def create_app(config: Config | None = None) -> Flask:
         except (ValueError, PermissionError) as error:
             return jsonify({"success": False, "message": str(error)}), 422
         user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return jsonify({"success": False, "message": "session_id required"}), 422
         limit = min(max(int(payload.get("limit", 200)), 1), 500)
-        session = chat_sessions.get_session(user_id, session_id, limit)
+        session = chat_sessions.get_session(
+            user_id, session_id, limit, assistant_domain
+        )
         if session is None:
             return jsonify({"success": False, "message": "Session not found"}), 404
         return jsonify(
@@ -6066,9 +6077,12 @@ def create_app(config: Config | None = None) -> Flask:
         except (ValueError, PermissionError) as error:
             return jsonify({"success": False, "message": str(error)}), 422
         user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return jsonify({"success": False, "message": "session_id required"}), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
         ok = chat_sessions.delete_session(user_id, session_id)
         if not ok:
             return jsonify({"success": False, "message": "Session not found"}), 404
@@ -6086,16 +6100,71 @@ def create_app(config: Config | None = None) -> Flask:
         except (ValueError, PermissionError) as error:
             return jsonify({"success": False, "message": str(error)}), 422
         user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
         session_id = str(payload.get("session_id") or "")
         title = str(payload.get("title") or "")
         if not session_id or not title:
             return jsonify(
                 {"success": False, "message": "session_id and title required"}
             ), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
         ok = chat_sessions.rename(user_id, session_id, title)
         if not ok:
             return jsonify({"success": False, "message": "Session not found"}), 404
         return jsonify({"success": True, "message": "Session renamed"})
+
+    @app.post("/api/agents/sessions/topics")
+    def agents_sessions_topics():
+        """Merge topic labels into a chat session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        topics = payload.get("topics")
+        if not session_id or not isinstance(topics, list):
+            return jsonify(
+                {"success": False, "message": "session_id and topics required"}
+            ), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        merged = chat_sessions.add_topics(user_id, session_id, topics)
+        return jsonify(
+            {
+                "success": True,
+                "data": {"session_id": session_id, "topics": merged},
+                "message": "Topics updated",
+            }
+        )
+
+    @app.post("/api/agents/sessions/clear-messages")
+    def agents_sessions_clear_messages():
+        """Empty one chat session's messages while keeping the session."""
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        payload = request.get_json(force=True, silent=True) or {}
+        try:
+            context = ensure_staff_context(payload.get("context") or {})
+        except (ValueError, PermissionError) as error:
+            return jsonify({"success": False, "message": str(error)}), 422
+        user_id = context["user_id"]
+        assistant_domain = context["assistant_domain"]
+        session_id = str(payload.get("session_id") or "")
+        if not session_id:
+            return jsonify({"success": False, "message": "session_id required"}), 422
+        if not chat_sessions.owns_domain(user_id, session_id, assistant_domain):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        if not chat_sessions.clear_messages(user_id, session_id):
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        return jsonify({"success": True, "message": "Session cleared"})
 
     @app.post("/api/agents/sessions/clear")
     def agents_sessions_clear():
@@ -6148,210 +6217,6 @@ def create_app(config: Config | None = None) -> Flask:
         updated = chat_sessions.set_prefs(user_id, prefs)
         return jsonify(
             {"success": True, "data": updated, "message": "Preferences updated"}
-        )
-
-    @app.post("/api/agents/tasks/create")
-    def agents_tasks_create():
-        """Create an async agent task."""
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        try:
-            context = ensure_staff_context(payload.get("context") or {})
-        except (ValueError, PermissionError) as error:
-            return jsonify({"success": False, "message": str(error)}), 422
-        tool = str(payload.get("tool") or "")
-        question = bound_question(payload.get("question"))
-        options = payload.get("options") or {}
-        if not tool or not question:
-            return jsonify(
-                {"success": False, "message": "tool and question required"}
-            ), 422
-        try:
-            # Queue the task via the orchestrator's task queue
-            from app.task_queue import TaskQueue
-
-            task_queue = TaskQueue()
-            task_id = task_queue.enqueue(
-                user_id=context["user_id"],
-                tool=tool,
-                question=question,
-                route=context.get("route", ""),
-                module=context.get("module", "dashboard"),
-                permissions=context["permissions"],
-                options=options,
-                session_id=context.get("session_id", ""),
-            )
-        except Exception as error:  # noqa: BLE001
-            journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_task_create_failed",
-                    "operator_id": context["user_id"],
-                    "error_class": type(error).__name__,
-                },
-            )
-            return jsonify({"success": False, "message": "could not create task"}), 503
-        return jsonify(
-            {
-                "success": True,
-                "data": {"task_id": task_id, "status": "queued"},
-                "message": "Task created",
-            }
-        )
-
-    @app.get("/api/agents/tasks/<task_id>")
-    def agents_tasks_get(task_id: str):
-        """Get task status/result."""
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        user_id = int(request.args.get("user_id", 0))
-        if user_id < 1:
-            return jsonify({"success": False, "message": "user_id required"}), 422
-        try:
-            from app.task_queue import TaskQueue
-
-            task_queue = TaskQueue()
-            task = task_queue.get(task_id, user_id)
-            if task is None:
-                return jsonify({"success": False, "message": "Task not found"}), 404
-        except Exception as error:  # noqa: BLE001
-            journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_task_get_failed",
-                    "operator_id": user_id,
-                    "error_class": type(error).__name__,
-                },
-            )
-            return jsonify({"success": False, "message": "could not get task"}), 503
-        return jsonify({"success": True, "data": task, "message": "Task retrieved"})
-
-    @app.get("/api/agents/tasks")
-    def agents_tasks_list():
-        """List user's tasks."""
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        user_id = int(request.args.get("user_id", 0))
-        if user_id < 1:
-            return jsonify({"success": False, "message": "user_id required"}), 422
-        limit = min(max(int(request.args.get("limit", 30)), 1), 100)
-        try:
-            from app.task_queue import TaskQueue
-
-            task_queue = TaskQueue()
-            tasks = task_queue.list(user_id, limit)
-        except Exception as error:  # noqa: BLE001
-            journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_task_list_failed",
-                    "operator_id": user_id,
-                    "error_class": type(error).__name__,
-                },
-            )
-            return jsonify({"success": False, "message": "could not list tasks"}), 503
-        return jsonify({"success": True, "data": tasks, "message": "Tasks retrieved"})
-
-    @app.delete("/api/agents/tasks/<task_id>")
-    def agents_tasks_cancel(task_id: str):
-        """Cancel a queued task."""
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        try:
-            context = ensure_staff_context(payload.get("context") or {})
-        except (ValueError, PermissionError) as error:
-            return jsonify({"success": False, "message": str(error)}), 422
-        user_id = context["user_id"]
-        try:
-            from app.task_queue import TaskQueue
-
-            task_queue = TaskQueue()
-            ok = task_queue.cancel(task_id, user_id)
-            if not ok:
-                return jsonify(
-                    {"success": False, "message": "Task not found or not cancellable"}
-                ), 404
-        except Exception as error:  # noqa: BLE001
-            journal.write(
-                "ai_generation",
-                {
-                    "type": "agent_task_cancel_failed",
-                    "operator_id": user_id,
-                    "error_class": type(error).__name__,
-                },
-            )
-            return jsonify({"success": False, "message": "could not cancel task"}), 503
-        return jsonify({"success": True, "message": "Task cancelled"})
-
-    @app.post("/api/agents/tasks/<task_id>/stream")
-    def agents_tasks_stream(task_id: str):
-        """Stream task progress via SSE."""
-        guard = auth_guard()
-        if guard is not None:
-            return guard
-        payload = request.get_json(force=True, silent=True) or {}
-        try:
-            context = ensure_staff_context(payload.get("context") or {})
-        except (ValueError, PermissionError) as error:
-            return jsonify({"success": False, "message": str(error)}), 422
-        user_id = context["user_id"]
-
-        def _event(name: str, data: dict) -> str:
-            return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-        def _generate():
-            started = time.monotonic()
-            yield _event("start", {"status": "streaming", "task_id": task_id})
-            try:
-                from app.task_queue import TaskQueue
-
-                task_queue = TaskQueue()
-                # Poll task status and emit updates
-                last_status = None
-                while True:
-                    task = task_queue.get(task_id, user_id)
-                    if task is None:
-                        yield _event("error", {"message": "Task not found"})
-                        break
-                    status = task.get("status", "unknown")
-                    if status != last_status:
-                        yield _event("status", {"text": status})
-                        last_status = status
-                    if status in ("completed", "failed", "cancelled"):
-                        yield _event("final", {"result": task})
-                        break
-                    time.sleep(1)
-                    if time.monotonic() - started > 300:  # 5 min max
-                        yield _event("error", {"message": "Stream timeout"})
-                        break
-            except Exception as error:  # noqa: BLE001
-                journal.write(
-                    "ai_generation",
-                    {
-                        "type": "agent_task_stream_failed",
-                        "operator_id": user_id,
-                        "error_class": type(error).__name__,
-                    },
-                )
-                yield _event("error", {"message": "Stream failed"})
-            yield _event(
-                "done", {"duration_ms": int((time.monotonic() - started) * 1000)}
-            )
-
-        return Response(
-            _generate(),
-            mimetype="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-store",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
         )
 
     @app.post("/api/automations/run")
@@ -6509,6 +6374,31 @@ def create_app(config: Config | None = None) -> Flask:
         return jsonify(
             {"success": True, "data": result, "message": "Workspace briefing ready"}
         )
+
+    @app.get("/api/agents/catalog")
+    def agents_catalog():
+        """Return the agent catalogue for the authenticated staff member.
+        Requires Authorization: Bearer <AI_PYTHON_SECRET> header (Node gateway).
+        """
+        # auth_guard() returns None when authorized and a (body, status) tuple
+        # when denied. Negating it inverts the check: valid callers were
+        # rejected and anonymous callers were served the full catalogue.
+        guard = auth_guard()
+        if guard is not None:
+            return guard
+        catalog = []
+        for agent in agent_registry.AGENTS.values():
+            catalog.append(
+                {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "domain": agent["domain"],
+                    "goal": agent["goal"],
+                    "route_tokens": agent.get("route_tokens", []),
+                    "tools": list(agent.get("tools", [])),
+                }
+            )
+        return jsonify({"success": True, "data": catalog})
 
     @app.post("/v1/chat/completions")
     def chat_completions():

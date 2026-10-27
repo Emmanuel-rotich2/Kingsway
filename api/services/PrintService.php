@@ -4321,7 +4321,7 @@ final class PrintService
                             sfa.account_name AS settlement_account_name,
                             sfa.account_identifier AS settlement_account_identifier,
                             CASE
-                                WHEN p.code = 'mpesa_daraja' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
+                                WHEN p.code IN ('mpesa_daraja','safaricom_daraja') AND r.collection_product IN ('paybill','till') THEN 'mpesa'
                                 WHEN p.code = 'payhero' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
                                 WHEN p.code = 'kcb_buni' AND r.collection_product = 'buni' THEN 'kcb_mobile'
                                 WHEN r.collection_product = 'bank_collection' THEN 'bank'

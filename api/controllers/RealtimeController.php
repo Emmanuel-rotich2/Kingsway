@@ -200,16 +200,20 @@ class RealtimeController extends BaseAPI
             }
             $payload = $job['payload'];
             try {
+                // Typed handlers receive the durable queue id so they can
+                // attach a result descriptor to the owned job record.
+                $payload['_job_id'] = $id;
                 $handler = JobHandlerRegistry::resolve($job['job_type']);
                 if ($handler === null) {
                     throw new \RuntimeException("No registered handler for job_type '{$job['job_type']}'");
                 }
                 $handler($payload, $this->db);
-                JobQueue::markDone($id);
-                // AI jobs a human is waiting on tell their operator's own
-                // channel; every other family completes silently.
-                \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'completed');
-                $done++;
+                if (JobQueue::markDone($id)) {
+                    // AI jobs a human is waiting on tell their operator's own
+                    // channel; every other family completes silently.
+                    \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'completed');
+                    $done++;
+                }
             } catch (\Throwable $e) {
                 $failureStatus = JobQueue::markFailed($id, $e->getMessage());
                 \App\API\Services\WorkerJobTelemetry::announceCompletion($job, 'failed');

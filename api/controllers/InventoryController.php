@@ -586,6 +586,12 @@ class InventoryController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** GET /api/inventory/purchase-report — line-level purchase report */
+    public function getPurchaseReport($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->purchaseReport($data));
+    }
+
     /**
      * POST /api/inventory/purchase-orders/{id}/receive
      */

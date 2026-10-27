@@ -266,13 +266,18 @@
         saveBudget: async function () {
             const getVal = id => (document.getElementById(id) || {}).value || '';
             const id = getVal('budgetId');
+            // Keys the proposal handler actually reads: title, academic_year,
+             // term, amount_requested, created_by. The previous names
+               // (financial_year, allocated_amount) were ignored, so every
+               // proposal was stored with amount 0 and the current year.
             const payload = {
-                financial_year:   getVal('fyear'),
-                category:         getVal('category'),
-                department:       getVal('budgetDepartment'),
-                allocated_amount: getVal('amount'),
-                description:      getVal('budgetDescription'),
-                status:           getVal('budgetStatus')
+                title:             getVal('budgetTitle') || 'Department budget proposal',
+                academic_year:     getVal('fyear'),
+                term:              getVal('term') || null,
+                amount_requested:  getVal('amount'),
+                description:       getVal('budgetDescription'),
+                department_id:     getVal('budgetDepartment'),
+                status:            getVal('budgetStatus')
             };
             if (id) payload.id = id;
             try {
@@ -290,7 +295,12 @@
         approveBudget: async function (id) {
             if (!(await window.confirmAction('Confirm', 'Approve this budget entry?'))) return;
             try {
-                await window.API.finance.approveDepartmentBudget({ id });
+                // The handler reads proposal_id (or budget_id); `{id}` always
+                // failed validation with "proposal_id is required".
+                await window.API.finance.approveDepartmentBudget({
+                    proposal_id: id,
+                    status: 'approved',
+                });
                 showToast('Budget approved successfully.');
                 await this.loadData();
             } catch (err) {

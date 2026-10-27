@@ -23,6 +23,12 @@ use Throwable;
  * confirmed with GET /api/v2/transaction-status before money is posted
  * (PAYHERO_VERIFY_CALLBACK_STATUS). A status endpoint outage never drops a
  * payment: the callback is routed and the event is journalled instead.
+ *
+ * RAIL ROLE: last-resort fallback for every purpose. A PayHero bank channel
+ * intermediates the collection — the fee is a service_charge debited from the
+ * merchant service wallet, and an unfunded (PENDING) wallet refuses the STK
+ * outright. Prefer credential_id (own Daraja keys) so the money lands on the
+ * school's own paybill with no settlement charge.
  */
 final class PayheroPaymentService
 {
@@ -72,6 +78,24 @@ final class PayheroPaymentService
         if ($callback === '') {
             $callback = $this->defaultCallbackUrl();
         }
+        if (!$this->isPubliclyRoutable($callback)) {
+            FileLogger::write('payments', [
+                'type' => 'payhero_callback_unreachable',
+                'external_reference' => $reference,
+                'callback_url' => $callback,
+                'error' => 'The configured PayHero callback URL is not reachable from the public internet.',
+            ]);
+            throw new RuntimeException(
+                'The PayHero callback URL is not reachable from the public internet, so PayHero could never '
+                . 'confirm this payment. Set PAYHERO_CALLBACK_BASE_URL to a public HTTPS URL.'
+            );
+        }
+
+        // credential_id routes the collection through the school's own Daraja
+        // credentials instead of a PayHero bank channel. When supplied the
+        // money settles on the school's paybill and PayHero has nothing to
+        // settle, so the per-transaction service charge never applies.
+        $credentialId = (int) ($data['credential_id'] ?? 0) ?: (int) (defined('PAYHERO_CREDENTIAL_ID') ? PAYHERO_CREDENTIAL_ID : 0);
 
         $payload = array_filter([
             'amount' => $amount,
@@ -81,6 +105,7 @@ final class PayheroPaymentService
             'external_reference' => $reference,
             'customer_name' => trim((string) ($data['customer_name'] ?? '')),
             'callback_url' => $callback,
+            'credential_id' => $credentialId > 0 ? $credentialId : null,
         ], static fn ($value) => $value !== null && $value !== '');
 
         try {
@@ -144,7 +169,7 @@ final class PayheroPaymentService
      *
      * @param array $data {channel_type: bank|paybill|till, short_code,
      *                    account_number?, description?, account_id?}
-     * @return array{channel_type: string, account_id: int, short_code: int, account_number: string, description: string}
+     * @return array{channel_type: string, account_id: int, short_code: string, account_number: string, description: string}
      */
     public static function normalizeChannelRegistration(array $data, int $accountId = 0): array
     {
@@ -179,7 +204,7 @@ final class PayheroPaymentService
         return [
             'channel_type' => $type,
             'account_id' => $resolvedAccountId,
-            'short_code' => (int) $shortCode,
+            'short_code' => $shortCode,
             'account_number' => $account,
             'description' => $description,
         ];
@@ -457,6 +482,33 @@ final class PayheroPaymentService
         if (!empty($status['failed'])) {
             return false;
         }
+        // Verify amount and phone match the callback
+        $callbackAmount = (float) ($normalized['amount'] ?? 0);
+        $statusAmount = (float) ($status['amount'] ?? 0);
+        if ($callbackAmount > 0 && $statusAmount > 0 && abs($callbackAmount - $statusAmount) > 0.01) {
+            FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => 'payhero',
+                'event' => 'amount_mismatch',
+                'reference' => $normalized['reference'],
+                'callback_amount' => $callbackAmount,
+                'status_amount' => $statusAmount,
+            ]);
+            return false;
+        }
+        $callbackPhone = $normalized['phone'] ?? '';
+        $statusPhone = $status['phone'] ?? '';
+        if ($callbackPhone !== '' && $statusPhone !== '' && $callbackPhone !== $statusPhone) {
+            FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => 'payhero',
+                'event' => 'phone_mismatch',
+                'reference' => $normalized['reference'],
+                'callback_phone' => $callbackPhone,
+                'status_phone' => $statusPhone,
+            ]);
+            return false;
+        }
         return true;
     }
 
@@ -470,6 +522,12 @@ final class PayheroPaymentService
             }
         }
         if (defined('PAYHERO_CHANNEL_ID') && (int) PAYHERO_CHANNEL_ID > 0) {
+            FileLogger::write('payments', [
+                'type' => 'payhero_channel_fallback',
+                'purpose' => $purpose,
+                'channel_id' => (int) PAYHERO_CHANNEL_ID,
+                'error' => 'No purpose-specific PayHero route matched; the global fallback channel is being used.',
+            ]);
             return (int) PAYHERO_CHANNEL_ID;
         }
         try {
@@ -517,13 +575,15 @@ final class PayheroPaymentService
     /** @return array<int, array{account_identifier: string, purpose: string}> */
     private function activeRoutes(): array
     {
-        $stmt = $this->db->query(
+        $env = defined('APP_ENV') ? strtolower(trim((string) constant('APP_ENV'))) : 'sandbox';
+        $stmt = $this->db->prepare(
             "SELECT r.account_identifier, r.purpose
                FROM payment_collection_routes r
                JOIN payment_providers p ON p.id = r.provider_id
               WHERE p.code = 'payhero' AND r.active = 1
-              ORDER BY r.purpose, r.id"
+              ORDER BY (p.environment = ?) DESC, r.purpose, r.id"
         );
+        $stmt->execute([$env]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
@@ -549,5 +609,25 @@ final class PayheroPaymentService
     {
         $normalized = PhoneNumberNormalizer::normalize($phone);
         return ($normalized !== null && preg_match('/^2547\d{8}$/', $normalized) === 1) ? $normalized : '';
+    }
+
+    private function isPubliclyRoutable(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return false;
+        }
+        $host = strtolower(trim($host, '[]'));
+        if ($host === '' || $host === 'localhost' || str_ends_with($host, '.localhost')) {
+            return false;
+        }
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return filter_var(
+                $host,
+                FILTER_VALIDATE_IP,
+                FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+            ) !== false;
+        }
+        return !str_ends_with($host, '.local') && !str_ends_with($host, '.internal');
     }
 }

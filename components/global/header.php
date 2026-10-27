@@ -126,8 +126,11 @@
                                 <button type="submit" class="btn btn-sm btn-primary" id="nb-submit">
                                     Send broadcast
                                 </button>
-                            </div>
-                        </form>
+</div>
+                    <div class="mt-2 text-end">
+                        <span class="small text-muted d-none d-md-inline text-nowrap">Shift + Enter for a new line</span>
+                    </div>
+                </form>
                     </div>
                 </div>
 
@@ -246,100 +249,89 @@
     class="offcanvas offcanvas-end ai-assistant-panel"
     tabindex="-1"
     id="globalAiAssistantPanel"
+    data-persist-open="true"
     aria-labelledby="globalAiAssistantPanelLabel"
 >
     <div class="assistant-shell d-flex h-100 w-100">
-        <aside class="assistant-sidebar d-none d-lg-flex flex-column p-3">
-            <div class="d-flex align-items-center gap-2 mb-4">
+        <!-- Sidebar: sessions rail (full height, side-by-side with main) -->
+        <aside class="assistant-sidebar flex-shrink-0 p-3">
+            <div class="assistant-sidebar-brand d-flex align-items-center gap-2 mb-3">
                 <img
                     src="<?= htmlspecialchars(($appBase ?? '') . '/uploads/school_assets/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>"
-                    alt="Kingsway Preparatory School"
-                    width="40"
-                    height="40"
-                    class="rounded-circle bg-white p-1 shadow-sm"
+                    alt="Kingsway Preparatory School logo"
+                    width="28"
+                    height="28"
+                    class="assistant-sidebar-logo"
                     onerror="this.onerror=null;this.src='<?= htmlspecialchars(($appBase ?? '') . '/images/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>';"
                 >
-                <div class="min-w-0">
-                    <h6 class="mb-0 fw-bold text-truncate">Kingsway Prep</h6>
-                    <small class="text-muted">Staff assistant</small>
-                </div>
+                <span class="assistant-sidebar-brand-copy">
+                    <span class="assistant-sidebar-school-name">Kingsway Preparatory School</span>
+                    <small>Staff assistant</small>
+                </span>
             </div>
-            <button type="button" class="btn btn-success w-100 fw-medium d-flex align-items-center justify-content-center gap-2 mb-4" id="global-ai-assistant-new-chat">
+            <button type="button" class="btn btn-success w-100 fw-medium d-flex align-items-center justify-content-center gap-2 mb-4 assistant-new-chat" id="global-ai-assistant-new-chat">
                 <i class="bi bi-plus-lg"></i><span>New chat</span>
             </button>
             <div class="d-flex justify-content-between align-items-center mb-2 px-1">
-                <span class="text-uppercase text-muted fw-bold assistant-sidebar-label">Chats</span>
-                <i class="bi bi-clock-history text-muted"></i>
+                <span class="text-muted fw-semibold assistant-sidebar-label">Chat History</span>
             </div>
             <div class="overflow-auto flex-grow-1 pe-1" id="global-ai-assistant-history" aria-live="polite">
                 <p class="small text-muted px-1 mb-0">Start a new chat to see sessions here.</p>
             </div>
-            <div class="border-top pt-3 mt-auto d-flex align-items-center justify-content-around">
-                <button type="button" class="assistant-sidebar-action" id="global-ai-assistant-settings" title="Assistant settings" aria-label="Assistant settings">
-                    <i class="bi bi-gear"></i>
-                </button>
+            <div class="border-top pt-3 mt-auto d-flex justify-content-between px-3 py-2 gap-2">
                 <button type="button" class="assistant-sidebar-action" id="global-ai-assistant-help" title="How to use the assistant" aria-label="How to use the assistant">
                     <i class="bi bi-question-circle"></i>
                 </button>
+                <button type="button" class="assistant-sidebar-action" id="global-ai-assistant-settings" title="Assistant settings" aria-label="Assistant settings">
+                    <i class="bi bi-gear"></i>
+                </button>
             </div>
         </aside>
+        <!-- Main chat area: header spans full width, conversation below -->
         <div class="assistant-main d-flex flex-column flex-grow-1 h-100 min-w-0">
-            <header class="assistant-header d-flex align-items-center gap-3 px-3 px-md-4 py-3">
+            <header class="assistant-header d-flex align-items-center gap-3 px-3 px-md-4 py-3 flex-shrink-0">
                 <span class="assistant-avatar" aria-hidden="true"><i class="bi bi-robot"></i></span>
                 <div class="min-w-0">
-                    <h5 class="mb-0 fw-semibold text-white" id="globalAiAssistantPanelLabel">Kingsway Assistant</h5>
+                    <h5 class="mb-0 fw-semibold text-white" id="globalAiAssistantPanelLabel">Staff Assistant</h5>
                     <div class="assistant-header-meta d-flex align-items-center gap-2">
-                        <small>Kingsway Preparatory School</small>
                         <span class="assistant-online-badge"><i class="bi bi-circle-fill"></i>Online</span>
                     </div>
                 </div>
                 <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
             </header>
-            <div class="assistant-conversation flex-grow-1 overflow-auto p-3 p-md-4" id="global-ai-assistant-conversation">
-                <div class="d-flex align-items-start gap-2 mb-3">
-                    <span class="assistant-avatar assistant-avatar-sm" aria-hidden="true"><i class="bi bi-robot"></i></span>
-                    <div class="bot-bubble p-3 shadow-sm">
-                        Hi <strong id="assistant-greeting-name">there</strong>, I'm your Kingsway staff assistant. How can I help with your dashboard tasks today?
-                    </div>
-                </div>
-                <div id="global-ai-assistant-briefing" class="mb-3" aria-live="polite"></div>
-                <div id="global-ai-assistant-user-turn" class="d-flex justify-content-end mb-3" hidden>
-                    <div class="user-bubble p-3 shadow-sm"></div>
-                </div>
-                <div id="global-ai-assistant-answer" class="mb-3" aria-live="polite"></div>
+            <div class="assistant-conversation flex-grow-1 overflow-y-auto p-3 p-md-4" id="global-ai-assistant-conversation" style="display:flex;flex-direction:column;">
+                <!-- Thread: the single scrollable message container (never destroyed). Greeting is rendered here when empty. -->
+                <div id="global-ai-assistant-thread" class="assistant-thread flex-grow-1 overflow-y-auto p-3" aria-live="polite"></div>
             </div>
-            <footer class="assistant-footer border-top p-3 p-md-4">
-                <form id="global-ai-assistant-query" class="assistant-composer" autocomplete="off" hidden>
-                    <div id="global-ai-assistant-suggestions" class="d-flex flex-wrap gap-2 mb-2" aria-label="Suggested questions"></div>
-                    <div class="chat-input-box d-flex align-items-end gap-2 p-2">
+<!-- Composer -->
+            <footer class="assistant-footer border-top p-3 flex-shrink-0" id="global-ai-assistant-footer">
+                <form id="global-ai-assistant-query" class="assistant-composer d-flex flex-column gap-2" autocomplete="off">
+                    <div class="chat-input-box d-flex align-items-end gap-2 p-2 w-100">
                         <input type="file" id="global-ai-assistant-attachment" class="d-none" tabindex="-1" aria-hidden="true">
-                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-attach" title="Attach a file" aria-label="Attach a file">
+                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-attach" title="Attach a file" aria-label="Attach a file" style="background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
                             <i class="bi bi-paperclip"></i>
                         </button>
-                        <label class="visually-hidden" for="global-ai-assistant-question">Ask the staff assistant</label>
+                        <label class="visually-hidden" for="global-ai-assistant-question">Ask the assistant</label>
                         <textarea
                             class="form-control assistant-input flex-grow-1"
                             id="global-ai-assistant-question"
                             rows="1"
                             maxlength="500"
-                            placeholder="Ask the staff assistant…"
-                            aria-label="Ask the staff assistant"
+                            placeholder="Ask the assistant…"
+                            aria-label="Ask the assistant"
+                            style="border:0;outline:none;resize:none;box-shadow:none;"
                         ></textarea>
-                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-voice" title="Dictate your question" aria-label="Dictate your question">
+                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-voice" title="Dictate your question" aria-label="Dictate your question" style="background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
                             <i class="bi bi-mic"></i>
                         </button>
-                        <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-settings" title="Assistant settings" aria-label="Assistant settings">
-                            <i class="bi bi-gear"></i>
-                        </button>
-                        <button type="submit" class="btn btn-icon-only btn-success" id="global-ai-assistant-send" title="Send question" aria-label="Send question">
+                        <button type="submit" class="btn btn-success" id="global-ai-assistant-send" title="Send question" aria-label="Send question" style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
                             <i class="bi bi-send-fill"></i>
                         </button>
                     </div>
-                    <div class="d-flex justify-content-end mt-2 px-1">
+                    <div class="mt-2 text-end">
                         <span class="small text-muted d-none d-md-inline text-nowrap">Shift + Enter for a new line</span>
                     </div>
                 </form>
-            </footer>
         </div>
     </div>
 </div>
@@ -367,7 +359,6 @@
                             <input class="form-check-input" type="checkbox" id="pref-save-history" checked>
                             <label class="form-check-label" for="pref-save-history">Save chat history</label>
                         </div>
-                        <div class="form-text">When disabled, chats are not persisted and are cleared on reload.</div>
                     </div>
                     <div class="mb-3">
                         <label for="pref-response-style" class="form-label">Response style</label>
@@ -390,10 +381,6 @@
                             <option value="en" selected>English</option>
                             <option value="sw">Kiswahili</option>
                         </select>
-                    </div>
-                    <div class="alert alert-warning small">
-                        <i class="bi bi-info-circle me-1"></i>
-                        <strong>Privacy note:</strong> Chat history is stored locally on the server, never used for model training, and can be erased at any time via "Clear all chats" below.
                     </div>
                     <div class="d-grid gap-2 mt-3">
                         <button type="button" class="btn btn-outline-danger" id="assistant-clear-history">

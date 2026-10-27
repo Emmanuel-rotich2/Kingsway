@@ -36,14 +36,14 @@ const studentCardVerificationController = {
   render() {
     const v = this.state.verification;
     const student = this.state.student;
-    document.getElementById('scvStudentName')?.textContent = student?.name || '—';
-    document.getElementById('scvAdmissionNo')?.textContent = student?.admission_number || '—';
-    document.getElementById('scvCardStatus')?.textContent = v?.status || '—';
-    document.getElementById('scvCardNumber')?.textContent = v?.card_number || '—';
-    document.getElementById('scvExpiryDate')?.textContent = this.fmtDate(v?.expiry_date);
-    document.getElementById('scvVerified')?.textContent = v?.verified ? 'Yes' : 'No';
-    document.getElementById('scvVerifiedBy')?.textContent = v?.verified_by || '—';
-    document.getElementById('scvVerifiedAt')?.textContent = this.fmtDate(v?.verified_at);
+    { const el = document.getElementById('scvStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('scvAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
+    { const el = document.getElementById('scvCardStatus'); if (el) el.textContent = v?.status || '—'; }
+    { const el = document.getElementById('scvCardNumber'); if (el) el.textContent = v?.card_number || '—'; }
+    { const el = document.getElementById('scvExpiryDate'); if (el) el.textContent = this.fmtDate(v?.expiry_date); }
+    { const el = document.getElementById('scvVerified'); if (el) el.textContent = v?.verified ? 'Yes' : 'No'; }
+    { const el = document.getElementById('scvVerifiedBy'); if (el) el.textContent = v?.verified_by || '—'; }
+    { const el = document.getElementById('scvVerifiedAt'); if (el) el.textContent = this.fmtDate(v?.verified_at); }
   },
 
   fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },

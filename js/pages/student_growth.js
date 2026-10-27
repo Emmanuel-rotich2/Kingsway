@@ -37,8 +37,8 @@ const studentGrowthController = {
   render() {
     const growth = this.state.growthData;
     const student = this.state.student;
-    document.getElementById('sgStudentName')?.textContent = student?.name || '—';
-    document.getElementById('sgAdmissionNo')?.textContent = student?.admission_number || '—';
+    { const el = document.getElementById('sgStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('sgAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
     const body = document.getElementById('sgGrowthBody');
     if (!growth.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No growth data available.</td></tr>'; return; }
     body.innerHTML = growth.map(g => `<tr>

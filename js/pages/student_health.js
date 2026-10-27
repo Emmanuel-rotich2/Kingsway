@@ -35,8 +35,8 @@ const studentHealthController = {
   render() {
     const records = this.state.records;
     const student = this.state.student;
-    document.getElementById('shStudentName')?.textContent = student?.name || '—';
-    document.getElementById('shAdmissionNo')?.textContent = student?.admission_number || '—';
+    { const el = document.getElementById('shStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('shAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
     const body = document.getElementById('shRecordsBody');
     if (!records.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No health records.</td></tr>'; return; }
     body.innerHTML = records.map(r => `<tr>

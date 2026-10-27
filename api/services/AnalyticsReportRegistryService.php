@@ -162,17 +162,29 @@ final class AnalyticsReportRegistryService
 
     public function metricsForReport(int $reportDefinitionId): array
     {
-        $stmt = $this->db->prepare(
-            "SELECT md.*, arm.display_order, arm.is_primary
-             FROM " . ReadReplicaService::qualifiedRef("analytics_report_metrics") . "
-             JOIN analytics_metric_definitions md ON md.id = arm.metric_definition_id
-             WHERE arm.report_definition_id = ?
-               AND md.status = 'approved'
-               AND md.is_current = 1
-             ORDER BY arm.display_order, md.name"
-        );
-        $stmt->execute([$reportDefinitionId]);
-        return array_map([$this, 'normalizeMetric'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        $sql = "SELECT md.*
+                FROM %s arm
+                JOIN analytics_metric_definitions md ON md.id = arm.metric_definition_id
+                WHERE arm.report_definition_id = ?
+                  AND md.status = 'approved'
+                  AND md.is_current = 1
+                ORDER BY md.name";
+        try {
+            $stmt = $this->db->prepare(
+                sprintf($sql, ReadReplicaService::qualifiedRef("analytics_report_metrics"))
+            );
+            $stmt->execute([$reportDefinitionId]);
+            return array_map([$this, 'normalizeMetric'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (\Throwable $replicaError) {
+            // A stale materialized fallback with an older schema must not take
+            // report execution down: this is a small keyed read, so the master
+            // table is the safe source of truth.
+            $stmt = $this->db->prepare(
+                sprintf($sql, ReadReplicaService::masterRef("analytics_report_metrics"))
+            );
+            $stmt->execute([$reportDefinitionId]);
+            return array_map([$this, 'normalizeMetric'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        }
     }
 
     public function startRun(

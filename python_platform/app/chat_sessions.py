@@ -27,6 +27,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,13 @@ MAX_MESSAGES = 200
 MAX_MESSAGE_CHARS = 4000
 MAX_TITLE_CHARS = 80
 MAX_META_CHARS = 2000
+MAX_TOPICS = 12
+MAX_TOPIC_CHARS = 40
+HISTORY_MAX_TURNS = 12
+HISTORY_MESSAGE_CHARS = 1200
+HISTORY_CHAR_BUDGET = 5000
+SUMMARY_LINES = 8
+SUMMARY_LINE_CHARS = 180
 STORE_VERSION = "assistant_chat_v1"
 
 _ROLES = {"user", "assistant"}
@@ -48,12 +56,13 @@ class ChatSessionStore:
         self._journal = journal
         self._lock = threading.Lock()
         self._db_path = Path(data_dir) / "assistant_chat.sqlite"
-        with self._lock:
-            self._connect().executescript(
+        with self._lock, closing(self._connect()) as connection:
+            connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL,
+                    assistant_domain TEXT NOT NULL DEFAULT 'staff',
                     title TEXT NOT NULL DEFAULT '',
                     route TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
@@ -81,6 +90,40 @@ class ChatSessionStore:
                 );
                 """
             )
+            self._migrate()
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_sessions_domain_time"
+                " ON chat_sessions(user_id, assistant_domain, updated_at DESC)"
+            )
+            connection.commit()
+
+    def _migrate(self) -> None:
+        """Additive migrations for databases created by earlier releases.
+
+        Called from ``__init__`` while ``self._lock`` is already held, so it
+        must not re-acquire the lock (a non-reentrant lock would deadlock).
+        """
+        connection = self._connect()
+        try:
+            columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(chat_sessions)"
+                ).fetchall()
+            }
+            if "topics_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE chat_sessions"
+                    " ADD COLUMN topics_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            if "assistant_domain" not in columns:
+                connection.execute(
+                    "ALTER TABLE chat_sessions"
+                    " ADD COLUMN assistant_domain TEXT NOT NULL DEFAULT 'staff'"
+                )
+            connection.commit()
+        finally:
+            connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self._db_path), timeout=3)
@@ -90,19 +133,25 @@ class ChatSessionStore:
         return connection
 
     # ---------------------------------------------------------------- sessions
-    def create(self, user_id: int, route: str = "", title: str = "") -> dict[str, Any]:
+    def create(
+        self,
+        user_id: int,
+        route: str = "",
+        title: str = "",
+        assistant_domain: str = "staff",
+    ) -> dict[str, Any]:
         now = int(time.time())
         session_id = uuid.uuid4().hex
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "INSERT INTO chat_sessions"
-                    " (id, user_id, title, route, created_at, updated_at, message_count)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 0)",
+                    " (id, user_id, assistant_domain, title, route, created_at, updated_at, message_count)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
                     (
                         session_id,
                         int(user_id),
+                        self._clean_domain(assistant_domain),
                         self._clean_title(title),
                         str(route or "")[:120],
                         now,
@@ -110,11 +159,17 @@ class ChatSessionStore:
                     ),
                 )
                 connection.execute(
-                    "DELETE FROM chat_sessions WHERE user_id = ? AND id NOT IN ("
-                    "  SELECT id FROM chat_sessions WHERE user_id = ?"
+                    "DELETE FROM chat_sessions WHERE user_id = ? AND assistant_domain = ? AND id NOT IN ("
+                    "  SELECT id FROM chat_sessions WHERE user_id = ? AND assistant_domain = ?"
                     "  ORDER BY updated_at DESC LIMIT ?"
                     ")",
-                    (int(user_id), int(user_id), MAX_SESSIONS),
+                    (
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        MAX_SESSIONS,
+                    ),
                 )
                 connection.commit()
             self._journal_event(
@@ -129,41 +184,52 @@ class ChatSessionStore:
                     "created_at": now,
                     "updated_at": now,
                     "message_count": 0,
+                    "assistant_domain": self._clean_domain(assistant_domain),
+                    "topics_json": "[]",
                 }
             )
         except Exception:
             self._journal_event(user_id, "assistant_session_write_failed", {})
             return {}
 
-    def list_sessions(self, user_id: int, limit: int = 30) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, user_id: int, limit: int = 30, assistant_domain: str = "staff"
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit or 30), MAX_SESSIONS))
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 rows = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count"
+                    "SELECT id, user_id, assistant_domain, title, route, created_at, updated_at, message_count, topics_json"
                     " FROM chat_sessions"
-                    " WHERE user_id = ? AND updated_at >= ?"
+                    " WHERE user_id = ? AND assistant_domain = ? AND updated_at >= ?"
                     " ORDER BY updated_at DESC LIMIT ?",
-                    (int(user_id), int(time.time()) - TTL_SECONDS, limit),
+                    (
+                        int(user_id),
+                        self._clean_domain(assistant_domain),
+                        int(time.time()) - TTL_SECONDS,
+                        limit,
+                    ),
                 ).fetchall()
             return [self._session_row(row) for row in rows]
         except Exception:
             return []
 
     def get_session(
-        self, user_id: int, session_id: str, limit: int = MAX_MESSAGES
+        self,
+        user_id: int,
+        session_id: str,
+        limit: int = MAX_MESSAGES,
+        assistant_domain: str = "staff",
     ) -> dict[str, Any] | None:
         session_id = str(session_id or "").strip()
         if not session_id:
             return None
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
-                    "SELECT id, user_id, title, route, created_at, updated_at, message_count"
-                    " FROM chat_sessions WHERE id = ? AND user_id = ?",
-                    (session_id, int(user_id)),
+                    "SELECT id, user_id, assistant_domain, title, route, created_at, updated_at, message_count, topics_json"
+                    " FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (session_id, int(user_id), self._clean_domain(assistant_domain)),
                 ).fetchone()
                 if row is None:
                     return None
@@ -190,6 +256,17 @@ class ChatSessionStore:
         except Exception:
             return None
 
+    def owns_domain(self, user_id: int, session_id: str, assistant_domain: str) -> bool:
+        try:
+            with self._lock, closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT 1 FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (str(session_id or ""), int(user_id), self._clean_domain(assistant_domain)),
+                ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
     def append(
         self,
         user_id: int,
@@ -198,6 +275,7 @@ class ChatSessionStore:
         content: str,
         agent_id: str = "",
         meta: dict[str, Any] | None = None,
+        assistant_domain: str = "staff",
     ) -> int | None:
         role = str(role or "").strip().lower()
         content = self._clip(content, MAX_MESSAGE_CHARS)
@@ -212,11 +290,10 @@ class ChatSessionStore:
             except Exception:
                 meta_json = ""
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 owned = connection.execute(
-                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
-                    (session_id, int(user_id)),
+                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ? AND assistant_domain = ?",
+                    (session_id, int(user_id), self._clean_domain(assistant_domain)),
                 ).fetchone()
                 if owned is None:
                     return None
@@ -274,13 +351,162 @@ class ChatSessionStore:
             )
             return None
 
+    # ------------------------------------------------------------------ topics
+    def add_topics(
+        self, user_id: int, session_id: str, topics: list[Any] | None
+    ) -> list[str]:
+        """Merge human topic labels into one session, bounded and deduplicated."""
+        if not isinstance(topics, list):
+            return []
+        clean: list[str] = []
+        for topic in topics[:MAX_TOPICS]:
+            text = " ".join(str(topic or "").split())[:MAX_TOPIC_CHARS]
+            if text and text not in clean:
+                clean.append(text)
+        if not clean:
+            return self.get_topics(user_id, session_id)
+        try:
+            with self._lock, closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT topics_json FROM chat_sessions"
+                    " WHERE id = ? AND user_id = ?",
+                    (str(session_id), int(user_id)),
+                ).fetchone()
+                if row is None:
+                    return []
+                existing = self._load_topics(row["topics_json"])
+                merged = list(existing)
+                for topic in clean:
+                    if topic not in merged:
+                        merged.append(topic)
+                merged = merged[:MAX_TOPICS]
+                connection.execute(
+                    "UPDATE chat_sessions SET topics_json = ? WHERE id = ? AND user_id = ?",
+                    (
+                        json.dumps(merged, ensure_ascii=False),
+                        str(session_id),
+                        int(user_id),
+                    ),
+                )
+                connection.commit()
+            return merged
+        except Exception:
+            return []
+
+    def get_topics(self, user_id: int, session_id: str) -> list[str]:
+        if not session_id:
+            return []
+        try:
+            with self._lock, closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT topics_json FROM chat_sessions"
+                    " WHERE id = ? AND user_id = ?",
+                    (str(session_id), int(user_id)),
+                ).fetchone()
+            return self._load_topics(row["topics_json"]) if row is not None else []
+        except Exception:
+            return []
+
+    def clear_messages(self, user_id: int, session_id: str) -> bool:
+        """Empty one session while keeping the session in the sidebar."""
+        session_id = str(session_id or "").strip()
+        if not session_id:
+            return False
+        try:
+            with self._lock, closing(self._connect()) as connection:
+                owned = connection.execute(
+                    "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
+                    (session_id, int(user_id)),
+                ).fetchone()
+                if owned is None:
+                    return False
+                connection.execute(
+                    "DELETE FROM chat_messages WHERE session_id = ? AND user_id = ?",
+                    (session_id, int(user_id)),
+                )
+                connection.execute(
+                    "UPDATE chat_sessions SET message_count = 0, updated_at = ?,"
+                    " topics_json = '[]' WHERE id = ? AND user_id = ?",
+                    (int(time.time()), session_id, int(user_id)),
+                )
+                connection.commit()
+            self._journal_event(
+                user_id, "assistant_session_cleared", {"session_id": session_id[:12]}
+            )
+            return True
+        except Exception:
+            return False
+
+    # ----------------------------------------------------------------- history
+    def history_messages(
+        self,
+        user_id: int,
+        session_id: str,
+        max_turns: int = HISTORY_MAX_TURNS,
+        message_chars: int = HISTORY_MESSAGE_CHARS,
+        char_budget: int = HISTORY_CHAR_BUDGET,
+    ) -> list[dict[str, str]]:
+        """Recent turns as native ``{role, content}`` messages for the model.
+
+        The newest turns are kept within a hard character budget so the prompt
+        never grows without bound; older turns are represented by ``summary``.
+        """
+        session = self.get_session(user_id, session_id)
+        if not session:
+            return []
+        messages = session.get("messages") or []
+        wanted = max(1, int(max_turns)) * 2
+        selected: list[dict[str, str]] = []
+        used = 0
+        for message in reversed(messages[-wanted:]):
+            role = str(message.get("role") or "")
+            if role not in ("user", "assistant"):
+                continue
+            content = str(message.get("content") or "").strip()[:message_chars]
+            if not content:
+                continue
+            if selected and used + len(content) > char_budget:
+                break
+            selected.append({"role": role, "content": content})
+            used += len(content)
+        return list(reversed(selected))
+
+    def summary(
+        self,
+        user_id: int,
+        session_id: str,
+        recent_turns: int = HISTORY_MAX_TURNS,
+        max_lines: int = SUMMARY_LINES,
+    ) -> list[str]:
+        """Deterministic summary of turns older than the native-history window."""
+        session = self.get_session(user_id, session_id)
+        if not session:
+            return []
+        messages = session.get("messages") or []
+        keep = max(1, int(recent_turns)) * 2
+        older = messages[:-keep] if len(messages) > keep else []
+        lines: list[str] = []
+        pending = ""
+        for message in older:
+            role = str(message.get("role") or "")
+            content = " ".join(str(message.get("content") or "").split())
+            if not content:
+                continue
+            if role == "user":
+                pending = content[:SUMMARY_LINE_CHARS]
+            elif role == "assistant" and pending:
+                lines.append(f"Earlier: {pending} -> {content[:SUMMARY_LINE_CHARS]}")
+                pending = ""
+        if pending:
+            lines.append(f"Earlier: {pending}")
+        return [line[:500] for line in lines[-max_lines:]]
+
     def rename(self, user_id: int, session_id: str, title: str) -> bool:
         clean = self._clean_title(title)
         if not clean:
             return False
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 cursor = connection.execute(
                     "UPDATE chat_sessions SET title = ?, updated_at = ?"
                     " WHERE id = ? AND user_id = ?",
@@ -293,8 +519,7 @@ class ChatSessionStore:
 
     def delete_session(self, user_id: int, session_id: str) -> bool:
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 owned = connection.execute(
                     "SELECT id FROM chat_sessions WHERE id = ? AND user_id = ?",
                     (str(session_id), int(user_id)),
@@ -322,8 +547,7 @@ class ChatSessionStore:
     def clear(self, user_id: int) -> int:
         """Erase every session and message for one user (DPA erasure)."""
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "DELETE FROM chat_messages WHERE user_id = ?", (int(user_id),)
                 )
@@ -375,8 +599,7 @@ class ChatSessionStore:
     # --------------------------------------------------------------- settings
     def get_prefs(self, user_id: int) -> dict[str, Any]:
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 row = connection.execute(
                     "SELECT prefs_json FROM assistant_prefs WHERE user_id = ?",
                     (int(user_id),),
@@ -407,8 +630,7 @@ class ChatSessionStore:
                 if text:
                     clean[key] = text
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 connection.execute(
                     "INSERT INTO assistant_prefs (user_id, prefs_json, updated_at)"
                     " VALUES (?, ?, ?)"
@@ -429,8 +651,7 @@ class ChatSessionStore:
     def purge_expired(self) -> int:
         cutoff = int(time.time()) - TTL_SECONDS
         try:
-            with self._lock:
-                connection = self._connect()
+            with self._lock, closing(self._connect()) as connection:
                 expired = connection.execute(
                     "SELECT id FROM chat_sessions WHERE updated_at < ?", (cutoff,)
                 ).fetchall()
@@ -450,14 +671,40 @@ class ChatSessionStore:
     # ----------------------------------------------------------------- helpers
     @staticmethod
     def _session_row(row: Any) -> dict[str, Any]:
+        try:
+            topics = ChatSessionStore._load_topics(row["topics_json"])
+        except (KeyError, IndexError, TypeError):
+            topics = []
         return {
             "id": str(row["id"]),
+            "user_id": int(row["user_id"]),
+            "assistant_domain": str(row["assistant_domain"] or "staff"),
             "title": str(row["title"] or ""),
             "route": str(row["route"] or ""),
             "created_at": int(row["created_at"]),
             "updated_at": int(row["updated_at"]),
             "message_count": int(row["message_count"] or 0),
+            "topics": topics,
         }
+
+    @staticmethod
+    def _clean_domain(value: Any) -> str:
+        return "system_admin" if str(value or "").strip().lower() == "system_admin" else "staff"
+
+    @staticmethod
+    def _load_topics(raw: Any) -> list[str]:
+        try:
+            data = json.loads(str(raw or "[]"))
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        clean: list[str] = []
+        for item in data[:MAX_TOPICS]:
+            text = " ".join(str(item or "").split())[:MAX_TOPIC_CHARS]
+            if text and text not in clean:
+                clean.append(text)
+        return clean
 
     @staticmethod
     def _load_meta(raw: Any) -> dict[str, Any]:

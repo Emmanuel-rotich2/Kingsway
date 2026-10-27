@@ -26,7 +26,8 @@ import sys
 # dependencies. A system interpreter may have Flask but lack PyMySQL/Polars,
 # leaving the service alive while read-model jobs fail after dispatch.
 VENV_PYTHON = Path(__file__).resolve().parent / ".venv" / "bin" / "python"
-if VENV_PYTHON.is_file() and Path(sys.executable).resolve() != VENV_PYTHON.resolve():
+VENV_ROOT = VENV_PYTHON.parent.parent
+if VENV_PYTHON.is_file() and Path(sys.prefix).resolve() != VENV_ROOT.resolve():
     os.execv(
         str(VENV_PYTHON),
         [str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]],

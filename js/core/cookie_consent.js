@@ -1,18 +1,47 @@
 (function () {
   const COOKIE_NAME = 'kingsway_cookie_consent';
+  const STORAGE_KEY = 'kingsway_cookie_consent';
   const CONSENT_VALUES = {
     accepted: 'accepted',
     declined: 'declined'
   };
 
+  function isSecure() {
+    return location.protocol === 'https:';
+  }
+
+  function buildCookieAttributes(days) {
+    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    const attrs = [
+      'expires=' + expires,
+      'path=/',
+      'SameSite=Lax'
+    ];
+    if (isSecure()) {
+      attrs.push('Secure');
+    }
+    return attrs.join('; ');
+  }
+
   function getConsent() {
+    // Prefer cookie; fall back to localStorage when cookies are blocked.
     const match = document.cookie.match(new RegExp('(^| )' + COOKIE_NAME + '=([^;]+)'));
-    return match ? match[2] : null;
+    if (match) return match[2];
+    try {
+      return localStorage.getItem(STORAGE_KEY) || null;
+    } catch {
+      return null;
+    }
   }
 
   function setConsent(value, days = 365) {
-    const expires = new Date(Date.now() + days * 864e5).toUTCString();
-    document.cookie = COOKIE_NAME + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
+    document.cookie =
+      COOKIE_NAME + '=' + encodeURIComponent(value) + '; ' + buildCookieAttributes(days);
+    try {
+      localStorage.setItem(STORAGE_KEY, value);
+    } catch {
+      /* localStorage unavailable; cookie alone is used */
+    }
   }
 
   function createConsentBanner() {
@@ -74,7 +103,11 @@
     getConsent,
     setConsent,
     reset: () => {
-      document.cookie = COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+      document.cookie =
+        COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
     }
   };
 

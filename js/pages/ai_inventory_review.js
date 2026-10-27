@@ -37,13 +37,6 @@ const aiInventoryReviewController = {
         } catch (_) { host.innerHTML = '<div class="col-12 small text-warning">Inventory assistance is temporarily unavailable.</div>'; }
     },
 
-    esc = (value) => { const el = document.createElement('div'); el.textContent = String(value ?? ''); return el.innerHTML; },
-
-    init = async () => {
-        if (window.AuthContext?.ready) await window.AuthContext.ready();
-        await this.init();
-    },
-
     // Migration: queue button now uses AgentTaskPanel
     async queueReview() {
         if (window.AI_FEATURES.shouldUseAgentTaskPanel('ai_inventory_review')) {
@@ -83,16 +76,6 @@ const aiInventoryReviewController = {
                 for (let i = 0; i < 6; i += 1) { await new Promise((resolve) => setTimeout(resolve, i === 0 ? 1000 : 2500)); await this.render(); }
             } catch (error) { window.showNotification?.(error.message || 'Unable to queue inventory review', 'danger'); } finally { if (button) button.disabled = false; }
         }
-    },
-
-    // Render the row-level ESC helper
-    esc = (value) => { const el = document.createElement('div'); el.textContent = String(value ?? ''); return el.innerHTML; },
-
-    // Keep original init entry point
-    init = async () => {
-        if (window.AuthContext?.ready) await window.AuthContext.ready();
-        await this.init();
-        await this.render();
     },
 };
 

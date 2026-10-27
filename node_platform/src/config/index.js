@@ -187,9 +187,10 @@ export function loadConfig(overrides = {}) {
       webOrigins: (mergedEnv.NODE_REALTIME_WEB_ORIGIN || yamlConfig.security?.webOrigins?.join(',') || '')
         .split(',')
         .map(s => s.trim())
-        .filter(Boolean),
-      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.internalSecret || '',
-      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || yamlConfig.security?.aiPythonSecret || '',
+        .filter(Boolean)
+        .concat(['https://localhost', 'http://localhost']),
+      internalSecret: mergedEnv.KINGSWAY_INTERNAL_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.internalSecret || '',
+      aiPythonSecret: mergedEnv.AI_PYTHON_SECRET || mergedEnv.NODE_REALTIME_PUBLISH_SECRET || mergedEnv.KINGSWAY_WORKER_SECRET || yamlConfig.security?.aiPythonSecret || '',
     },
     app: {
       ...yamlConfig.app,

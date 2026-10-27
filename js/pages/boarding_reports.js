@@ -37,10 +37,10 @@ const boardingReportsController = {
 
   renderStats() {
     const s = this.state.stats;
-    document.getElementById('brTotalBoarders')?.textContent = s.total_boarders ?? '—';
-    document.getElementById('brOccupancyRate')?.textContent = `${s.occupancy_rate ?? '—'}%`;
-    document.getElementById('brAttendanceRate')?.textContent = `${s.attendance_rate ?? '—'}%`;
-    document.getElementById('brIncidents')?.textContent = s.incidents_this_term ?? '—';
+    { const el = document.getElementById('brTotalBoarders'); if (el) el.textContent = s.total_boarders ?? '—'; }
+    { const el = document.getElementById('brOccupancyRate'); if (el) el.textContent = `${s.occupancy_rate ?? '—'}%`; }
+    { const el = document.getElementById('brAttendanceRate'); if (el) el.textContent = `${s.attendance_rate ?? '—'}%`; }
+    { const el = document.getElementById('brIncidents'); if (el) el.textContent = s.incidents_this_term ?? '—'; }
   },
 
   renderReports() {

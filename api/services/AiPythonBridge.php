@@ -75,9 +75,28 @@ final class AiPythonBridge
             'route' => mb_substr((string) ($context['route'] ?? ''), 0, 120),
             'module' => mb_substr((string) ($context['module'] ?? 'dashboard'), 0, 60),
             'request_id' => mb_substr((string) ($context['request_id'] ?? 'ai-python-bridge'), 0, 100),
+            'system_admin' => !empty($context['system_admin']),
+            'assistant_domain' => in_array((string) ($context['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)
+                ? (string) $context['assistant_domain']
+                : 'staff',
         ];
         if (!empty($context['session_id'])) {
             $ctx['session_id'] = mb_substr((string) $context['session_id'], 0, 64);
+        }
+        // Pass conversation history for context-aware responses
+        if (!empty($context['history']) && is_array($context['history'])) {
+            $ctx['history'] = array_slice($context['history'], -20);
+        }
+        // Pass sidebar state so the AI can guide navigation
+        if (!empty($context['topics']) && is_array($context['topics'])) {
+            $ctx['topics'] = array_slice($context['topics'], 0, 12);
+        }
+        if (!empty($context['sidebar_state']) && is_array($context['sidebar_state'])) {
+            $ctx['sidebar_state'] = $context['sidebar_state'];
+        }
+        // Pass user preferences so the AI can adapt tone/detail
+        if (!empty($context['preferences']) && is_array($context['preferences'])) {
+            $ctx['preferences'] = $context['preferences'];
         }
         return $this->call(self::ENDPOINT_ASSIST, [
             'context' => $ctx,
@@ -214,30 +233,59 @@ final class AiPythonBridge
 
     /**
      * @return array<string,mixed>
+     * @param int|null $timeout Seconds; null uses the configured default.
      */
-    private function call(string $endpoint, array $payload): array
+    public function call(string $endpoint, array $payload, string $method = 'POST', array $query = [], ?int $timeout = null): array
     {
         $secret = (string) Config::get('AI_PYTHON_SECRET', (string) Config::get('AI_API_KEY', ''));
         if (!$this->client->isConfigured('python_ai') || $secret === '') {
             throw new AiProviderException('The Python AI platform is not configured.');
         }
-        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($body === false) {
-            throw new AiProviderException('The AI relay request could not be encoded.');
+        $method = strtoupper(trim($method));
+        if ($method === '') {
+            $method = 'POST';
+        }
+        $path = $endpoint;
+        $body = null;
+        if ($timeout === null) {
+            $timeout = min(60, max(5, (int) Config::get('AI_PYTHON_TIMEOUT', 45)));
+        }
+        if ($method === 'GET') {
+            // Python's read endpoints authenticate with the bearer secret and
+            // take the governed operator id as a query parameter; there is no
+            // JSON body to carry the context envelope.
+            $context = isset($payload['context']) && is_array($payload['context'])
+                ? $payload['context']
+                : [];
+            $params = $query;
+            if (!isset($params['user_id']) && !empty($context['user_id'])) {
+                $params['user_id'] = (int) $context['user_id'];
+            }
+            if (!isset($params['assistant_domain']) && in_array(($context['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)) {
+                $params['assistant_domain'] = (string) $context['assistant_domain'];
+            }
+            if ($params !== []) {
+                $path .= (str_contains($path, '?') ? '&' : '?') . http_build_query($params);
+            }
+        } else {
+            $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($body === false) {
+                throw new AiProviderException('The AI relay request could not be encoded.');
+            }
         }
         $headers = [
             'Content-Type: application/json',
             'Accept: application/json',
             'Authorization: Bearer ' . $secret,
         ];
-        $timeout = min(60, max(5, (int) Config::get('AI_PYTHON_TIMEOUT', 45)));
         $started = microtime(true);
 
-        [$raw, $status, $error] = $this->client->post('python_ai', $endpoint, $headers, $body, $timeout);
+        [$raw, $status, $error] = $this->client->request('python_ai', $method, $path, $headers, $body, $timeout);
 
         FileLogger::write('ai_generation', [
             'type' => 'python_bridge_call',
             'endpoint' => $endpoint,
+            'http_method' => $method,
             'http_status' => (int) $status,
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
             'link' => $this->linkInUse(),
@@ -250,7 +298,7 @@ final class AiPythonBridge
         if (!is_array($decoded) || (int) $status < 200 || (int) $status >= 300 || (($decoded['success'] ?? null) === false)) {
             throw new AiProviderException('The Python AI platform rejected the request.');
         }
-        $data = $decoded['data'] ?? null;
+        $data = $decoded['data'] ?? [];
         if (!is_array($data)) {
             throw new AiProviderException('The Python AI platform returned an unusable response.');
         }
@@ -291,9 +339,28 @@ final class AiPythonBridge
             'route' => mb_substr((string) ($ctx['route'] ?? ''), 0, 120),
             'module' => mb_substr((string) ($ctx['module'] ?? 'dashboard'), 0, 60),
             'request_id' => mb_substr((string) ($ctx['request_id'] ?? 'ai-python-bridge'), 0, 100),
+            'system_admin' => !empty($ctx['system_admin']),
+            'assistant_domain' => in_array((string) ($ctx['assistant_domain'] ?? ''), ['staff', 'system_admin'], true)
+                ? (string) $ctx['assistant_domain']
+                : 'staff',
         ];
         if (!empty($ctx['session_id'])) {
             $streamContext['session_id'] = mb_substr((string) $ctx['session_id'], 0, 64);
+        }
+        // Pass conversation history for context-aware responses
+        if (!empty($ctx['history']) && is_array($ctx['history'])) {
+            $streamContext['history'] = array_slice($ctx['history'], -20);
+        }
+        // Pass sidebar state so the AI can guide navigation
+        if (!empty($ctx['topics']) && is_array($ctx['topics'])) {
+            $streamContext['topics'] = array_slice($ctx['topics'], 0, 12);
+        }
+        if (!empty($ctx['sidebar_state']) && is_array($ctx['sidebar_state'])) {
+            $streamContext['sidebar_state'] = $ctx['sidebar_state'];
+        }
+        // Pass user preferences so the AI can adapt tone/detail
+        if (!empty($ctx['preferences']) && is_array($ctx['preferences'])) {
+            $streamContext['preferences'] = $ctx['preferences'];
         }
         $body = json_encode(
             ['context' => $streamContext, 'question' => $question],
@@ -348,7 +415,7 @@ final class AiPythonBridge
             ]);
             $completed = curl_exec($ch) !== false;
             $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            curl_close($ch);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
         } else {
             // The Apache runtime may not load the cURL extension (extensions
             // are runtime capabilities, never Composer packages), but the
@@ -480,7 +547,7 @@ final class AiPythonBridge
             ]);
             $completed = curl_exec($ch) !== false;
             $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            curl_close($ch);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
         } else {
             $context = stream_context_create([
                 'http' => [

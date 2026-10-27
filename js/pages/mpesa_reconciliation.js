@@ -146,6 +146,7 @@ const MpesaReconciliationController = {
                         <select class="form-select" name="account_type" required>
                             <option value="school_fees">School Fees</option>
                             <option value="transport">Transport Account</option>
+                            <option value="uniforms">Uniforms</option>
                         </select>
                     </div>
                     <div class="col-md-6">
@@ -272,7 +273,7 @@ const MpesaReconciliationController = {
 
         try {
             await window.API.apiCall('/payments/reconcile-mpesa', 'POST', data);
-            this.showNotification('Transaction reconciled and allocated to ' + (data.account_type === 'transport' ? 'transport account' : 'school fees'), 'success');
+            this.showNotification('Transaction reconciled and allocated to ' + (data.account_type === 'transport' ? 'transport account' : (data.account_type === 'uniforms' ? 'uniforms' : 'school fees')), 'success');
             bootstrap.Modal.getInstance(document.getElementById('dynamicModal'))?.hide();
             await this.loadData();
         } catch (err) {

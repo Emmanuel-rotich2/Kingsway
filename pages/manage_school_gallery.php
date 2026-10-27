@@ -38,9 +38,9 @@ if ($appBase === '.') $appBase = '';
   </div>
 
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <p class="text-muted small mb-0">Add image URLs (Unsplash, school CDN, etc.) to display in the homepage gallery.</p>
+    <p class="text-muted small mb-0">Add image or video URLs (Unsplash, school CDN, YouTube, direct MP4, etc.) to display in the homepage gallery.</p>
     <button class="btn btn-success btn-sm rounded-pill px-3" onclick="galleryOpenModal()">
-      <i class="bi bi-plus-lg me-1"></i>Add Image
+      <i class="bi bi-plus-lg me-1"></i>Add Media
     </button>
   </div>
 
@@ -54,18 +54,27 @@ if ($appBase === '.') $appBase = '';
 <div class="modal fade" id="wsGalleryModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
-      <h5 class="modal-title fw-bold">Add Gallery Image</h5>
+      <h5 class="modal-title fw-bold">Add Gallery Media</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
     <div class="modal-body">
       <div class="row g-3">
         <div class="col-12 ws-form-group">
-          <label>Image URL *</label>
+          <label>Media Type</label>
+          <select id="galleryMediaType" onchange="galleryMediaTypeChanged()">
+            <option value="image">Image</option><option value="video">Video</option>
+          </select>
+        </div>
+        <div class="col-12 ws-form-group">
+          <label>Media URL *</label>
           <input type="url" id="galleryUrl" placeholder="https://images.unsplash.com/photo-...?w=600&q=80">
-          <div class="mt-2 text-muted" style="font-size:.75rem">Use Unsplash, school server, or any direct image link. Recommended size: 600×400px.</div>
+          <div class="mt-2 text-muted" style="font-size:.75rem">Images: Unsplash, school server, or any direct image link. Videos: YouTube/Vimeo URL or direct MP4 file. Recommended size: 600×400px.</div>
         </div>
         <div id="galleryImgPreviewWrap" style="display:none" class="col-12">
           <img id="galleryImgPreview" class="rounded-3 w-100" style="height:140px;object-fit:cover">
+        </div>
+        <div id="galleryVideoPreviewWrap" style="display:none" class="col-12">
+          <video id="galleryVideoPreview" class="rounded-3 w-100" style="height:140px;object-fit:cover;background:#000" controls></video>
         </div>
         <div class="col-12 ws-form-group"><label>Caption</label><input type="text" id="galleryCaption" placeholder="e.g. Students in computer lab"></div>
         <div class="col-12 ws-form-group">
@@ -80,17 +89,22 @@ if ($appBase === '.') $appBase = '';
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="gallerySave()"><i class="bi bi-images me-1"></i>Add to Gallery</button>
+      <button class="btn btn-success btn-sm px-4" onclick="gallerySave()"><i class="bi bi-collection me-1"></i>Add to Gallery</button>
     </div>
   </div></div>
 </div>
 
-<!-- Image Preview Modal -->
+<!-- Media Preview Modal -->
 <div class="modal fade" id="wsImgViewModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered"><div class="modal-content bg-transparent border-0">
     <div class="modal-body p-0 text-center">
       <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal"></button>
-      <img id="wsImgViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh">
+      <div id="wsImgViewWrap" class="d-block">
+        <img id="wsImgViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh">
+      </div>
+      <div id="wsVideoViewWrap" class="d-none">
+        <video id="wsVideoViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh;background:#000" controls autoplay playsinline></video>
+      </div>
     </div>
   </div></div>
 </div>
