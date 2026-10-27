@@ -1126,7 +1126,6 @@ table.table thead th[scope="col"] {
   background: #f1f5f9;
   border-color: transparent;
 }
-.ai-assistant-panel .ai-question-suggestion,
 .ai-assistant-panel .ai-followup-question {
   border-radius: 999px;
   border: 1px solid #cbd5e1;
@@ -1135,7 +1134,6 @@ table.table thead th[scope="col"] {
   font-size: 0.83rem;
   padding: 0.3rem 0.8rem;
 }
-.ai-assistant-panel .ai-question-suggestion:hover,
 .ai-assistant-panel .ai-followup-question:hover {
   border-color: var(--kw-green-light, #198754);
   color: var(--kw-green, #0d4f2a);
@@ -1177,6 +1175,50 @@ table.table thead th[scope="col"] {
 .ai-assistant-panel .assistant-stream-markdown {
   min-height: 1.5rem;
   color: #263238;
+}
+/* Rendered Markdown for a governed answer, live while streaming and once final. */
+.ai-assistant-panel .assistant-answer-body,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body {
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  white-space: normal;
+}
+.ai-assistant-panel .assistant-answer-body > :last-child,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body > :last-child {
+  margin-bottom: 0;
+}
+.ai-assistant-panel .assistant-answer-body ul,
+.ai-assistant-panel .assistant-answer-body ol,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body ul,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body ol {
+  padding-left: 1.35rem;
+  margin-bottom: 0.5rem;
+}
+.ai-assistant-panel .assistant-answer-body li,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body li {
+  margin-bottom: 0.15rem;
+}
+.ai-assistant-panel .assistant-answer-body pre.assistant-code-block,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body pre.assistant-code-block {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  white-space: pre-wrap;
+}
+.ai-assistant-panel .assistant-answer-body code,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body code {
+  color: #31445b;
+  overflow-wrap: anywhere;
+}
+.ai-assistant-panel .assistant-answer-body h6,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body h6 {
+  font-size: 0.95rem;
+}
+.ai-assistant-panel .assistant-answer-body strong,
+.ai-assistant-panel .ai-stream-bubble.assistant-answer-body strong {
+  color: #0f172a;
 }
 .ai-assistant-panel .assistant-greeting-card {
   background: #fff;

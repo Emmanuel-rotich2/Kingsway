@@ -244,6 +244,7 @@ $files = [
     'js/utils/academic_context.js',
     'js/utils/form-validation.js',
     'js/core/recipient_picker.js',
+    'js/core/markdown.js',
     'js/index.js',
     'js/sidebar.js',
     'js/app_shell_ui.js',

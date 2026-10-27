@@ -35,6 +35,7 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request
 
+from . import agents as agent_registry
 from .agents import default_agent
 from .behavior import BehaviorStore
 from .conversation import ConversationStore
@@ -6379,10 +6380,14 @@ def create_app(config: Config | None = None) -> Flask:
         """Return the agent catalogue for the authenticated staff member.
         Requires Authorization: Bearer <AI_PYTHON_SECRET> header (Node gateway).
         """
-        if not auth_guard():
-            return jsonify({"success": False, "message": "unauthorized"}), 401
+        # auth_guard() returns None when authorized and a (body, status) tuple
+        # when denied. Negating it inverts the check: valid callers were
+        # rejected and anonymous callers were served the full catalogue.
+        guard = auth_guard()
+        if guard is not None:
+            return guard
         catalog = []
-        for agent in agents.AGENTS.values():
+        for agent in agent_registry.AGENTS.values():
             catalog.append(
                 {
                     "id": agent["id"],

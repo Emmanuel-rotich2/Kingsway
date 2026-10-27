@@ -980,20 +980,6 @@ class Orchestrator:
                 (result for tool_id, result in prefetched if tool_id == "reports.nlq"),
                 {},
             )
-            # DEBUG: log the nlq_result structure
-            import sys
-
-            print(
-                f"DEBUG nlq_result keys: {list(nlq_result.keys())}",
-                file=sys.stderr,
-                flush=True,
-            )
-            if "answer" in nlq_result:
-                print(
-                    f"DEBUG answer keys: {list(nlq_result['answer'].keys())}",
-                    file=sys.stderr,
-                    flush=True,
-                )
             report_code = nlq_result.get("report_code", "UNKNOWN")
             if report_code == "UNKNOWN" and "answer" in nlq_result:
                 report_code = nlq_result["answer"].get("report_code", "UNKNOWN")
@@ -1050,8 +1036,10 @@ class Orchestrator:
 
             total_latency_ms = int((time.monotonic() - started) * 1000)
 
-            yield {
-                "kind": "final",
+            # The governed report in hand is a complete answer: persist the turn
+            # to the session store before emitting it. Skipping this left the
+            # session with no messages and no title, so history stayed empty.
+            deterministic_result = {
                 "answer": {
                     "title": deterministic_answer[:100],
                     "body": deterministic_answer,
@@ -1061,13 +1049,10 @@ class Orchestrator:
                     "insufficient_data": insufficient_data,
                     "citations": citations,
                 },
-                "latency": {
-                    "ttft_ms": ttft_ms,
-                    "total_latency_ms": total_latency_ms,
-                    "prefetch_ms": 0,
-                    "provider_calls": 0,
-                    "tool_calls": 1,
-                },
+                "status": "answered",
+                "degraded": False,
+                "tools_used": ["reports.nlq"],
+                "provider_calls": 0,
                 "routing": "report_query",
                 "agent": {
                     "id": agent["id"],
@@ -1075,17 +1060,56 @@ class Orchestrator:
                     "domain": agent["domain"],
                 },
             }
-            return
-            grounding_note = (
-                f"A GOVERNED REPORT HAS ALREADY BEEN EXECUTED FOR THIS QUESTION.\n"
-                f"Report: {report_code} - {report_title}\n"
-                f"Rows returned: {row_count}\n"
-                f"Columns: {', '.join(columns) if columns else 'none'}\n"
-                f"Sample data: {json.dumps(rows[:5], ensure_ascii=False) if rows else 'no rows'}\n\n"
-                f"ANSWER DIRECTLY FROM THIS DATA. Do NOT call any tool. Do NOT reference any other report. "
-                f"If the user asks a follow-up, use THIS report's data. "
-                f"Today's date in Africa/Nairobi is {datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
+            self._remember_session(
+                session_id,
+                user_id,
+                route,
+                question,
+                deterministic_result["answer"],
+                save_history=bool(prefs.get("save_history", True)),
+                assistant_domain=assistant_domain,
             )
+            self._observe_outcome(
+                user_id, route, module, agent, ["reports.nlq"], "answered"
+            )
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_assist_stream",
+                    "operator_id": user_id,
+                    "agent_id": agent["id"],
+                    "route": route,
+                    "outcome": "answered",
+                    "tools_used": ["reports.nlq"],
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "request_id": request_id,
+                },
+            )
+            yield {
+                "kind": "final",
+                "answer": deterministic_result["answer"],
+                "status": deterministic_result["status"],
+                "degraded": deterministic_result["degraded"],
+                "tools_used": deterministic_result["tools_used"],
+                "routing": deterministic_result["routing"],
+                "agent": deterministic_result["agent"],
+                "latency": {
+                    "ttft_ms": ttft_ms,
+                    "total_latency_ms": total_latency_ms,
+                    "prefetch_ms": 0,
+                    "provider_calls": 0,
+                    "tool_calls": 1,
+                },
+                **(
+                    {
+                        "session_id": session_id,
+                        "session_title": session.get("title") if session else "",
+                    }
+                    if session_id
+                    else {}
+                ),
+            }
+            return
         else:
             grounding_note = (
                 "Prefetched results may be unrelated to this question. Never use "
@@ -1694,6 +1718,7 @@ class Orchestrator:
         # The tool bridge wraps the result in 'answer' key
         answer_data = nlq_result.get("answer", nlq_result)
         report_code = answer_data.get("report_code", "")
+        report_title = answer_data.get("report_title", "")
         row_count = answer_data.get("row_count", 0)
         columns = answer_data.get("columns", [])
         rows = answer_data.get("rows", [])
@@ -1701,7 +1726,14 @@ class Orchestrator:
         filters = answer_data.get("filters", {})
 
         if not rows and row_count == 0:
-            return f"The report **{report_code}** ({nlq_result.get('report_title', '')}) returned no data for the current filters."
+            # The governed payload nests everything under "answer"; the title
+            # above is already unwrapped. Reading the top level rendered the
+            # empty parentheses in "report **CODE** ()".
+            label = f" ({report_title})" if report_title else ""
+            return (
+                f"The report **{report_code}**{label} returned no data for the "
+                "current filters."
+            )
 
         # Handle common report types with specific formatting
         q_lower = question.lower()
@@ -1743,7 +1775,7 @@ class Orchestrator:
                     )
 
             parts.append(
-                f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+                f"\n_Report: {report_code} — {report_title}_"
             )
             return "\n".join(parts)
 
@@ -1753,7 +1785,7 @@ class Orchestrator:
             for r in rows[:12]:
                 parts.append(f"• {r.get('month', '')}: {r.get('total', 0):,}")
             parts.append(
-                f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+                f"\n_Report: {report_code} — {report_title}_"
             )
             return "\n".join(parts)
 
@@ -1765,17 +1797,21 @@ class Orchestrator:
             for r in rows[:10]:
                 parts.append(f"• {r}")
             parts.append(
-                f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+                f"\n_Report: {report_code} — {report_title}_"
             )
             return "\n".join(parts)
 
         # FIN_FEE_SUMMARY_CLASS, FIN_ARREARS_CLASS
         if report_code in ("FIN_FEE_SUMMARY_CLASS", "FIN_ARREARS_CLASS"):
-            parts = [f"**{report_code.replace('FIN_', '').replace('_', ' ').title()}**"]
+            # Prefer the governed report's own title ("Fee Arrears by Class")
+            # over the label derived from the code ("Arrears Class").
+            parts = [
+                f"**{report_title or report_code.replace('FIN_', '').replace('_', ' ').title()}**"
+            ]
             for r in rows[:10]:
                 parts.append(f"• {r.get('class_name', '')}: {r.get('total', 0):,}")
             parts.append(
-                f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+                f"\n_Report: {report_code} — {report_title}_"
             )
             return "\n".join(parts)
 
@@ -1785,12 +1821,12 @@ class Orchestrator:
             for r in rows[:10]:
                 parts.append(f"• {r.get('class_name', '')}: {r.get('rate', 0):.1f}%")
             parts.append(
-                f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+                f"\n_Report: {report_code} — {report_title}_"
             )
             return "\n".join(parts)
 
         # Generic fallback for other reports
-        parts = [f"**{report_code}** — {nlq_result.get('report_title', '')}"]
+        parts = [f"**{report_code}** — {report_title}"]
         parts.append(f"Rows: {row_count:,}")
         if summary:
             parts.append(f"Summary: {summary}")
@@ -1800,7 +1836,7 @@ class Orchestrator:
         if row_count > 5:
             parts.append(f"... and {row_count - 5} more rows")
         parts.append(
-            f"\n_Report: {report_code} — {nlq_result.get('report_title', '')}_"
+            f"\n_Report: {report_code} — {report_title}_"
         )
         return "\n".join(parts)
 

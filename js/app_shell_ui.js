@@ -724,6 +724,10 @@
     });
   }
 
+  /** Governed answers render through the shared, XSS-safe Markdown module. */
+  const mdRender = (value) =>
+    (window.KingswayMarkdown?.render ? window.KingswayMarkdown.render(value) : escapeHtml(value));
+
   function escapeHtml(value) {
     const node = document.createElement("div");
     node.textContent = String(value ?? "");
@@ -946,43 +950,6 @@
     return parts.join("");
   }
 
-  async function loadAiAssistantCatalog() {
-    // The governed agent answers for every authenticated staff member, so the
-    // composer must stay usable even if the suggestion catalogue fails.
-    const queryForm = $("#global-ai-assistant-query");
-    if (queryForm) queryForm.hidden = false;
-
-    const route = String(window.REQUESTED_ROUTE || "");
-    try {
-      // Persisted catalogue (IndexedDB + memory LRU) feeds the optional
-      // suggested-question chips; no workflow cards are rendered.
-      const catalogUrl = `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`;
-      const payload = window.DataStore?.get
-        ? await window.DataStore.get("ai_assistant_catalog", {
-            strategy: "stale-while-revalidate",
-            storeName: "ai_workspace_cache",
-            ttl: 10 * 60 * 1000,
-            params: { route },
-            fetcher: () => window.API?.apiCall?.(catalogUrl, "GET"),
-          })
-        : await window.API?.apiCall?.(catalogUrl, "GET");
-      const workflows = Array.isArray(payload?.workflows)
-        ? payload.workflows
-        : [];
-      const suggestions = $("#global-ai-assistant-suggestions");
-      if (suggestions && workflows.length) {
-        const questions = workflows.flatMap((workflow) => Array.isArray(workflow.suggested_questions) ? workflow.suggested_questions : []).slice(0, 5);
-        suggestions.innerHTML = questions.map((question) => `<button type="button" class="btn btn-sm btn-outline-secondary ai-question-suggestion">${escapeHtml(question)}</button>`).join("");
-        suggestions.querySelectorAll(".ai-question-suggestion").forEach((button) => button.addEventListener("click", () => {
-          const input = $("#global-ai-assistant-question");
-          if (input) { input.value = button.textContent; input.focus(); }
-        }));
-      }
-    } catch (error) {
-      // Suggestion chips are optional; the composer remains available.
-    }
-  }
-
   const ASSISTANT_HISTORY_KEY = "kw_staff_assistant_history";
   const ASSISTANT_ACTIVE_SESSION_KEY = "kw_staff_assistant_active_session";
 
@@ -1032,9 +999,10 @@
     }
     // NOTE: Input is intentionally NOT disabled during generation to allow queueing
     // if (input) input.disabled = on;
-    if (on) {
-      assistantGenerationSeq += 1;
-    }
+
+    // The generation counter belongs to the caller, which already bumps it
+    // before opening a stream. Incrementing here too made isCurrent() compare
+    // against a later id, so every delta and final answer was discarded.
   }
 
   function stopAssistantGeneration() {
@@ -1101,8 +1069,10 @@
 
   async function loadAssistantSessions() {
     try {
+      // apiCall() already unwraps the envelope, so the result is the array
+      // itself; a legacy `.data` access returned undefined and hid history.
       const res = await window.API.dashboard.getAssistantSessions({limit: 30});
-      sessionsCache = res?.data || [];
+      sessionsCache = Array.isArray(res) ? res : (res?.data || []);
       return sessionsCache;
     } catch (error) {
       console.warn("Failed to load assistant sessions:", error);
@@ -1228,7 +1198,7 @@
     try {
       const route = window.REQUESTED_ROUTE || "";
       const res = await window.API.dashboard.postAssistantSession({route, title: ""});
-      const session = res?.data;
+      const session = res && typeof res === "object" ? res : res?.data;
       if (session?.id) {
         sessionsCache.unshift(session);
         renderAssistantSessions();
@@ -1245,7 +1215,7 @@
   async function loadAssistantSession(sessionId) {
     try {
       const res = await window.API.dashboard.getAssistantSession({session_id: sessionId, limit: 200});
-      const session = res?.data;
+      const session = res && typeof res === "object" ? res : res?.data;
       if (!session) return;
       currentSessionId = sessionId;
       rememberActiveSession(currentSessionId);
@@ -1365,7 +1335,7 @@
         <h6 class="mb-0">${escapeHtml("Assistant")}</h6>
         <span class="badge text-bg-light">${escapeHtml(agentName)}</span>
       </div>
-      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(msg.content || "")}</p>
+      <div class="small assistant-answer-body mb-2">${mdRender(msg.content || "")}</div>
     </div>`;
   }
 
@@ -2004,6 +1974,8 @@
 
         const stream = window.API?.dashboard?.agentAssistStream;
         let handled = false;
+        // Raw text accumulated from the stream, rendered as markdown as it lands.
+        let streamedAnswerText = "";
         if (typeof stream === "function") {
           try {
             const handle = stream(
@@ -2019,12 +1991,17 @@
                 onDelta: (chunk) => {
                   if (!isCurrent()) return;
                   const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
-                  if (bubble) bubble.textContent += chunk;
+                  if (!bubble) return;
+                  // Accumulate raw text and re-render markdown so bold/lists
+                  // appear progressively instead of literal asterisks.
+                  streamedAnswerText += chunk;
+                  bubble.classList.add("assistant-answer-body");
+                  bubble.innerHTML = mdRender(streamedAnswerText);
                 },
                 onError: (message) => {
                   if (!isCurrent()) return;
                   const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
-                  if (bubble && !bubble.textContent.trim()) {
+                  if (bubble && !streamedAnswerText.trim()) {
                     bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(message || "The assistant could not answer right now.")}</div>`;
                   }
                 },
@@ -2200,11 +2177,11 @@
       return '<div class="alert alert-warning small mb-0">No answer was returned.</div>';
     }
     if (result.status === "unavailable") {
-      return `<div class="alert alert-warning small mb-0">${escapeHtml(
+      return `<div class="alert alert-warning small mb-0">${mdRender(
         result.answer?.body || "The assistant is not available right now."
       )}</div>`;
     }
-    if (result.status !== "answered" || !result.answer) {
+    if (!result.answer || !(result.answer.body || result.answer.title)) {
       return '<div class="alert alert-info small mb-0">The assistant could not answer that question.</div>';
     }
 
@@ -2270,13 +2247,43 @@
         </button>
       </div>`;
 
+    // The governed answers repeat the opening line of the body in `title`
+    // (title = body[:100]). Rendering both produced a heading that parroted the
+    // first sentence, so the title is only shown when it adds information.
+    const bodyText = String(result.answer.body || "");
+    const titleText = String(result.answer.title || "").trim();
+    const titleRedundant =
+      !titleText ||
+      titleText === "Assistant" ||
+      bodyText.trim().startsWith(titleText) ||
+      titleText.startsWith(bodyText.trim().slice(0, titleText.length));
+    const heading = titleRedundant
+      ? ""
+      : `<h6 class="mb-0">${escapeHtml(titleText)}</h6>`;
+
+    // A governed refusal (confidentiality probe, prompt injection, or a role
+    // that lacks the scope) still carries a complete answer. Only the label
+    // changes so the reader knows it was a deliberate policy answer rather
+    // than a report result.
+    const isRefusal = result.status !== "answered";
+    const notice = isRefusal
+      ? `<div class="alert alert-warning small mb-2 py-2">
+           <i class="bi bi-shield-lock me-1"></i>${escapeHtml(
+             result.routing === "confidentiality_guard"
+               ? "Not shareable — that asks about the system itself."
+               : "Outside your authorized access."
+           )}
+         </div>`
+      : "";
+
     const rendered = `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-        <h6 class="mb-0">${escapeHtml(result.answer.title || "Assistant")}</h6>
+        ${heading || `<span class="small text-muted">${escapeHtml(isRefusal ? "Governed response" : "Governed answer")}</span>`}
         <span class="badge text-bg-light">${escapeHtml(agent.name || "Agent")}</span>
       </div>
+      ${notice}
       ${insufficientHtml}
-      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(result.answer.body || "")}</p>
+      <div class="small assistant-answer-body mb-2">${mdRender(bodyText)}</div>
       ${nextSteps}
       ${tools}
       ${citationsHtml}
@@ -2323,7 +2330,7 @@
         .forEach((button) =>
           button.addEventListener("click", () => {
             const card = button.closest(".card");
-            const body = card?.querySelector("p[style*='white-space']")?.textContent || "";
+            const body = card?.querySelector(".assistant-answer-body")?.textContent || "";
             navigator.clipboard.writeText(body).then(() => {
               button.innerHTML = '<i class="bi bi-check"></i> Copied!';
               setTimeout(() => { button.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
@@ -2578,7 +2585,6 @@
       () => {
         initAssistantChrome();
         renderAssistantHistory();
-        void loadAiAssistantCatalog();
         initAiAssistantQuery();
       }
     );
