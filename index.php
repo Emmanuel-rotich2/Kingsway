@@ -314,6 +314,11 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <div class="col-lg-7 reveal reveal-right">
         <div class="gallery-grid" id="home-gallery">
         </div>
+        <div class="text-end mt-3 reveal">
+          <a href="<?= $appBase ?>/index.php?route=gallery" class="btn btn-outline-success btn-sm rounded-pill px-4">
+            View all <span class="fw-semibold">gallery</span> <i class="bi bi-arrow-right ms-1"></i>
+          </a>
+        </div>
       </div>
     </div>
   </div>

@@ -1,14 +1,15 @@
 /**
  * Reusable Agent Task Panel Component
  * 
- * Uses Node agent gateway task API:
+ * Uses the Node agent gateway task API:
  * - POST /api/agents/tasks to create task
  * - GET /api/agents/tasks/:id/stream for SSE subscription (component-level)
  * - Falls back to polling (PHP dashboard endpoints) when the gateway origin
  *   is unavailable or SSE drops
  * 
- * All guardrails, tools, sessions, charts, drafts, RBAC, output guards are handled by
- * the existing PHP/Python backend - Node is just a gateway/proxy.
+ * Node carries live task events. PHP owns authentication, authorization,
+ * durable queue state, and governed school data; Python provides the assistant
+ * orchestration when enabled.
  * 
  * Usage:
  *   const panel = new AgentTaskPanel({
@@ -44,7 +45,11 @@
       this.module = options.module || 'dashboard';
       this.sessionId = options.sessionId || null;
       this.targetComponent = options.targetComponent || null;
-      this.componentId = options.componentId || 'agent-task-' + Math.random().toString(36).slice(2);
+      this.componentId = options.componentId || `agent-task-${this.route}-${this.module}`
+        .toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(0, 100);
+      const currentUser = window.AuthContext?.getUser?.() || {};
+      const userKey = String(currentUser.id || currentUser.user_id || 'current');
+      this.persistenceKey = `kw.ai.task.${userKey}.${this.componentId}`;
       this.onComplete = options.onComplete || (() => {});
       this.onError = options.onError || (() => {});
       this.onProgress = options.onProgress || (() => {});
@@ -59,13 +64,37 @@
       if (this.isDestroyed) return;
       
       try {
+        const savedTaskId = this.readSavedTaskId();
+        if (savedTaskId) {
+          const existingResponse = await window.API.dashboard.agentTaskGet(savedTaskId);
+          const existing = existingResponse?.data ?? existingResponse;
+          if (existing && ['queued', 'processing'].includes(existing.status)) {
+            this.taskId = String(existing.task_id || savedTaskId);
+            this.showLoading('Reconnecting to your task...');
+            await this.subscribeToTaskStream();
+            return;
+          }
+          if (existing?.status === 'completed') {
+            this.taskId = String(savedTaskId);
+            this.handleFinal({ result: existing.result });
+            return;
+          }
+          if (existing?.status === 'failed' || existing?.status === 'cancelled') {
+            this.taskId = String(savedTaskId);
+            this.handleError({ message: existing.error || (existing.status === 'cancelled' ? 'Task was cancelled' : 'Task failed') });
+            return;
+          }
+          if (!existing) {
+            this.clearSavedTaskId();
+            this.showError('This task is no longer available. Retry to start a new task.');
+            return;
+          }
+          this.clearSavedTaskId();
+        }
         this.showLoading('Creating agent task...');
-        
-        // 1. Create task via Node gateway
         const task = await this.createTask();
-        this.taskId = task.task_id;
-        
-        // 2. Subscribe to SSE for THIS task (component-level subscription)
+        this.taskId = String(task.task_id);
+        this.saveTaskId(this.taskId);
         await this.subscribeToTaskStream();
         
       } catch (error) {
@@ -125,6 +154,7 @@
 
     startPollingFallback() {
       if (this.isDestroyed) return;
+      if (this.pollInterval) return;
       
       // Close SSE if open
       if (this.eventSource) {
@@ -186,6 +216,7 @@
     handleFinal(data) {
       if (this.isDestroyed) return;
       this.cleanup();
+      this.clearSavedTaskId();
       
       if (data?.result) {
         this.showSuccess(data.result);
@@ -198,7 +229,17 @@
 
     handleError(data) {
       if (this.isDestroyed) return;
+      if (data?.retryable && this.taskId) {
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
+        }
+        this.updateStatus('Live updates paused. Reconnecting…');
+        this.startPollingFallback();
+        return;
+      }
       this.cleanup();
+      this.clearSavedTaskId();
       const message = data?.message || data?.error || 'Agent task failed';
       this.showError(message);
       this.onError(new Error(message));
@@ -213,6 +254,18 @@
         clearInterval(this.pollInterval);
         this.pollInterval = null;
       }
+    }
+
+    readSavedTaskId() {
+      try { return window.localStorage.getItem(this.persistenceKey) || ''; } catch { return ''; }
+    }
+
+    saveTaskId(taskId) {
+      try { window.localStorage.setItem(this.persistenceKey, String(taskId)); } catch { /* storage may be disabled */ }
+    }
+
+    clearSavedTaskId() {
+      try { window.localStorage.removeItem(this.persistenceKey); } catch { /* storage may be disabled */ }
     }
 
     destroy() {

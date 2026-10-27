@@ -191,8 +191,26 @@ class AccountsController extends BaseController
         return $this->success($result['data'] ?? ['id' => $id], $result['message'] ?? 'Bank transaction deleted');
     }
 
-    // POST /api/accounts/petty-cash - create petty cash entry
-    public function postPettyCash($id = null, $data = [], $segments = [])
+    // GET /api/accounts/bank-transactions/{id}/journal - get journal for transaction
+    public function getBankTransactionJournal($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->canView()) {
+            return $this->forbidden('Insufficient permissions');
+        }
+
+        $result = $this->api->getBankTransactionJournal($id);
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to load journal');
+        }
+
+        return $this->success($result['data'] ?? ['journal' => []]);
+    }
+
+    // PATCH /api/accounts/financial-accounts/{id}/activate - activate financial account
+    public function patchActivateFinancialAccount($id = null, $data = [], $segments = [])
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
@@ -201,23 +219,47 @@ class AccountsController extends BaseController
             return $this->forbidden('Insufficient permissions');
         }
 
-        $amount = $data['amount'] ?? null;
-        $reason = $data['reason'] ?? null;
-        if (!$amount || !$reason) {
-            return $this->badRequest('Missing amount or reason');
-        }
-
-        $result = $this->api->recordExpense([
-            'description'      => $reason,
-            'amount'           => $amount,
-            'expense_category' => 'petty_cash',
-            'expense_date'     => date('Y-m-d'),
-            'recorded_by'      => $this->getUserId(),
-        ]);
+        $result = $this->api->activateFinancialAccount($id, $this->getUserId());
         if (($result['code'] ?? 200) >= 400) {
-            return $this->error($result['message'] ?? 'Failed to record petty cash');
+            return $this->error($result['message'] ?? 'Failed to activate financial account');
         }
 
-        return $this->success(['id' => $result['data']['expense_id'] ?? null], 'Petty cash recorded (as expense)');
+        return $this->success($result['data'] ?? ['id' => $id], $result['message'] ?? 'Financial account activated');
+    }
+
+    // PATCH /api/accounts/financial-accounts/{id}/deactivate - deactivate financial account
+    public function patchDeactivateFinancialAccount($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->canManage()) {
+            return $this->forbidden('Insufficient permissions');
+        }
+
+        $result = $this->api->deactivateFinancialAccount($id, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to deactivate financial account');
+        }
+
+        return $this->success($result['data'] ?? ['id' => $id], $result['message'] ?? 'Financial account deactivated');
+    }
+
+    // DELETE /api/accounts/financial-accounts/{id} - delete financial account
+    public function deleteFinancialAccount($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->canManage()) {
+            return $this->forbidden('Insufficient permissions');
+        }
+
+        $result = $this->api->deleteFinancialAccount($id, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to delete financial account');
+        }
+
+        return $this->success($result['data'] ?? ['id' => $id], $result['message'] ?? 'Financial account deleted');
     }
 }

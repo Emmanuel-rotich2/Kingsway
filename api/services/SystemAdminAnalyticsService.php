@@ -977,7 +977,7 @@ final class SystemAdminAnalyticsService
         }
         $details = $this->loadUserDetails($userIds);
         foreach ($events as &$event) {
-            $detail = $details[$event['user_id']] ?? null;
+            $detail = $details[(int) ($event['user_id'] ?? 0)] ?? null;
             if (!$detail) {
                 continue;
             }
@@ -1008,7 +1008,7 @@ final class SystemAdminAnalyticsService
         $details = $this->loadUserDetails($userIds);
         $lockedCount = 0;
         foreach ($rows as &$row) {
-            $detail = $details[$row['user_id']] ?? null;
+            $detail = $details[(int) ($row['user_id'] ?? 0)] ?? null;
             if (!$detail) {
                 continue;
             }
@@ -1043,16 +1043,17 @@ final class SystemAdminAnalyticsService
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $this->db->getConnection()->prepare(
                 "SELECT
-                    user_id,
-                    username,
-                    user_status AS account_status,
-                    failed_login_attempts AS consecutive_failed_attempts,
-                    account_locked_until,
-                    first_name,
-                    last_name,
-                    email
-                 FROM " . ReadReplicaService::qualifiedRef('person_directory') . "
-                 WHERE user_id IN ($placeholders)"
+                    u.id AS user_id,
+                    u.username,
+                    u.status AS account_status,
+                    u.failed_login_attempts AS consecutive_failed_attempts,
+                    u.account_locked_until,
+                    p.first_name,
+                    p.last_name,
+                    p.email
+                 FROM users u
+                 LEFT JOIN persons p ON p.id = u.person_id
+                 WHERE u.id IN ($placeholders)"
             );
             $stmt->execute($ids);
             $details = [];

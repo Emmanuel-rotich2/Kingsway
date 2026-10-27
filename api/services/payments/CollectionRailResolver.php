@@ -11,23 +11,54 @@ use Throwable;
 /**
  * Resolves the ordered list of online collection rails for a payment purpose.
  *
+ * ARCHITECTURE (STK failover is per-purpose, not global):
+ *   - fees,      transport: BUNI primary -> Daraja -> PayHero
+ *   - uniforms:              Daraja primary -> PayHero (no Buni uniforms route)
+ *
+ *   - fees / transport  = channel kcb_buni_ipn  (KCB Buni M-Pesa Express)
+ *   - fallback STK      = channel safaricom_stk (Daraja LIPA_NA_MPESA_ONLINE)
+ *   - last resort       = channel payhero_stk   (PayHero aggregator)
+ *   - Daraja C2B        = validation + confirmation (channel safaricom_c2b), separately
+ *
  * Gateways are rails, not account-bound: the receiving / settling accounts are
- * read from `payment_collection_routes` at transaction time, and the failover
- * order is driven by `routes.priority` (lower is attempted first). Routes whose
- * provider cannot initiate an online collection (generic bank etc.) or whose
- * channel list excludes the rail's channel are skipped.
+ * read from `payment_collection_routes` at transaction time.
+ *
+ * Fees and transport settle to KCB bank accounts, so KCB Buni is the primary
+ * rail: it pushes the prompt against the school's own Safaricom shortcode and
+ * settles into KCB directly, with no aggregator margin and no service-wallet
+ * float to maintain. PayHero demotes to last resort because its bank channels
+ * intermediate the collection: the fee is a service_charge debited from the
+ * merchant wallet, and an unfunded (PENDING) wallet blocks the STK outright.
+ *
+ * `payment_collection_routes.priority` orders rails; STK_PROVIDER_ORDER
+ * re-ranks STK candidates for the purposes that declare a failover contract.
+ * A purpose with no declared order falls through to plain priority order.
+ * Routes whose provider cannot initiate an online collection (generic bank
+ * etc.) or whose channel list excludes the rail's channel are skipped.
  *
  * Reads go to the primary connection on purpose: rail configuration changes
  * must be visible to the very next initiation (no replica lag on money rails).
  */
 class CollectionRailResolver
 {
-    /** provider code => financial channel code used to initiate a collection */
+    /** provider code => canonical financial_channels.code used to initiate a collection */
     private const RAIL_CHANNELS = [
-        'kcb_buni' => 'buni_ipn',
-        'payhero' => 'mpesa_stk',
-        'mpesa_daraja' => 'mpesa_stk',
+        'kcb_buni'        => 'kcb_buni_ipn',    // PRIMARY STK for fees/transport
+        'safaricom_daraja' => 'safaricom_stk',  // STK fallback (LIPA_NA_MPESA_ONLINE)
+        'payhero'         => 'payhero_stk',      // LAST RESORT STK (aggregator)
     ];
+
+    /**
+     * Per-purpose STK failover order. A purpose absent from this map keeps
+     * plain `priority` ordering. Order here must mirror the
+     * `payment_collection_routes.priority` values so intent and data agree.
+     */
+    private const STK_PROVIDER_ORDER = [
+        'fees'      => ['kcb_buni', 'safaricom_daraja', 'payhero'],
+        'transport' => ['kcb_buni', 'safaricom_daraja', 'payhero'],
+        'uniforms'  => ['safaricom_daraja', 'payhero'],
+    ];
+
 
     private PDO $db;
 
@@ -38,7 +69,7 @@ class CollectionRailResolver
 
     public function isOnlineProvider(string $providerCode): bool
     {
-        return isset(self::RAIL_CHANNELS[$providerCode]);
+        return isset(self::RAIL_CHANNELS[ProviderCodes::canonical($providerCode)]);
     }
 
     /**
@@ -73,8 +104,9 @@ class CollectionRailResolver
             $params[] = $financialAccountId;
         }
         if ($providerCode !== null && $providerCode !== '') {
-            $sql .= ' AND p.code = ?';
-            $params[] = $providerCode;
+            $variants = ProviderCodes::variants($providerCode);
+            $sql .= ' AND p.code IN (' . implode(',', array_fill(0, count($variants), '?')) . ')';
+            array_push($params, ...$variants);
         }
 
         $sql .= ' ORDER BY r.priority ASC, r.id ASC';
@@ -93,7 +125,7 @@ class CollectionRailResolver
 
         $out = [];
         foreach ($rows as $row) {
-            $providerCode = (string) $row['provider_code'];
+            $providerCode = ProviderCodes::canonical((string) $row['provider_code']);
             $channel = self::RAIL_CHANNELS[$providerCode] ?? null;
             if ($channel === null) {
                 continue; // not an online-initiating provider (e.g. generic_bank)
@@ -116,6 +148,22 @@ class CollectionRailResolver
                 'priority' => (int) $row['priority'],
             ];
         }
+
+        // STK failover is a business rule declared per purpose. Providers with
+        // no declared order for this purpose keep their database priority, so
+        // an unlisted purpose or an unlisted provider still resolves in
+        // priority order rather than being silently promoted or dropped.
+        $order = self::STK_PROVIDER_ORDER[$purpose] ?? null;
+        usort($out, static function (array $a, array $b) use ($order): int {
+            $rankA = $order !== null ? (array_search($a['provider_code'], $order, true) === false
+                ? 99
+                : array_search($a['provider_code'], $order, true)) : $a['priority'];
+            $rankB = $order !== null ? (array_search($b['provider_code'], $order, true) === false
+                ? 99
+                : array_search($b['provider_code'], $order, true)) : $b['priority'];
+            return [$rankA, $a['priority'], $a['route_id']]
+                <=> [$rankB, $b['priority'], $b['route_id']];
+        });
 
         return $out;
     }

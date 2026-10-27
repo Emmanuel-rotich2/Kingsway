@@ -45,12 +45,17 @@ class FeeManager
      */
     private function resolveAcademicYearId($year)
     {
+        $yearStr = (string) $year;
+        $yearForStartDate = $yearStr;
+        if (str_contains($yearStr, '/') || str_contains($yearStr, '-')) {
+            $yearForStartDate = (int) substr($yearStr, 0, 4);
+        }
         $stmt = $this->db->prepare(
             "SELECT id FROM academic_years
              WHERE id = ? OR year_code = ? OR YEAR(start_date) = ?
              LIMIT 1"
         );
-        $stmt->execute([$year, $year, $year]);
+        $stmt->execute([$yearStr, $yearStr, $yearForStartDate]);
         return $stmt->fetchColumn();
     }
 
@@ -1284,9 +1289,17 @@ class FeeManager
     {
         try {
             if (empty($academicYear)) {
-                $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  WHERE is_current = 1 LIMIT 1");
+                // The current academic year lives in academic_years. The
+                // student_directory projection is a per-enrollment roster and
+                // carries neither year_code nor is_current.
+                $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current=1 AND status='active' ORDER BY start_date DESC LIMIT 1");
                 $yearStmt->execute();
                 $currentYear = $yearStmt->fetchColumn();
+                if (!$currentYear) {
+                    $yearStmt = $this->db->prepare("SELECT year_code FROM " . ReadReplicaService::qualifiedRef("academic_years") . " ORDER BY start_date DESC LIMIT 1");
+                    $yearStmt->execute();
+                    $currentYear = $yearStmt->fetchColumn();
+                }
                 $academicYear = $currentYear ?: date('Y');
             }
 
@@ -1298,7 +1311,11 @@ class FeeManager
                     CONCAT(p.first_name, ' ', p.last_name) as student_name,
                     c.name as class_name,
                     st.name as stream_name,
-                    sl.name as level_name
+                    sl.name as level_name,
+                    lg.parent_full_name as parent_name,
+                    lg.parent_phone,
+                    lg.parent_email,
+                    lg.relationship as guardian_relationship
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON s.person_id = p.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
@@ -1307,6 +1324,7 @@ class FeeManager
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON ayc.class_id = c.id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON aycs.stream_id = st.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_guardian") . " lg ON lg.student_id = s.id AND lg.is_primary_contact = 1
                 WHERE s.id = ?
             ");
             $stmt->execute([$studentId]);
@@ -1317,6 +1335,9 @@ class FeeManager
             }
 
             $academicYearId = $this->resolveAcademicYearId($academicYear);
+            if (!$academicYearId) {
+                return formatResponse(false, null, 'Academic year not found for year: ' . $academicYear);
+            }
 
             // Get fee obligations
                         $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');

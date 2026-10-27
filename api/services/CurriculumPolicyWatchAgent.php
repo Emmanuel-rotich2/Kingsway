@@ -240,9 +240,17 @@ final class CurriculumPolicyWatchAgent
      */
     public function interpret(PDO $pdo, array $payload): array
     {
+        $userId = (int) ($payload['user_id'] ?? 0);
+        if ($userId < 1) {
+            throw new DomainException('A valid operator is required for curriculum interpretation.', 422);
+        }
+        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            throw new DomainException('Current operator permissions could not be resolved.', 403);
+        }
         $context = [
-            'user_id' => (int) ($payload['user_id'] ?? 0),
-            'permissions' => array_values(array_map('strval', (array) ($payload['permissions'] ?? []))),
+            'user_id' => $userId,
+            'permissions' => $permissions,
             'request_id' => substr((string) ($payload['request_id'] ?? 'ai-curriculum-change'), 0, 100),
         ];
         $input = (array) ($payload['input'] ?? []);
@@ -301,7 +309,7 @@ final class CurriculumPolicyWatchAgent
             ]);
             $body = curl_exec($curl);
             $errno = curl_errno($curl);
-            curl_close($curl);
+            // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
             if ($body === false || $errno !== 0) {
                 throw new DomainException('Unable to fetch the KICD policy source.', 502);
             }

@@ -208,6 +208,12 @@ class InventoryAPI extends BaseAPI
         return $this->purchaseOrdersManager->getPurchaseOrder($id);
     }
 
+    /** Line-level purchase report for the purchase-reports page. */
+    public function purchaseReport($params = [])
+    {
+        return $this->purchaseOrdersManager->purchaseReport($params);
+    }
+
     public function createPurchaseOrder($data, $userId)
     {
         return $this->purchaseOrdersManager->createPurchaseOrder($data, $userId);

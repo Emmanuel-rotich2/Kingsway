@@ -175,7 +175,7 @@ class KcbTransferReconciliationService
 
             $insert = $this->db->prepare("INSERT INTO disbursement_transactions
                 (disbursement_type,payment_purpose,source_financial_account_id,payroll_id,payslip_id,
-                 refund_request_id,expense_id,statutory_remittance_attempt_id,recipient_id,recipient_name,
+                 refund_request_id,expense_id,statutory_remittance_attempt_id,recipient_id,recipient_type,recipient_name,
                  amount,currency,idempotency_reference,account_number,bank_code,bank_name,channel,status,
                  reconciliation_status,retry_of_disbursement_id,submitted_by,approved_by,approved_at,released_at,
                  next_status_inquiry_at,created_at)
@@ -184,7 +184,10 @@ class KcbTransferReconciliationService
             $insert->execute([
                 $row['disbursement_type'], $row['payment_purpose'], $row['source_financial_account_id'],
                 $row['payroll_id'], $row['payslip_id'], $row['refund_request_id'], $row['expense_id'],
-                $row['statutory_remittance_attempt_id'], $row['recipient_id'], $row['recipient_name'],
+                $row['statutory_remittance_attempt_id'],
+                // Carry the parent's discriminator so a retry of a supplier or
+                // parent payment does not silently become 'unknown'.
+                $row['recipient_id'], $row['recipient_type'] ?? 'unknown', $row['recipient_name'],
                 $row['amount'], $row['currency'], $idempotency, $row['account_number'], $row['bank_code'],
                 $row['bank_name'], 'kcb_bank', $disbursementId, $actorUserId, $actorUserId,
             ]);

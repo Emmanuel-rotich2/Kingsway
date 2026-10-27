@@ -226,9 +226,12 @@ final class AiInsightOrchestrator
     public function execute(PDO $pdo, array $payload): array
     {
         $userId = (int) ($payload['user_id'] ?? 0);
-        $permissions = array_values(array_map('strval', (array) ($payload['permissions'] ?? [])));
         if ($userId < 1) {
             throw new DomainException('Background insight briefing payload is incomplete.', 422);
+        }
+        $permissions = (new AiAgentService())->resolveEffectivePermissions($pdo, $userId);
+        if ($permissions === []) {
+            throw new DomainException('Current operator permissions could not be resolved.', 403);
         }
         $cadence = (string) ($payload['cadence'] ?? self::CADENCE_DAILY);
         if (!in_array($cadence, self::VALID_CADENCES, true)) {

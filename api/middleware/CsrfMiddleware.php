@@ -49,6 +49,13 @@ class CsrfMiddleware
         'payments/kcb-notification',
         'payments/kcb-account-notification',
         'payments/kcb-till-notification',
+        // KCB Buni canonical IPN paths — provider-signed callbacks, never
+        // browser-driven, so CSRF does not apply. Matched as a substring of
+        // REQUEST_URI, so the literal path form is required. The router remaps
+        // these to the payments controller after middleware.
+        'ipn/1.0.0/validation',
+        'ipn/1.0.0/till-notification',
+        'ipn/1.0.0/account-notification',
         'payments/bank-webhook',
         'academic/resources/download',
         'download/public',
@@ -84,10 +91,12 @@ class CsrfMiddleware
         'communications/process-outbox',
         'staff-migration/process-invitation-email',
         'attendance/gate-event',
-        // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
-        'attendance/process-register-reminders',
-        'finance/kcb-reconciliation-worker',
-        // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
+            // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
+            'attendance/process-register-reminders',
+            'finance/kcb-reconciliation-worker',
+            // Internal cron callback authenticates with PAYMENT_SWEEP_WORKER_SECRET.
+            'payments/stk-sweep-worker',
+            // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'realtime/worker',
         'realtime/cleanup',
         'realtime/maintenance',
@@ -99,6 +108,7 @@ class CsrfMiddleware
         'realtime/python-job-fail',
         // Node threat detector posts alerts here with COMMUNICATION_WORKER_SECRET.
         'system/send-security-alert',
+        'system/monitoring-worker',
         // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
         'dashboard/agent-digest-worker',
         'dashboard/insight-brief-queue',

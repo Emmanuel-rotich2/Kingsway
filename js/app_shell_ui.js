@@ -724,6 +724,10 @@
     });
   }
 
+  /** Governed answers render through the shared, XSS-safe Markdown module. */
+  const mdRender = (value) =>
+    (window.KingswayMarkdown?.render ? window.KingswayMarkdown.render(value) : escapeHtml(value));
+
   function escapeHtml(value) {
     const node = document.createElement("div");
     node.textContent = String(value ?? "");
@@ -946,60 +950,136 @@
     return parts.join("");
   }
 
-  async function loadAiAssistantCatalog() {
-    // The governed agent answers for every authenticated staff member, so the
-    // composer must stay usable even if the suggestion catalogue fails.
-    const queryForm = $("#global-ai-assistant-query");
-    if (queryForm) queryForm.hidden = false;
-
-    const route = String(window.REQUESTED_ROUTE || "");
-    try {
-      // Persisted catalogue (IndexedDB + memory LRU) feeds the optional
-      // suggested-question chips; no workflow cards are rendered.
-      const catalogUrl = `/dashboard/ai-assistant-catalog?route=${encodeURIComponent(route)}`;
-      const payload = window.DataStore?.get
-        ? await window.DataStore.get("ai_assistant_catalog", {
-            strategy: "stale-while-revalidate",
-            storeName: "ai_workspace_cache",
-            ttl: 10 * 60 * 1000,
-            params: { route },
-            fetcher: () => window.API?.apiCall?.(catalogUrl, "GET"),
-          })
-        : await window.API?.apiCall?.(catalogUrl, "GET");
-      const workflows = Array.isArray(payload?.workflows)
-        ? payload.workflows
-        : [];
-      const suggestions = $("#global-ai-assistant-suggestions");
-      if (suggestions && workflows.length) {
-        const questions = workflows.flatMap((workflow) => Array.isArray(workflow.suggested_questions) ? workflow.suggested_questions : []).slice(0, 5);
-        suggestions.innerHTML = questions.map((question) => `<button type="button" class="btn btn-sm btn-outline-secondary ai-question-suggestion">${escapeHtml(question)}</button>`).join("");
-        suggestions.querySelectorAll(".ai-question-suggestion").forEach((button) => button.addEventListener("click", () => {
-          const input = $("#global-ai-assistant-question");
-          if (input) { input.value = button.textContent; input.focus(); }
-        }));
-      }
-    } catch (error) {
-      // Suggestion chips are optional; the composer remains available.
-    }
-  }
-
   const ASSISTANT_HISTORY_KEY = "kw_staff_assistant_history";
+  const ASSISTANT_ACTIVE_SESSION_KEY = "kw_staff_assistant_active_session";
 
   // Session state
   let currentSessionId = null;
+  let currentSessionMessages = [];
   let sessionsCache = [];
+  let assistantGenerating = false;
+  let activeAssistantStream = null;
+  let activeAssistantPlaceholder = null;
+  let assistantGenerationSeq = 0;
+  let assistantLastQuestion = "";
+  let assistantQueue = [];
+  let assistantQueueProcessing = false;
+  let assistantSessionFilter = "";
+
+  function getStoredActiveSession() {
+    try {
+      return localStorage.getItem(ASSISTANT_ACTIVE_SESSION_KEY) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function rememberActiveSession(sessionId) {
+    try {
+      if (sessionId) localStorage.setItem(ASSISTANT_ACTIVE_SESSION_KEY, String(sessionId));
+      else localStorage.removeItem(ASSISTANT_ACTIVE_SESSION_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  function setAssistantGenerating(on) {
+    assistantGenerating = !!on;
+    const send = $("#global-ai-assistant-send");
+    const input = $("#global-ai-assistant-question");
+    if (send) {
+      const icon = send.querySelector("i");
+      if (icon) {
+        icon.className = on ? "bi bi-stop-fill" : "bi bi-send-fill";
+      }
+      send.classList.toggle("btn-danger", on);
+      send.classList.toggle("btn-success", !on);
+      send.title = on ? "Stop generating" : "Send question";
+      send.setAttribute("aria-label", on ? "Stop generating" : "Send question");
+    }
+    // NOTE: Input is intentionally NOT disabled during generation to allow queueing
+    // if (input) input.disabled = on;
+
+    // The generation counter belongs to the caller, which already bumps it
+    // before opening a stream. Incrementing here too made isCurrent() compare
+    // against a later id, so every delta and final answer was discarded.
+  }
+
+  function stopAssistantGeneration() {
+    if (!assistantGenerating) return;
+    assistantGenerating = false;
+    const seq = assistantGenerationSeq;
+    try {
+      activeAssistantStream?.cancel?.();
+    } catch {
+      /* already settled */
+    }
+    setAssistantGenerating(false);
+    // Restore send button if this generation is still current
+    const send = $("#global-ai-assistant-send");
+    if (send) {
+      const icon = send.querySelector("i");
+      if (icon) icon.className = "bi bi-send-fill";
+      send.classList.remove("btn-danger");
+      send.classList.add("btn-success");
+      send.title = "Send question";
+      send.setAttribute("aria-label", "Send question");
+    }
+    return seq;
+  }
+
+  // Simple queue for assistant questions
+  async function processAssistantQueue() {
+    if (assistantQueueProcessing || assistantQueue.length === 0) return;
+    assistantQueueProcessing = true;
+    while (assistantQueue.length > 0) {
+      const { question, sessionId, resolve, reject } = assistantQueue.shift();
+      if (sessionId && sessionId !== currentSessionId) {
+        currentSessionId = sessionId;
+        rememberActiveSession(currentSessionId);
+        await loadAssistantSession(currentSessionId);
+      }
+      try {
+        // Use the existing submit logic inline
+        const form = $("#global-ai-assistant-form");
+        const input = $("#global-ai-assistant-question");
+        if (form && input) {
+          input.value = question;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          // Trigger the form's submit handler
+          const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+          form.dispatchEvent(submitEvent);
+        }
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    }
+    assistantQueueProcessing = false;
+  }
+
+  function queueAssistantQuestion(question, sessionId = currentSessionId) {
+    return new Promise((resolve, reject) => {
+      assistantQueue.push({ question, sessionId, resolve, reject });
+      if (!assistantQueueProcessing) {
+        processAssistantQueue();
+      }
+    });
+  }
 
   async function loadAssistantSessions() {
     try {
+      // apiCall() already unwraps the envelope, so the result is the array
+      // itself; a legacy `.data` access returned undefined and hid history.
       const res = await window.API.dashboard.getAssistantSessions({limit: 30});
-      sessionsCache = res?.data || [];
+      sessionsCache = Array.isArray(res) ? res : (res?.data || []);
       return sessionsCache;
     } catch (error) {
       console.warn("Failed to load assistant sessions:", error);
       // Fallback to localStorage history for backward compatibility
       try {
         const raw = JSON.parse(localStorage.getItem(ASSISTANT_HISTORY_KEY) || "[]");
-        return Array.isArray(raw)
+        const fallback = Array.isArray(raw)
           ? raw.filter((item) => typeof item === "string" && item.trim() !== "").slice(0, 8).map((q, i) => ({
               id: `local-${i}`,
               title: q,
@@ -1007,7 +1087,10 @@
               message_count: 1,
             }))
           : [];
+        sessionsCache = fallback;
+        return fallback;
       } catch {
+        sessionsCache = [];
         return [];
       }
     }
@@ -1016,33 +1099,57 @@
   function renderAssistantSessions() {
     const host = $("#global-ai-assistant-history");
     if (!host) return;
-    if (!sessionsCache.length) {
-      host.innerHTML =
-        '<p class="small text-muted px-1 mb-0">Start a new chat to see sessions here.</p>';
+
+    // Search input for session filtering
+    const searchHtml = `
+      <div class="px-2 pb-2">
+        <input type="search" class="form-control form-control-sm assistant-session-search"
+               placeholder="Search chats…" aria-label="Search chat history"
+               value="${escapeHtml(assistantSessionFilter)}">
+      </div>`;
+
+    // Filter sessions by search query
+    let filteredSessions = sessionsCache;
+    if (assistantSessionFilter.trim()) {
+      const query = assistantSessionFilter.trim().toLowerCase();
+      filteredSessions = sessionsCache.filter((s) =>
+        (s.title || "").toLowerCase().includes(query)
+      );
+    }
+
+    if (!filteredSessions.length) {
+      host.innerHTML = searchHtml + (sessionsCache.length
+        ? '<p class="small text-muted px-2 mb-0">No matching conversations.</p>'
+        : '<p class="small text-muted px-2 mb-0">Your conversations will appear here.</p>');
+      // Bind search input
+      host.querySelector(".assistant-session-search")?.addEventListener("input", (e) => {
+        assistantSessionFilter = e.target.value;
+        renderAssistantSessions();
+      });
       return;
     }
-    host.innerHTML = sessionsCache
+
+    host.innerHTML = searchHtml + filteredSessions
       .map(
-        (session, index) => {
+        (session) => {
           const title = session.title || "New chat";
-          const time = session.updated_at
-            ? new Date(session.updated_at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
+          const date = session.updated_at
+            ? new Date(session.updated_at * 1000).toLocaleDateString([], {month: "numeric", day: "numeric"})
             : "";
-          const isActive = session.id === currentSessionId;
-          return `<button type="button" class="chat-history-item w-100 text-start d-flex flex-column align-items-start gap-1 p-2 mb-1${isActive ? " active" : ""}" data-session-id="${escapeHtml(session.id)}">
-            <span class="text-truncate fw-medium w-100">${escapeHtml(title)}</span>
-            <div class="d-flex align-items-center gap-2 small text-muted">
-              <span>${escapeHtml(time)}</span>
-              <span class="opacity-50">${session.message_count || 0} msgs</span>
-              <button type="button" class="btn btn-icon-only btn-ghost btn-sm p-0 ms-auto session-delete-btn" data-session-id="${escapeHtml(session.id)}" title="Delete session" aria-label="Delete session"><i class="bi bi-trash"></i></button>
-            </div>
-          </button>`;
+          const isActive = String(session.id) === String(currentSessionId);
+          const id = escapeHtml(session.id);
+          return `<div class="chat-history-row${isActive ? " active" : ""}">
+            <button type="button" class="chat-history-item" data-session-id="${id}" title="${escapeHtml(title)}">
+              <span class="chat-history-title">${escapeHtml(title)}</span>
+              ${date ? `<span class="chat-history-date">${escapeHtml(date)}</span>` : ""}
+            </button>
+            <button type="button" class="session-delete-btn" data-session-id="${id}" title="Delete chat" aria-label="Delete ${escapeHtml(title)}"><i class="bi bi-trash"></i></button>
+          </div>`;
         }
       )
       .join("");
     // Click to load session
-    host.querySelectorAll("[data-session-id]").forEach((button) => {
-      if (button.classList.contains("session-delete-btn")) return;
+    host.querySelectorAll(".chat-history-item").forEach((button) => {
       button.addEventListener("click", () => {
         const sessionId = button.getAttribute("data-session-id");
         if (sessionId) loadAssistantSession(sessionId);
@@ -1080,14 +1187,23 @@
     input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
+  function scrollAssistantToBottom() {
+    const thread = $("#global-ai-assistant-thread");
+    const target = thread || $("#global-ai-assistant-conversation");
+    if (!target) return;
+    target.scrollTop = target.scrollHeight;
+  }
+
   async function createAssistantSession() {
     try {
       const route = window.REQUESTED_ROUTE || "";
       const res = await window.API.dashboard.postAssistantSession({route, title: ""});
-      const session = res?.data;
+      const session = res && typeof res === "object" ? res : res?.data;
       if (session?.id) {
         sessionsCache.unshift(session);
         renderAssistantSessions();
+        currentSessionId = session.id;
+        rememberActiveSession(currentSessionId);
         return session.id;
       }
     } catch (error) {
@@ -1099,9 +1215,18 @@
   async function loadAssistantSession(sessionId) {
     try {
       const res = await window.API.dashboard.getAssistantSession({session_id: sessionId, limit: 200});
-      const session = res?.data;
+      const session = res && typeof res === "object" ? res : res?.data;
       if (!session) return;
       currentSessionId = sessionId;
+      rememberActiveSession(currentSessionId);
+      // Populate local message history from the loaded session
+      currentSessionMessages = (session.messages || []).map((m) => ({
+        role: m.role,
+        content: m.content || "",
+        created_at: m.created_at || Math.floor(Date.now() / 1000),
+      }));
+      // Populate session topics
+      sessionTopics.set(sessionId, new Set(session.topics || []));
       // Update sidebar active state
       document.querySelectorAll(".chat-history-item").forEach((item) => {
         item.classList.toggle("active", item.getAttribute("data-session-id") === sessionId);
@@ -1131,29 +1256,24 @@
   }
 
   function renderConversationThread(session) {
-    const conversation = $("#global-ai-assistant-conversation");
-    if (!conversation) return;
-    const messages = session.messages || [];
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
+    const messages = (session && session.messages) || [];
     if (!messages.length) {
-      // Show greeting for empty session
-      conversation.innerHTML = getGreetingHtml();
+      thread.innerHTML = getGreetingHtml();
+      bindAssistantPromptChips(thread);
       return;
     }
-    conversation.innerHTML = messages
+    thread.innerHTML = messages
       .map((msg) => {
-        const time = msg.created_at
-          ? new Date(msg.created_at * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
-          : "";
         if (msg.role === "user") {
           return `<div class="d-flex justify-content-end mb-3"><div class="user-bubble chat-bubble max-w-75">${escapeHtml(msg.content)}</div></div>`;
         } else {
-          // Assistant message - render as card
           return `<div class="d-flex mb-3"><span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${renderAiAgentAnswerFromMsg(msg)}</div></div>`;
         }
       })
       .join("");
-    // Re-bind follow-up question buttons
-    conversation.querySelectorAll(".ai-followup-question").forEach((button) =>
+    thread.querySelectorAll(".ai-followup-question").forEach((button) =>
       button.addEventListener("click", () => {
         const input = $("#global-ai-assistant-question");
         if (input) {
@@ -1168,18 +1288,42 @@
     const user = window.AuthContext?.getUser?.();
     const displayName = user?.first_name || "there";
     return `
-      <div class="d-flex gap-3 mb-3">
-        <span class="assistant-avatar assistant-avatar-sm" aria-hidden="true"><i class="bi bi-robot"></i></span>
-        <div>
-          <p class="small mb-1">Hi <strong>${escapeHtml(displayName)}</strong>, I'm your Kingsway staff assistant. How can I help with your dashboard tasks today?</p>
+      <div class="assistant-empty-state" id="global-ai-assistant-empty-state">
+        <div class="d-flex gap-3 mb-3">
+          <span class="assistant-avatar assistant-avatar-sm" aria-hidden="true"><i class="bi bi-robot"></i></span>
+          <div>
+            <p class="small mb-1">Hi <strong>${escapeHtml(displayName)}</strong>, I'm your Kingsway staff assistant. How can I help with your dashboard tasks today?</p>
+          </div>
+        </div>
+        <div class="assistant-prompt-chips d-flex flex-wrap gap-2" id="global-ai-assistant-prompt-chips">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="What are the key trends in my authorized school reports?"><i class="bi bi-graph-up me-1"></i>Key trends in reports</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="Show me admissions status"><i class="bi bi-person-plus me-1"></i>Admissions status</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="What is the fee status for this term?"><i class="bi bi-currency-dollar me-1"></i>Fees status</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-assistant-prompt="Summarize my workspace"><i class="bi bi-layout-sidebar me-1"></i>Workspace summary</button>
         </div>
       </div>
     `;
   }
 
+  function bindAssistantPromptChips(root) {
+    root.querySelectorAll("[data-assistant-prompt]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = $("#global-ai-assistant-question");
+        if (!input) return;
+        input.value = button.getAttribute("data-assistant-prompt") || "";
+        input.focus();
+        growAssistantInput();
+      });
+    });
+  }
+
   function clearConversation() {
-    const conversation = $("#global-ai-assistant-conversation");
-    if (conversation) conversation.innerHTML = getGreetingHtml();
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
+    const briefing = $("#global-ai-assistant-briefing");
+    if (briefing) briefing.innerHTML = "";
+    thread.innerHTML = getGreetingHtml();
+    bindAssistantPromptChips(thread);
   }
 
   function renderAiAgentAnswerFromMsg(msg) {
@@ -1191,7 +1335,7 @@
         <h6 class="mb-0">${escapeHtml("Assistant")}</h6>
         <span class="badge text-bg-light">${escapeHtml(agentName)}</span>
       </div>
-      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(msg.content || "")}</p>
+      <div class="small assistant-answer-body mb-2">${mdRender(msg.content || "")}</div>
     </div>`;
   }
 
@@ -1212,6 +1356,11 @@
     const input = $("#global-ai-assistant-question");
     input?.addEventListener("input", growAssistantInput);
     input?.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && assistantGenerating) {
+        event.preventDefault();
+        stopAssistantGeneration();
+        return;
+      }
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         const form = $("#global-ai-assistant-query");
@@ -1225,6 +1374,11 @@
     // Load sessions on first open
     await loadAssistantSessions();
     renderAssistantSessions();
+    // Restore the session the user had open before reload (if any)
+    const storedSessionId = getStoredActiveSession();
+    if (storedSessionId && sessionsCache.some((s) => String(s.id) === storedSessionId)) {
+      await loadAssistantSession(storedSessionId);
+    }
 
     $("#global-ai-assistant-new-chat")?.addEventListener("click", async () => {
       const newSessionId = await createAssistantSession();
@@ -1258,6 +1412,59 @@
         new window.bootstrap.Modal(modal).show();
         loadAssistantPreferences();
       }
+    });
+
+    // Settings modal: save preferences
+    $("#assistant-save-settings")?.addEventListener("click", async () => {
+      const saveHistory = $("#pref-save-history");
+      const responseStyle = $("#pref-response-style");
+      const autoCharts = $("#pref-auto-charts");
+      const language = $("#pref-language");
+      const prefs = {
+        save_history: saveHistory?.checked !== false,
+        response_style: responseStyle?.value || "balanced",
+        auto_charts: autoCharts?.checked === true,
+        language: language?.value || "en",
+      };
+      try {
+        localStorage.setItem("kw_assistant_prefs", JSON.stringify(prefs));
+      } catch {}
+      // Persist to server
+      try {
+        await window.API.dashboard.postAssistantPreferences(prefs);
+      } catch {
+        window.showNotification?.("Failed to save assistant settings", "error");
+        return;
+      }
+      const modal = $("#assistant-settings-modal");
+      if (modal && window.bootstrap?.Modal) {
+        const bsModal = window.bootstrap.Modal.getInstance(modal);
+        if (bsModal) bsModal.hide();
+      }
+      window.showNotification?.("Assistant settings saved", "success");
+    });
+
+    // Settings modal: clear all history
+    $("#assistant-clear-history")?.addEventListener("click", async () => {
+      if (!confirm("Clear all chat sessions? This cannot be undone.")) return;
+      try {
+        await window.API.dashboard.postAssistantSessionsClear();
+      } catch {
+        window.showNotification?.("Failed to clear chat history", "error");
+        return;
+      }
+      sessionsCache = [];
+      currentSessionId = null;
+      currentSessionMessages = [];
+      sessionTopics.clear();
+      renderAssistantSessions();
+      clearConversation();
+      const modal = $("#assistant-settings-modal");
+      if (modal && window.bootstrap?.Modal) {
+        const bsModal = window.bootstrap.Modal.getInstance(modal);
+        if (bsModal) bsModal.hide();
+      }
+      window.showNotification?.("All chat history cleared", "info");
     });
 
     const attachment = $("#global-ai-assistant-attachment");
@@ -1331,32 +1538,126 @@
       }
     });
 
-    const answer = $("#global-ai-assistant-answer");
-    if (answer && typeof MutationObserver !== "undefined") {
-      new MutationObserver(() => scrollAssistantToBottom()).observe(answer, {
+    const thread = $("#global-ai-assistant-thread");
+    if (thread && typeof MutationObserver !== "undefined") {
+      new MutationObserver(() => scrollAssistantToBottom()).observe(thread, {
         childList: true,
         subtree: true,
         characterData: true,
       });
     }
+
+    // Show the greeting in the thread when no session is active
+    if (!currentSessionId) clearConversation();
   }
 
   let aiAssistantQueryBound = false;
 
-  function initAiAssistantQuery() {
-    const form = $("#global-ai-assistant-query");
-    if (!form || aiAssistantQueryBound) return;
-    aiAssistantQueryBound = true;
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const input = $("#global-ai-assistant-question");
-      const answer = $("#global-ai-assistant-answer");
-      const conversation = $("#global-ai-assistant-conversation");
-      const question = String(input?.value || "").trim();
-      if (!question || !answer || !conversation) return;
+  // Session topics (client-side, persisted to server on each turn)
+  let sessionTopics = new Map();
 
-      // Ensure we have a session
-      if (!currentSessionId) {
+  function getSessionTopics(sessionId) {
+    return sessionId ? Array.from(sessionTopics.get(sessionId) || []) : [];
+  }
+
+  function updateSessionTopics(sessionId, newTopics) {
+    if (!sessionId) return;
+    const existing = sessionTopics.get(sessionId) || new Set();
+    for (const topic of newTopics) existing.add(topic);
+    sessionTopics.set(sessionId, existing);
+  }
+
+  async function persistSessionTopics(sessionId, topics) {
+    if (!sessionId || !topics.length) return;
+    try {
+      await window.API.dashboard.patchAssistantSession?.({
+        session_id: sessionId,
+        topics,
+      });
+    } catch {
+      /* silent fail - topics are best-effort */
+    }
+  }
+
+  // Resolve which assistant persona the current user should speak to.
+  // One shared UI — the backend decides the persona based on domain + role +
+  // permissions. No duplication across staff, system admin, parents, public.
+  // Returns one of: "system_admin" | "parent" | "public" | "staff"
+  function getAssistantDomain() {
+    const user = window.AuthContext?.getUser?.() || {};
+    const isAuthenticated = window.AuthContext?.isAuthenticated?.() ?? false;
+
+    // Public / unauthenticated → public assistant (customer care, no internal info)
+    if (!isAuthenticated) {
+      return "public";
+    }
+
+    // SYSTEM domain / system_admin permission / System admin role → watchman assistant
+    const domain = String(user.domain || "").toUpperCase();
+    if (domain === "SYSTEM") {
+      return "system_admin";
+    }
+    const role = String(user.role_name || user.role || "").toLowerCase();
+    if (role === "system admin") {
+      return "system_admin";
+    }
+    const permissions = window.AuthContext?.getPermissions?.() || [];
+    if (permissions.includes("system_admin")) {
+      return "system_admin";
+    }
+
+    // Parent account → parent assistant (parent/guardian focused)
+    if (String(user.account_type || "").toLowerCase() === "parent") {
+      return "parent";
+    }
+    if (role === "parent") {
+      return "parent";
+    }
+
+    // SCHOOL domain staff → staff assistant (educational/operational)
+    return "staff";
+  }
+
+  // Backward-compatible shim: system admin assistant check
+  function canSystemAssistant() {
+    return getAssistantDomain() === "system_admin";
+  }
+
+  function getAssistantPreferences() {
+    try {
+      const raw = localStorage.getItem("kw_assistant_prefs");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function extractTopics(text) {
+    const t = String(text ?? "").toLowerCase();
+    const topicMap = {
+      admissions: ["admission", "applicant", "application", "enroll", "enrol", "placement", "interview"],
+      fees: ["fee", "payment", "invoice", "finance", "budget", "expense", "bursar", "pay"],
+      attendance: ["attendance", "absent", "present", "late", "roll call", "register"],
+      reports: ["report", "performance", "result", "mark", "grade", "score", "transcript"],
+      communications: ["message", "sms", "email", "announcement", "newsletter", "communicat"],
+      discipline: ["discipline", "behavior", "behaviour", "conduct", "punish", "detention"],
+      boarding: ["boarding", "dormitory", "hostel", "boarder", "residence"],
+      health: ["health", "sick", "sick bay", "medical", "clinic", "nurse"],
+      transport: ["transport", "bus", "route", "pickup", "drop"],
+      academics: ["academic", "curriculum", "syllabus", "lesson", "timetable", "class"],
+      staff: ["staff", "teacher", "payroll", "payslip", "leave", "employment"],
+    };
+    const found = new Set();
+    for (const [topic, keywords] of Object.entries(topicMap)) {
+      if (keywords.some((kw) => t.includes(kw))) found.add(topic);
+    }
+    return Array.from(found);
+  }
+
+  // Slash command handler: /new, /clear, /help, /topic, /export, /tour
+  async function handleAssistantCommand(cmd, args, input, conversation, answer) {
+    switch (cmd) {
+      case "new": {
         const newSessionId = await createAssistantSession();
         if (newSessionId) {
           currentSessionId = newSessionId;
@@ -1365,66 +1666,395 @@
             item.classList.toggle("active", item.getAttribute("data-session-id") === newSessionId);
           });
         }
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        scrollAssistantToBottom();
+        return true;
       }
-
-      // Add user bubble to conversation thread
-      const userBubble = document.createElement("div");
-      userBubble.className = "d-flex justify-content-end mb-3";
-      userBubble.innerHTML = `<div class="user-bubble chat-bubble max-w-75">${escapeHtml(question)}</div>`;
-      conversation.appendChild(userBubble);
-
-      // Streaming placeholder
-      const streamPlaceholder = document.createElement("div");
-      streamPlaceholder.className = "d-flex mb-3";
-      streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="ai-stream-bubble flex-grow-1"><div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div></div>`;
-      conversation.appendChild(streamPlaceholder);
-      scrollAssistantToBottom();
-
-      const stream = window.API?.dashboard?.agentAssistStream;
-      let handled = false;
-      if (typeof stream === "function") {
-        try {
-          const handle = stream(
-            question,
-            String(window.REQUESTED_ROUTE || ""),
-            "dashboard",
-            {
-              session_id: currentSessionId,
-              onStatus: () => {
-                const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
-                if (bubble) bubble.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Checking governed school data…</div>';
-              },
-              onDelta: (chunk) => {
-                const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
-                if (bubble) bubble.textContent += chunk;
-              },
-              onError: (message) => {
-                const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
-                if (bubble && !bubble.textContent.trim()) {
-                  bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(message || "The assistant could not answer right now.")}</div>`;
-                }
-              },
-            },
+      case "clear": {
+        if (currentSessionId) {
+          try {
+            await window.API.dashboard.clearAssistantSessionMessages?.({session_id: currentSessionId});
+          } catch {}
+          currentSessionMessages = [];
+          sessionTopics.delete(currentSessionId);
+        }
+        clearConversation();
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        scrollAssistantToBottom();
+        return true;
+      }
+      case "help": {
+        const helpHtml = `
+          <div class="card border-0 bg-light-subtle mb-3"><div class="card-body p-3">
+            <h6 class="mb-2">Assistant Commands</h6>
+            <ul class="small mb-2 list-unstyled">
+              <li><code>/new</code> — Start a new chat session</li>
+              <li><code>/clear</code> — Clear the current conversation</li>
+              <li><code>/topic &lt;name&gt;</code> — Tag the current session (e.g. /topic admissions)</li>
+              <li><code>/export</code> — Download the current transcript as CSV</li>
+              <li><code>/tour</code> — Start the guided system tour</li>
+              <li><code>/help</code> — Show this help</li>
+            </ul>
+            <p class="small text-muted mb-0">Or just ask a question naturally. While an answer is being generated the send button becomes a stop button.</p>
+          </div></div>`;
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = helpHtml;
+        if (conversation) conversation.appendChild(tempDiv);
+        scrollAssistantToBottom();
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "topic": {
+        if (!currentSessionId) {
+          window.showNotification?.("No active session to tag.", "warning");
+          return true;
+        }
+        if (!args) {
+          const topics = getSessionTopics(currentSessionId);
+          window.showNotification?.(
+            topics.length ? "Topics: " + topics.join(", ") : "No topics set for this session.",
+            "info"
           );
-          const result = await handle.promise;
-          if (result) {
-            handled = true;
-            streamPlaceholder.remove();
-            // Add assistant message to thread
-            addAssistantMessageToThread(result, question);
-            // Update session list (title may have changed)
+          return true;
+        }
+        updateSessionTopics(currentSessionId, [args]);
+        persistSessionTopics(currentSessionId, getSessionTopics(currentSessionId));
+        window.showNotification?.("Session tagged: " + args, "success");
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "export": {
+        if (!currentSessionId) {
+          window.showNotification?.("Nothing to export.", "warning");
+          return true;
+        }
+        const lines = ["role,content,timestamp"];
+        for (const m of currentSessionMessages) {
+          lines.push(`"${m.role}","${String(m.content || "").replace(/"/g, '""')}",${m.created_at || ""}`);
+        }
+        const csv = lines.join("\n");
+        const blob = new Blob([csv], {type: "text/csv"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `kingsway-assistant-${currentSessionId}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      case "tour": {
+        SystemTour.start(true);
+        if (input) { input.value = ""; input.focus(); }
+        growAssistantInput();
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  // System Tour — guided walkthrough. Restartable via /tour.
+  class SystemTour {
+    static STEPS = [
+      {
+        id: "sidebar",
+        target: ".sidebar-link[data-route='school_administrative_officer_dashboard'], .sidebar-link[data-route='manage_students_admissions']",
+        title: "Sidebar Navigation",
+        text: "Use the sidebar to switch between dashboard areas. Click any item to open that page.",
+        action: null,
+      },
+      {
+        id: "assistant",
+        target: "#global-ai-assistant-query",
+        title: "Staff Assistant",
+        text: "Ask questions about your dashboard data here. Try /help for commands.",
+        action: null,
+      },
+      {
+        id: "notifications",
+        target: ".header-notifications, [data-notifications]",
+        title: "Notifications",
+        text: "Important alerts and updates appear in the notifications panel.",
+        action: null,
+      },
+      {
+        id: "user_menu",
+        target: "#header-user-menu, .dropdown-toggle",
+        title: "User Menu",
+        text: "Access your profile, settings, and sign out from the user menu.",
+        action: null,
+      },
+    ];
+
+    static completedKey = "kw_tour_completed";
+    static currentStepIndex = 0;
+    static overlay = null;
+    static tooltip = null;
+
+    static isCompleted() {
+      try {
+        return localStorage.getItem(this.completedKey) === "1";
+      } catch {
+        return false;
+      }
+    }
+
+    static markCompleted() {
+      try {
+        localStorage.setItem(this.completedKey, "1");
+      } catch {}
+    }
+
+    static start(force = false) {
+      if (!force && this.isCompleted()) return;
+      this.hideOverlay();
+      this.hideTooltip();
+      this.currentStepIndex = 0;
+      this.showStep(0);
+    }
+
+    static showStep(index) {
+      if (index >= this.STEPS.length) {
+        this.markCompleted();
+        this.hideOverlay();
+        this.hideTooltip();
+        window.showNotification?.("Tour completed. Restart anytime with /tour.", "info");
+        return;
+      }
+      const step = this.STEPS[index];
+      const target = document.querySelector(step.target);
+      if (!target) {
+        this.showStep(index + 1);
+        return;
+      }
+      this.hideTooltip();
+      const rect = target.getBoundingClientRect();
+      const tooltip = document.createElement("div");
+      tooltip.id = "system-tour-tooltip";
+      tooltip.className = "position-fixed bg-dark text-white p-3 rounded shadow-lg";
+      tooltip.style.zIndex = "9999";
+      tooltip.style.left = Math.max(10, rect.left) + "px";
+      tooltip.style.top = Math.max(10, rect.bottom + 8) + "px";
+      tooltip.style.maxWidth = "300px";
+      tooltip.innerHTML = `
+        <div class="d-flex justify-content-between mb-2">
+          <strong>${step.title}</strong>
+          <span class="badge bg-info text-dark">${index + 1} / ${this.STEPS.length}</span>
+        </div>
+        <div class="small">${step.text}</div>
+        <div class="mt-2 d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-light" id="tour-next">${
+            index < this.STEPS.length - 1 ? "Next" : "Done"
+          }</button>
+          <button type="button" class="btn btn-sm btn-danger" id="tour-skip">Skip</button>
+        </div>
+      `;
+      document.body.appendChild(tooltip);
+      this.tooltip = tooltip;
+      tooltip.querySelector("#tour-next")?.addEventListener("click", () => {
+        this.showStep(index + 1);
+      });
+      tooltip.querySelector("#tour-skip")?.addEventListener("click", () => {
+        this.markCompleted();
+        this.hideOverlay();
+        this.hideTooltip();
+      });
+    }
+
+    static hideOverlay() {
+      const ov = document.getElementById("system-tour-overlay");
+      if (ov) ov.remove();
+    }
+
+    static hideTooltip() {
+      const tp = document.getElementById("system-tour-tooltip");
+      if (tp) tp.remove();
+      this.tooltip = null;
+    }
+  }
+
+  function initAiAssistantQuery() {
+    const form = $("#global-ai-assistant-query");
+    if (!form || aiAssistantQueryBound) return;
+    aiAssistantQueryBound = true;
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const input = $("#global-ai-assistant-question");
+        const thread = $("#global-ai-assistant-thread");
+        const question = String(input?.value || "").trim();
+        if (!question || !thread) return;
+
+        // Store last question for regenerate/edit actions
+        assistantLastQuestion = question;
+
+        // Block duplicate sends while generating
+        if (assistantGenerating) return;
+
+        // Command system: /new, /clear, /help, /topic, /export, /tour
+        if (question.startsWith("/")) {
+          const cmdParts = question.slice(1).split(/\s+/);
+          const cmd = cmdParts[0]?.toLowerCase();
+          const args = cmdParts.slice(1).join(" ");
+          const cmdHandled = await handleAssistantCommand(cmd, args, input, thread, null);
+          if (cmdHandled) {
+            input.value = "";
+            growAssistantInput();
+            scrollAssistantToBottom();
+            return;
+          }
+          // Unknown command falls through to normal AI processing
+        }
+
+        // Ensure we have a session. If the session service is temporarily
+        // unavailable, proceed without one: the backend creates a session for
+        // the turn, and we re-list sessions once it settles. Never abort the
+        // send — a ChatGPT-style composer always accepts the message.
+        if (!currentSessionId) {
+          try {
+            const newSessionId = await createAssistantSession();
+            if (newSessionId) {
+              currentSessionId = newSessionId;
+              document.querySelectorAll(".chat-history-item").forEach((item) => {
+                item.classList.toggle("active", item.getAttribute("data-session-id") === newSessionId);
+              });
+            }
+          } catch {
+            /* fall through: backend creates the session for this turn */
+          }
+        }
+
+        // Clear the composer immediately, exactly like ChatGPT
+        input.value = "";
+        growAssistantInput();
+
+        // Add user bubble to conversation thread
+        thread.querySelector("#global-ai-assistant-empty-state")?.remove();
+        const userBubble = document.createElement("div");
+        userBubble.className = "d-flex justify-content-end mb-3";
+        userBubble.innerHTML = `<div class="user-bubble chat-bubble max-w-75">${escapeHtml(question)}</div>`;
+        thread.appendChild(userBubble);
+
+        // Track history locally (native role-based)
+        currentSessionMessages.push({
+          role: "user",
+          content: question,
+          created_at: Math.floor(Date.now() / 1000),
+        });
+
+        // Streaming placeholder
+        const streamPlaceholder = document.createElement("div");
+        streamPlaceholder.className = "d-flex mb-3";
+        streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="ai-stream-bubble flex-grow-1"><div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Routing your question to the right agent…</div></div>`;
+        thread.appendChild(streamPlaceholder);
+        scrollAssistantToBottom();
+
+        const generation = ++assistantGenerationSeq;
+        const isCurrent = () => generation === assistantGenerationSeq;
+        setAssistantGenerating(true);
+        activeAssistantStream = null;
+
+        const requestOptions = {
+          session_id: currentSessionId,
+          history: currentSessionMessages,
+          topics: getSessionTopics(currentSessionId),
+          sidebar_state: window.SoftNavigation?.getSidebarState?.(),
+          preferences: getAssistantPreferences(),
+          system_admin: canSystemAssistant(),
+          assistant_domain: getAssistantDomain(),
+        };
+
+        const stream = window.API?.dashboard?.agentAssistStream;
+        let handled = false;
+        // Raw text accumulated from the stream, rendered as markdown as it lands.
+        let streamedAnswerText = "";
+        if (typeof stream === "function") {
+          try {
+            const handle = stream(
+              question,
+              String(window.REQUESTED_ROUTE || ""),
+              "dashboard",
+              {
+                ...requestOptions,
+                onStatus: () => {
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (bubble) bubble.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Checking governed school data…</div>';
+                },
+                onDelta: (chunk) => {
+                  if (!isCurrent()) return;
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (!bubble) return;
+                  // Accumulate raw text and re-render markdown so bold/lists
+                  // appear progressively instead of literal asterisks.
+                  streamedAnswerText += chunk;
+                  bubble.classList.add("assistant-answer-body");
+                  bubble.innerHTML = mdRender(streamedAnswerText);
+                },
+                onError: (message) => {
+                  if (!isCurrent()) return;
+                  const bubble = streamPlaceholder.querySelector(".ai-stream-bubble");
+                  if (bubble && !streamedAnswerText.trim()) {
+                    bubble.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(message || "The assistant could not answer right now.")}</div>`;
+                  }
+                },
+              },
+            );
+            activeAssistantStream = handle;
+            const result = await handle.promise;
+            activeAssistantStream = null;
+            // A Stop press increments the generation id; do not render abandoned answer
+            if (!isCurrent()) return;
+            if (result) {
+              handled = true;
+              streamPlaceholder.remove();
+              // Add assistant message to thread
+              const assistantMsg = document.createElement("div");
+              assistantMsg.className = "d-flex mb-3";
+              const answerHtml = renderAiAgentAnswer(result);
+              assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
+              thread.appendChild(assistantMsg);
+              // Track assistant message in history
+              const assistantBody = result?.answer?.body || result?.message || "";
+            if (assistantBody) {
+              currentSessionMessages.push({
+                role: "assistant",
+                content: assistantBody,
+                created_at: Math.floor(Date.now() / 1000),
+              });
+            }
+            // Persist topics
+            const topics = extractTopics(currentSessionMessages.map((m) => m.content).join(" "));
+            if (topics.length && currentSessionId) {
+              updateSessionTopics(currentSessionId, topics);
+              persistSessionTopics(currentSessionId, getSessionTopics(currentSessionId));
+            }
             await loadAssistantSessions();
             renderAssistantSessions();
+            // Re-bind follow-up buttons
+            thread.querySelectorAll(".ai-followup-question").forEach((button) => {
+              button.addEventListener("click", () => {
+                const inp = $("#global-ai-assistant-question");
+                if (inp) { inp.value = button.textContent; inp.focus(); }
+              });
+            });
+            scrollAssistantToBottom();
           }
-          handle.cancel();
+          setAssistantGenerating(false);
         } catch (streamError) {
           // fall through to buffered
+          setAssistantGenerating(false);
         }
       }
 
       if (handled) {
-        input.value = "";
-        growAssistantInput();
         scrollAssistantToBottom();
         return;
       }
@@ -1435,33 +2065,63 @@
           question,
           String(window.REQUESTED_ROUTE || ""),
           "dashboard",
-          {session_id: currentSessionId}
+          requestOptions
         );
+        if (!isCurrent()) return;
         const result = payload?.data !== undefined ? payload.data : payload;
         streamPlaceholder.remove();
-        addAssistantMessageToThread(result, question);
+        const assistantMsg = document.createElement("div");
+        assistantMsg.className = "d-flex mb-3";
+        const answerHtml = renderAiAgentAnswer(result);
+        assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
+        thread.appendChild(assistantMsg);
+        const assistantBody = result?.answer?.body || result?.message || "";
+        if (assistantBody) {
+          currentSessionMessages.push({
+            role: "assistant",
+            content: assistantBody,
+            created_at: Math.floor(Date.now() / 1000),
+          });
+        }
         await loadAssistantSessions();
         renderAssistantSessions();
+        scrollAssistantToBottom();
       } catch (agentError) {
-        // Fall back to the governed reports NLQ assistant
-        try {
-          const payload = await window.API?.reports?.askNlq?.(question);
-          const result = payload?.data !== undefined ? payload.data : payload;
-          streamPlaceholder.remove();
-          addAssistantMessageToThread(result, question);
-        } catch (error) {
-          streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>`;
-        }
+        if (!isCurrent()) return;
+        streamPlaceholder.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="alert alert-warning small mb-0">The assistant could not answer right now. Open the governed reports directly.</div>`;
+      } finally {
+        if (isCurrent()) setAssistantGenerating(false);
       }
-      input.value = "";
-      growAssistantInput();
-      scrollAssistantToBottom();
+    } catch (error) {
+      console.error("Assistant submit error:", error);
+      const thread = $("#global-ai-assistant-thread");
+      const input = $("#global-ai-assistant-question");
+      if (thread) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "d-flex mb-3";
+        errorDiv.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="alert alert-warning small mb-0">Unable to send your question right now. Please try again.</div>`;
+        thread.appendChild(errorDiv);
+        scrollAssistantToBottom();
+      }
+      if (input) {
+        input.value = String(input?.value || "").trim() !== "" ? input.value : "";
+        setAssistantGenerating(false);
+      }
+    }
+    });
+
+    // Stop button: clicking while generating aborts the stream
+    $("#global-ai-assistant-send")?.addEventListener("click", (event) => {
+      if (!assistantGenerating) return;
+      event.preventDefault();
+      event.stopPropagation();
+      stopAssistantGeneration();
     });
   }
 
   function addAssistantMessageToThread(result, userQuestion) {
-    const conversation = $("#global-ai-assistant-conversation");
-    if (!conversation) return;
+    const thread = $("#global-ai-assistant-thread");
+    if (!thread) return;
 
     // Create assistant message bubble
     const assistantMsg = document.createElement("div");
@@ -1469,10 +2129,10 @@
     const answerHtml = renderAiAgentAnswer(result);
     const meta = result?.agent || {};
     assistantMsg.innerHTML = `<span class="assistant-avatar assistant-avatar-sm me-2" aria-hidden="true"><i class="bi bi-robot"></i></span><div class="card border-0 shadow-sm flex-grow-1">${answerHtml}</div>`;
-    conversation.appendChild(assistantMsg);
+    thread.appendChild(assistantMsg);
 
     // Re-bind follow-up buttons
-    conversation.querySelectorAll(".ai-followup-question").forEach((button) =>
+    thread.querySelectorAll(".ai-followup-question").forEach((button) =>
       button.addEventListener("click", () => {
         const input = $("#global-ai-assistant-question");
         if (input) {
@@ -1483,7 +2143,7 @@
     );
 
     // If this is the first turn in a new session, update session title
-    if (currentSessionId && conversation.querySelectorAll(".user-bubble").length === 1) {
+    if (currentSessionId && thread.querySelectorAll(".user-bubble").length === 1) {
       updateSessionTitle(currentSessionId, userQuestion);
     }
   }
@@ -1517,28 +2177,51 @@
       return '<div class="alert alert-warning small mb-0">No answer was returned.</div>';
     }
     if (result.status === "unavailable") {
-      return `<div class="alert alert-warning small mb-0">${escapeHtml(
+      return `<div class="alert alert-warning small mb-0">${mdRender(
         result.answer?.body || "The assistant is not available right now."
       )}</div>`;
     }
-    if (result.status !== "answered" || !result.answer) {
+    if (!result.answer || !(result.answer.body || result.answer.title)) {
       return '<div class="alert alert-info small mb-0">The assistant could not answer that question.</div>';
     }
+
     const agent = result.agent || {};
     const toolsUsed = Array.isArray(result.tools_used) ? result.tools_used : [];
+    const citations = Array.isArray(result.citations) ? result.citations : [];
+    const isInsufficient = result.answer?.insufficient_data === true;
+
     const nextSteps = Array.isArray(result.answer.next_steps) && result.answer.next_steps.length
       ? `<ul class="small mb-2">${result.answer.next_steps
           .map((step) => `<li>${escapeHtml(String(step))}</li>`)
           .join("")}</ul>`
       : "";
+
     const tools = toolsUsed.length
       ? `<span class="small text-muted">Grounded via: ${toolsUsed
           .map((tool) => escapeHtml(String(tool)))
           .join(", ")}</span>`
       : "";
+
+    const citationsHtml = citations.length
+      ? `<div class="citations mt-2 mb-2">
+          <h6 class="small mb-1">Sources</h6>
+          <ul class="small mb-0">
+            ${citations.map(c => `<li><strong>${escapeHtml(c.title || c.report_code || "Report")}</strong>: ${escapeHtml(c.excerpt || c.description || "")}</li>`).join("")}
+          </ul>
+        </div>`
+      : "";
+
+    const insufficientHtml = isInsufficient
+      ? `<div class="alert alert-info small mb-2">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>Insufficient data</strong>: The report returned no rows for the current filters. Try adjusting the time range, class, or other filters.
+        </div>`
+      : "";
+
     const escalation = result.answer.escalation_required
       ? '<div class="alert alert-warning small mt-2 mb-0">This needs a human decision — the assistant cannot act on it.</div>'
       : "";
+
     const followUps = Array.isArray(result.answer.suggested_questions) && result.answer.suggested_questions.length
       ? `<div class="d-flex flex-wrap gap-1 mt-2">${result.answer.suggested_questions
           .map(
@@ -1549,20 +2232,68 @@
           )
           .join("")}</div>`
       : "";
+
+    // Action buttons for assistant message
+    const actionButtons = `
+      <div class="d-flex gap-1 mt-2 ai-message-actions">
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-regenerate-btn" title="Regenerate answer" data-question="${escapeHtml(assistantLastQuestion || "")}">
+          <i class="bi bi-arrow-clockwise"></i> Regenerate
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-edit-btn" title="Edit question">
+          <i class="bi bi-pencil"></i> Edit
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary ai-copy-btn" title="Copy answer">
+          <i class="bi bi-clipboard"></i> Copy
+        </button>
+      </div>`;
+
+    // The governed answers repeat the opening line of the body in `title`
+    // (title = body[:100]). Rendering both produced a heading that parroted the
+    // first sentence, so the title is only shown when it adds information.
+    const bodyText = String(result.answer.body || "");
+    const titleText = String(result.answer.title || "").trim();
+    const titleRedundant =
+      !titleText ||
+      titleText === "Assistant" ||
+      bodyText.trim().startsWith(titleText) ||
+      titleText.startsWith(bodyText.trim().slice(0, titleText.length));
+    const heading = titleRedundant
+      ? ""
+      : `<h6 class="mb-0">${escapeHtml(titleText)}</h6>`;
+
+    // A governed refusal (confidentiality probe, prompt injection, or a role
+    // that lacks the scope) still carries a complete answer. Only the label
+    // changes so the reader knows it was a deliberate policy answer rather
+    // than a report result.
+    const isRefusal = result.status !== "answered";
+    const notice = isRefusal
+      ? `<div class="alert alert-warning small mb-2 py-2">
+           <i class="bi bi-shield-lock me-1"></i>${escapeHtml(
+             result.routing === "confidentiality_guard"
+               ? "Not shareable — that asks about the system itself."
+               : "Outside your authorized access."
+           )}
+         </div>`
+      : "";
+
     const rendered = `<div class="card border-0 shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-        <h6 class="mb-0">${escapeHtml(result.answer.title || "Assistant")}</h6>
+        ${heading || `<span class="small text-muted">${escapeHtml(isRefusal ? "Governed response" : "Governed answer")}</span>`}
         <span class="badge text-bg-light">${escapeHtml(agent.name || "Agent")}</span>
       </div>
-      <p class="small mb-2" style="white-space: pre-line;">${escapeHtml(result.answer.body || "")}</p>
+      ${notice}
+      ${insufficientHtml}
+      <div class="small assistant-answer-body mb-2">${mdRender(bodyText)}</div>
       ${nextSteps}
       ${tools}
+      ${citationsHtml}
       ${escalation}
       ${followUps}
+      ${actionButtons}
     </div></div>`;
     requestAnimationFrame(() => {
       document
-        .querySelectorAll("#global-ai-assistant-answer .ai-followup-question")
+        .querySelectorAll("#global-ai-assistant-thread .ai-followup-question")
         .forEach((button) =>
           button.addEventListener("click", () => {
             const input = $("#global-ai-assistant-question");
@@ -1570,6 +2301,40 @@
               input.value = button.textContent;
               input.focus();
             }
+          })
+        );
+      // Action button handlers
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-regenerate-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const question = button.getAttribute("data-question");
+            if (question) {
+              queueAssistantQuestion(question);
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-edit-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const input = $("#global-ai-assistant-question");
+            if (input) {
+              input.value = button.getAttribute("data-question") || "";
+              input.focus();
+            }
+          })
+        );
+      document
+        .querySelectorAll("#global-ai-assistant-thread .ai-copy-btn")
+        .forEach((button) =>
+          button.addEventListener("click", () => {
+            const card = button.closest(".card");
+            const body = card?.querySelector(".assistant-answer-body")?.textContent || "";
+            navigator.clipboard.writeText(body).then(() => {
+              button.innerHTML = '<i class="bi bi-check"></i> Copied!';
+              setTimeout(() => { button.innerHTML = '<i class="bi bi-clipboard"></i> Copy'; }, 2000);
+            });
           })
         );
     });
@@ -1820,8 +2585,6 @@
       () => {
         initAssistantChrome();
         renderAssistantHistory();
-        void loadAiAssistantCatalog();
-        void loadWorkspaceBriefing();
         initAiAssistantQuery();
       }
     );
@@ -1980,10 +2743,18 @@
   if (document.readyState === "loading") {
     document.addEventListener(
       "DOMContentLoaded",
-      initialize,
+      () => {
+        initialize();
+        // Fallback: ensure the AI assistant submit listener is attached even
+        // if the offcanvas show event never fires (e.g. Bootstrap not ready).
+        initAssistantChrome();
+        initAiAssistantQuery();
+      },
       { once: true }
     );
   } else {
     initialize();
+    initAssistantChrome();
+    initAiAssistantQuery();
   }
 })();

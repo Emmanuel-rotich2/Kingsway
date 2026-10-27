@@ -204,6 +204,85 @@ class KcbFundsTransferService
         return $normalized;
     }
 
+    /**
+     * Get KCB account balance.
+     *
+     * @param array $data {account_number: string, currency: string}
+     * @return array {status, available_balance, ledger_balance, currency}
+     */
+    public function getAccountBalance(array $data): array
+    {
+        $accountNumber = preg_replace('/\s+/', '', (string) ($data['account_number'] ?? ''));
+        if ($accountNumber === '' || !preg_match('/^[0-9]{6,10}$/', $accountNumber)) {
+            throw new Exception('A valid account number is required for balance inquiry.');
+        }
+        $currency = strtoupper(trim((string) ($data['currency'] ?? 'KES')));
+
+        $payload = [
+            'companyCode' => $this->companyCode,
+            'accountNumber' => $accountNumber,
+            'currency' => $currency,
+        ];
+
+        $path = defined('KCB_ACCOUNT_BALANCE_PATH')
+            ? (string) KCB_ACCOUNT_BALANCE_PATH
+            : '/accountservices/1.0.0/api/v1/balance';
+
+        $response = $this->requestJson($path, $payload);
+        $flat = $this->flattenResponse($response);
+        $statusCode = (string) ($flat['statusCode'] ?? $flat['status_code'] ?? '1');
+
+        return [
+            'status' => $statusCode === '0' ? 'success' : 'failed',
+            'available_balance' => (float) ($flat['availableBalance'] ?? $flat['available_balance'] ?? 0),
+            'ledger_balance' => (float) ($flat['ledgerBalance'] ?? $flat['ledger_balance'] ?? 0),
+            'currency' => (string) ($flat['currency'] ?? $currency),
+            'message' => (string) ($flat['statusDescription'] ?? $flat['status_description'] ?? $flat['message'] ?? ''),
+            'response' => $response,
+        ];
+    }
+
+    /**
+     * Validate KCB account (name check) before transfer.
+     *
+     * @param array $data {account_number: string, bank_code: string}
+     * @return array {status, account_name, account_number, bank_code, message}
+     */
+    public function validateAccount(array $data): array
+    {
+        $accountNumber = preg_replace('/\s+/', '', (string) ($data['account_number'] ?? ''));
+        if ($accountNumber === '' || !preg_match('/^[0-9]{6,10}$/', $accountNumber)) {
+            throw new Exception('A valid account number is required for account validation.');
+        }
+        $bankCode = trim((string) ($data['bank_code'] ?? ''));
+        if ($bankCode === '') {
+            throw new Exception('Bank code is required for account validation.');
+        }
+
+        $payload = [
+            'companyCode' => $this->companyCode,
+            'accountNumber' => $accountNumber,
+            'bankCode' => $bankCode,
+        ];
+
+        $path = defined('KCB_ACCOUNT_VALIDATE_PATH')
+            ? (string) KCB_ACCOUNT_VALIDATE_PATH
+            : '/accountservices/1.0.0/api/v1/validate';
+
+        $response = $this->requestJson($path, $payload);
+        $flat = $this->flattenResponse($response);
+        $statusCode = (string) ($flat['statusCode'] ?? $flat['status_code'] ?? '1');
+
+        return [
+            'status' => $statusCode === '0' ? 'success' : 'failed',
+            'account_name' => (string) ($flat['accountName'] ?? $flat['account_name'] ?? $flat['beneficiaryName'] ?? ''),
+            'account_number' => $accountNumber,
+            'bank_code' => $bankCode,
+            'message' => (string) ($flat['statusDescription'] ?? $flat['status_description'] ?? $flat['message'] ?? ''),
+            'response' => $response,
+        ];
+    }
+
     /** @return array{normalized_status:string,provider_status:string,message:string,transaction_reference:?string,transaction_id:?string,charges:float} */
     public function normalizeTransferStatusResponse(array $response): array
     {

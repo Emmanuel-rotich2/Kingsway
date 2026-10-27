@@ -2,6 +2,8 @@
 
 namespace App\API\Services\payments;
 use App\API\Services\ReadReplicaService;
+use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\payments\FinancialAccountService;
 
 use App\Database\Database;
 use PDO;
@@ -62,8 +64,20 @@ class BankPaymentWebhook
             // FIX: Validate admission number and get student
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
-                $this->logWebhookError('KCB', 'Invalid admission number: ' . $accountNumber, $paymentData);
-                return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
+                // The money is already in the school's account. Rejecting the
+                // notification outright would leave the deposit with no system
+                // record at all, so it is held as an unmatched case instead:
+                // a bursar allocates it from the reconciliation screen, and the
+                // ledger posting and parent receipt both happen there.
+                $this->captureUnmatched(
+                    $accountNumber,
+                    $amount,
+                    $transactionRef,
+                    $paymentData,
+                    'Admission number not recognised: ' . $accountNumber
+                );
+                $this->logWebhookError('KCB', 'Held unmatched: no learner for admission ' . $accountNumber, $paymentData);
+                return formatResponse(false, null, 'Payment held for manual allocation: admission ' . $accountNumber . ' matches no learner');
             }
 
             // FIX: HIGH - Validate payment amount against outstanding balance
@@ -205,10 +219,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
             }
 
+            // Check for duplicate transaction with row locking to prevent race condition
+            $dupStmt = $this->db->prepare("SELECT id FROM payments WHERE reference = ? LIMIT 1 FOR UPDATE");
+            $dupStmt->execute([$transactionRef]);
+            if ($dupStmt->fetch()) {
+                return formatResponse(false, null, 'Duplicate transaction');
+            }
+
             // Process payment using stored procedure
-            // NOTE: Procedure handles its own transaction, do not use explicit transaction management
-            // sp_process_student_payment(p_student_id, p_parent_id, p_amount_paid, p_payment_method, 
-            //                            p_reference_no, p_receipt_no, p_received_by, p_payment_date, p_notes)
             $stmt = $this->db->prepare("
                 CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
@@ -224,6 +242,45 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $transactionDate,                         // p_payment_date
                 $bankName . ' Payment - ' . $student['admission_number']  // p_notes
             ]);
+            $paymentResult = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $stmt->closeCursor();
+            $studentPaymentId = (int) ($paymentResult['transaction_id'] ?? 0);
+
+            // Record bank transaction
+            $receiptNo = 'BANK-' . $transactionRef;
+            $bankStmt = $this->db->prepare("
+                INSERT INTO bank_transactions
+                    (transaction_ref, student_id, amount, transaction_date, bank_name, account_number,
+                     normalized_reference, narration, status, matching_status, reconciled, reconciled_at, source_type, webhook_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recorded', 'matched', 1, NOW(), 'api_callback', ?)
+            ");
+            $bankStmt->execute([
+                $transactionRef,
+                $student['id'],
+                $amount,
+                $transactionDate,
+                $bankName,
+                $accountNumber,
+                (new ReferenceNormalizer())->reference($accountNumber),
+                $bankName . ' Payment - ' . $student['admission_number'],
+                json_encode($paymentData)
+            ]);
+
+            // Post journal via FinancialPostingCoordinator
+            if ($studentPaymentId > 0) {
+                try {
+                    $feesAccount = (new FinancialAccountService($this->db))->requireFor(0, 'fees', 'bank_transfer');
+                    (new FinancialPostingCoordinator($this->db))->postIncoming(
+                        'payment', $studentPaymentId, (int) $feesAccount['id'], 'fees',
+                        (string) $amount, 1, $transactionRef
+                    );
+                } catch (\Throwable $journalError) {
+                    \App\API\Services\Logger::legacyError('[BankPaymentWebhook] Generic bank journal failed: ' . $journalError->getMessage());
+                }
+            }
+
+            // Send confirmation notification
+            $this->sendPaymentConfirmation($student, $amount, $transactionRef, 'bank');
 
             return formatResponse(true, [
                 'message' => 'Payment processed successfully',
@@ -243,13 +300,72 @@ return formatResponse(false, null, 'An internal error occurred.');
      * @param string $accountNumber Admission number
      * @return array|null Student data or null if not found
      */
+    /**
+     * Hold a bank deposit whose reference matched no learner.
+     *
+     * The row mirrors PaymentRoutingService::unmatched() so one list, one
+     * screen and one permission set cover every unallocated payment regardless
+     * of which rail delivered it. The unique key uq_unmatched_provider_tx on
+     * (provider_id, provider_transaction_id) makes a replayed bank
+     * notification update the existing case instead of duplicating the money.
+     *
+     * @param array $paymentData Raw notification, preserved verbatim for audit.
+     */
+    private function captureUnmatched(
+        string $reference,
+        float $amount,
+        ?string $transactionRef,
+        array $paymentData,
+        string $reason
+    ): bool {
+        try {
+            $s = $this->db->prepare("SELECT id FROM payment_providers WHERE code = 'generic_bank' AND active = 1 ORDER BY id LIMIT 1");
+            $s->execute();
+            $providerId = (int) $s->fetchColumn();
+            if ($providerId <= 0) {
+                \App\API\Services\Logger::legacyError('[BankPaymentWebhook] generic_bank provider is not configured; unmatched case not captured');
+                return false;
+            }
+
+            $tx = trim((string) $transactionRef);
+            if ($tx === '') {
+                $tx = 'BANK-' . $reference . '-' . number_format($amount, 2, '.', '');
+            }
+
+            $insert = $this->db->prepare(
+                "INSERT INTO payment_unmatched_cases
+                    (provider_id, provider_transaction_id, account_identifier, amount, reference_value,
+                     normalized_reference, purpose_candidate, reason, raw_payload)
+                 VALUES (?, ?, ?, ?, ?, ?, 'fees', ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    reason = VALUES(reason),
+                    raw_payload = VALUES(raw_payload)"
+            );
+            $insert->execute([
+                $providerId,
+                $tx,
+                $reference,
+                $amount,
+                $reference,
+                strtoupper($reference),
+                $reason,
+                json_encode($paymentData),
+            ]);
+
+            return true;
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[BankPaymentWebhook] captureUnmatched failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
     private function getStudentByAdmission($accountNumber)
     {
         try {
 $admissionCol = $this->resolveAdmissionColumn();
             $sql = "SELECT s.id, p.first_name, p.last_name, s." . $admissionCol . " AS admission_number, 
-                           COALESCE(sp.parent_id, 0) AS parent_id
-                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                           COALESCE((SELECT sp.parent_id FROM student_parents sp WHERE sp.student_id = s.id ORDER BY sp.is_primary_contact DESC, sp.parent_id ASC LIMIT 1), 0) AS parent_id
+                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
                     WHERE s." . $admissionCol . " = ?
                     LIMIT 1";
             $stmt = $this->db->prepare($sql);

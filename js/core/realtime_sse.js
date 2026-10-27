@@ -174,12 +174,8 @@
       retryAttempt = 0;
       fastFailures = 0;
       // Gateway restart catch-up: after a reconnect the socket missed every
-      // event published while it was down, so silently re-fetch all endpoints
-      // this page depends on. The static-buffer manager does the same on
-      // BUFFER_ROTATED.
-      if (isReconnect && window.APIRealtime?.schedule) {
-        window.APIRealtime.schedule([...(window.APIRealtime.dependencies ? window.APIRealtime.dependencies() : [])]);
-      }
+      // event published while it was down. Patch handlers will catch up
+      // incrementally when events resume; no full refresh needed.
       emit('kingsway:realtime-status', { detail: { state: 'connected' } });
     };
     // The gateway announces the stream with a `connected` frame; an older

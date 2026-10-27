@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import re
 import time
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from . import agents, guard, output_guard, policy
 from .behavior import BehaviorStore
@@ -19,16 +22,19 @@ from .chat_sessions import ChatSessionStore
 from .conversation import ConversationStore
 from .journal import Journal, hash_text
 from .providers import Provider, ProviderError
-from .tools import ToolBridge
+from .tools import ToolBridge, SYSTEM_ADMIN_PERMISSION
 
 MAX_TOOL_STEPS = 2
 MAX_TOOL_EXECUTIONS = 6
 MAX_PROVIDER_CALLS = 2
 # Retained follow-up turns supplied by the client for conversational context.
-MAX_HISTORY_TURNS = 6
-CONVERSATION_PROMPT_TURNS = 4
+MAX_HISTORY_TURNS = 12
+CONVERSATION_PROMPT_TURNS = 12
+HISTORY_MESSAGE_CHARS = 1200
+HISTORY_CHAR_BUDGET = 5000
+SUMMARY_LINES = 8
 MAX_TOOLS_PER_STEP = 3
-MAX_TOOL_RESULT_CHARS = 500
+MAX_TOOL_RESULT_CHARS = 4000
 TOOL_RESULT_FIELDS = (
     "status",
     "report_code",
@@ -42,7 +48,68 @@ TOOL_RESULT_FIELDS = (
     "workflows",
     "message",
     "reason",
+    "columns",
+    "rows",
+    "explanation",
+    "intent",
+    "preview_limited",
 )
+
+
+def _decode_partial_json_string(value: str, cursor: int) -> tuple[str, int, bool]:
+    """Decode complete JSON string characters without waiting for its closing quote."""
+    output: list[str] = []
+    index = cursor
+    escapes = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+    }
+    while index < len(value):
+        char = value[index]
+        if char == '"':
+            return "".join(output), index + 1, True
+        if char != "\\":
+            output.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(value):
+            break
+        escape = value[index + 1]
+        if escape in escapes:
+            output.append(escapes[escape])
+            index += 2
+            continue
+        if escape != "u" or index + 6 > len(value):
+            break
+        try:
+            codepoint = int(value[index + 2 : index + 6], 16)
+        except ValueError:
+            break
+        index += 6
+        if 0xD800 <= codepoint <= 0xDBFF:
+            if index + 6 > len(value) or value[index : index + 2] != "\\u":
+                index -= 6
+                break
+            try:
+                low = int(value[index + 2 : index + 6], 16)
+            except ValueError:
+                index -= 6
+                break
+            if not 0xDC00 <= low <= 0xDFFF:
+                index -= 6
+                break
+            codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00)
+            index += 6
+        elif 0xDC00 <= codepoint <= 0xDFFF:
+            codepoint = 0xFFFD
+        output.append(chr(codepoint))
+    return "".join(output), index, False
 
 
 class Orchestrator:
@@ -80,8 +147,17 @@ class Orchestrator:
         module = context.get("module", "dashboard")
         request_id = context.get("request_id", "")
         session_id = str(context.get("session_id") or "")
+        assistant_domain = str(context.get("assistant_domain") or "staff")
 
-        agent = agents.for_route(route)
+        # Intent-first agent selection (same as stream_answer)
+        agent = None
+        hinted = agents.route_hint_for(question)
+        if hinted is not None:
+            agent = agents.AGENTS.get(hinted[0])
+        if agent is None:
+            agent = agents.for_route(route)
+        if agent is None:
+            agent = agents.default_agent()
 
         # Deterministic pre-flight, before any provider call:
         #   - a confidentiality probe is refused locally and never reaches a
@@ -127,11 +203,18 @@ class Orchestrator:
         session = None
         if self.chat_sessions is not None:
             if session_id:
-                session = self.chat_sessions.get_session(user_id, session_id, limit=1)
+                session = self.chat_sessions.get_session(
+                    user_id, session_id, limit=1, assistant_domain=assistant_domain
+                )
             if session is None:
-                session = self.chat_sessions.create(user_id, route)
+                session = self.chat_sessions.create(
+                    user_id, route, assistant_domain=assistant_domain
+                )
             session_id = session["id"]
             context = {**context, "session_id": session_id}
+            self._merge_incoming_topics(user_id, session_id, context)
+
+        prefs = self._preferences(user_id, context)
 
         routing = "route_match"
         if agent is None:
@@ -149,6 +232,42 @@ class Orchestrator:
             agent = agents.default_agent()
             routing = "default"
 
+        # The system_admin agent and its file/log tools are reserved for
+        # system administrators only. A non-admin request that lands here is
+        # demoted to the default agent; an explicit admin-mode request from a
+        # verified administrator is honoured.
+        wants_admin = bool(context.get("system_admin"))
+        if agent["id"] == "system_admin.agent":
+            if not (wants_admin and self._is_system_admin(context)):
+                agent = agents.default_agent()
+                routing = "not_authorized" if wants_admin else routing
+        elif wants_admin and self._is_system_admin(context):
+            resolved = agents.resolve("system_admin.agent")
+            if resolved is not None:
+                agent = resolved
+                routing = "admin_mode"
+
+        # Assistant domain routing: explicit persona from the frontend.
+        # system_admin -> system_admin.agent, parent -> parent.agent,
+        # public -> public.agent, staff -> use normal staff routing.
+        assistant_domain = str(context.get("assistant_domain") or "").lower()
+        if assistant_domain and agent["id"] != "system_admin.agent":
+            domain_agent_map = {
+                "system_admin": "system_admin.agent",
+                "parent": "parent.agent",
+                "public": "public.agent",
+                "staff": None,  # normal staff routing below
+            }
+            target = domain_agent_map.get(assistant_domain)
+            if target:
+                resolved = agents.resolve(target)
+                if resolved is not None:
+                    agent = resolved
+                    routing = f"domain:{assistant_domain}"
+                else:
+                    agent = agents.default_agent()
+                    routing = "default"
+
         self.behavior.observe(
             user_id,
             "question",
@@ -165,7 +284,13 @@ class Orchestrator:
 
         # Record turn to session
         self._remember_session(
-            session_id, user_id, route, question, result.get("answer")
+            session_id,
+            user_id,
+            route,
+            question,
+            result.get("answer"),
+            save_history=bool(prefs.get("save_history", True)),
+            assistant_domain=assistant_domain,
         )
 
         self.behavior.observe(
@@ -311,6 +436,8 @@ class Orchestrator:
             "assistant.workspace_scan",
             {"route": route},
             request_id,
+            roles=context.get("roles"),
+            role_ids=context.get("role_ids"),
         )
         hints = self.behavior.hints(user_id)
 
@@ -660,7 +787,13 @@ class Orchestrator:
                 (
                     tool_id,
                     self.tools.execute(
-                        user_id, permissions, tool_id, tool_input, request_id
+                        user_id,
+                        permissions,
+                        tool_id,
+                        tool_input,
+                        request_id,
+                        roles=context.get("roles"),
+                        role_ids=context.get("role_ids"),
                     ),
                 )
             ]
@@ -716,7 +849,29 @@ class Orchestrator:
         module = context.get("module", "dashboard")
         request_id = context.get("request_id", "")
         session_id = str(context.get("session_id") or "")
-        agent = agents.for_route(route)
+        assistant_domain = str(context.get("assistant_domain") or "staff")
+
+        # Intent-first agent selection: use fast lexical hint from question
+        # before falling back to route. This ensures placement_tests questions
+        # about reports go to reports.agent, not admissions.agent.
+        # First, check if the question is a governed-report query that should
+        # go to reports.agent regardless of route hints.
+        agent = None
+        routing = "route_match"
+        if self._is_report_query(question):
+            agent = agents.AGENTS.get("reports.agent")
+            routing = "report_query"
+        if agent is None:
+            hinted = agents.route_hint_for(question)
+            if hinted is not None:
+                agent = agents.AGENTS.get(hinted[0])
+                routing = "lexical"
+        if agent is None:
+            agent = agents.for_route(route)
+            routing = "route_match" if agent else "default"
+        if agent is None:
+            agent = agents.default_agent()
+            routing = "default"
 
         # Same deterministic pre-flight as the buffered path.
         if guard.is_confidential(question):
@@ -732,26 +887,63 @@ class Orchestrator:
         session = None
         if self.chat_sessions is not None:
             if session_id:
-                session = self.chat_sessions.get_session(user_id, session_id, limit=1)
+                session = self.chat_sessions.get_session(
+                    user_id, session_id, limit=1, assistant_domain=assistant_domain
+                )
             if session is None:
-                session = self.chat_sessions.create(user_id, route)
+                session = self.chat_sessions.create(
+                    user_id, route, assistant_domain=assistant_domain
+                )
             session_id = session["id"]
             context = {**context, "session_id": session_id}
+            self._merge_incoming_topics(user_id, session_id, context)
 
-        routing = "route_match"
-        if agent is None:
-            hinted = agents.route_hint_for(question)
-            if hinted is not None:
-                agent = agents.AGENTS.get(hinted[0])
-                routing = "lexical"
-        if agent is None:
-            agent = agents.default_agent()
-            routing = "default"
+        prefs = self._preferences(user_id, context)
+
+        # The system_admin agent and its file/log tools are reserved for
+        # system administrators only.
+        wants_admin = bool(context.get("system_admin"))
+        if agent["id"] == "system_admin.agent":
+            if not (wants_admin and self._is_system_admin(context)):
+                agent = agents.default_agent()
+                routing = "not_authorized" if wants_admin else routing
+        elif wants_admin and self._is_system_admin(context):
+            resolved = agents.resolve("system_admin.agent")
+            if resolved is not None:
+                agent = resolved
+                routing = "admin_mode"
+
+        # Assistant domain routing: explicit persona from the frontend.
+        assistant_domain = str(context.get("assistant_domain") or "").lower()
+        if assistant_domain and agent["id"] != "system_admin.agent":
+            domain_agent_map = {
+                "system_admin": "system_admin.agent",
+                "parent": "parent.agent",
+                "public": "public.agent",
+                "staff": None,
+            }
+            target = domain_agent_map.get(assistant_domain)
+            if target:
+                resolved = agents.resolve(target)
+                if resolved is not None:
+                    agent = resolved
+                    routing = f"domain:{assistant_domain}"
+                else:
+                    agent = agents.default_agent()
+                    routing = "default"
 
         started = time.monotonic()
         allowed_tools = list(agent["tools"])
+        yield {"kind": "status", "text": "I'm checking the relevant school records..."}
         prefetched = self._prefetch_context(
-            agent, user_id, permissions, request_id, route
+            agent,
+            user_id,
+            permissions,
+            request_id,
+            route,
+            question,
+            roles=context.get("roles"),
+            role_ids=context.get("role_ids"),
         )
         tool_results = [
             self._compact_result(tool_id, result) for tool_id, result in prefetched
@@ -770,12 +962,162 @@ class Orchestrator:
             },
         )
 
-        history = self._conversation_turns(user_id, route, session_id)
-        if not history:
-            history = list((context.get("history") or []))[-MAX_HISTORY_TURNS:]
+        history_messages = self._conversation_messages(
+            user_id, route, session_id, context, question=question
+        )
+        summary = self._conversation_summary(user_id, session_id, route, context)
+        topics = self._session_topics(user_id, session_id, context)
+        navigation = self._navigation_lines(context.get("sidebar_state"))
         instruction = (
             slash_instruction or str((context.get("instruction") or "") or "")
         )[:400]
+        has_nlq_tool = "reports.nlq" in agent.get("tools", ())
+        has_nlq_prefetch = has_nlq_tool and any(
+            tool_id == "reports.nlq" for tool_id, _ in prefetched
+        )
+        if has_nlq_prefetch:
+            nlq_result = next(
+                (result for tool_id, result in prefetched if tool_id == "reports.nlq"),
+                {},
+            )
+            report_code = nlq_result.get("report_code", "UNKNOWN")
+            if report_code == "UNKNOWN" and "answer" in nlq_result:
+                report_code = nlq_result["answer"].get("report_code", "UNKNOWN")
+            report_title = nlq_result.get("report_title", "")
+            if not report_title and "answer" in nlq_result:
+                report_title = nlq_result["answer"].get("report_title", "")
+            row_count = nlq_result.get("row_count", 0)
+            if not row_count and "answer" in nlq_result:
+                row_count = nlq_result["answer"].get("row_count", 0)
+            columns = nlq_result.get("columns", [])
+            if not columns and "answer" in nlq_result:
+                columns = nlq_result["answer"].get("columns", [])
+            rows = nlq_result.get("rows", [])
+            if not rows and "answer" in nlq_result:
+                rows = nlq_result["answer"].get("rows", [])
+            # Generate deterministic answer directly from data, bypass model
+            deterministic_answer = self._generate_nlq_answer(question, nlq_result)
+            if deterministic_answer:
+                # Generate dynamic follow-up questions based on report data
+                followups = self._generate_followup_questions(
+                    report_code, rows, columns, question
+                )
+            # Stream the deterministic answer and finish
+            yield {
+                "kind": "status",
+                "text": "I'm checking the relevant school records...",
+            }
+
+            # Track TTFT (time to first token)
+            ttft_marked = False
+            ttft_ms = 0
+
+            for piece in deterministic_answer.split():
+                if not ttft_marked:
+                    ttft_ms = int((time.monotonic() - started) * 1000)
+                    ttft_marked = True
+                yield {"kind": "delta", "text": piece + " "}
+
+            # Build citations from report data
+            citations = []
+            if report_code and report_code != "UNKNOWN":
+                citations.append(
+                    {
+                        "report_code": report_code,
+                        "title": report_title or report_code,
+                        "description": f"Governed report executed at {datetime.now(ZoneInfo('Africa/Nairobi')).isoformat()}",
+                        "row_count": row_count,
+                        "columns": columns,
+                    }
+                )
+
+            # Check for insufficient data
+            insufficient_data = row_count == 0
+
+            total_latency_ms = int((time.monotonic() - started) * 1000)
+
+            # The governed report in hand is a complete answer: persist the turn
+            # to the session store before emitting it. Skipping this left the
+            # session with no messages and no title, so history stayed empty.
+            deterministic_result = {
+                "answer": {
+                    "title": deterministic_answer[:100],
+                    "body": deterministic_answer,
+                    "next_steps": [],
+                    "suggested_questions": followups,
+                    "escalation_required": False,
+                    "insufficient_data": insufficient_data,
+                    "citations": citations,
+                },
+                "status": "answered",
+                "degraded": False,
+                "tools_used": ["reports.nlq"],
+                "provider_calls": 0,
+                "routing": "report_query",
+                "agent": {
+                    "id": agent["id"],
+                    "name": agent["name"],
+                    "domain": agent["domain"],
+                },
+            }
+            self._remember_session(
+                session_id,
+                user_id,
+                route,
+                question,
+                deterministic_result["answer"],
+                save_history=bool(prefs.get("save_history", True)),
+                assistant_domain=assistant_domain,
+            )
+            self._observe_outcome(
+                user_id, route, module, agent, ["reports.nlq"], "answered"
+            )
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "agent_assist_stream",
+                    "operator_id": user_id,
+                    "agent_id": agent["id"],
+                    "route": route,
+                    "outcome": "answered",
+                    "tools_used": ["reports.nlq"],
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "request_id": request_id,
+                },
+            )
+            yield {
+                "kind": "final",
+                "answer": deterministic_result["answer"],
+                "status": deterministic_result["status"],
+                "degraded": deterministic_result["degraded"],
+                "tools_used": deterministic_result["tools_used"],
+                "routing": deterministic_result["routing"],
+                "agent": deterministic_result["agent"],
+                "latency": {
+                    "ttft_ms": ttft_ms,
+                    "total_latency_ms": total_latency_ms,
+                    "prefetch_ms": 0,
+                    "provider_calls": 0,
+                    "tool_calls": 1,
+                },
+                **(
+                    {
+                        "session_id": session_id,
+                        "session_title": session.get("title") if session else "",
+                    }
+                    if session_id
+                    else {}
+                ),
+            }
+            return
+        else:
+            grounding_note = (
+                "Prefetched results may be unrelated to this question. Never use "
+                "a briefing or workflow catalogue as evidence for school records. "
+                "For any other school-data question, request reports.nlq with the "
+                f"user's question before answering. Today's date in Africa/Nairobi is "
+                f"{datetime.now(ZoneInfo('Africa/Nairobi')).date().isoformat()}."
+            )
         base_envelope = {
             "question": question,
             "audience": "staff",
@@ -783,17 +1125,15 @@ class Orchestrator:
             "route": route,
             "module": module,
             "behavior_hints": self._hint_lines(hints),
-            "grounding_note": (
-                "Governed results are already in tool_results. Answer from them; "
-                "only request a tool if the results genuinely do not cover the "
-                "question."
-            ),
+            "grounding_note": grounding_note,
             "tool_results": tool_results,
-            "conversation": history,
+            "conversation": summary,
+            "session_topics": topics,
+            "preferences": self._preference_lines(prefs),
+            "navigation": navigation,
         }
         if instruction:
             base_envelope["instruction"] = instruction
-
         envelope = policy.minimize(
             "system.agent_chat",
             {key: value for key, value in base_envelope.items() if value},
@@ -811,6 +1151,7 @@ class Orchestrator:
         for attempt in range(2):
             messages = [
                 {"role": "system", "content": agents.stream_prompt(agent, context)},
+                *history_messages,
                 {"role": "user", "content": json.dumps(envelope, ensure_ascii=False)},
             ]
             # An oversized envelope must be trimmed rather than lose the answer.
@@ -820,6 +1161,9 @@ class Orchestrator:
             buffered = ""
             emitted = 0
             is_tool_frame: bool | None = None
+            action: str | None = None
+            answer_body_cursor: int | None = None
+            answer_body_closed = False
             provider_error = None
             try:
                 for delta in self.provider.stream(messages, {"task": "chat"}):
@@ -833,6 +1177,43 @@ class Orchestrator:
                         yield {"kind": "delta", "text": buffered[emitted:]}
                         emitted = len(buffered)
                         rendered_any = True
+                    elif is_tool_frame:
+                        # Tool proposals must remain private until validated,
+                        # but the final action's JSON answer body is safe to
+                        # decode and stream as ordinary assistant text.
+                        if action is None:
+                            match = re.search(
+                                r'(?<!\\)"action"\s*:\s*"([^"\\]*)"',
+                                buffered,
+                            )
+                            if match:
+                                action = match.group(1)
+                        if action == "final":
+                            if answer_body_cursor is None:
+                                answer_match = re.search(
+                                    r'(?<!\\)"answer"\s*:\s*\{', buffered
+                                )
+                                if answer_match:
+                                    body_match = re.search(
+                                        r'(?<!\\)"body"\s*:\s*"',
+                                        buffered[answer_match.end() :],
+                                    )
+                                    if body_match:
+                                        answer_body_cursor = (
+                                            answer_match.end() + body_match.end()
+                                        )
+                            if (
+                                answer_body_cursor is not None
+                                and not answer_body_closed
+                            ):
+                                piece, answer_body_cursor, answer_body_closed = (
+                                    _decode_partial_json_string(
+                                        buffered, answer_body_cursor
+                                    )
+                                )
+                                if piece:
+                                    yield {"kind": "delta", "text": piece}
+                                    rendered_any = True
             except ProviderError as error:
                 provider_error = str(error)[:200]
                 break
@@ -849,14 +1230,20 @@ class Orchestrator:
                 if requests and attempt == 0:
                     yield {
                         "kind": "status",
-                        "text": "Consulting the governed school records…",
+                        "text": "I’m checking those records…",
                     }
                     for tool_id, tool_input in requests:
                         payload = dict(tool_input or {})
                         if tool_id == "reports.nlq":
                             payload.setdefault("question", question)
                         result = self.tools.execute(
-                            user_id, permissions, tool_id, payload, request_id
+                            user_id,
+                            permissions,
+                            tool_id,
+                            payload,
+                            request_id,
+                            roles=context.get("roles"),
+                            role_ids=context.get("role_ids"),
                         )
                         tools_used.append(tool_id)
                         tool_results.append(self._compact_result(tool_id, result))
@@ -907,7 +1294,15 @@ class Orchestrator:
 
         self._observe_outcome(user_id, route, module, agent, tools_used, outcome)
         # Record turn to session
-        self._remember_session(session_id, user_id, route, question, answer)
+        self._remember_session(
+            session_id,
+            user_id,
+            route,
+            question,
+            answer,
+            save_history=bool(prefs.get("save_history", True)),
+            assistant_domain=assistant_domain,
+        )
         self.journal.write(
             "ai_generation",
             {
@@ -977,6 +1372,171 @@ class Orchestrator:
                 )
         return lines
 
+    def _merge_incoming_topics(
+        self, user_id: int, session_id: str, context: dict
+    ) -> None:
+        """Persist topic labels the client already extracted from the turn."""
+        if self.chat_sessions is None or not session_id:
+            return
+        topics = context.get("topics")
+        if isinstance(topics, list) and topics:
+            try:
+                self.chat_sessions.add_topics(user_id, session_id, topics)
+            except Exception:
+                pass
+
+    def _preferences(self, user_id: int, context: dict) -> dict[str, Any]:
+        prefs: dict[str, Any] = {}
+        if self.chat_sessions is not None:
+            try:
+                stored = self.chat_sessions.get_prefs(user_id)
+                if isinstance(stored, dict):
+                    prefs.update(stored)
+            except Exception:
+                pass
+        incoming = context.get("preferences")
+        if isinstance(incoming, dict):
+            if "save_history" in incoming:
+                prefs["save_history"] = bool(incoming.get("save_history"))
+            if "auto_charts" in incoming:
+                prefs["auto_charts"] = bool(incoming.get("auto_charts"))
+            for key in ("response_style", "language"):
+                value = str(incoming.get(key) or "").strip()[:40]
+                if value:
+                    prefs[key] = value
+        return prefs
+
+    @staticmethod
+    def _preference_lines(prefs: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        style = str(prefs.get("response_style") or "").strip()
+        if style:
+            lines.append(f"Response style: {style[:40]}")
+        language = str(prefs.get("language") or "").strip()
+        if language and language.lower() not in ("en", "english"):
+            lines.append(f"Preferred language: {language[:40]}")
+        if prefs.get("auto_charts") is False:
+            lines.append("Charts: only when explicitly requested")
+        return lines
+
+    @staticmethod
+    def _navigation_lines(state: Any) -> list[str]:
+        if not isinstance(state, dict):
+            return []
+        lines: list[str] = []
+        current = str(
+            state.get("current_label") or state.get("title") or state.get("route") or ""
+        ).strip()
+        if current:
+            lines.append(f"Current screen: {current[:120]}")
+        items = state.get("visible_items")
+        if isinstance(items, list):
+            labels: list[str] = []
+            for item in items[:12]:
+                label = ""
+                if isinstance(item, dict):
+                    label = str(item.get("label") or "").strip()
+                elif isinstance(item, str):
+                    label = item.strip()
+                if label and label not in labels:
+                    labels.append(label[:60])
+            if labels:
+                lines.append(f"Sidebar: {', '.join(labels)}")
+        return lines
+
+    def _conversation_messages(
+        self,
+        user_id: int,
+        route: str,
+        session_id: str,
+        context: dict,
+        question: str = "",
+    ) -> list[dict[str, str]]:
+        """Native role-based history, preferring the server-side transcript."""
+        if self.chat_sessions is not None and session_id:
+            try:
+                messages = self.chat_sessions.history_messages(
+                    user_id,
+                    session_id,
+                    max_turns=MAX_HISTORY_TURNS,
+                    message_chars=HISTORY_MESSAGE_CHARS,
+                    char_budget=HISTORY_CHAR_BUDGET,
+                )
+                if messages:
+                    return messages
+            except Exception:
+                pass
+        history = context.get("history")
+        if not isinstance(history, list):
+            return []
+        selected: list[dict[str, str]] = []
+        for item in history[-(MAX_HISTORY_TURNS * 2) :]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role") or "")
+            if role not in ("user", "assistant"):
+                continue
+            content = str(item.get("content") or "").strip()[:HISTORY_MESSAGE_CHARS]
+            if content:
+                selected.append({"role": role, "content": content})
+        if question and selected:
+            last = selected[-1]
+            if last["role"] == "user" and last["content"] == question:
+                selected.pop()
+        return selected
+
+    def _conversation_summary(
+        self, user_id: int, session_id: str, route: str, context: dict
+    ) -> list[str]:
+        if self.chat_sessions is not None and session_id:
+            try:
+                return self.chat_sessions.summary(
+                    user_id,
+                    session_id,
+                    recent_turns=MAX_HISTORY_TURNS,
+                    max_lines=SUMMARY_LINES,
+                )
+            except Exception:
+                return []
+        return []
+
+    def _session_topics(
+        self, user_id: int, session_id: str, context: dict
+    ) -> list[str]:
+        if self.chat_sessions is not None and session_id:
+            try:
+                topics = self.chat_sessions.get_topics(user_id, session_id)
+                if topics:
+                    return list(topics)[:12]
+            except Exception:
+                pass
+        incoming = context.get("topics")
+        if not isinstance(incoming, list):
+            return []
+        clean: list[str] = []
+        for topic in incoming[:12]:
+            text = " ".join(str(topic or "").split())[:40]
+            if text and text not in clean:
+                clean.append(text)
+        return clean
+
+    def _is_system_admin(self, context: dict) -> bool:
+        """True only when the authenticated operator is a system administrator.
+
+        Checked via the system_admin permission or an equivalent role label so
+        the system_admin agent and its file/log tools can never be reached by
+        ordinary staff.
+        """
+        permissions = set(str(p) for p in (context.get("permissions") or []))
+        roles = context.get("roles") or []
+        role_text = " ".join(str(r) for r in roles).lower()
+        return (
+            SYSTEM_ADMIN_PERMISSION in permissions
+            or "system admin" in role_text
+            or "system_administrator" in role_text
+            or "school administrator" in role_text
+        )
+
     def _remember_session(
         self,
         session_id: str,
@@ -984,11 +1544,15 @@ class Orchestrator:
         route: str,
         question: str,
         answer: dict[str, Any] | None,
+        save_history: bool = True,
+        assistant_domain: str = "staff",
     ) -> None:
         """Record a turn to the chat session store."""
         if self.chat_sessions is None or not session_id:
             # Fall back to legacy store
             self._remember(user_id, route, question, answer)
+            return
+        if not save_history:
             return
         if not isinstance(answer, dict):
             return
@@ -997,7 +1561,9 @@ class Orchestrator:
             return
         try:
             # Record user message
-            self.chat_sessions.append(user_id, session_id, "user", question)
+            self.chat_sessions.append(
+                user_id, session_id, "user", question, assistant_domain=assistant_domain
+            )
             # Record assistant message with meta
             meta = {
                 "agent_id": answer.get("agent", {}).get("id", ""),
@@ -1011,6 +1577,7 @@ class Orchestrator:
                 body,
                 agent_id=answer.get("agent", {}).get("id", ""),
                 meta=meta,
+                assistant_domain=assistant_domain,
             )
         except Exception:
             pass
@@ -1033,15 +1600,20 @@ class Orchestrator:
     def _assert_prompt_fits(self, messages: list[dict[str, str]]) -> None:
         """Trim the prompt rather than fail the whole answer.
 
-        Governed tool results are the only unbounded part of the envelope. If a
-        rare report result pushes the prompt past the approved budget, drop the
-        oldest tool results one at a time rather than losing the answer.
+        Tool results and native history are the unbounded parts of the prompt.
+        Overflow first drops the oldest governed results, then the oldest
+        history turns, so the current question and the most recent context
+        always survive.
         """
         if policy.MAX_CONTEXT_BYTES <= 0:
             return
         while self._prompt_bytes(messages) > policy.MAX_CONTEXT_BYTES:
             user_turn = next(
-                (message for message in messages if message.get("role") == "user"),
+                (
+                    message
+                    for message in reversed(messages)
+                    if message.get("role") == "user"
+                ),
                 None,
             )
             if user_turn is None:
@@ -1049,15 +1621,41 @@ class Orchestrator:
             try:
                 payload = json.loads(user_turn["content"])
             except (TypeError, ValueError):
+                payload = None
+            changed = False
+            if isinstance(payload, dict):
+                results = payload.get("tool_results")
+                if isinstance(results, list) and results:
+                    if len(results) > 1:
+                        payload["tool_results"] = results[1:]
+                    else:
+                        payload.pop("tool_results", None)
+                    changed = True
+                else:
+                    conversation = payload.get("conversation")
+                    if isinstance(conversation, list) and conversation:
+                        if len(conversation) > 2:
+                            payload["conversation"] = conversation[-2:]
+                        else:
+                            payload.pop("conversation", None)
+                        changed = True
+            if changed and isinstance(payload, dict):
+                user_turn["content"] = json.dumps(payload, ensure_ascii=False)
+                continue
+            # No envelope material left: drop the oldest history turn.
+            history_index = next(
+                (
+                    index
+                    for index, message in enumerate(messages)
+                    if index > 0
+                    and message is not user_turn
+                    and message.get("role") in ("user", "assistant")
+                ),
+                None,
+            )
+            if history_index is None:
                 return
-            results = payload.get("tool_results")
-            if not isinstance(results, list) or len(results) <= 1:
-                payload.pop("tool_results", None)
-            else:
-                payload["tool_results"] = results[1:]
-            user_turn["content"] = json.dumps(payload, ensure_ascii=False)
-            if "tool_results" not in payload and not results:
-                return
+            messages.pop(history_index)
 
     @staticmethod
     def _prompt_bytes(messages: list[dict[str, str]]) -> int:
@@ -1105,7 +1703,325 @@ class Orchestrator:
             return None
         if not isinstance(parsed, dict):
             return None
+        if parsed.get("action") == "final" and isinstance(parsed.get("answer"), dict):
+            parsed = parsed["answer"]
         return self._validate_answer(parsed)
+
+    # ----------------------------------------------------------- deterministic NLQ answer
+    def _generate_nlq_answer(
+        self, question: str, nlq_result: dict[str, Any]
+    ) -> str | None:
+        """Generate a deterministic answer from NLQ results, bypassing the model.
+
+        Returns the answer string or None if the report type isn't handled.
+        """
+        # The tool bridge wraps the result in 'answer' key
+        answer_data = nlq_result.get("answer", nlq_result)
+        report_code = answer_data.get("report_code", "")
+        report_title = answer_data.get("report_title", "")
+        row_count = answer_data.get("row_count", 0)
+        columns = answer_data.get("columns", [])
+        rows = answer_data.get("rows", [])
+        summary = answer_data.get("summary", {})
+        filters = answer_data.get("filters", {})
+
+        if not rows and row_count == 0:
+            # The governed payload nests everything under "answer"; the title
+            # above is already unwrapped. Reading the top level rendered the
+            # empty parentheses in "report **CODE** ()".
+            label = f" ({report_title})" if report_title else ""
+            return (
+                f"The report **{report_code}**{label} returned no data for the "
+                "current filters."
+            )
+
+        # Handle common report types with specific formatting
+        q_lower = question.lower()
+
+        # ENR_CURRENT_BY_CLASS - enrollment by class
+        if report_code == "ENR_CURRENT_BY_CLASS":
+            total = sum(r.get("total", 0) for r in rows)
+            boys = sum(r.get("boys", 0) for r in rows)
+            girls = sum(r.get("girls", 0) for r in rows)
+
+            parts = [
+                f"**Current Enrollment: {total:,} learners** ({boys:,} boys, {girls:,} girls) across {row_count} class/streams."
+            ]
+
+            if "boarder" in q_lower or "boarding" in q_lower:
+                # Check if there's a student_type filter or column
+                boarder_rows = [
+                    r for r in rows if str(r.get("student_type", "")).upper() == "BOARD"
+                ]
+                if boarder_rows:
+                    b_total = sum(r.get("total", 0) for r in boarder_rows)
+                    parts.append(f"**Boarders: {b_total:,}**")
+                else:
+                    parts.append("Boarder breakdown not available in this report.")
+
+            # Show top 5 classes
+            if row_count <= 10:
+                parts.append("\n**By class:**")
+                for r in rows:
+                    parts.append(
+                        f"• {r.get('class_name', '')} {r.get('stream_name', '')}: {r.get('total', 0):,} ({r.get('boys', 0):,}B / {r.get('girls', 0):,}G)"
+                    )
+            else:
+                top5 = sorted(rows, key=lambda x: x.get("total", 0), reverse=True)[:5]
+                parts.append(f"\n**Largest classes:**")
+                for r in top5:
+                    parts.append(
+                        f"• {r.get('class_name', '')} {r.get('stream_name', '')}: {r.get('total', 0):,}"
+                    )
+
+            parts.append(
+                f"\n_Report: {report_code} — {report_title}_"
+            )
+            return "\n".join(parts)
+
+        # ENR_MONTHLY_TREND
+        if report_code == "ENR_MONTHLY_TREND":
+            parts = [f"**Enrollment trend** ({row_count} months)"]
+            for r in rows[:12]:
+                parts.append(f"• {r.get('month', '')}: {r.get('total', 0):,}")
+            parts.append(
+                f"\n_Report: {report_code} — {report_title}_"
+            )
+            return "\n".join(parts)
+
+        # ADM_CONVERSION, ADM_ENROLLED_COHORT
+        if report_code in ("ADM_CONVERSION", "ADM_ENROLLED_COHORT"):
+            parts = [
+                f"**Admissions {report_code.replace('ADM_', '').replace('_', ' ').title()}**"
+            ]
+            for r in rows[:10]:
+                parts.append(f"• {r}")
+            parts.append(
+                f"\n_Report: {report_code} — {report_title}_"
+            )
+            return "\n".join(parts)
+
+        # FIN_FEE_SUMMARY_CLASS, FIN_ARREARS_CLASS
+        if report_code in ("FIN_FEE_SUMMARY_CLASS", "FIN_ARREARS_CLASS"):
+            # Prefer the governed report's own title ("Fee Arrears by Class")
+            # over the label derived from the code ("Arrears Class").
+            parts = [
+                f"**{report_title or report_code.replace('FIN_', '').replace('_', ' ').title()}**"
+            ]
+            for r in rows[:10]:
+                parts.append(f"• {r.get('class_name', '')}: {r.get('total', 0):,}")
+            parts.append(
+                f"\n_Report: {report_code} — {report_title}_"
+            )
+            return "\n".join(parts)
+
+        # ATT_CLASS_TERM_RATE
+        if report_code == "ATT_CLASS_TERM_RATE":
+            parts = [f"**Class Attendance Rate** ({row_count} classes)"]
+            for r in rows[:10]:
+                parts.append(f"• {r.get('class_name', '')}: {r.get('rate', 0):.1f}%")
+            parts.append(
+                f"\n_Report: {report_code} — {report_title}_"
+            )
+            return "\n".join(parts)
+
+        # Generic fallback for other reports
+        parts = [f"**{report_code}** — {report_title}"]
+        parts.append(f"Rows: {row_count:,}")
+        if summary:
+            parts.append(f"Summary: {summary}")
+        # Show first 5 rows
+        for r in rows[:5]:
+            parts.append(f"• {r}")
+        if row_count > 5:
+            parts.append(f"... and {row_count - 5} more rows")
+        parts.append(
+            f"\n_Report: {report_code} — {report_title}_"
+        )
+        return "\n".join(parts)
+
+    # ----------------------------------------------------------- dynamic follow-up questions
+    def _generate_followup_questions(
+        self, report_code: str, rows: list[dict], columns: list[str], question: str
+    ) -> list[str]:
+        """Generate context-aware follow-up questions based on report data."""
+        followups = []
+        q_lower = question.lower()
+
+        if report_code == "ENR_CURRENT_BY_CLASS":
+            # Enrollment-specific follow-ups
+            if rows:
+                total = sum(r.get("total", 0) for r in rows)
+                if total > 0:
+                    followups.append(f"Show me the enrollment breakdown by gender")
+                    followups.append(f"Which class has the highest enrollment?")
+                    followups.append(f"Compare enrollment trends over the last 3 terms")
+            if "boarder" in question.lower():
+                followups.append("How many day students are enrolled?")
+                followups.append("Show boarding capacity by dormitory")
+
+        elif report_code == "ENR_MONTHLY_TREND":
+            followups.append("Show enrollment trend for the current academic year")
+            followups.append("Compare this year's enrollment with last year")
+            followups.append("What is the projected enrollment for next term?")
+
+        elif report_code == "ADM_CONVERSION":
+            followups.append("Show conversion rate by grade level")
+            followups.append("Which admission stage has the highest drop-off?")
+            followups.append("Compare conversion rates across terms")
+
+        elif report_code == "ADM_ENROLLED_COHORT":
+            followups.append("Show cohort retention rate by grade")
+            followups.append("How many admitted students are boarders vs day?")
+            followups.append("Breakdown by admission window")
+
+        elif report_code == "ATT_CLASS_TERM_RATE":
+            if rows:
+                followups.append("Which classes have attendance below 90%?")
+                followups.append("Show attendance trend for the current term")
+                followups.append("Compare attendance by stream")
+
+        elif report_code == "FIN_FEE_SUMMARY_CLASS":
+            followups.append("Show fee arrears by class")
+            followups.append("Which classes have the highest outstanding balances?")
+            followups.append("Compare fee collection rate this term vs last term")
+
+        elif report_code == "FIN_ARREARS_CLASS":
+            followups.append("Show top 10 students with highest arrears")
+            followups.append("Breakdown by payment method")
+            followups.append("Projected collections for next month")
+
+        elif report_code == "DISC_INCIDENT_TREND":
+            followups.append("Show incidents by category")
+            followups.append("Which classes have the most incidents?")
+            followups.append("Compare this term with last term")
+
+        elif report_code == "HR_STAFF_ATTENDANCE_RATE":
+            followups.append("Show attendance by department")
+            followups.append("Which staff members have the most absences?")
+            followups.append("Compare attendance this term vs last term")
+
+        elif report_code == "INV_STOCK_LEVELS":
+            followups.append("Show items below reorder level")
+            followups.append("Which items have the highest turnover?")
+            followups.append("Project stock-out dates for critical items")
+
+        elif report_code == "CAT_FOOD_CONSUMPTION":
+            followups.append("Show meal cost per student")
+            followups.append("Compare food waste by meal type")
+            followups.append("Project food budget for next term")
+
+        elif report_code == "COMMS_DELIVERY_SUMMARY":
+            followups.append("Show failed messages by channel")
+            followups.append("Which guardians have undelivered messages?")
+            followups.append("Compare SMS vs email delivery rates")
+
+        elif report_code in ("CBC_CLASS_ASSESSMENT_SUMMARY", "CBC_RUBRIC_DISTRIBUTION"):
+            followups.append("Show results by learning area")
+            followups.append("Which classes need intervention?")
+            followups.append("Compare performance across terms")
+
+        # Generic fallbacks
+        if not followups:
+            followups = [
+                "Show me the raw data for this report",
+                "Export this report to CSV",
+                "Open the full report in the analytics catalogue",
+            ]
+
+        return followups[:3]
+
+    # ----------------------------------------------------------- report query detection
+    def _is_report_query(self, question: str) -> bool:
+        """Check if the question is a governed-report query that should route to reports.agent."""
+        q = question.lower()
+        # Enrollment keywords
+        if any(
+            kw in q
+            for kw in (
+                "enroll",
+                "enrolment",
+                "enrollment",
+                "learner",
+                "student",
+                "pupil",
+                "headcount",
+                "admission",
+                "admit",
+                "applied",
+                "applicant",
+                "conversion",
+                "cohort",
+                "trend",
+                "monthly",
+            )
+        ):
+            return True
+        # Boarding enrollment (uses enrollment report)
+        if any(kw in q for kw in ("boarder", "boarding", "boarders")) and any(
+            kw in q for kw in ("enroll", "enrolled", "count", "how many", "number")
+        ):
+            return True
+        # Attendance
+        if any(kw in q for kw in ("attendance", "present", "absent", "absentee")):
+            return True
+        # Finance
+        if any(
+            kw in q
+            for kw in (
+                "fee",
+                "fees",
+                "arrears",
+                "outstanding",
+                "balance",
+                "payment",
+                "billing",
+            )
+        ):
+            return True
+        # Discipline
+        if any(kw in q for kw in ("discipline", "incident", "behaviour", "behavior")):
+            return True
+        # Staff
+        if any(kw in q for kw in ("staff", "teacher", "employee")) and any(
+            kw in q for kw in ("attendance", "absenteeism", "rate")
+        ):
+            return True
+        # Inventory
+        if any(
+            kw in q
+            for kw in (
+                "stock",
+                "inventory",
+                "supply",
+                "supplies",
+                "food",
+                "meal",
+                "consumption",
+            )
+        ):
+            return True
+        # Communications
+        if any(
+            kw in q
+            for kw in (
+                "message",
+                "sms",
+                "email",
+                "notification",
+                "delivery",
+                "sent",
+                "failed",
+            )
+        ):
+            return True
+        # CBC
+        if any(
+            kw in q
+            for kw in ("cbc", "competency", "competencies", "rubric", "assessment")
+        ):
+            return True
+        return False
 
     # ----------------------------------------------------------- prefetch
     def _prefetch_context(
@@ -1115,47 +2031,76 @@ class Orchestrator:
         permissions: list[str],
         request_id: str,
         route: str,
+        question: str = "",
+        roles: list | None = None,
+        role_ids: list[int] | None = None,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Warm the governed facts the agent almost always needs.
+        """Prefetch deterministic data for the question before the model answers.
 
-        The workspace scan and the workflow catalogue are both cheap,
-        deterministic, authorized reads, and the model needs both to answer
-        anything about this user's context. Running them concurrently here
-        removes one full provider-call/tool-step pair from the critical path.
+        For any agent with the NLQ tool, run reports.nlq proactively so the
+        model receives real governed data in the first turn. For other agents,
+        only fetch briefing or catalogue when explicitly asked.
         """
-        # The briefing is the deterministic, authorized, cached source of real
-        # numbers for the current route. Without it the model has no facts and
-        # can only restate the workflow catalogue, which is why an ungrounded
-        # question previously produced a placeholder answer.
-        wanted = {
-            name: args
-            for name, args in (
-                ("assistant.workspace_scan", {"route": route or "dashboard"}),
-                ("reports.insight_brief", {"cadence": "daily"}),
-                ("assistant.catalog", {}),
+        question_lower = str(question or "").lower()
+        candidates = []
+
+        # Data-first: proactively run the governed NLQ tool for any agent
+        # that has the NLQ tool, so the model receives real row data instead of
+        # hallucinating.
+        agent_tools = set(agent.get("tools", ()))
+        if "reports.nlq" in agent_tools:
+            candidates.append(("reports.nlq", {"question": question}))
+
+        asks_for_briefing = any(
+            term in question_lower
+            for term in (
+                "intelligence briefing",
+                "daily briefing",
+                "weekly briefing",
+                "term briefing",
             )
-            if name in agent.get("tools", ())
-        }
-        if not wanted:
+        )
+        asks_for_catalog = any(
+            term in question_lower
+            for term in (
+                "available workflows",
+                "what workflows",
+                "what tools",
+                "what can you do",
+            )
+        )
+
+        if asks_for_briefing and "reports.insight_brief" in agent_tools:
+            candidates.append(("reports.insight_brief", {"cadence": "daily"}))
+        if asks_for_catalog and "assistant.catalog" in agent_tools:
+            candidates.append(("assistant.catalog", {}))
+
+        if not candidates:
             return []
 
         results: list[tuple[str, dict[str, Any]]] = []
         workers = min(
-            len(wanted), max(1, int(getattr(self.config, "max_tool_parallel", 3) or 3))
+            len(candidates),
+            max(1, int(getattr(self.config, "max_tool_parallel", 3) or 3)),
         )
 
         def _run(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
             name, args = item
             return name, self.tools.execute(
-                user_id, permissions, name, args, request_id
+                user_id,
+                permissions,
+                name,
+                args,
+                request_id,
+                roles=roles,
+                role_ids=role_ids,
             )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            for name, result in pool.map(_run, list(wanted.items())):
+            for name, result in pool.map(_run, candidates):
                 results.append((name, result))
         return results
 
-    # ------------------------------------------------------------- agent loop
     def _run_agent_loop(
         self, agent: dict[str, Any], context: dict, question: str
     ) -> dict[str, Any]:
@@ -1168,8 +2113,19 @@ class Orchestrator:
         hints = self.behavior.hints(user_id)
         tools = list(agent["tools"])
 
+        prefs = self._preferences(user_id, context)
+        topics = self._session_topics(user_id, session_id, context)
+        history_messages = self._conversation_messages(
+            user_id, route, session_id, context, question=question
+        )
+        summary = self._conversation_summary(user_id, session_id, route, context)
+        navigation = self._navigation_lines(context.get("sidebar_state"))
+
         system = agents.system_prompt(agent, context)
-        messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system},
+            *history_messages,
+        ]
         tool_results: list[str] = []
         tools_used: list[str] = []
         tool_steps = 0
@@ -1182,13 +2138,19 @@ class Orchestrator:
         # call can usually answer directly instead of spending a whole
         # provider-call + tool-step pair just to discover what to ask for.
         prefetched = self._prefetch_context(
-            agent, user_id, permissions, request_id, route
+            agent,
+            user_id,
+            permissions,
+            request_id,
+            route,
+            question,
+            roles=context.get("roles"),
+            role_ids=context.get("role_ids"),
         )
         for tool_id, result in prefetched:
             tools_used.append(tool_id)
             tool_results.append(self._compact_result(tool_id, result))
 
-        history = self._conversation_turns(user_id, route, session_id)
         instruction = str(context.get("instruction") or "")[:400]
 
         try:
@@ -1206,7 +2168,10 @@ class Orchestrator:
                             "behavior_hints": self._hint_lines(hints),
                             "tools": tools,
                             "tool_results": tool_results,
-                            "conversation": history,
+                            "conversation": summary,
+                            "session_topics": topics,
+                            "preferences": self._preference_lines(prefs),
+                            "navigation": navigation,
                             "instruction": instruction,
                         }.items()
                         if value
@@ -1432,11 +2397,11 @@ class Orchestrator:
         tools_used: list[str], tool_results: list[str]
     ) -> dict[str, Any]:
         return {
-            "title": "Assistant ran out of steps",
-            "body": "The assistant gathered the information it could within its step budget but could not complete a final summary. The collected tool results are reflected in the workspace.",
+            "title": "I couldn’t verify that",
+            "body": "I couldn’t produce a reliable answer from the report results available to me. Please open the related report to verify the figures, or ask about a specific date range.",
             "next_steps": [
-                "Review the results above in the related workspace.",
-                "Re-ask the specific part that is still unclear.",
+                "Open the related report to check the current records.",
+                "Ask again with the class, report, or date range you need.",
             ],
             "suggested_questions": [],
             "escalation_required": False,

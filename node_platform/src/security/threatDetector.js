@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import os from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { getConfig } from '../config/index.js';
@@ -97,22 +97,10 @@ class ThreatDetector {
       blocked_at INTEGER NOT NULL,
       expires_at INTEGER
     )`);
-    this.run(`CREATE TABLE IF NOT EXISTS alerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      ip TEXT NOT NULL,
-      user_id TEXT,
-      details TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      hostname TEXT
-    )`);
     this.run(`CREATE TABLE IF NOT EXISTS alert_cooldowns (
       cooldown_key TEXT PRIMARY KEY,
       last_alert INTEGER NOT NULL
     )`);
-    this.run('CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)');
-    this.run('CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type)');
 
     this.logger.info({ dbPath: this.dbPath }, 'Threat detector ready');
   }
@@ -173,10 +161,16 @@ class ThreatDetector {
         const withinWindow = now - Number(existing.first_attempt) < cs.windowMs;
         count = withinWindow ? Number(existing.count) + 1 : 1;
         firstAttempt = withinWindow ? Number(existing.first_attempt) : now;
-        usernames = withinWindow ? this.parseJsonArray(existing.usernames) : [];
+        usernames = withinWindow
+          ? this.parseJsonArray(existing.usernames).map((value) => /^[a-f0-9]{64}$/i.test(value)
+            ? value
+            : createHash('sha256').update(String(value).toLowerCase()).digest('hex'))
+          : [];
         lastAlert = Number(existing.last_alert || 0);
       }
-      const cleanUsername = String(username || '').slice(0, 120);
+      // Keep only a one-way identifier so credential-stuffing detection can
+      // count distinct targets without retaining account names in SQLite.
+      const cleanUsername = username ? createHash('sha256').update(String(username).toLowerCase()).digest('hex') : '';
       if (cleanUsername && !usernames.includes(cleanUsername)) usernames.push(cleanUsername);
       if (usernames.length > 20) usernames = usernames.slice(-20);
 
@@ -267,7 +261,6 @@ class ThreatDetector {
           await this.alert('suspicious_query', {
             ip: key,
             userId: userId || null,
-            question: text.slice(0, 200),
             topics,
           });
         }
@@ -295,17 +288,26 @@ class ThreatDetector {
   }
 
   async alert(type, details) {
+    const allowedTypes = new Set(['brute_force', 'credential_stuffing', 'suspicious_query']);
+    if (!allowedTypes.has(type)) return;
+    const safeDetails = {
+      ip: this.normalizeIp(details?.ip),
+      count: Math.max(0, Number(details?.count) || 0),
+      topics: Array.isArray(details?.topics)
+        ? [...new Set(details.topics.filter((topic) => ['credentials', 'database', 'prompt_injection', 'code_execution', 'infrastructure'].includes(topic)))]
+        : [],
+    };
     const alert = {
       type,
       severity: type === 'brute_force' || type === 'credential_stuffing' ? 'critical' : 'warning',
       timestamp: new Date().toISOString(),
-      details,
-      hostname: os.hostname(),
+      details: safeDetails,
     };
 
-    await this.storeAlert(alert);
+    // The governed PHP FileLogger journal is the durable alert record. Do not
+    // persist prompt bodies or duplicate security logs in Node SQLite.
     this.bus.publish('admin-alerts', alert);
-    this.logger.warn(alert, `Security alert: ${type}`);
+    this.logger.warn({ type, severity: alert.severity }, `Security alert: ${type}`);
     await this.sendEmailAlert(alert);
   }
 
@@ -337,22 +339,6 @@ class ThreatDetector {
     }
   }
 
-  async storeAlert(alert) {
-    await this.run(
-      `INSERT INTO alerts (type, severity, ip, user_id, details, timestamp, hostname)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        alert.type,
-        alert.severity,
-        alert.details?.ip || '',
-        alert.details?.userId || null,
-        JSON.stringify(alert.details || {}),
-        Date.now(),
-        alert.hostname,
-      ],
-    );
-  }
-
   async blockIp(ip, reason) {
     await this.run(
       `INSERT INTO blocked_ips (ip, reason, blocked_at, expires_at)
@@ -379,12 +365,6 @@ class ThreatDetector {
     }
   }
 
-  async getRecentAlerts(limit = 50) {
-    await this.ready;
-    const rows = await this.all('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ?', [limit]);
-    return rows.map((row) => ({ ...row, details: JSON.parse(row.details || '{}') }));
-  }
-
   async getBlockedIps() {
     await this.ready;
     return this.all(
@@ -397,13 +377,11 @@ class ThreatDetector {
     await this.ready;
     const now = Date.now();
     const dayAgo = now - 24 * 60 * 60 * 1000;
-    const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
 
     await this.run('DELETE FROM failed_logins WHERE updated_at < ?', [dayAgo]);
     await this.run('DELETE FROM suspicious_queries WHERE updated_at < ?', [dayAgo]);
     await this.run('DELETE FROM blocked_ips WHERE expires_at IS NOT NULL AND expires_at < ?', [now]);
     await this.run('DELETE FROM alert_cooldowns WHERE last_alert < ?', [dayAgo]);
-    await this.run('DELETE FROM alerts WHERE timestamp < ?', [monthAgo]);
   }
 
   shutdown() {

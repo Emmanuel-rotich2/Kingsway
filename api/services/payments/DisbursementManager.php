@@ -336,10 +336,10 @@ class DisbursementManager
         // disbursement by request/reference.
         $insert = $this->db->prepare(
             "INSERT INTO disbursement_transactions
-                (disbursement_type, payment_purpose, payroll_id, payslip_id, source_financial_account_id, idempotency_reference, recipient_id,
+                (disbursement_type, payment_purpose, payroll_id, payslip_id, source_financial_account_id, idempotency_reference, recipient_id, recipient_type,
                  recipient_name, amount, account_number, bank_name, channel,
                  status, created_at)
-             VALUES (?, 'payroll', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending', NOW())"
+             VALUES (?, 'payroll', ?, ?, ?, ?, ?, 'staff', ?, ?, ?, ?, 'kcb_bank', 'pending', NOW())"
         );
         $insert->execute([
             'salary',

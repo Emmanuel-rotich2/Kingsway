@@ -663,7 +663,7 @@ class DirectorAnalyticsService
         } catch (\Exception $e) {}
 
         try {
-            $row = $this->db->query("SELECT COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " status = 'active'")->fetch();
+            $row = $this->db->query("SELECT COUNT(*) as cnt FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd WHERE sd.student_status = 'active'")->fetch();
             $result['total_students'] = (int) ($row['cnt'] ?? 0);
         } catch (\Exception $e) {}
 
@@ -744,8 +744,8 @@ class DirectorAnalyticsService
         $fallbackQuery = "
             SELECT
                 c.name as class_name,
-                (SELECT COUNT(DISTINCT sae.student_id) FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                 WHERE sae.class_id = c.id AND sae.enrollment_status = 'active') as student_count,
+                (SELECT COUNT(DISTINCT sd.student_id) FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                 WHERE sd.class_id = c.id AND sd.enrollment_status = 'active') as student_count,
                 0.0 as avg_score,
                 0.0 as pass_rate
             FROM " . ReadReplicaService::qualifiedRef("classes") . " c
@@ -767,14 +767,14 @@ class DirectorAnalyticsService
     {
         $query = "
             SELECT
-                c.name as class_name,
-                SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
-                SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female,
+                COALESCE(sd.class_name, 'Unassigned') as class_name,
+                SUM(CASE WHEN sd.gender = 'male' THEN 1 ELSE 0 END) as male,
+                SUM(CASE WHEN sd.gender = 'female' THEN 1 ELSE 0 END) as female,
                 COUNT(*) as total
-            FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " 
-            WHERE s.status = 'active' AND sae.enrollment_status = 'active'
-            GROUP BY c.name
-            ORDER BY c.name
+            FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+            WHERE sd.student_status = 'active' AND sd.enrollment_status = 'active'
+            GROUP BY COALESCE(sd.class_name, 'Unassigned')
+            ORDER BY class_name
         ";
         $stmt = $this->db->query($query);
         return $stmt->fetchAll();
@@ -875,7 +875,7 @@ class DirectorAnalyticsService
             SELECT 
                 st.id,
                 st.staff_no,
-                CONCAT(p.first_name, ' ', p.last_name) as name,
+                CONCAT(pd.first_name, ' ', pd.last_name) as name,
                 d.name as department,
                 'Not provided' as reason
             FROM staff_attendance sta
@@ -885,7 +885,7 @@ class DirectorAnalyticsService
             LEFT JOIN departments d ON d.id = sep.department_id
             WHERE sta.date = CURDATE()
               AND sta.status = 'absent'
-            ORDER BY d.name, p.first_name
+            ORDER BY d.name, pd.first_name
         ";
         $stmt = $this->db->query($query);
         $result['absent_staff'] = $stmt->fetchAll();

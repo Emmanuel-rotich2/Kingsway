@@ -227,6 +227,38 @@ class FinanceAPI extends BaseAPI
     }
 
     /**
+     * Bank transactions: get journal entries for a transaction.
+     */
+    public function getBankTransactionJournal($id)
+    {
+        return $this->accountsManager->getBankTransactionJournal($id);
+    }
+
+    /**
+     * Activate a financial account.
+     */
+    public function activateFinancialAccount($id, $userId)
+    {
+        return $this->accountsManager->activateFinancialAccount($id, $userId);
+    }
+
+    /**
+     * Deactivate a financial account.
+     */
+    public function deactivateFinancialAccount($id, $userId)
+    {
+        return $this->accountsManager->deactivateFinancialAccount($id, $userId);
+    }
+
+    /**
+     * Delete a financial account.
+     */
+    public function deleteFinancialAccount($id, $userId)
+    {
+        return $this->accountsManager->deleteFinancialAccount($id, $userId);
+    }
+
+    /**
      * Expenses: record a new expense (used for petty cash and general expenses).
      */
     public function recordExpense($data)

@@ -36,11 +36,11 @@ const transportOperatorController = {
 
   renderManifest() {
     const m = this.state.manifest;
-    document.getElementById('toRouteName')?.textContent = m?.route_name || '—';
-    document.getElementById('toVehicle')?.textContent = m?.vehicle_reg || '—';
-    document.getElementById('toDriver')?.textContent = m?.driver_name || '—';
-    document.getElementById('toDate')?.textContent = this.fmtDate(this.state.date);
-    document.getElementById('toSession')?.textContent = this.state.session;
+    { const el = document.getElementById('toRouteName'); if (el) el.textContent = m?.route_name || '—'; }
+    { const el = document.getElementById('toVehicle'); if (el) el.textContent = m?.vehicle_reg || '—'; }
+    { const el = document.getElementById('toDriver'); if (el) el.textContent = m?.driver_name || '—'; }
+    { const el = document.getElementById('toDate'); if (el) el.textContent = this.fmtDate(this.state.date); }
+    { const el = document.getElementById('toSession'); if (el) el.textContent = this.state.session; }
     const students = m?.students || [];
     const body = document.getElementById('toStudentsBody');
     if (!students.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No students on this run.</td></tr>'; return; }

@@ -130,6 +130,7 @@
 </script>
 <?php asset_script($appBase, 'js/public.js'); ?>
 <?php asset_script($appBase, 'js/config/ai-features.js'); ?>
+<?php asset_script($appBase, 'js/core/markdown.js'); ?>
 <?php asset_script($appBase, 'js/pages/public/ai_faq.js'); ?>
 <?php
 $__publicRealtimeOrigin = class_exists(\App\API\Services\RealtimeGatewayPublisher::class)

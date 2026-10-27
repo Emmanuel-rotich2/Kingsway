@@ -66,6 +66,27 @@ class PaymentGatewayError(RuntimeError):
     """Raised when the request is refused (not a provider outage)."""
 
 
+def _collect_headers(raw: Any) -> list[tuple[str, Any]]:
+    """Read headers from either shape the PHP relays send.
+
+    The canonical contract is ``{name: value}``, but the PHP gateway relay
+    historically serialized a list of ``"Name: Value"`` wire lines. Dropping
+    that shape silently removed ``Authorization`` from every Daraja and Buni
+    call, so both shapes are accepted here and normalized to one map.
+    """
+    if isinstance(raw, dict):
+        return list(raw.items())
+    if isinstance(raw, (list, tuple)):
+        pairs: list[tuple[str, Any]] = []
+        for item in raw:
+            line = str(item)
+            name, separator, value = line.partition(":")
+            if separator:
+                pairs.append((name.strip(), value.strip()))
+        return pairs
+    return []
+
+
 def execute(allowed_hosts: Any, params: dict[str, Any]) -> dict[str, Any]:
     """Run one already-shaped gateway request for the PHP relay.
 
@@ -90,12 +111,10 @@ def execute(allowed_hosts: Any, params: dict[str, Any]) -> dict[str, Any]:
         raise PaymentGatewayError("Provider method is not permitted.")
 
     headers: dict[str, str] = {}
-    raw_headers = params.get("headers")
-    if isinstance(raw_headers, dict):
-        for key, value in raw_headers.items():
-            name = str(key).strip()
-            if name.lower() in ALLOWED_HEADERS and value not in (None, ""):
-                headers[name] = str(value)
+    for name, value in _collect_headers(params.get("headers")):
+        name = str(name).strip()
+        if name.lower() in ALLOWED_HEADERS and value not in (None, ""):
+            headers[name] = str(value)
 
     body = params.get("body")
     payload = body.encode("utf-8") if isinstance(body, str) and body != "" else None

@@ -15,6 +15,7 @@ $pageDescriptions = [
   'events' => 'See upcoming public events at Kingsway Preparatory School in Londiani, Kenya.',
   'careers' => 'View current staff vacancies and career opportunities at Kingsway Preparatory School in Kenya.',
   'contact' => 'Contact Kingsway Preparatory School in Simotwet, Londiani, Kericho County, Kenya.',
+  'gallery' => 'Explore the Kingsway Preparatory School gallery — photos and videos of school life, facilities, events, and student activities.',
   'downloads' => 'Access public school documents and downloads from Kingsway Preparatory School.',
   'uniform-catalog' => 'Browse the Kingsway Preparatory School uniform catalogue.',
 ];
@@ -161,6 +162,12 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
         <li class="nav-item">
           <a class="nav-link <?= $activePage==='events'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=r78213fd42e2d">
             <i class="bi bi-calendar-event me-1"></i>Events
+          </a>
+        </li>
+
+        <li class="nav-item">
+          <a class="nav-link <?= $activePage==='gallery'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=gallery">
+            <i class="bi bi-collection me-1"></i>Gallery
           </a>
         </li>
 

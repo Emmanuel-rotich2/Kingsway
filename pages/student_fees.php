@@ -376,4 +376,80 @@
   </div>
 </div>
 
-<?php asset_script($appBase, 'js/pages/student_fees.js'); ?>
+<!-- Prompt Parent Modal (STK Push) -->
+<div class="modal fade" id="promptParentModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-phone me-2"></i>Prompt Parent for Payment</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="promptParentForm">
+          <input type="hidden" id="promptStudentId">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6"><label class="form-label fw-bold">Student</label><input type="text" class="form-control" id="promptStudentName" readonly></div>
+            <div class="col-md-6"><label class="form-label fw-bold">Admission No</label><input type="text" class="form-control" id="promptAdmNo" readonly></div>
+            <div class="col-md-6"><label class="form-label fw-bold">Class</label><input type="text" class="form-control" id="promptClass" readonly></div>
+            <div class="col-md-6"><label class="form-label fw-bold">Balance Due</label><input type="text" class="form-control" id="promptBalance" readonly></div>
+          </div>
+          <hr>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Parent/Guardian Name *</label>
+              <input type="text" class="form-control" id="promptParentName" required placeholder="Enter parent/guardian name">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Phone Number *</label>
+              <input type="tel" class="form-control" id="promptPhone" required placeholder="2547XXXXXXXX" pattern="254[0-9]{9}">
+              <small class="text-muted">Format: 2547XXXXXXXX</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Amount (KES) *</label>
+              <input type="number" class="form-control" id="promptAmount" required min="1" step="0.01">
+              <small class="text-muted">Outstanding: <span id="promptOutstanding">KES 0</span></small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Payment Purpose</label>
+              <select class="form-select" id="promptPurpose">
+                <option value="fees">School Fees</option>
+                <option value="uniforms">Uniforms</option>
+                <option value="transport">Transport</option>
+                
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <textarea class="form-control" id="promptDescription" rows="2" placeholder="Optional description for the payment prompt"></textarea>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="sendStkPushBtn"><i class="bi bi-send me-1"></i>Send STK Push</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Payment Trends Modal -->
+<div class="modal fade" id="paymentTrendsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-white">
+        <h5 class="modal-title"><i class="bi bi-graph-up me-2"></i>Payment Trends</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="paymentTrendsContent">
+        <div class="text-center py-4"><div class="spinner-border text-light"></div></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="exportTrendsBtn"><i class="bi bi-download me-1"></i>Export</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?php asset_script($appBase ?? '', 'js/pages/student_fees.js'); ?>

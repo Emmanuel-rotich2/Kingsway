@@ -122,14 +122,15 @@ final class InterServiceClient
     }
 
     /**
-     * POST to a service endpoint, falling forward across candidates on a
-     * connection-level failure.
+     * Call a service endpoint with an explicit HTTP method, falling forward
+     * across candidates on a connection-level failure.
      *
      * @return array{0:string|false,1:int,2:string} [body, httpStatus, transportError]
      */
-    public function post(string $service, string $path, array $headers, string $body, int $timeout): array
+    public function request(string $service, string $method, string $path, array $headers, ?string $body, int $timeout): array
     {
         $service = $this->normalise($service);
+        $method = strtoupper(trim($method));
         $candidates = isset(self::$resolved[$service])
             ? array_values($this->reorder($service))
             : $this->candidates($service);
@@ -145,7 +146,7 @@ final class InterServiceClient
                 ? $headers
                 : array_merge($headers, ['Host: ' . $candidate['host']]);
 
-            $last = $this->send($url, 'POST', $sent, $body, $timeout, $candidate['base']);
+            $last = $this->send($url, $method, $sent, $body, $timeout, $candidate['base']);
 
             if ($last[1] > 0) {
                 self::$resolved[$service] = $candidate;
@@ -161,44 +162,26 @@ final class InterServiceClient
     }
 
     /**
+     * POST to a service endpoint, falling forward across candidates on a
+     * connection-level failure.
+     *
+     * @return array{0:string|false,1:int,2:string} [body, httpStatus, transportError]
+     */
+    public function post(string $service, string $path, array $headers, string $body, int $timeout): array
+    {
+        return $this->request($service, 'POST', $path, $headers, $body, $timeout);
+    }
+
+    /**
      * GET a service endpoint, with the same candidate order, "a real status is
      * an answer" rule and winner caching as post(). Used by internal
-     * observability readers (the realtime gateway stats scrape), never by a
-     * browser-facing path.
+     * observability readers and service-to-service reads.
      *
      * @return array{0:string|false,1:int,2:string} [body, httpStatus, transportError]
      */
     public function get(string $service, string $path, array $headers = [], int $timeout = 5): array
     {
-        $service = $this->normalise($service);
-        $candidates = isset(self::$resolved[$service])
-            ? array_values($this->reorder($service))
-            : $this->candidates($service);
-
-        if ($candidates === []) {
-            throw new \RuntimeException(sprintf('No address is configured for the "%s" service.', $service));
-        }
-
-        $last = [false, 0, 'no address configured'];
-        foreach ($candidates as $candidate) {
-            $url = rtrim($candidate['base'], '/') . $path;
-            $sent = $candidate['host'] === null
-                ? $headers
-                : array_merge($headers, ['Host: ' . $candidate['host']]);
-
-            $last = $this->send($url, 'GET', $sent, null, $timeout, $candidate['base']);
-
-            if ($last[1] > 0) {
-                self::$resolved[$service] = $candidate;
-                return $last;
-            }
-
-            // Nothing answered on this address. Try the next candidate rather
-            // than reporting a transport failure the caller cannot act on.
-            unset(self::$resolved[$service]);
-        }
-
-        return $last;
+        return $this->request($service, 'GET', $path, $headers, null, $timeout);
     }
 
     /** Every configured address for a service, internal first, unvalidated. */
@@ -352,7 +335,7 @@ final class InterServiceClient
         $raw = curl_exec($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
+        // curl_close() is a no-op since PHP 8.0 and deprecated in 8.5.
 
         if ($raw === false || $status <= 0) {
             return [false, $status, $error !== '' ? $error : 'request failed'];

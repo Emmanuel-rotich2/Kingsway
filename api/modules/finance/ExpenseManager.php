@@ -40,7 +40,8 @@ class ExpenseManager
             'pending_validation' => 'pending_approval',
             'approved_for_payment' => 'approved',
         ];
-        $live = ['draft', 'pending_approval', 'approved', 'paid', 'rejected', 'cancelled'];
+        // The live enum on `expenses.status`.
+        $live = ['draft', 'pending_approval', 'approved', 'payment_pending', 'paid', 'rejected', 'cancelled'];
         $value = $map[$status] ?? $status;
         return in_array($value, $live, true) ? $value : 'draft';
     }
@@ -76,7 +77,7 @@ class ExpenseManager
             $vendorId = null;
             if (!empty($data['vendor_name'])) {
                 $vendorStmt = $this->db->prepare(
-                    "SELECT id FROM " . ReadReplicaService::qualifiedRef("budget_line_items") . " name = ? AND status = 'active' LIMIT 1"
+                    "SELECT id FROM " . ReadReplicaService::qualifiedRef("suppliers") . " WHERE name = ? AND status = 'active' LIMIT 1"
                 );
                 $vendorStmt->execute([$data['vendor_name']]);
                 $vendorId = $vendorStmt->fetchColumn() ?: null;
@@ -442,8 +443,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                 SET status = 'approved',
                     approved_by = ?,
                     approved_at = NOW(),
-                    approval_notes = ?
-                WHERE id = ? AND status = 'pending'
+                    notes = ?
+                WHERE id = ? AND status = 'pending_approval'
             ");
 
             $stmt->execute([$approvedBy, $notes, $expenseId]);
@@ -490,14 +491,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                     rejected_by = ?,
                     rejected_at = NOW(),
                     rejection_reason = ?
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status = 'pending_approval'
             ");
 
             $stmt->execute([$rejectedBy, $reason, $expenseId]);
 
             if ($stmt->rowCount() === 0) {
                 $this->db->rollBack();
-                return formatResponse(false, null, 'Expense not found or not in pending status');
+                return formatResponse(false, null, 'Expense not found or not awaiting approval');
             }
 
             $this->db->commit();
@@ -559,7 +560,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                         SUM(amount) as total_amount,
                         AVG(amount) as average_amount,
                         COUNT(CASE WHEN status = 'approved' THEN 1 END) as approved_count,
-                        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+                        COUNT(CASE WHEN status = 'pending_approval' THEN 1 END) as pending_count,
                         COUNT(CASE WHEN status = 'rejected' THEN 1 END) as rejected_count
                     FROM " . ReadReplicaService::qualifiedRef("expenses") . "
                     LEFT JOIN expense_categories ec ON ec.id = e.category_id

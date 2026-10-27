@@ -6,7 +6,7 @@ import { loadConfig, getConfig } from './src/config/index.js';
 import { createLogger, getLogger } from './src/logger/index.js';
 import { createMetrics, getMetrics } from './src/metrics/index.js';
 import { registerHealthRoutes } from './src/health/index.js';
-import { createInternalClient, getInternalClient } from './src/clients/internal.js';
+import { createInternalClient, getInternalClient, configureGlobalFetchTls } from './src/clients/internal.js';
 import { createCache, getCache } from './src/clients/cache.js';
 import { createBus, getBus } from './src/realtime/bus.js';
 import { createSSE, getSSE } from './src/realtime/sse.js';
@@ -28,6 +28,8 @@ function isTruthy(value) {
 async function createApp(env = {}) {
   const config = loadConfig(env);
   const startedAt = Date.now();
+
+  configureGlobalFetchTls();
 
   const logger = createLogger({});
   const metrics = createMetrics({});

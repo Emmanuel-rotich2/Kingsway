@@ -37,8 +37,8 @@ const studentSubjectPerformanceController = {
   render() {
     const performance = this.state.performance;
     const student = this.state.student;
-    document.getElementById('sspStudentName')?.textContent = student?.name || '—';
-    document.getElementById('sspAdmissionNo')?.textContent = student?.admission_number || '—';
+    { const el = document.getElementById('sspStudentName'); if (el) el.textContent = student?.name || '—'; }
+    { const el = document.getElementById('sspAdmissionNo'); if (el) el.textContent = student?.admission_number || '—'; }
     const body = document.getElementById('sspPerformanceBody');
     if (!performance.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No subject performance data.</td></tr>'; return; }
     body.innerHTML = performance.map(p => `<tr>

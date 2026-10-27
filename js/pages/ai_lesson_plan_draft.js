@@ -42,7 +42,7 @@
     try{
       // Show the agent task panel
       const panelContainer = document.getElementById('aiLessonPlanDraftPanel');
-      if (panelContainer && window.AgentTaskPanel) {
+      if (panelContainer && window.AgentTaskPanel && window.AI_FEATURES?.shouldUseAgentTaskPanel?.('ai_lesson_plan_draft')) {
         if (window.lessonPlanPanel) {
           window.lessonPlanPanel.destroy();
         }

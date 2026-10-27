@@ -7,6 +7,15 @@
     return node.innerHTML;
   }
 
+  // Governed answers carry Markdown (bold, bullets, report codes). Render it
+  // through the shared, XSS-safe module instead of escaping it to plain text,
+  // and degrade to escaped text if the module is not loaded.
+  function renderMarkdown(value) {
+    return window.KingswayMarkdown && typeof window.KingswayMarkdown.render === 'function'
+      ? window.KingswayMarkdown.render(value)
+      : escapeHtml(String(value ?? '').replace(/\n/g, '<br>'));
+  }
+
   function gatewayOrigin() {
     return String(window.KINGSWAY_REALTIME_ORIGIN || '').replace(/\/+$/, '');
   }
@@ -27,12 +36,12 @@
 
   function renderAnswer(answer, target) {
     const title = escapeHtml(answer.title || (answer.status === 'escalate' ? 'Let us help you' : 'Kingsway assistant'));
-    const body = escapeHtml(answer.body || answer.message || 'Please contact the school for assistance.').replace(/\n/g, '<br>');
+    const body = renderMarkdown(answer.body || answer.message || 'Please contact the school for assistance.');
     const sources = Array.isArray(answer.sources) && answer.sources.length
       ? '<div class="public-ai-sources"><strong>Based on published information:</strong> ' + answer.sources.map(escapeHtml).join(', ') + '</div>'
       : '';
     const referral = answer.human_referral ? '<p class="small text-warning mt-2 mb-0"><i class="bi bi-person-check me-1"></i>' + escapeHtml(answer.human_referral) + '</p>' : '';
-    target.innerHTML = '<strong>' + title + '</strong><p class="mb-0 mt-2">' + body + '</p>' + referral + sources;
+    target.innerHTML = '<strong>' + title + '</strong><div class="public-ai-answer-body mt-2">' + body + '</div>' + referral + sources;
   }
 
   function renderHistory(turns, target) {

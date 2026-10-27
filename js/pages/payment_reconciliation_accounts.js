@@ -1,3 +1,11 @@
+/**
+ * Injects the financial-account selector the reconciliation page needs.
+ *
+ * This file only supplies markup: it never patches window.API. The page
+ * controller reads #routeFinancialAccount and #routingFinancialAccount and
+ * sends financial_account_id itself, so a failed load is reported by name
+ * instead of silently dropping the account from an allocation.
+ */
 document.addEventListener('DOMContentLoaded', async () => {
   const controller = window.paymentReconciliationController;
   if (!controller) return;
@@ -9,23 +17,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (routeForm) {
     const label = document.createElement('label');
     label.className = 'col-md-3';
-    label.innerHTML = '<span class="small text-muted">Mapped financial account</span><select class="form-select" id="routeFinancialAccount" required><option value="">Select account</option>' + options + '</select>';
+    label.setAttribute('for', 'routeFinancialAccount');
+    const span = document.createElement('span');
+    span.className = 'small text-muted';
+    span.textContent = 'Mapped financial account';
+    const select = document.createElement('select');
+    select.className = 'form-select';
+    select.id = 'routeFinancialAccount';
+    select.required = true;
+    select.innerHTML = '<option value="">Select account</option>' + options;
+    label.appendChild(span);
+    label.appendChild(select);
     routeForm.insertBefore(label, routeForm.lastElementChild);
-    const originalSave = window.API.finance.savePaymentCollectionRoute;
-    window.API.finance.savePaymentCollectionRoute = data => originalSave(Object.assign({}, data, {
-      financial_account_id: Number(document.getElementById('routeFinancialAccount')?.value || 0)
-    }));
   }
 
   const modal = document.querySelector('#routingResolveModal .modal-body');
   if (modal) {
     const label = document.createElement('label');
     label.className = 'form-label';
-    label.innerHTML = 'Receiving financial account<select class="form-select mb-3" id="routingFinancialAccount" required><option value="">Select account</option>' + options + '</select>';
+    label.setAttribute('for', 'routingFinancialAccount');
+    label.textContent = 'Receiving financial account';
+    const select = document.createElement('select');
+    select.className = 'form-select mb-3';
+    select.id = 'routingFinancialAccount';
+    select.required = true;
+    select.innerHTML = '<option value="">Select account</option>' + options;
+    label.appendChild(select);
     modal.appendChild(label);
-    const originalResolve = window.API.finance.resolvePaymentRoutingCase;
-    window.API.finance.resolvePaymentRoutingCase = (id, data) => originalResolve(id, Object.assign({}, data, {
-      financial_account_id: Number(document.getElementById('routingFinancialAccount')?.value || 0)
-    }));
   }
 });

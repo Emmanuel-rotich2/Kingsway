@@ -63,6 +63,9 @@ class PrintController extends BaseController
     public function postTable($id = null, $data = [])
     {
         if ($guard = $this->guardPrint()) return $guard;
+        if (!extension_loaded('gd')) {
+            return formatResponse(false, null, 'PDF generation is unavailable: the PHP GD extension is not installed on this server.');
+        }
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 

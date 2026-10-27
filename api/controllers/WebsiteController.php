@@ -240,7 +240,7 @@ class WebsiteController extends BaseController
     {
         $guard = $this->requirePerm('website_gallery_manage');
         if ($guard) return $guard;
-        if (empty($data['image_url'])) return $this->badRequest('Image URL is required.');
+        if (empty($data['image_url'])) return $this->badRequest('Media URL is required.');
         return $this->handleResponse($this->manager->createGalleryItem($data));
     }
 

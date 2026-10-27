@@ -124,7 +124,7 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare(
                 "SELECT 
                     COALESCE(SUM(p.amount), 0) as total_cash_collected
-                FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                 JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                 WHERE p.status = 'confirmed' 
                   AND ay.year_code = ?"
@@ -847,7 +847,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                         ROUND(AVG(p.amount), 2) as avg_amount,
                         MIN(p.amount) as min_amount,
                         MAX(p.amount) as max_amount
-                    FROM " . ReadReplicaService::qualifiedRef("payments") . "
+                    FROM " . ReadReplicaService::qualifiedRef("payments") . " p
                     JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
                     WHERE p.status = 'confirmed'
                       AND ay.year_code = ?";
@@ -962,7 +962,7 @@ $sql = "SELECT
                         'School Fees' as fee_type,
                         COUNT(DISTINCT sfo.student_academic_enrollment_id) as student_count,
                         COALESCE(SUM(sfo.amount_due), 0) as total_due
-                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . "
+                    FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " fsd ON sfo.academic_year_fee_schedule_id = fsd.id
                     WHERE sfo.academic_year_id = ?";
 

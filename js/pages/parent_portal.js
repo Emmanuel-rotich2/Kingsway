@@ -167,7 +167,12 @@ const parentPortalController = {
         this.apiFetch('/ai-assistant', 'POST', { question: input.value.trim() }).then(function (resp) {
             var d = resp.data || resp;
             var steps = Array.isArray(d.next_steps) && d.next_steps.length ? '<ul class="small">' + d.next_steps.map(function (s) { return '<li>' + self.escapeHtml(s) + '</li>'; }).join('') + '</ul>' : '';
-            answer.innerHTML = '<div class="alert alert-success small"><strong>' + self.escapeHtml(d.title || 'Assistant answer') + '</strong><p class="mb-2 mt-2">' + self.escapeHtml(d.body || '') + '</p>' + steps + '</div>';
+            // Governed answers carry Markdown; render it through the shared
+            // XSS-safe module instead of escaping it to literal asterisks.
+            var body = (window.KingswayMarkdown && typeof window.KingswayMarkdown.render === 'function')
+                ? window.KingswayMarkdown.render(d.body || '')
+                : self.escapeHtml(d.body || '');
+            answer.innerHTML = '<div class="alert alert-success small"><strong>' + self.escapeHtml(d.title || 'Assistant answer') + '</strong><div class="mb-2 mt-2">' + body + '</div>' + steps + '</div>';
         }).catch(function (e) { answer.innerHTML = '<div class="alert alert-warning small">' + self.escapeHtml(e.message || 'The assistant is temporarily unavailable.') + '</div>'; });
     },
 
@@ -1025,11 +1030,15 @@ const parentPortalController = {
     },
 
     checkMpesaStatus(checkoutRequestId, callback) {
+        var self = this;
+        var statusEl = document.getElementById('mpesaPollingStatus');
         this.apiFetch('/mpesa-status/' + checkoutRequestId, 'GET')
             .then(function (resp) {
                 var d = resp.data || resp;
                 if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') {
                     callback(true);
+                } else if (resp.status === 503 || d.message === 'STK payment is still being reconciled') {
+                    if (statusEl) statusEl.textContent = 'Still reconciling with M-Pesa...';
                 }
             }).catch(function () {});
     },

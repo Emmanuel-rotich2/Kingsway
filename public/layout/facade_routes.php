@@ -35,6 +35,7 @@ return [
         'job-detail'          => 'job-detail.php',
         'contact'             => 'contact.php',
         'downloads'           => 'downloads.php',
+        'gallery'             => 'gallery.php',
         'uniform-catalog'     => 'uniform_catalog.php',
         'product-details'     => 'product_details.php',
         'catalog-account'     => 'catalog_account.php',

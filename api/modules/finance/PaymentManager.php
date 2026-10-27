@@ -142,7 +142,7 @@ class PaymentManager
             $purpose = strtolower((string)($data['payment_purpose'] ?? 'fees'));
             if (!in_array($purpose, ['fees', 'transport', 'uniforms'], true)) $purpose = 'fees';
             $method = strtolower((string)$data['payment_method']);
-            $channel = in_array($method, ['mpesa', 'mpesa_daraja'], true) ? 'mpesa_c2b' : ($method === 'cash' ? 'cash' : 'bank_transfer');
+            $channel = in_array($method, ['mpesa', 'mpesa_daraja', 'safaricom_daraja'], true) ? 'safaricom_c2b' : ($method === 'cash' ? 'cash' : 'bank_transfer');
             $source = (new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id'] ?? 0), $purpose, $channel, false, (int)($data['received_by'] ?? 0));
             $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=? WHERE id=?')->execute([(int)$source['id'], $purpose, (int)$paymentId]);
             (new FinancialPostingCoordinator($this->db))->postIncoming('payment', (int)$paymentId, (int)$source['id'], $purpose, (string)$data['amount'], (int)($data['received_by'] ?? 0), $normalizedReference ?: null);

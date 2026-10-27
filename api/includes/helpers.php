@@ -40,12 +40,21 @@ function generateSecureString($length = 32)
 /**
  * Map message keywords to specific HTTP status codes
  * Analyzes message text to determine appropriate status code
- * 
+ *
+ * A successful call that carries a payload is ALWAYS 200, whatever the
+ * message. 204 No Content means "there is no body at all", a caller that
+ * omitted a message must not be downgraded to 204 — every
+ * `formatResponse(true, $data)` in the codebase would then be reported as
+ * "No Content" while still returning the record, which is how a successful
+ * payment detail fetch presented as an empty response to the UI. Pass
+ * $hasPayload=false to opt into a real 204.
+ *
  * @param string $message The response message
  * @param bool $success Whether the operation was successful
+ * @param bool $hasPayload Whether the response carries a body
  * @return int HTTP status code
  */
-function mapMessageToCode($message, $success)
+function mapMessageToCode($message, $success, $hasPayload = true)
 {
     // If successful, check for specific success codes
     if ($success) {
@@ -57,8 +66,8 @@ function mapMessageToCode($message, $success)
         if (strpos($lowerMessage, 'accepted') !== false) {
             return 202; // Accepted
         }
-        if (strpos($lowerMessage, 'no content') !== false || empty($message)) {
-            return 204; // No Content
+        if (!$hasPayload || strpos($lowerMessage, 'no content') !== false) {
+            return 204; // No Content - genuinely empty body
         }
 
         return 200; // Default success
@@ -163,8 +172,11 @@ function mapMessageToCode($message, $success)
  */
 function formatResponse($success = true, $data = null, $message = '')
 {
+    // A missing or null payload is a genuine "no content"; a populated one is
+    // always 200 even when the caller supplied no message.
+    $hasPayload = $data !== null;
     // Intelligently map message to specific HTTP code
-    $code = mapMessageToCode($message, $success);
+    $code = mapMessageToCode($message, $success, $hasPayload);
     $statusInfo = getStatusInfo($code);
 
     return [

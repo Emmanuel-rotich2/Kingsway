@@ -532,9 +532,26 @@ class WebsiteManager extends BaseAPI
 
     // ───────────────────────── GALLERY ─────────────────────────
 
+    private function ensureGallerySchema(): void
+    {
+        try {
+            $cols = $this->db->query("SHOW COLUMNS FROM gallery_items LIKE 'media_type'")->fetch(\PDO::FETCH_ASSOC);
+            if (!$cols) {
+                $this->db->query("ALTER TABLE gallery_items ADD COLUMN media_type ENUM('image','video') NOT NULL DEFAULT 'image' AFTER image_url");
+            }
+            $cols = $this->db->query("SHOW COLUMNS FROM gallery_items LIKE 'video_url'")->fetch(\PDO::FETCH_ASSOC);
+            if (!$cols) {
+                $this->db->query("ALTER TABLE gallery_items ADD COLUMN video_url VARCHAR(500) NULL AFTER media_type");
+            }
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[WebsiteManager] ensureGallerySchema: ' . $e->getMessage());
+        }
+    }
+
     public function getGallery(array $data = [])
     {
         try {
+            $this->ensureGallerySchema();
             $activeOnly = ($data['active'] ?? '1') !== '0';
             $sql = $activeOnly
                 ? "SELECT * FROM gallery_items WHERE is_active=1 ORDER BY display_order ASC, created_at DESC LIMIT 100"
@@ -550,14 +567,16 @@ class WebsiteManager extends BaseAPI
     public function createGalleryItem(array $data)
     {
         try {
+            $this->ensureGallerySchema();
             $maxOrder = (int) $this->scalar("SELECT COALESCE(MAX(display_order),0) FROM gallery_items");
+            $mediaType = in_array($data['media_type'] ?? 'image', ['image', 'video'], true) ? $data['media_type'] : 'image';
             $stmt = $this->db->prepare(
-                "INSERT INTO gallery_items (image_url,caption,category,display_order,is_active) VALUES (?,?,?,?,1)"
+                "INSERT INTO gallery_items (image_url,media_type,video_url,caption,category,display_order,is_active) VALUES (?,?,?,?,?,?,1)"
             );
             $stmt->execute([
-                $data['image_url'], $data['caption'] ?? '', $data['category'] ?? 'General', $maxOrder + 10,
+                $data['image_url'], $mediaType, $data['video_url'] ?? null, $data['caption'] ?? '', $data['category'] ?? 'General', $maxOrder + 10,
             ]);
-            return $this->successResponse(['id' => $this->db->lastInsertId()], 'Image added to gallery', 201);
+            return $this->successResponse(['id' => $this->db->lastInsertId()], 'Gallery item added', 201);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
@@ -567,10 +586,16 @@ class WebsiteManager extends BaseAPI
     public function updateGalleryItem($id, array $data)
     {
         try {
+            $this->ensureGallerySchema();
             $fields = [];
             $params = [];
-            foreach (['image_url','caption','category','display_order','is_active'] as $f) {
+            foreach (['image_url','media_type','video_url','caption','category','display_order','is_active'] as $f) {
                 if (isset($data[$f])) {
+                    if ($f === 'media_type') {
+                        if (!in_array($data[$f], ['image', 'video'], true)) {
+                            continue;
+                        }
+                    }
                     $fields[] = "$f=?";
                     $params[] = $data[$f];
                 }

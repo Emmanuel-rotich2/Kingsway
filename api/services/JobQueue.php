@@ -61,6 +61,7 @@ final class JobQueue
     private const BATCH_JOB_TYPES = [
         'reads.projection.refresh', 'automation.run', 'ai.analytics.insight',
         'ai.insight.generate', 'ai.agent.run', 'ai.workflow.draft',
+        'ai.agent.task',
         'curriculum.policy_interpret', 'rpc.async.dispatch',
         'rebake_realtime_buffer', 'purge_old_realtime_events',
         'communications.sms_batch',
@@ -400,17 +401,48 @@ final class JobQueue
     }
 
     /**
+     * List one user's jobs for a single typed workflow. Payload data remains
+     * private to the owning service; callers should return only its public
+     * result contract.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function listOwnedByType(string $jobType, int $userId, int $limit = 30): array
+    {
+        $limit = max(1, min(100, $limit));
+        return ConnectionManager::run(static function (PDO $pdo) use ($jobType, $userId, $limit): array {
+            $stmt = $pdo->prepare(
+                "SELECT id, job_type, payload, status, attempts, created_at, updated_at, failed_reason
+                 FROM jobs_queue
+                 WHERE job_type = ? AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.user_id')) = ?
+                 ORDER BY id DESC LIMIT {$limit}"
+            );
+            $stmt->execute([$jobType, (string) $userId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $payload = json_decode((string) ($row['payload'] ?? '{}'), true);
+                $row['payload'] = is_array($payload) ? $payload : [];
+                $row['id'] = (int) $row['id'];
+                $row['attempts'] = (int) $row['attempts'];
+            }
+            unset($row);
+            return $rows;
+        }, ConnectionManager::NS_BUFFERS);
+    }
+
+    /**
      * Mark a job as completed.
      */
-    public static function markDone(int $id): void
+    public static function markDone(int $id): bool
     {
-        ConnectionManager::run(static function (PDO $pdo) use ($id): void {
+        return ConnectionManager::run(static function (PDO $pdo) use ($id): bool {
             $stmt = $pdo->prepare(
                 "UPDATE jobs_queue
                  SET status = ?, failed_reason = NULL, dead_letter_reason = NULL, updated_at = NOW()
-                 WHERE id = ?"
+                 WHERE id = ? AND status = ?"
             );
-            $stmt->execute([self::STATUS_DONE, $id]);
+            $stmt->execute([self::STATUS_DONE, $id, self::STATUS_PROCESSING]);
+            return $stmt->rowCount() === 1;
         }, ConnectionManager::NS_BUFFERS);
     }
 
