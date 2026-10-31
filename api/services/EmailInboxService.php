@@ -512,8 +512,9 @@ class EmailInboxService
     {
         $fromAddress = $this->addressFirst($message->from);
         $toAddress = $this->addressFirst($message->to);
-        $text = (string) $message->text;
-        $preview = trim($text) !== '' ? $text : strip_tags((string) $message->html);
+        $text = $message->getTextBody();
+        $html = $message->getHTMLBody();
+        $preview = trim($text) !== '' ? $text : strip_tags($html);
 
         return [
             'id'              => (string) $message->uid,
@@ -580,8 +581,8 @@ class EmailInboxService
             'date'            => $this->formatDate($message->date),
             'is_read'         => $message->hasFlag('Seen'),
             'is_flagged'      => $message->hasFlag('Flagged'),
-            'text'            => (string) $message->text,
-            'html'            => $this->sanitizeHtml((string) $message->html, $cidMap),
+            'text'            => $message->getTextBody(),
+            'html'            => $this->sanitizeHtml($message->getHTMLBody(), $cidMap),
             'attachments'     => $attachments,
             'has_attachments' => $message->hasAttachments(),
         ];

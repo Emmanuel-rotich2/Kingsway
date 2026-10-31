@@ -5631,18 +5631,19 @@ window.API = {
 
     // School-domain mailboxes (role-scoped IMAP/SMTP mailboxes)
     getMailboxes: async () => apiCall("/communications/mailboxes", "GET"),
-    getMailboxMembers: async (profileId) =>
-      apiCall(`/communications/mailboxes/${profileId}/members`, "GET"),
+    getMailboxMembers: async (profileId, params = {}) =>
+      apiCall(`/communications/mailboxes/${profileId}/members`, "GET", null, params),
     setMailboxMembers: async (profileId, members) =>
       apiCall(`/communications/mailboxes/${profileId}/members`, "PUT", { members }),
     getMailboxFolders: async (profileId) =>
       apiCall(`/communications/mailboxes/${profileId}/folders`, "GET"),
-    getMailboxMessages: async (profileId, params = {}) =>
+    getMailboxMessages: async (profileId, params = {}, options = {}) =>
       apiCall(
         `/communications/mailboxes/${profileId}/messages`,
         "GET",
         null,
         params,
+        options,
       ),
     getMailboxMessage: async (profileId, params = {}) =>
       apiCall(

@@ -137,7 +137,23 @@ final class JobQueue
                 $lockName = 'KingswayJob:' . hash('sha256', $jobType . ':' . $idempotencyKey);
                 $lock = $pdo->prepare('SELECT GET_LOCK(?, 5)');
                 $lock->execute([$lockName]);
-                if ((int) $lock->fetchColumn() !== 1) {
+                $lockResult = $lock->fetchColumn();
+                if ((int) $lockResult !== 1) {
+                    // A concurrent request may have completed the same enqueue
+                    // while this request waited. Reuse its row if present; only
+                    // report a lock failure when no idempotent job exists.
+                    if ($lockResult !== false && $lockResult !== null && (int) $lockResult === 0) {
+                        $existing = $pdo->prepare(
+                            "SELECT id FROM jobs_queue
+                             WHERE job_type = ?
+                               AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.idempotency_key')) = ?
+                               AND status IN (?, ?, ?)
+                             ORDER BY id DESC LIMIT 1"
+                        );
+                        $existing->execute([$jobType, $idempotencyKey, self::STATUS_PENDING, self::STATUS_PROCESSING, self::STATUS_DONE]);
+                        $existingId = $existing->fetchColumn();
+                        if ($existingId !== false) return (int) $existingId;
+                    }
                     throw new RuntimeException('Unable to acquire the job idempotency lock.');
                 }
                 try {

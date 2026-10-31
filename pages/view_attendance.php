@@ -34,65 +34,41 @@
     </div>
 
     <div class="card-body">
-        <div class="card border-0 bg-light mb-4" id="expectedRegistersCard">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div>
-                        <h5 class="mb-1"><i class="bi bi-clock-history me-2 text-primary"></i>Today’s Attendance Registers</h5>
-                        <small class="text-muted">Session-specific registers for classes and boarding roll calls.</small>
-                    </div>
-                    <input type="date" class="form-control form-control-sm" id="expectedRegistersDate" style="max-width: 155px">
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Class / Stream</th><th>Coverage</th><th>Expected</th><th>Marked</th><th>Unmarked</th><th>Status</th><th>Responsible</th></tr></thead>
-                        <tbody id="expectedRegistersBody"><tr><td colspan="7" class="text-muted">Loading registers…</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        <div class="card border-0 border-start border-4 border-warning shadow-sm mb-4 d-none" id="attendanceSessionConfigCard">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div><h5 class="mb-1"><i class="bi bi-sliders me-2 text-warning"></i>Term Attendance Session Configuration</h5><small class="text-muted">Configure the current academic term. Sessions without a term override continue using the school defaults.</small></div>
-                    <div class="d-flex gap-2 align-items-center"><label for="attendanceConfigTermSelect" class="visually-hidden">Academic term</label><select id="attendanceConfigTermSelect" class="form-select form-select-sm" style="min-width:220px"><option value="">Loading academic terms…</option></select><button class="btn btn-sm btn-outline-primary" id="refreshSessionConfigBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div>
-                </div>
-                <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Session</th><th>Type</th><th>Audience</th><th>Days</th><th>Time</th><th>Class scope</th><th></th></tr></thead><tbody id="attendanceSessionConfigBody"><tr><td colspan="7" class="text-muted">Loading configuration…</td></tr></tbody></table></div>
-            </div>
-        </div>
-        <div class="modal fade" id="attendanceSessionConfigModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Configure Attendance Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="attendanceSessionConfigForm"><input type="hidden" id="attendanceConfigId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Session Name</label><input class="form-control" id="attendanceConfigName" required></div><div class="col-md-3"><label class="form-label">Type</label><select class="form-select" id="attendanceConfigType"><option value="academic">Academic</option><option value="boarding">Boarding</option><option value="activity">Activity</option></select></div><div class="col-md-3"><label class="form-label">Audience</label><select class="form-select" id="attendanceConfigAudience"><option value="all">All learners</option><option value="day_only">Day learners</option><option value="boarders_only">Boarders</option></select></div><div class="col-md-6"><label class="form-label">Start time</label><input type="time" class="form-control" id="attendanceConfigStart" required></div><div class="col-md-6"><label class="form-label">End time</label><input type="time" class="form-control" id="attendanceConfigEnd" required></div><div class="col-12"><label class="form-label">Applicable days</label><div id="attendanceConfigDays" class="d-flex flex-wrap gap-3"></div></div><div class="col-12" id="attendanceConfigClassesWrap"><label class="form-label">Academic classes using this session</label><div id="attendanceConfigClasses" class="row row-cols-2 row-cols-md-4 g-2"></div></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" id="attendanceConfigStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div></form></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveAttendanceSessionConfigBtn">Save configuration</button></div></div></div></div>
+                        <div class="modal fade" id="attendanceSessionConfigModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Configure Attendance Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="attendanceSessionConfigForm"><input type="hidden" id="attendanceConfigId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Session Name</label><input class="form-control" id="attendanceConfigName" required></div><div class="col-md-3"><label class="form-label">Type</label><select class="form-select" id="attendanceConfigType"><option value="academic">Academic</option><option value="boarding">Boarding</option><option value="activity">Activity</option></select></div><div class="col-md-3"><label class="form-label">Audience</label><select class="form-select" id="attendanceConfigAudience"><option value="all">All learners</option><option value="day_only">Day learners</option><option value="boarders_only">Boarders</option></select></div><div class="col-md-6"><label class="form-label">Start time</label><input type="time" class="form-control" id="attendanceConfigStart" required></div><div class="col-md-6"><label class="form-label">End time</label><input type="time" class="form-control" id="attendanceConfigEnd" required></div><div class="col-12"><label class="form-label">Applicable days</label><div id="attendanceConfigDays" class="d-flex flex-wrap gap-3"></div></div><div class="col-12" id="attendanceConfigClassesWrap"><label class="form-label">Academic classes using this session</label><div id="attendanceConfigClasses" class="row row-cols-2 row-cols-md-4 g-2"></div></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" id="attendanceConfigStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div></form></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveAttendanceSessionConfigBtn">Save configuration</button></div></div></div></div>
         <!-- Filter Row -->
-        <div class="row mb-4">
-            <div class="col-md-2">
+        <div class="attendance-filter-panel mb-4">
+        <div class="small fw-semibold text-muted mb-2">Attendance summary filters</div>
+        <div class="row g-3">
+            <div class="col-12 col-md-3 col-xl-2">
                 <label class="form-label">Attendance Type</label>
                 <select class="form-select" id="attendanceType">
                     <option value="academic">Academic (Class)</option>
                     <option value="boarding">Boarding (Dormitory)</option>
                 </select>
             </div>
-            <div class="col-md-2" id="classSelectWrapper">
-                <label class="form-label">Class*</label>
+            <div class="col-12 col-md-3 col-xl-2" id="classSelectWrapper">
+                <label class="form-label">Class / Stream</label>
                 <select class="form-select" id="classSelect" required></select>
             </div>
-            <div class="col-md-2" id="dormitorySelectWrapper" style="display: none;">
-                <label class="form-label">Dormitory*</label>
+            <div class="col-12 col-md-3 col-xl-2" id="dormitorySelectWrapper" style="display: none;">
+                <label class="form-label">Dormitory</label>
                 <select class="form-select" id="dormitorySelect"></select>
             </div>
-            <div class="col-md-2">
+            <div class="col-12 col-md-3 col-xl-2 attendance-academic-filter">
                 <label class="form-label">Session</label>
                 <select class="form-select" id="sessionSelect">
                     <option value="">All Sessions</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-6 col-md-3 col-xl-2 attendance-academic-filter">
                 <label class="form-label">Date From</label>
                 <input type="date" class="form-control" id="dateFrom">
             </div>
-            <div class="col-md-2">
+            <div class="col-6 col-md-3 col-xl-2 attendance-academic-filter">
                 <label class="form-label">Date To</label>
                 <input type="date" class="form-control" id="dateTo">
             </div>
-            <div class="col-md-2">
+            <div class="col-12 col-md-3 col-xl-2 attendance-academic-filter">
                 <label class="form-label">Status</label>
                 <select class="form-select" id="statusFilter">
                     <option value="">All</option>
@@ -105,12 +81,17 @@
                 </select>
             </div>
         </div>
-        <div class="row mb-4">
-            <div class="col-md-3">
-                    <button class="btn btn-primary w-100 d-none" id="loadAttendanceBtn">
-                    <i class="bi bi-search me-1"></i> Load Attendance
-                </button>
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-3 p-3 rounded attendance-period-panel" id="attendancePeriodControls" aria-label="Attendance summary period">
+            <label class="small fw-semibold mb-0" for="attendanceTermSelect">Academic term</label>
+            <select class="form-select form-select-sm" id="attendanceTermSelect" aria-label="Choose academic term" style="width:auto; min-width:220px">
+                <option value="">Loading academic terms…</option>
+            </select>
+            <div class="btn-group btn-group-sm" role="group" aria-label="Choose attendance summary period">
+                <button type="button" class="btn btn-primary" data-attendance-period="term" aria-pressed="true">Selected term</button>
+                <button type="button" class="btn btn-outline-primary" data-attendance-period="year" aria-pressed="false">Academic year</button>
             </div>
+            <span class="small text-muted" id="attendancePeriodLabel" aria-live="polite"></span>
+        </div>
         </div>
 
         <!-- Summary Cards -->
@@ -178,7 +159,7 @@
                     <i class="bi bi-calendar-day me-1"></i>Daily Register
                 </button>
             </li>
-            <li class="nav-item" id="boardingTabItem" style="display: none;">
+            <li class="nav-item d-none" id="boardingTabItem">
                 <button class="nav-link" id="boarding-tab" data-bs-toggle="tab" data-bs-target="#boarding" type="button">
                     <i class="bi bi-house-door me-1"></i>Boarding Summary
                 </button>
@@ -354,6 +335,40 @@
                 </div>
             </div>
         </div>
+<details class="attendance-secondary-section mb-3" id="expectedRegistersDisclosure">
+        <summary>Register status for a date <span class="text-muted small ms-2">A daily view, separate from the term summary</span></summary>
+        <div class="card border-0 bg-light mt-2" id="expectedRegistersCard">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h5 class="mb-1"><i class="bi bi-clock-history me-2 text-primary"></i>Required registers</h5>
+                        <small class="text-muted">Session-specific registers for classes and boarding roll calls on the selected date.</small>
+                    </div>
+                    <input type="date" class="form-control form-control-sm" id="expectedRegistersDate" style="max-width: 155px">
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Class / Stream</th><th>Coverage</th><th>Expected</th><th>Marked</th><th>Unmarked</th><th>Status</th><th>Responsible</th></tr></thead>
+                        <tbody id="expectedRegistersBody"><tr><td colspan="7" class="text-muted">Loading registers…</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        </details>
+
+<details class="attendance-secondary-section mb-3 d-none" id="attendanceConfigDisclosure">
+        <summary>Attendance session setup <span class="text-muted small ms-2">School defaults and term-specific schedules</span></summary>
+        <div class="card border-0 border-start border-4 border-warning shadow-sm mt-2" id="attendanceSessionConfigCard">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div><h5 class="mb-1"><i class="bi bi-sliders me-2 text-warning"></i>Session configuration</h5><small class="text-muted">Term-specific schedules override school defaults.</small></div>
+                    <div class="d-flex gap-2 align-items-center"><label for="attendanceConfigTermSelect" class="visually-hidden">Configure sessions for term</label><select id="attendanceConfigTermSelect" class="form-select form-select-sm" style="min-width:220px"><option value="">Loading academic terms…</option></select><button class="btn btn-sm btn-outline-primary" id="refreshSessionConfigBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div>
+                </div>
+                <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Session</th><th>Type</th><th>Audience</th><th>Days</th><th>Time</th><th>Class scope</th><th></th></tr></thead><tbody id="attendanceSessionConfigBody"><tr><td colspan="7" class="text-muted">Loading configuration…</td></tr></tbody></table></div>
+            </div>
+        </div>
+        </details>
+
     </div>
 </div>
 
@@ -436,10 +451,50 @@
 .status-sick-bay { background-color: #cce5ff; color: #004085; }
 .dormitory-card {
     border-left: 4px solid;
-    transition: all 0.2s;
 }
-.dormitory-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+.attendance-filter-panel {
+    padding: 1rem;
+    border: 1px solid #dce6e0;
+    border-radius: .6rem;
+    background: #f8fbf9;
+}
+.attendance-period-panel {
+    background: #edf5f0;
+    border: 1px solid #dce9e0;
+}
+.attendance-secondary-section {
+    border: 1px solid #e1e8e4;
+    border-radius: .55rem;
+    background: #fff;
+}
+.attendance-secondary-section > summary {
+    padding: .7rem .9rem;
+    color: #315342;
+    font-weight: 600;
+    cursor: pointer;
+}
+.attendance-secondary-section[open] > summary {
+    border-bottom: 1px solid #e1e8e4;
+}
+.attendance-secondary-section > .card {
+    margin: .75rem;
+}
+#attendanceCoverageSummary {
+    color: #51625a;
+    font-size: .9rem;
+}
+#attendanceTabs {
+    gap: .35rem;
+    border-bottom-color: #dce6e0;
+}
+#attendanceTabs .nav-link {
+    color: #506158;
+    border-color: transparent;
+}
+#attendanceTabs .nav-link.active {
+    color: #146c43;
+    font-weight: 600;
+    border-color: #dce6e0 #dce6e0 #fff;
 }
 </style>
 

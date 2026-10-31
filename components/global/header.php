@@ -300,6 +300,10 @@
                 <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="offcanvas" aria-label="Close"></button>
             </header>
             <div class="assistant-conversation flex-grow-1 overflow-y-auto p-3 p-md-4" id="global-ai-assistant-conversation" style="display:flex;flex-direction:column;">
+                <section id="global-ai-assistant-briefing" class="mb-3" aria-live="polite" aria-label="Workspace insights">
+                    <div class="text-muted small">Workspace insights will appear here when available.</div>
+                </section>
+                <section id="global-ai-assistant-task-status" class="mb-3" aria-live="polite" aria-label="Delegated assistant work"></section>
                 <!-- Thread: the single scrollable message container (never destroyed). Greeting is rendered here when empty. -->
                 <div id="global-ai-assistant-thread" class="assistant-thread flex-grow-1 overflow-y-auto p-3" aria-live="polite"></div>
             </div>
@@ -321,6 +325,9 @@
                             aria-label="Ask the assistant"
                             style="border:0;outline:none;resize:none;box-shadow:none;"
                         ></textarea>
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap px-2" id="global-ai-assistant-delegate" title="Queue this task for background work" aria-label="Delegate this task to an agent">
+                            <i class="bi bi-box-arrow-up-right me-1"></i><span>Delegate</span>
+                        </button>
                         <button type="button" class="btn btn-icon-only btn-light text-muted" id="global-ai-assistant-voice" title="Dictate your question" aria-label="Dictate your question" style="background:transparent;border:0;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;padding:0;">
                             <i class="bi bi-mic"></i>
                         </button>
@@ -329,6 +336,7 @@
                         </button>
                     </div>
                     <div class="mt-2 text-end">
+                        <span class="small text-muted me-2">Send for a quick reply · Delegate for background work</span>
                         <span class="small text-muted d-none d-md-inline text-nowrap">Shift + Enter for a new line</span>
                     </div>
                 </form>

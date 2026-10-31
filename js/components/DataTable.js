@@ -11,7 +11,17 @@ class DataTable {
       // Configuration
       this.apiEndpoint = options.apiEndpoint;
       this.columns = options.columns || [];
-      this.pageSize = options.pageSize || 10;
+      this.pageSize = Number(options.pageSize) > 0 ? Number(options.pageSize) : 10;
+      this.pageSizeOptions = Array.isArray(options.pageSizeOptions)
+        ? [...new Set(options.pageSizeOptions.map(Number).filter(size => Number.isInteger(size) && size > 0))]
+        : [10, 25, 50, 100, 250];
+      if (this.pageSizeOptions.length === 0) {
+        this.pageSizeOptions = [10, 25, 50, 100, 250];
+      }
+      if (!this.pageSizeOptions.includes(this.pageSize)) {
+        this.pageSizeOptions.push(this.pageSize);
+        this.pageSizeOptions.sort((a, b) => a - b);
+      }
       this.sortBy = options.sortBy || "id";
       this.sortOrder = options.sortOrder || "asc";
       this.onRowAction = options.onRowAction || null;
@@ -312,7 +322,7 @@ class DataTable {
         pagination.innerHTML = `
             <label class="small text-muted" for="${this.containerId}-page-size">Rows</label>
             <select id="${this.containerId}-page-size" class="form-select form-select-sm" style="width:auto" aria-label="Rows per page">
-                ${pageSizeOptions.map(n => `<option value="${n}" ${this.pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
+                ${this.pageSizeOptions.map(n => `<option value="${n}" ${this.pageSize === n ? 'selected' : ''}>${n}</option>`).join('')}
             </select>
             <div class="btn-group btn-group-sm" role="group" aria-label="Table pages">
                 <button class="btn btn-outline-secondary" type="button" data-page="${Math.max(1, this.currentPage - 1)}" ${this.currentPage <= 1 ? 'disabled' : ''}>Previous</button>

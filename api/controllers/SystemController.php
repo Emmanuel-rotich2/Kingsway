@@ -346,6 +346,12 @@ class SystemController extends BaseController
         } catch (DomainException $e) {
             return $this->respond(null, $e->getMessage(), (int) ($e->getCode() ?: 422), false);
         } catch (\Throwable $e) {
+            Logger::error('errors', 'AI operations review could not be queued', [
+                'exception_class' => get_class($e),
+                'exception_message' => $e->getMessage(),
+                'workflow_id' => 'system.operations_brief',
+                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+            ]);
             return $this->serverError('Operations assistance is temporarily unavailable');
         }
     }
