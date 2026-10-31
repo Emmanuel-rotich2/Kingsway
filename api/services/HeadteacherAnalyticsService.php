@@ -202,7 +202,7 @@ class HeadteacherAnalyticsService
         $stmtResults = $this->db->query("SELECT 
             AVG(marks_obtained) as average_score,
             COUNT(*) as total_results
-            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
             JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
             WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $resultsRow = $stmtResults->fetch(PDO::FETCH_ASSOC);
@@ -223,11 +223,11 @@ class HeadteacherAnalyticsService
     {
         // Uses assessment_results table for student performance metrics
         $stmt = $this->db->query("SELECT 
-            AVG(marks_obtained) as average_performance,
-            SUM(CASE WHEN marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
-            SUM(CASE WHEN marks_obtained BETWEEN 50 AND 74 THEN 1 ELSE 0 END) as average_performers,
-            SUM(CASE WHEN marks_obtained < 50 THEN 1 ELSE 0 END) as low_performers
-            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . "
+            AVG(ar.marks_obtained) as average_performance,
+            SUM(CASE WHEN ar.marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
+            SUM(CASE WHEN ar.marks_obtained BETWEEN 50 AND 74 THEN 1 ELSE 0 END) as average_performers,
+            SUM(CASE WHEN ar.marks_obtained < 50 THEN 1 ELSE 0 END) as low_performers
+            FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
             JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
             WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);

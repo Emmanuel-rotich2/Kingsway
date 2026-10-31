@@ -7,6 +7,7 @@
 const viewAttendanceController = {
   classes: [],
   sessions: [],
+  dailySessions: [],
   dormitories: [],
   academicData: null,
   dailyData: [],
@@ -18,6 +19,12 @@ const viewAttendanceController = {
   sessionConfig: [],
   sessionConfigTermId: null,
   sessionTerms: [],
+  attendanceTerms: [],
+  selectedAttendanceTerm: null,
+  attendancePeriod: "term",
+  attendanceLoadSequence: 0,
+  summarySessionLoadSequence: 0,
+  dailySessionLoadSequence: 0,
   charts: {
     trend: null,
     status: null,
@@ -48,11 +55,12 @@ const viewAttendanceController = {
     this.isAttendanceConfigurator = roleNames.some(role => role.includes('school administrator') || role === 'director' || role === 'system administrator' || role.includes('headteacher'));
     if (this.isTeacherView) this.configureTeacherView();
 
+    await this.loadAttendancePeriods();
     this.setDefaultDates();
     if (this.isTeacherView) this.configureTeacherView();
     this.bindEvents();
 
-    const tasks = [this.configureSharedActions(), this.loadClasses()];
+    const tasks = [this.configureSharedActions(), this.loadClasses(), this.loadSessions(true)];
     if (!this.isTeacherView) tasks.push(this.loadSessions(), this.loadDormitories(), this.loadExpectedRegisters());
     await Promise.all(tasks);
     if (this.isAttendanceConfigurator) {
@@ -71,10 +79,11 @@ const viewAttendanceController = {
   },
 
   configureTeacherView: function () {
-    document.getElementById('expectedRegistersCard')?.classList.add('d-none');
+    document.getElementById('expectedRegistersDisclosure')?.classList.add('d-none');
+    document.getElementById('attendancePeriodControls')?.classList.add('d-none');
     document.getElementById('boardingTabItem')?.classList.add('d-none');
     document.getElementById('attendanceType')?.closest('.col-md-2')?.classList.add('d-none');
-    ['sessionSelect', 'dateFrom', 'dateTo', 'statusFilter'].forEach(id => document.getElementById(id)?.closest('.col-md-2')?.classList.add('d-none'));
+    document.querySelectorAll('.attendance-academic-filter').forEach(field => field.classList.add('d-none'));
     const type = document.getElementById('attendanceType');
     if (type) { type.value = 'academic'; type.disabled = true; }
     const classSelect = document.getElementById('classSelect');
@@ -155,9 +164,10 @@ const viewAttendanceController = {
 
   loadSessionConfiguration: async function () {
     const card = document.getElementById('attendanceSessionConfigCard');
+    const disclosure = document.getElementById('attendanceConfigDisclosure');
     const body = document.getElementById('attendanceSessionConfigBody');
     if (!card || !body || !this.isAttendanceConfigurator) return;
-    card.classList.remove('d-none');
+    disclosure?.classList.remove('d-none');
     try {
       const selectedTermId = document.getElementById('attendanceConfigTermSelect')?.value || this.sessionConfigTermId;
       const response = await window.API.attendance.getSessionConfig(selectedTermId ? { academic_year_term_id: selectedTermId } : {});
@@ -224,8 +234,6 @@ const viewAttendanceController = {
   setDefaultDates: function () {
     const today = new Date();
     const todayString = this.toDateInputValue(today);
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthStartString = this.toDateInputValue(monthStart);
 
     const dateFrom = document.getElementById("dateFrom");
     const dateTo = document.getElementById("dateTo");
@@ -233,10 +241,10 @@ const viewAttendanceController = {
     const boardingDate = document.getElementById("boardingDate");
 
     if (dateFrom) {
-      dateFrom.value = monthStartString;
+      dateFrom.value = this.selectedAttendanceTerm?.opening_date || `${today.getFullYear()}-01-01`;
     }
     if (dateTo) {
-      dateTo.value = todayString;
+      dateTo.value = this.selectedAttendanceTerm?.closing_date || todayString;
     }
     if (dailyDate) {
       dailyDate.value = todayString;
@@ -244,6 +252,128 @@ const viewAttendanceController = {
     if (boardingDate) {
       boardingDate.value = todayString;
     }
+    this.updateAttendancePeriodControls();
+  },
+
+  loadAttendancePeriods: async function () {
+    try {
+      const response = await window.API.academic.listTerms();
+      const payload = response?.data?.data ?? response?.data ?? response ?? [];
+      const rows = Array.isArray(payload) ? payload : (payload.terms || payload.rows || []);
+      this.attendanceTerms = rows
+        .map((term) => ({
+          ...term,
+          opening_date: String(term.opening_date || term.start_date || "").slice(0, 10),
+          closing_date: String(term.closing_date || term.end_date || "").slice(0, 10),
+        }))
+        .filter((term) => /^\d{4}-\d{2}-\d{2}$/.test(term.opening_date) && /^\d{4}-\d{2}-\d{2}$/.test(term.closing_date));
+
+      const today = this.toDateInputValue(new Date());
+      const byLatestClose = (a, b) => b.closing_date.localeCompare(a.closing_date);
+      this.selectedAttendanceTerm = this.attendanceTerms.find((term) =>
+        term.opening_date <= today && term.closing_date >= today
+      ) || this.attendanceTerms
+        .filter((term) => term.closing_date < today)
+        .sort(byLatestClose)[0] || this.attendanceTerms
+        .filter((term) => term.opening_date > today)
+        .sort((a, b) => a.opening_date.localeCompare(b.opening_date))[0] || null;
+      this.attendanceTerms.sort((a, b) => b.opening_date.localeCompare(a.opening_date));
+      const termSelect = document.getElementById("attendanceTermSelect");
+      if (termSelect) {
+        termSelect.innerHTML = this.attendanceTerms.map((term) => {
+          const id = Number(term.id || term.academic_year_term_id);
+          const year = term.year_name || term.year_code || term.academic_year || term.academic_year_id || "Academic year";
+          const name = term.term_name || term.name || (term.term_number ? `Term ${term.term_number}` : "Term");
+          const current = term === this.selectedAttendanceTerm;
+          return `<option value="${id}" ${current ? "selected" : ""}>${this.escapeHtml(name)} · ${this.escapeHtml(year)}</option>`;
+        }).join("") || '<option value="">No academic terms available</option>';
+      }
+    } catch (error) {
+      this.attendanceTerms = [];
+      this.selectedAttendanceTerm = null;
+      console.warn("Academic term dates unavailable; using the current calendar year for attendance summary.", error);
+    }
+  },
+
+  getAttendancePeriodRange: function (period = this.attendancePeriod) {
+    if (period === "custom") {
+      return { from: document.getElementById("dateFrom")?.value || "", to: document.getElementById("dateTo")?.value || "" };
+    }
+    const selected = this.selectedAttendanceTerm;
+    if (!selected) {
+      const year = new Date().getFullYear();
+      return { from: `${year}-01-01`, to: this.toDateInputValue(new Date()) };
+    }
+    if (period !== "year") {
+      return { from: selected.opening_date, to: selected.closing_date };
+    }
+    const yearTerms = this.attendanceTerms.filter((term) =>
+      String(term.academic_year_id || term.year_code || term.year_name || term.year) === String(selected.academic_year_id || selected.year_code || selected.year_name || selected.year)
+    );
+    if (!yearTerms.length) return { from: selected.opening_date, to: selected.closing_date };
+    return {
+      from: yearTerms.reduce((date, term) => term.opening_date < date ? term.opening_date : date, yearTerms[0].opening_date),
+      to: yearTerms.reduce((date, term) => term.closing_date > date ? term.closing_date : date, yearTerms[0].closing_date),
+    };
+  },
+
+  attendancePeriodDescription: function (period = this.attendancePeriod) {
+    const selected = this.selectedAttendanceTerm;
+    const range = this.getAttendancePeriodRange(period);
+    if (period === "custom") return range.from && range.to ? `Custom date range (${range.from} to ${range.to})` : "Custom date range";
+    const yearLabel = selected?.year_name || selected?.year_code || selected?.academic_year || selected?.academic_year_id || "Academic year";
+    const termLabel = selected?.term_name || selected?.name || (selected?.term_number ? `Term ${selected.term_number}` : "Selected term");
+    const title = period === "year" ? `Academic year ${yearLabel}` : `${termLabel}, ${yearLabel}`;
+    return `${title} (${range.from} to ${range.to})`;
+  },
+
+  updateAttendancePeriodControls: function () {
+    const controls = document.getElementById("attendancePeriodControls");
+    if (!controls) return;
+    controls.classList.toggle("d-none", this.isTeacherView || this.getAttendanceType() === "boarding");
+    controls.querySelectorAll("[data-attendance-period]").forEach((button) => {
+      const active = button.dataset.attendancePeriod === this.attendancePeriod;
+      button.classList.toggle("btn-primary", active);
+      button.classList.toggle("btn-outline-primary", !active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    const label = document.getElementById("attendancePeriodLabel");
+    if (label) label.textContent = this.attendancePeriodDescription();
+  },
+
+  selectAttendancePeriod: async function (period) {
+    if (!['term', 'year'].includes(period)) return;
+    this.attendancePeriod = period;
+    const range = this.getAttendancePeriodRange(period);
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    if (dateFrom) dateFrom.value = range.from;
+    if (dateTo) dateTo.value = range.to;
+    this.updateAttendancePeriodControls();
+    await this.loadSessions();
+    await this.loadAttendance();
+  },
+
+  selectAttendanceTerm: async function (termId) {
+    const term = this.attendanceTerms.find((item) => String(item.id || item.academic_year_term_id) === String(termId));
+    if (!term) return;
+    this.selectedAttendanceTerm = term;
+    this.attendancePeriod = "term";
+    const termSelect = document.getElementById("attendanceTermSelect");
+    if (termSelect) termSelect.value = String(term.id || term.academic_year_term_id);
+    const range = this.getAttendancePeriodRange("term");
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    if (dateFrom) dateFrom.value = range.from;
+    if (dateTo) dateTo.value = range.to;
+    this.updateAttendancePeriodControls();
+    await this.loadSessions();
+    await this.loadAttendance();
+  },
+
+  markAttendancePeriodCustom: function () {
+    this.attendancePeriod = "custom";
+    this.updateAttendancePeriodControls();
   },
 
   bindEvents: function () {
@@ -251,15 +381,25 @@ const viewAttendanceController = {
     document.getElementById('saveAttendanceSessionConfigBtn')?.addEventListener('click', () => this.saveSessionConfiguration());
     const attendanceType = document.getElementById("attendanceType");
     if (attendanceType) {
-      attendanceType.addEventListener("change", () =>
-        this.handleAttendanceTypeChange(),
-      );
+      attendanceType.addEventListener("change", () => {
+        this.handleAttendanceTypeChange();
+        this.updateAttendancePeriodControls();
+        if (this.getAttendanceType() === "academic") void this.loadAttendance();
+      });
     }
+    document.querySelectorAll("[data-attendance-period]").forEach((button) => {
+      button.addEventListener("click", () => this.selectAttendancePeriod(button.dataset.attendancePeriod));
+    });
+    document.getElementById("attendanceTermSelect")?.addEventListener("change", (event) => {
+      this.selectAttendanceTerm(event.target.value);
+    });
 
     const classSelect = document.getElementById("classSelect");
-    if (classSelect) {
-      classSelect.addEventListener("change", () => this.loadPermissions());
-    }
+    if (classSelect) classSelect.addEventListener("change", async () => {
+      this.loadPermissions();
+      await this.loadSessions();
+      await this.loadAttendance();
+    });
 
     const dormitorySelect = document.getElementById("dormitorySelect");
     if (dormitorySelect) {
@@ -286,12 +426,27 @@ const viewAttendanceController = {
     if (loadDailyBtn) {
       loadDailyBtn.addEventListener("click", () => this.loadDailyRegister());
     }
-    ["classSelect", "sessionSelect", "dateFrom", "dateTo", "statusFilter"].forEach(id => {
+    ["sessionSelect", "statusFilter"].forEach(id => {
       document.getElementById(id)?.addEventListener("change", () => this.loadAttendance());
     });
-    ["dailyDate", "dailySessionSelect"].forEach(id => {
-      document.getElementById(id)?.addEventListener("change", () => this.loadDailyRegister());
+    ["dateFrom", "dateTo"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", async () => {
+        this.markAttendancePeriodCustom();
+        const from = document.getElementById("dateFrom")?.value || "";
+        const to = document.getElementById("dateTo")?.value || "";
+        if (from && to && from > to) {
+          document.getElementById("dateFrom").value = to;
+          document.getElementById("dateTo").value = from;
+        }
+        await this.loadSessions();
+        await this.loadAttendance();
+      });
     });
+    document.getElementById("dailyDate")?.addEventListener("change", async () => {
+      await this.loadSessions(true);
+      await this.loadDailyRegister();
+    });
+    document.getElementById("dailySessionSelect")?.addEventListener("change", () => this.loadDailyRegister());
 
     const loadBoardingBtn = document.getElementById("loadBoardingBtn");
     if (loadBoardingBtn) {
@@ -330,13 +485,6 @@ const viewAttendanceController = {
       printStudentBtn.addEventListener("click", () => this.printStudentView());
     }
 
-    const dateInputs = ["dateFrom", "dateTo", "dailyDate"];
-    dateInputs.forEach((id) => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.addEventListener("change", () => this.loadSessions());
-      }
-    });
   },
 
   configureSharedActions: async function () {
@@ -409,6 +557,15 @@ const viewAttendanceController = {
           : '<i class="bi bi-search me-1"></i> Load Attendance';
     }
 
+    document.querySelectorAll(".attendance-academic-filter").forEach((field) => {
+      field.classList.toggle("d-none", type !== "academic");
+    });
+    const periodControls = document.getElementById("attendancePeriodControls");
+    periodControls?.classList.toggle("d-none", type !== "academic" || this.isTeacherView);
+    const academicTabs = ["summary-tab", "daily-tab", "chart-tab"];
+    academicTabs.forEach((id) => document.getElementById(id)?.closest(".nav-item")?.classList.toggle("d-none", type !== "academic"));
+    document.getElementById("boardingTabItem")?.classList.toggle("d-none", type !== "boarding" || !this.canAccessBoarding);
+
     if (type === "boarding" && this.canAccessBoarding) {
       this.showTab("boarding-tab");
       this.loadBoardingSummary();
@@ -453,21 +610,35 @@ const viewAttendanceController = {
     }
   },
 
-  loadSessions: async function () {
-    const referenceDate =
-      document.getElementById("dailyDate")?.value ||
-      document.getElementById("dateTo")?.value ||
-      this.toDateInputValue(new Date());
+  loadSessions: async function (forDailyRegister = false) {
+    const sequenceKey = forDailyRegister ? "dailySessionLoadSequence" : "summarySessionLoadSequence";
+    const sequence = ++this[sequenceKey];
+    const referenceDate = forDailyRegister
+      ? (document.getElementById("dailyDate")?.value || this.toDateInputValue(new Date()))
+      : (document.getElementById("dateFrom")?.value || this.toDateInputValue(new Date()));
 
     try {
-      const sessions = await window.API.apiCall("/attendance/sessions", "GET", null, {
+      const params = {
         type: "academic",
-        day: this.getDayName(referenceDate),
-      });
-
-      this.sessions = Array.isArray(sessions) ? sessions : [];
+        date: referenceDate,
+      };
+      const streamId = document.getElementById("classSelect")?.value;
+      if (streamId) params.stream_id = streamId;
+      if (forDailyRegister) {
+        const response = await window.API.apiCall("/attendance/sessions", "GET", null, params);
+        if (sequence !== this[sequenceKey]) return;
+        const payload = response?.data?.data ?? response?.data ?? response ?? [];
+        this.dailySessions = Array.isArray(payload) ? payload : (payload.sessions || payload.rows || []);
+      } else {
+        params.include_all_days = true;
+        const response = await window.API.apiCall("/attendance/sessions", "GET", null, params);
+        if (sequence !== this[sequenceKey]) return;
+        const payload = response?.data?.data ?? response?.data ?? response ?? [];
+        this.sessions = Array.isArray(payload) ? payload : (payload.sessions || payload.rows || []);
+      }
       this.renderSessionDropdowns();
     } catch (error) {
+      if (sequence !== this[sequenceKey]) return;
       this.notify(error.message || "Failed to load attendance sessions", "error");
     }
   },
@@ -481,7 +652,8 @@ const viewAttendanceController = {
       const previousValue = select.value;
       select.innerHTML = '<option value="">All Sessions</option>';
 
-      this.sessions.forEach((session) => {
+      const options = select === dailySessionSelect ? this.dailySessions : this.sessions;
+      options.forEach((session) => {
         const option = document.createElement("option");
         option.value = session.id;
         option.textContent = `${session.name} (${session.start_time} - ${session.end_time})`;
@@ -490,7 +662,7 @@ const viewAttendanceController = {
 
       if (
         previousValue &&
-        this.sessions.some((session) => String(session.id) === previousValue)
+        options.some((session) => String(session.id) === previousValue)
       ) {
         select.value = previousValue;
       }
@@ -549,10 +721,13 @@ const viewAttendanceController = {
   },
 
   loadAttendance: async function () {
+    const sequence = ++this.attendanceLoadSequence;
     try {
+      const params = this.getAcademicParams();
       const response = await window.API.attendance.getAcademicSummary(
-        this.getAcademicParams(),
+        params,
       );
+      if (sequence !== this.attendanceLoadSequence) return;
       this.academicData = response || {
         students: [],
         summary: {},
@@ -563,6 +738,7 @@ const viewAttendanceController = {
       this.renderAcademicSummary(this.academicData);
       await this.loadPermissions();
     } catch (error) {
+      if (sequence !== this.attendanceLoadSequence) return;
       this.notify(
         error.message || "Failed to load academic attendance summary",
         "error",
@@ -625,7 +801,7 @@ const viewAttendanceController = {
     });
     const coverageSummary = document.getElementById('attendanceCoverageSummary');
     if (coverageSummary) {
-      coverageSummary.textContent = `${Number(summary.total_days || 0)} learner school-days in scope: ${Number(summary.present || 0)} present, ${Number(summary.absent || 0)} absent, ${Number(summary.late || 0)} late, ${Number(summary.permission || 0)} on permission, ${Number(summary.unmarked || 0)} unmarked.`;
+      coverageSummary.textContent = `${Number(summary.total_days || 0)} learner school-days recorded: ${Number(summary.present || 0)} present, ${Number(summary.absent || 0)} absent, ${Number(summary.late || 0)} late, ${Number(summary.permission || 0)} on permission, ${Number(summary.unmarked || 0)} unmarked.`;
     }
 
     const tbody = document.querySelector("#summaryTable tbody");

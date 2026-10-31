@@ -261,7 +261,10 @@
 
       <div class="kw-mail-accounts">
         <div class="d-flex align-items-center justify-content-between px-3 pt-2 pb-1">
-          <small class="text-uppercase text-muted" style="letter-spacing:.08em;font-size:.7rem;">Mail accounts</small>
+          <div>
+            <small class="text-uppercase text-muted" style="letter-spacing:.08em;font-size:.7rem;">Mail accounts</small>
+            <small class="d-block text-muted" style="font-size:.68rem;">Each account has its own staff list. Use its shield to manage who can access that group mailbox.</small>
+          </div>
           <button type="button" class="kw-account-gear" id="mailAccessBtn" title="Manage mailbox access" style="display:none;"><i class="fas fa-user-shield"></i></button>
         </div>
         <div id="mailboxTabs" role="tablist"></div>
@@ -438,17 +441,18 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-3">
-                    Choose which staff may open this mailbox. <strong>Read</strong> lets them view mail,
+                    This list applies only to <strong id="accessMailboxHelpName">this mailbox</strong>. Add each staff member who should access this group account. <strong>Read</strong> lets them view mail,
                     <strong>Reply</strong> lets them answer existing threads, and <strong>Compose</strong> lets them send new mail.
                 </p>
                 <div class="input-group input-group-sm mb-2">
                     <span class="input-group-text"><i class="fas fa-search"></i></span>
                     <input type="text" class="form-control" id="accessUserSearch" placeholder="Search staff by name or username..." autocomplete="off">
                 </div>
+                <h6 class="text-uppercase text-muted small">Available staff — select to add</h6>
                 <div id="accessUserResults" class="list-group mb-3" style="max-height:220px;overflow-y:auto;"></div>
                 <h6 class="text-uppercase text-muted small">Members</h6>
                 <div id="accessMembersList"></div>
-                <div id="accessMembersEmpty" class="text-muted small py-3" style="display:none;">No staff have explicit access yet. School and department rules still apply.</div>
+                <div id="accessMembersEmpty" class="text-muted small py-3" style="display:none;">No staff are assigned to this mailbox yet. Add staff above, choose their permissions, then save.</div>
             </div>
             <div class="modal-footer">
                 <span class="text-muted small me-auto" id="accessStatus"></span>

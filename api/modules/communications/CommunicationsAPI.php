@@ -308,7 +308,39 @@ class CommunicationsAPI extends BaseAPI
         $this->db->prepare("UPDATE communications SET status = 'queued', next_attempt_at = NULL, last_error = NULL, processed_at = NULL WHERE id = ?")
             ->execute([(int) $commId]);
         $result = (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $commId, is_array($recipientRowIds) ? $recipientRowIds : null);
-        return ['status' => $result === 'sent' ? 'success' : ($result === 'failed' ? 'error' : 'queued'), 'message' => 'Communication resend processed through the outbox.', 'communication_id' => (int) $commId, 'recipient_count' => is_array($recipientRowIds) ? count($recipientRowIds) : null, 'dispatch_result' => $result];
+        $status = $result === 'sent' ? 'success' : ($result === 'failed' ? 'error' : 'queued');
+        if ($result === 'sent') {
+            $message = 'The provider accepted the resend. Delivery confirmation is tracked separately.';
+        } elseif ($result === 'failed') {
+            $errorParams = [(int) $commId];
+            $recipientFilter = '';
+            if (is_array($recipientRowIds) && $recipientRowIds !== []) {
+                $recipientFilter = ' AND r.id IN (' . implode(',', array_fill(0, count($recipientRowIds), '?')) . ')';
+                $errorParams = array_merge($errorParams, $recipientRowIds);
+            }
+            $errors = $this->db->prepare(
+                "SELECT e.last_error
+                   FROM communication_recipient_endpoints e
+                   JOIN communication_recipients r ON r.id = e.communication_recipient_id
+                  WHERE r.communication_id = ? AND e.status IN ('retry','failed')
+                    AND e.last_error IS NOT NULL AND e.last_error <> ''$recipientFilter
+                  ORDER BY e.id LIMIT 3"
+            );
+            $errors->execute($errorParams);
+            $details = array_values(array_filter(array_map('trim', $errors->fetchAll(\PDO::FETCH_COLUMN))));
+            $message = $details
+                ? 'Resend failed: ' . implode(' | ', array_map(static fn(string $error): string => mb_substr($error, 0, 300), $details))
+                : 'The resend attempt failed. Check the recipient delivery details for the provider error.';
+        } else {
+            $message = 'The outbox did not claim this resend. Refresh delivery status before retrying.';
+        }
+        return [
+            'status' => $status,
+            'message' => $message,
+            'communication_id' => (int) $commId,
+            'recipient_count' => is_array($recipientRowIds) ? count($recipientRowIds) : null,
+            'dispatch_result' => $result,
+        ];
     }
 
     /**

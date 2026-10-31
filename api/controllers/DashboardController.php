@@ -16,6 +16,7 @@ use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
 use App\API\Services\AiAgentService;
+use App\API\Services\AiAgentRegistry;
 use App\API\Services\AiAgentTaskService;
 use App\API\Services\AiBehaviorProfiler;
 use App\API\Services\AiPythonBridge;
@@ -881,6 +882,14 @@ class DashboardController extends BaseController
         try {
             $route = strtolower(trim((string) ($_GET['route'] ?? $data['route'] ?? 'dashboard')));
             $agent = $this->contract(AiAgentService::class);
+            $pdo = $this->getDb()->getConnection();
+            $permissions = $agent->resolveEffectivePermissions($pdo, $userId);
+            $routeAgent = AiAgentRegistry::forRoute($route);
+            if (($routeAgent['domain'] ?? '') === 'system'
+                && !in_array('system_admin', $permissions, true)
+                && !in_array('system_view', $permissions, true)) {
+                return $this->forbidden('System workspace insights require system administrator access');
+            }
             $cached = $agent->cachedBriefing($userId, $route);
             if (is_array($cached) && (string) ($cached['status'] ?? '') === 'ready') {
                 return $this->success([

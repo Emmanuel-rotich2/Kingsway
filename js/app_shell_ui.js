@@ -805,6 +805,10 @@
 //    poll a bounded number of times instead of showing a spinner.
   let aiBriefingTimer = null;
   let aiBriefingSnapshot = null;
+  let aiBriefingRequestId = 0;
+  let aiBriefingRoute = "";
+  let delegatedTaskTimer = null;
+  let delegatedTaskRequestId = 0;
 
   const AI_BRIEFING_TTL = 15 * 60 * 1000;
 
@@ -817,16 +821,25 @@
     const host = $("#global-ai-assistant-briefing");
     if (!host) return;
     const route = currentRoute() || "dashboard";
+    if (route !== aiBriefingRoute) {
+      aiBriefingRoute = route;
+      aiBriefingSnapshot = null;
+      if (aiBriefingTimer) clearTimeout(aiBriefingTimer);
+      aiBriefingTimer = null;
+      host.innerHTML = '<div class="text-muted small">Checking this workspace for useful insights…</div>';
+    }
+    const requestId = ++aiBriefingRequestId;
     const storeKey = "ai_workspace_briefing";
 
     if (attempt === 0 && !host.querySelector("[data-ai-briefing-body]")) {
       // Instant first paint from the persisted snapshot, before any network.
-      window.DataStore?.peek?.(storeKey, {
+      const snapshotRequest = window.DataStore?.peek?.(storeKey, {
         storeName: "ai_workspace_cache",
         ttl: AI_BRIEFING_TTL,
         params: { route },
-      }).then((snapshot) => {
-        if (snapshot?.status === "ready" && snapshot?.briefing && !host.querySelector("[data-ai-briefing-body]")) {
+      });
+      snapshotRequest?.then?.((snapshot) => {
+        if (requestId === aiBriefingRequestId && route === (currentRoute() || "dashboard") && snapshot?.status === "ready" && snapshot?.briefing && !host.querySelector("[data-ai-briefing-body]")) {
           host.innerHTML = renderWorkspaceBriefing(snapshot.briefing, true);
         }
       });
@@ -844,6 +857,7 @@
             fetcher: () => fetchWorkspaceBriefing(route),
           })
         : await fetchWorkspaceBriefing(route);
+      if (requestId !== aiBriefingRequestId || route !== (currentRoute() || "dashboard")) return;
       if (result?.status === "ready" && result?.briefing) {
         host.innerHTML = renderWorkspaceBriefing(result.briefing, false);
         return;
@@ -861,8 +875,122 @@
       host.innerHTML =
         '<div class="alert alert-secondary small mb-0">Your workspace briefing is still being prepared. It will be ready shortly.</div>';
     } catch (briefingError) {
+      if (requestId !== aiBriefingRequestId || route !== (currentRoute() || "dashboard")) return;
       host.innerHTML =
         '<div class="alert alert-secondary small mb-0">Workspace briefing is unavailable right now. You can still ask the assistant a question below.</div>';
+    }
+  }
+
+  function delegatedTaskStorageKey() {
+    const user = window.AuthContext?.getUser?.() || {};
+    return `kw.ai.delegated-task.${String(user.id || user.user_id || "current")}`;
+  }
+
+  function unwrapApiData(response) {
+    return response?.data?.data ?? response?.data ?? response;
+  }
+
+  function renderDelegatedTask(task, question = "") {
+    const host = $("#global-ai-assistant-task-status");
+    if (!host || !task) return;
+    const status = String(task.status || "queued");
+    const result = task.result;
+    if (status === "completed" && result) {
+      const answer = result.answer?.body || result.answer?.title || "The assistant completed this request.";
+      host.innerHTML = `<div class="card border-primary-subtle shadow-sm">
+        <div class="card-header bg-primary-subtle py-2 d-flex justify-content-between align-items-center">
+          <strong class="small"><i class="bi bi-check-circle me-1"></i>Background result ready</strong>
+          <button type="button" class="btn-close" data-dismiss-delegated-task aria-label="Dismiss result"></button>
+        </div>
+        <div class="card-body p-3">
+          ${question ? `<p class="small text-muted mb-2">${escapeHtml(question)}</p>` : ""}
+          <div class="small assistant-answer-body">${mdRender(answer)}</div>
+          ${Array.isArray(result.answer?.next_steps) && result.answer.next_steps.length ? `<ul class="small mt-2 mb-0">${result.answer.next_steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ul>` : ""}
+        </div>
+      </div>`;
+      host.querySelector("[data-dismiss-delegated-task]")?.addEventListener("click", () => {
+        host.innerHTML = "";
+        try { localStorage.removeItem(delegatedTaskStorageKey()); } catch {}
+      });
+      return;
+    }
+    if (["failed", "cancelled"].includes(status)) {
+      host.innerHTML = `<div class="alert alert-warning small mb-0"><strong>Background task ${escapeHtml(status)}.</strong> ${escapeHtml(task.error || "You can try again from this page.")}</div>`;
+      return;
+    }
+    host.innerHTML = `<div class="alert alert-info small mb-0"><span class="spinner-border spinner-border-sm me-2" role="status"></span>${escapeHtml(task.message || "Your request is queued for the assistant.")}</div>`;
+  }
+
+  async function pollDelegatedTask(taskId, question = "", attempt = 0) {
+    const requestId = ++delegatedTaskRequestId;
+    const maxAttempts = 80;
+    if (delegatedTaskTimer) clearTimeout(delegatedTaskTimer);
+    try {
+      const task = unwrapApiData(await window.API.dashboard.agentTaskGet(taskId));
+      if (requestId !== delegatedTaskRequestId) return;
+      if (!task) throw new Error("Task status is unavailable.");
+      renderDelegatedTask(task, question);
+      if (["completed", "failed", "cancelled"].includes(String(task.status))) {
+        if (delegatedTaskTimer) clearTimeout(delegatedTaskTimer);
+        return;
+      }
+      try { localStorage.setItem(delegatedTaskStorageKey(), JSON.stringify({ task_id: taskId, question })); } catch {}
+      if (attempt < maxAttempts) {
+        delegatedTaskTimer = setTimeout(() => void pollDelegatedTask(taskId, question, attempt + 1), 4000);
+      } else {
+        const host = $("#global-ai-assistant-task-status");
+        if (host) host.innerHTML = '<div class="alert alert-info small mb-0">The task is still running. Its result will appear here when you reopen the assistant.</div>';
+      }
+    } catch (error) {
+      if (requestId !== delegatedTaskRequestId) return;
+      const host = $("#global-ai-assistant-task-status");
+      if (host) host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(error?.message || "Could not retrieve the background task.")}</div>`;
+    }
+  }
+
+  async function restoreDelegatedTask() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(delegatedTaskStorageKey()) || "null");
+      if (saved?.task_id) await pollDelegatedTask(String(saved.task_id), String(saved.question || ""));
+    } catch { /* storage may be unavailable or contain an old value */ }
+  }
+
+  async function delegateAssistantQuestion() {
+    const input = $("#global-ai-assistant-question");
+    const button = $("#global-ai-assistant-delegate");
+    const question = String(input?.value || "").trim();
+    if (!question) {
+      window.showNotification?.("Enter a task for the assistant first.", "warning");
+      input?.focus();
+      return;
+    }
+    if (!window.API?.dashboard?.agentTaskCreate) {
+      window.showNotification?.("Background assistant work is unavailable right now.", "error");
+      return;
+    }
+    if (button) button.disabled = true;
+    const host = $("#global-ai-assistant-task-status");
+    if (host) host.innerHTML = '<div class="alert alert-info small mb-0"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Sending this task to the assistant…</div>';
+    try {
+      const route = currentRoute() || "dashboard";
+      const response = await window.API.dashboard.agentTaskCreate({
+        tool: "assistant",
+        question,
+        route,
+        module: route,
+        session_id: String(currentSessionId || ""),
+      });
+      const task = unwrapApiData(response);
+      if (!task?.task_id) throw new Error(task?.message || "The assistant did not accept this task.");
+      try { localStorage.setItem(delegatedTaskStorageKey(), JSON.stringify({ task_id: String(task.task_id), question })); } catch {}
+      input.value = "";
+      growAssistantInput();
+      renderDelegatedTask(task, question);
+      void pollDelegatedTask(String(task.task_id), question);
+    } catch (error) {
+      if (host) host.innerHTML = `<div class="alert alert-warning small mb-0">${escapeHtml(error?.message || "The task could not be queued.")}</div>`;
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
@@ -1320,8 +1448,6 @@
   function clearConversation() {
     const thread = $("#global-ai-assistant-thread");
     if (!thread) return;
-    const briefing = $("#global-ai-assistant-briefing");
-    if (briefing) briefing.innerHTML = "";
     thread.innerHTML = getGreetingHtml();
     bindAssistantPromptChips(thread);
   }
@@ -1536,6 +1662,10 @@
       } catch (error) {
         setIdle();
       }
+    });
+
+    $("#global-ai-assistant-delegate")?.addEventListener("click", () => {
+      void delegateAssistantQuestion();
     });
 
     const thread = $("#global-ai-assistant-thread");
@@ -2586,6 +2716,8 @@
         initAssistantChrome();
         renderAssistantHistory();
         initAiAssistantQuery();
+        void loadWorkspaceBriefing(0);
+        void restoreDelegatedTask();
       }
     );
 
@@ -2717,6 +2849,11 @@
     );
 
     bindEvents();
+    window.addEventListener("kingsway:page-loaded", () => {
+      if ($("#globalAiAssistantPanel")?.classList.contains("show")) {
+        void loadWorkspaceBriefing(0);
+      }
+    });
     refresh();
     void waitForAuthenticatedContext();
   }

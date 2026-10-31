@@ -503,6 +503,13 @@ class AiAgentService
 
         // Domain-specific deterministic aggregates.
         if ($domain === 'system') {
+            // Route strings are caller controlled, so they cannot grant access
+            // to operational or security telemetry. Keep the system surface
+            // behind the same explicit permission used by system dashboards.
+            if (!in_array('system_admin', $permissions, true) && !in_array('system_view', $permissions, true)) {
+                $scan['system_scan_status'] = 'restricted';
+                return $scan;
+            }
             try {
                 $summary = (new SystemOperationsReviewService())->summary($pdo);
                 $payload = (new SystemOperationsReviewService())->aiPayload($summary);
@@ -514,6 +521,8 @@ class AiAgentService
                 ] as $field) {
                     $scan[$field] = $payload[$field] ?? ($field === 'error_signatures' ? [] : 0);
                 }
+                $security = (new SystemSecuritySignalsService())->aiPayload((new SystemSecuritySignalsService())->summary());
+                $scan['security_signals'] = $security;
             } catch (Throwable $e) {
                 $scan['system_scan_status'] = 'unavailable';
             }
@@ -1020,6 +1029,16 @@ class AiAgentService
         }
         if ((int) ($scan['error_critical_24h'] ?? 0) > 0) {
             $add((int) $scan['error_critical_24h'] . ' critical journal entries in 24h', 'warning', 'Recurring error signatures: ' . implode(' | ', array_slice((array) ($scan['error_signatures'] ?? []), 0, 3)), 'Review the errors journal from Audit & Forensics for the full signatures.');
+        }
+        $security = is_array($scan['security_signals'] ?? null) ? $scan['security_signals'] : [];
+        if ((int) ($security['security_incident_count'] ?? 0) > 0) {
+            $add((int) $security['security_incident_count'] . ' security incident signal(s)', 'critical', 'The identity-free security journal summary includes one or more incident entries in the last 24 hours.', 'Review the security journal and verify containment steps through the normal administrator workflow.');
+        }
+        if ((int) ($security['failed_login_count'] ?? 0) >= 5) {
+            $add('Repeated failed sign-in activity', 'warning', (int) $security['failed_login_count'] . ' failed sign-in events were recorded in the last 24 hours.', 'Check the authentication signals and verify whether the activity is expected.');
+        }
+        if ((int) ($security['permission_denied_count'] ?? 0) >= 5) {
+            $add('Repeated access-denial signals', 'warning', (int) $security['permission_denied_count'] . ' authorization denials were recorded in the last 24 hours.', 'Review affected workflows and confirm staff access assignments are correct.');
         }
         foreach (array_slice((array) ($scan['insight_alerts'] ?? []), 0, 4) as $alert) {
             if (is_scalar($alert)) {

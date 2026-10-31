@@ -18,9 +18,6 @@ if (!isset($appBase)) {
         </div>
     </div>
     <div id="smsState" class="alert alert-info" role="status"><i class="bi bi-hourglass-split me-1"></i>Loading SMS configuration...</div>
-    <div class="row g-4" id="smsConfigPanel">
-        <div class="col-12"><div class="text-center py-5 text-muted">Loading...</div></div>
-    </div>
     <div class="mt-4">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">

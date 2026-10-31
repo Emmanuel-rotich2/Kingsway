@@ -314,10 +314,18 @@
           };
         })();
         const channel = this.cfg.channel;
-        ["kingsway:data-mutated", "kingsway:job"].forEach(function (evt) {
+        // APIRealtime.register() already refreshes this controller for
+        // kingsway:data-mutated events whose targets match `communications`.
+        // Listening to that event here as well caused a second GET for every
+        // matching mutation. Keep the page-specific listener for completed
+        // jobs, which are notifications and do not schedule a data refresh.
+        ["kingsway:job"].forEach(function (evt) {
           window.addEventListener(evt, function (e) {
             const scope = String(e.detail?.scope || "").toLowerCase();
-            if (scope && scope !== "all" && !scope.includes("communic") && !scope.includes("sms") && !scope.includes("whatsapp") && !scope.includes(channel)) return;
+            const targets = Array.isArray(e.detail?.targets) ? e.detail.targets : [];
+            const relevantScope = scope !== "all" && (scope.includes("communic") || scope.includes("sms") || scope.includes("whatsapp") || scope.includes(channel));
+            const relevantTarget = targets.some((target) => /communicat|sms|whatsapp/i.test(String(target)));
+            if (!relevantScope && !relevantTarget) return;
             refresh();
           });
         });
@@ -625,8 +633,9 @@
           const btn = document.getElementById("resendBtn");
           if (btn) btn.disabled = true;
           const result = await window.API.communications.resendCommunication({ id: this.selectedId, recipient_row_ids: recipientRowIds });
-          if (result?.status === "success" || result?.success) this.notify(result.message || "Resent", "success");
-          else this.notify(result?.message || "Resend failed", "error");
+          if (result?.dispatch_result === "sent") this.notify(result.message || "Provider accepted the resend", "success");
+          else if (result?.dispatch_result === "failed" || result?.status === "error") this.notify(result.message || "Resend failed", "error");
+          else this.notify(result?.message || "Resend is waiting for outbox processing", "warning");
           await this.loadData();
         } catch (e) {
           this.notify(e.message || "Failed to resend", "error");

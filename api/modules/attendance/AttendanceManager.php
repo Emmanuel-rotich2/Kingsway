@@ -837,6 +837,7 @@ class AttendanceManager extends BaseAPI
         try {
             $type = $data['type'] ?? $_GET['type'] ?? null;
             $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $includeAllDays = filter_var($data['include_all_days'] ?? $_GET['include_all_days'] ?? false, FILTER_VALIDATE_BOOLEAN);
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
             $dayOfWeek = date('l', strtotime((string) $date));
             $term = $this->resolveTermForDate((string) $date);
@@ -889,7 +890,7 @@ class AttendanceManager extends BaseAPI
                 if (($session['status'] ?? 'inactive') !== 'active') continue;
                 if ($type && ($session['type'] ?? null) !== $type) continue;
                 $days = json_decode((string) ($session['applicable_days'] ?? '[]'), true) ?: [];
-                if (!in_array($dayOfWeek, $days, true)) continue;
+                if (!$includeAllDays && !in_array($dayOfWeek, $days, true)) continue;
                 if ($classId && !$this->sessionAppliesToClassForTerm((int) $session['id'], (int) $classId, $termId)) continue;
                 $session['academic_year_term_id'] = $termId;
                 $sessions[] = $session;

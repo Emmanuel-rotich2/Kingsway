@@ -1335,7 +1335,11 @@ class CommunicationsController extends BaseController
         } elseif ($guard = $this->guardLiveExternalCommunication('Communication resend')) {
             return $guard;
         }
-        return $this->handleResponse($this->api->resendCommunication($data));
+        $result = $this->api->resendCommunication($data);
+        if (($result['status'] ?? '') === 'error') {
+            return $this->badRequest($result['message'] ?? 'Resend failed');
+        }
+        return $this->success($result, $result['message'] ?? 'Resend processed');
     }
 
     private function guardLiveExternalCommunication(string $operation)
@@ -1883,11 +1887,10 @@ class CommunicationsController extends BaseController
 
     /**
      * School-domain mailbox endpoints. Access rule (EmailProfileService):
-     * School Admin (role 4) sees ALL mailboxes with send access; personal
+     * School Admin (role 4) sees ALL mailboxes with full access; personal
      * mailboxes belong to their owner plus explicit members; group mailboxes
-     * honour explicit members and the legacy assigned_role_ids rule (empty
-     * list = all staff). System Administrator is not granted mailbox
-     * visibility here — configuration only.
+     * require explicit per-mailbox memberships. System Administrator is not
+     * granted mailbox visibility here — configuration only.
      */
 
     private function mailboxAccessContext(): array
@@ -1971,7 +1974,8 @@ class CommunicationsController extends BaseController
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
         }
-        if ($this->userHasRole('School Administrator') || $this->userHasPermission('*')) {
+        $context = $this->mailboxAccessContext();
+        if ($context['is_school_admin'] || $this->userHasPermission('*')) {
             return null;
         }
         return $this->forbidden('School Administrator access is required to manage mailbox access.');
@@ -1991,8 +1995,10 @@ class CommunicationsController extends BaseController
 
         try {
             $members = $this->emailProfileService->listMembers($profileId);
+            $staff = $this->emailProfileService->searchStaffUsers((string) ($data['q'] ?? ''), 50);
             return $this->success([
                 'members'    => $members,
+                'staff'      => $staff,
                 'mailbox'    => $this->maskProfile((array) $this->emailProfileService->getProfile($profileId)),
             ], 'Mailbox members retrieved');
         } catch (Exception $e) {
@@ -2033,8 +2039,12 @@ class CommunicationsController extends BaseController
 
     public function getMailboxes($id = null, $data = [], $segments = [])
     {
+        $context = $this->mailboxAccessContext();
         $profiles = array_map(fn ($p) => $this->maskProfile($p), $this->accessibleMailboxProfiles());
-        return $this->success(['mailboxes' => $profiles], 'Mailboxes retrieved');
+        return $this->success([
+            'mailboxes' => $profiles,
+            'can_manage_access' => $context['is_school_admin'] || $this->userHasPermission('*'),
+        ], 'Mailboxes retrieved');
     }
 
     public function getMailboxesFolders($id = null, $data = [], $segments = [])
@@ -2093,8 +2103,11 @@ class CommunicationsController extends BaseController
 
     public function getMailboxesMessage($id = null, $data = [], $segments = [])
     {
-        $profileId = (int) ($data['profile_id'] ?? $segments[0] ?? 0);
-        $messageId = (string) ($id ?? $data['message_id'] ?? '');
+        $profileId = (int) ($id ?? $data['profile_id'] ?? $segments[0] ?? 0);
+        // The route is /mailboxes/{profileId}/message/{uid}; the router
+        // supplies {profileId} as $id. The message UID is separate; prefer its
+        // explicit query value, then fall back to the last remaining segment.
+        $messageId = (string) ($data['message_id'] ?? (end($segments) ?: ''));
         $folder = (string) ($data['folder'] ?? 'INBOX');
         if ($profileId <= 0) {
             return $this->badRequest('Profile ID required');
