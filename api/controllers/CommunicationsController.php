@@ -223,6 +223,7 @@ class CommunicationsController extends BaseController
         return $this->success([
             'balance' => $result['balance'] ?? 0,
             'available' => !empty($result['success']),
+            'topup' => $result['topup'] ?? [],
         ], $result['message'] ?? 'Balance retrieved');
     }
 
@@ -487,6 +488,9 @@ class CommunicationsController extends BaseController
         }
         if (!in_array($input['channel'], ['email', 'sms', 'whatsapp', 'internal'], true)) {
             return $this->badRequest('Unsupported communication channel');
+        }
+        if ($input['channel'] === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) {
+            return $this->badRequest('WhatsApp sending is paused. Use SMS or email for now.');
         }
         if (!in_array($input['audience'], ['all_parents', 'selected_parents', 'selected_class', 'all_staff', 'selected_staff'], true)) {
             return $this->badRequest('Unsupported communication audience');
@@ -1185,8 +1189,58 @@ class CommunicationsController extends BaseController
     public function postCommunication($id = null, $data = [], $segments = [])
     {
         $isTestScope = $this->isTestAccount();
+        $requestedChannel = strtolower(trim((string) ($data['type'] ?? $data['channel'] ?? '')));
+        if ($requestedChannel === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) {
+            return $this->badRequest('WhatsApp sending is paused. Use SMS or email for now.');
+        }
         if (!$isTestScope && !$this->userHasAny(['communications_create', 'communications_manage'])) {
             return $this->forbidden('You do not have permission to create communications');
+        }
+        $channelMeta = is_array($data['channel_meta'] ?? null) ? $data['channel_meta'] : [];
+        if (($channelMeta['recipient_document_strategy'] ?? $channelMeta['whatsapp_document_strategy'] ?? '') === 'fee_statement'
+            && !$isTestScope
+            && !$this->userHasAny(['finance_view', 'finance_manage'])) {
+            return $this->forbidden('Finance permission is required to send learner fee statements.');
+        }
+        $recipientDocument = (string) ($channelMeta['recipient_document_strategy'] ?? $channelMeta['whatsapp_document_strategy'] ?? '');
+        if ($recipientDocument === 'payslip' && !$isTestScope && !$this->userHasAny(['finance_view', 'payroll_view', 'payroll_manage'])) {
+            return $this->forbidden('Payroll permission is required to send payslips.');
+        }
+        if ($recipientDocument === 'report_card' && !$isTestScope && !$this->userHasAny(['academic_manage', 'academic_approve'])) {
+            return $this->forbidden('Academic approval permission is required to send released report cards.');
+        }
+        if (in_array($recipientDocument, ['student_id_card', 'portfolio', 'certificate'], true)
+            && !$isTestScope && !$this->userHasAny(['students_view', 'students_view_all', 'academic_view', 'academic_manage'])) {
+            return $this->forbidden('Learner record access is required to send learner documents.');
+        }
+        if ($recipientDocument === 'staff_security_pass'
+            && !$isTestScope && !$this->userHasAny(['staff_view', 'staff_manage'])) {
+            return $this->forbidden('Staff record access is required to send security passes.');
+        }
+        if ($recipientDocument === 'fee_statement'
+            && !in_array((string) ($data['recipient_type'] ?? ''), ['all_parents', 'selected_parents', 'selected_students'], true)) {
+            return $this->badRequest('Per-parent fee statements require a parent or learner audience.');
+        }
+        if ($recipientDocument === 'payslip'
+            && !in_array((string) ($data['recipient_type'] ?? ''), ['all_staff', 'selected_staff'], true)) {
+            return $this->badRequest('Per-staff payslips require an active staff audience.');
+        }
+        if ($recipientDocument === 'staff_security_pass'
+            && !in_array((string) ($data['recipient_type'] ?? ''), ['all_staff', 'selected_staff'], true)) {
+            return $this->badRequest('Staff security passes require an active staff audience.');
+        }
+        if ($recipientDocument === 'report_card'
+            && !in_array((string) ($data['recipient_type'] ?? ''), ['all_parents', 'selected_parents', 'selected_students'], true)) {
+            return $this->badRequest('Released report cards require a parent or learner audience.');
+        }
+        if (in_array($recipientDocument, ['student_id_card', 'portfolio', 'certificate'], true)
+            && !in_array((string) ($data['recipient_type'] ?? ''), ['all_parents', 'selected_parents', 'selected_students'], true)) {
+            return $this->badRequest('Learner documents require a parent or learner audience.');
+        }
+        if (in_array($recipientDocument, ['fee_statement', 'report_card', 'student_id_card', 'portfolio', 'certificate'], true)
+            && (string) ($data['recipient_type'] ?? '') === 'selected_students'
+            && empty($data['target_ids']) && empty($data['recipients'])) {
+            return $this->badRequest('Select at least one learner for personalized document delivery.');
         }
         $data['sender_id'] = (int) ($this->getUserId() ?? 0);
         $submissionId = trim((string) ($data['client_submission_id'] ?? ''));

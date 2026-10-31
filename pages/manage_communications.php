@@ -4,6 +4,7 @@
  * Modern dashboard showing overview of all communication channels.
  * Embedded via home.php?route=manage_communications.
  */
+$whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
 ?>
 
 <div class="row g-3">
@@ -144,7 +145,7 @@
                         </div>
                     </a>
                 </div>
-                <div class="col-md-6 col-lg-4">
+                <?php if ($whatsappSendingEnabled): ?><div class="col-md-6 col-lg-4">
                     <a href="<?= $appBase ?>/home.php?route=manage_whatsapp" class="text-decoration-none">
                         <div class="card h-100 border-0 shadow-sm channel-card" data-channel="whatsapp">
                             <div class="card-body">
@@ -157,7 +158,7 @@
                             </div>
                         </div>
                     </a>
-                </div>
+                </div><?php endif; ?>
             </div>
         </div>
     </div>
@@ -174,7 +175,7 @@
                     <select class="form-select form-select-sm" id="templateFilterChannel">
                         <option value="">All Channels</option>
                         <option value="sms">SMS</option>
-                        <option value="whatsapp">WhatsApp</option>
+                        <?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?>
                         <option value="email">Email</option>
                         <option value="portal">Portal</option>
                         <option value="in_app">In-App</option>
@@ -260,7 +261,7 @@
                 <form id="aiCommunicationDraftForm" class="row g-3">
                     <div class="col-md-6"><label class="form-label">Purpose</label><input class="form-control" name="purpose" maxlength="200" placeholder="e.g. term opening reminder" required></div>
                     <div class="col-md-6"><label class="form-label">Audience</label><select class="form-select" name="audience" required><option value="all_parents">All parents</option><option value="selected_parents">Selected parents</option><option value="selected_class">Selected class</option><option value="all_staff">All staff</option><option value="selected_staff">Selected staff</option></select></div>
-                    <div class="col-md-4"><label class="form-label">Channel</label><select class="form-select" name="channel"><option value="email">Email</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option><option value="internal">Internal</option></select></div>
+                    <div class="col-md-4"><label class="form-label">Channel</label><select class="form-select" name="channel"><option value="email">Email</option><option value="sms">SMS</option><?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?><option value="internal">Internal</option></select></div>
                     <div class="col-md-4"><label class="form-label">Tone</label><select class="form-select" name="tone"><option value="professional">Professional</option><option value="warm">Warm</option><option value="urgent">Urgent</option><option value="brief">Brief</option></select></div>
                     <div class="col-md-4"><label class="form-label">Deadline</label><input class="form-control" name="deadline" maxlength="120" placeholder="Optional date or deadline"></div>
                     <div class="col-12"><label class="form-label">Approved facts</label><textarea class="form-control" name="facts" rows="6" maxlength="4000" placeholder="Facts the assistant may use; no identifying or sensitive data." required></textarea></div>
@@ -346,7 +347,7 @@
                             <label class="form-label required">Channel</label>
                             <select class="form-select" name="channel" id="inputChannel" required>
                                 <option value="sms">SMS</option>
-                                <option value="whatsapp">WhatsApp</option>
+                                <?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?>
                                 <option value="email">Email</option>
                                 <option value="portal">Portal</option>
                                 <option value="in_app">In-App</option>

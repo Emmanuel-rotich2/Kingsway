@@ -263,10 +263,10 @@ const payslipsController = {
 
   shareSelected: async function (channel) {
     if (!this._selectedEmployeeIds.size) return showNotification('Select payslips first.', 'warning');
+    if (channel === 'whatsapp') return showNotification('WhatsApp sharing is paused. Use email for now.', 'warning');
     const names = this._payslips.filter(r => this._selectedEmployeeIds.has(Number(r.id || r.payslip_id))).map(r => r.staff_name).join(', ');
     const text = `Kingsway Preparatory School payslips: ${names}`;
-    if (channel === 'whatsapp') window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-    else window.location.href = `mailto:?subject=${encodeURIComponent('Kingsway Preparatory School Payslips')}&body=${encodeURIComponent(text)}`;
+    window.location.href = `mailto:?subject=${encodeURIComponent('Kingsway Preparatory School Payslips')}&body=${encodeURIComponent(text)}`;
   },
 
   _updateCurrentCard: function (slip) {

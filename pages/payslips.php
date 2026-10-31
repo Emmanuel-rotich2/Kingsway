@@ -23,9 +23,6 @@
     <button class="btn btn-outline-success btn-sm" id="psShareEmail" onclick="payslipsController.shareSelected('email')" hidden disabled>
       <i class="bi bi-envelope me-1"></i>Email
     </button>
-    <button class="btn btn-outline-success btn-sm" id="psShareWhatsapp" onclick="payslipsController.shareSelected('whatsapp')" hidden disabled>
-      <i class="bi bi-whatsapp me-1"></i>WhatsApp
-    </button>
   </div>
 
   <ul class="nav nav-tabs mb-4" role="tablist">

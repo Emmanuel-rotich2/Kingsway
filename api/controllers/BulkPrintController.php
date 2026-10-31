@@ -51,7 +51,7 @@ class BulkPrintController extends BaseController
         $this->batches = $this->contract(DocumentBatchService::class, $this->db->getConnection());
     }
 
-    public function postEnqueue(string $id = null, array $data = []): array
+    public function postEnqueue(?string $id = null, array $data = []): array
     {
         if ($auth = $this->guard()) {
             return $auth;
@@ -177,7 +177,7 @@ class BulkPrintController extends BaseController
         }
     }
 
-    public function getKinds(string $id = null, array $data = []): array
+    public function getKinds(?string $id = null, array $data = []): array
     {
         if ($auth = $this->guard()) {
             return $auth;
@@ -187,7 +187,7 @@ class BulkPrintController extends BaseController
         ], 'OK');
     }
 
-    public function getStatus(string $id = null, array $data = []): array
+    public function getStatus(?string $id = null, array $data = []): array
     {
         if ($auth = $this->guard()) {
             return $auth;
@@ -203,7 +203,7 @@ class BulkPrintController extends BaseController
         }
     }
 
-    public function getDownload(string $id = null, array $data = []): array
+    public function getDownload(?string $id = null, array $data = []): array
     {
         if ($auth = $this->guard()) {
             return $auth;
@@ -229,7 +229,7 @@ class BulkPrintController extends BaseController
         }
     }
 
-    public function postCancel(string $id = null, array $data = []): array
+    public function postCancel(?string $id = null, array $data = []): array
     {
         if ($auth = $this->guard()) {
             return $auth;

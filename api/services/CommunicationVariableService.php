@@ -23,7 +23,7 @@ class CommunicationVariableService
         }
 
         $normalized = [];
-        foreach (['school_name', 'today', 'year', 'first_name', 'last_name', 'full_name', 'email', 'phone'] as $key) {
+        foreach (['school_name', 'today', 'year', 'first_name', 'last_name', 'full_name', 'recipient_name', 'email', 'phone', 'learner_name', 'learner_names', 'child_names', 'learner_count'] as $key) {
             if (isset($context[$key]) && $context[$key] !== '') {
                 $normalized[$key] = (string) $context[$key];
             }
@@ -46,8 +46,13 @@ class CommunicationVariableService
             ['token' => '@first_name', 'label' => 'Recipient first name'],
             ['token' => '@last_name', 'label' => 'Recipient last name'],
             ['token' => '@full_name', 'label' => 'Recipient full name'],
+            ['token' => '@recipient_name', 'label' => 'Recipient name'],
             ['token' => '@email', 'label' => 'Recipient email'],
             ['token' => '@phone', 'label' => 'Recipient phone'],
+            ['token' => '@learner_names', 'label' => 'Names of this parent’s linked learners'],
+            ['token' => '@child_names', 'label' => 'Names of this parent’s linked learners'],
+            ['token' => '@learner_name', 'label' => 'Learner name (only when exactly one is linked)'],
+            ['token' => '@learner_count', 'label' => 'Number of this parent’s linked learners'],
             ['token' => '@school_name', 'label' => 'School name'],
             ['token' => '@today', 'label' => "Today's date"],
             ['token' => '@year', 'label' => 'Current year'],

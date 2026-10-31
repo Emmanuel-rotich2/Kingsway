@@ -5,6 +5,7 @@
  * JS controller: js/pages/admission_interviews.js
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
+$whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
 ?>
 <div class="container-fluid mt-3">
 
@@ -139,7 +140,7 @@
             <div class="d-flex gap-3 flex-wrap">
               <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="sms" checked> SMS</label>
               <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="email"> Email</label>
-              <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="whatsapp"> WhatsApp</label>
+              <?php if ($whatsappSendingEnabled): ?><label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="whatsapp"> WhatsApp</label><?php endif; ?>
             </div>
           </div>
         </div>

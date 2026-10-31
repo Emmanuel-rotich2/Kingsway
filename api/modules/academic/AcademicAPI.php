@@ -1513,7 +1513,9 @@ class AcademicAPI extends BaseAPI
             $when = date('Y-m-d H:i:s', strtotime($meeting['meeting_date'] . ' ' . $meeting['start_time'] . " -{$daysBefore} days"));
             if ($when < date('Y-m-d H:i:s')) $when = date('Y-m-d H:i:s');
             foreach ($targets as $target) {
-                foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                $channels = ['sms', 'email'];
+                if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms', 'whatsapp', 'email'];
+                foreach ($channels as $channel) {
                     try {
                         $options = [
                             'scheduled_at' => $when,

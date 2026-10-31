@@ -250,7 +250,6 @@ define(
 
 define('SMS_SENDER_ID', $_ENV['SMS_SENDER_ID'] ?? '');
 define('SMS_SHORTCODE', $_ENV['SMS_SHORTCODE'] ?? '');
-define('SMS_WHATSAPP_NUMBER', $_ENV['SMS_WHATSAPP_NUMBER'] ?? '');
 define('SMS_VOICE_LANGUAGE', $_ENV['SMS_VOICE_LANGUAGE'] ?? 'en-gb');
 define('SMS_VOICE_GENDER', $_ENV['SMS_VOICE_GENDER'] ?? 'female');
 

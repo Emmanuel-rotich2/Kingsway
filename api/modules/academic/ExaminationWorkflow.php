@@ -952,7 +952,9 @@ class ExaminationWorkflow extends WorkflowHandler {
                 'average_grade' => '',
                 'results_summary' => implode('<br>', $lines),
             ];
-            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+            $channels = ['sms', 'email'];
+            if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms', 'whatsapp', 'email'];
+            foreach ($channels as $channel) {
                 try {
                     $platform->queueForStudentParents((int) $student['id'], $channel, 'results', $variables, [
                         'business_event_id' => $eventId,

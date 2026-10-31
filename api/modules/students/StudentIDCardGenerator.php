@@ -866,9 +866,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         // Save
         imagejpeg($newImage, $destination, 90);
 
-        // Free memory
-        imagedestroy($srcImage);
-        imagedestroy($newImage);
+        // GD image objects are released automatically when they leave scope.
     }
 
     /**

@@ -20,6 +20,7 @@ class SMSService
 {
     private PDO $db;
     private SMSGateway $gateway;
+    private ?SMSGateway $whatsappGateway = null;
     private SystemCommsConfigService $configService;
 
     public function __construct(PDO $db, ?SMSGateway $gateway = null)
@@ -206,7 +207,7 @@ class SMSService
      */
     public function provisionGroups(): array
     {
-        $stmt = $this->db->query(
+        $stmt = $this->db->prepare(
             "SELECT id, name FROM communication_groups WHERE provider = ? AND (provider_group_id IS NULL OR provider_group_id = '') ORDER BY id"
         );
         $stmt->execute([$this->providerName()]);
@@ -609,6 +610,9 @@ class SMSService
         if (!in_array($mode, $allowed, true)) {
             throw new \InvalidArgumentException('Unsupported messaging mode');
         }
+        if ($mode === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
 
         $message = trim((string) ($params['message'] ?? $params['body'] ?? ''));
         if ($message === '' && $mode !== 'mms') {
@@ -896,7 +900,8 @@ class SMSService
     {
         switch ($mode) {
             case 'whatsapp':
-                return $this->gateway->sendWhatsApp($address, $message, $params['media_url'] ?? null);
+                $this->whatsappGateway ??= new SMSGateway($this->configService->effectiveWhatsAppConfig());
+                return $this->whatsappGateway->sendWhatsApp($address, $message, $params['media_url'] ?? null);
             case 'voice':
                 return $this->gateway->sendVoice($address, $message, $params['language'] ?? null, $params['gender'] ?? null);
             case 'mms':
@@ -917,9 +922,9 @@ class SMSService
         $providerId = $this->extractUid($result['data'] ?? null);
         $this->db->prepare("INSERT INTO communication_delivery_attempts (endpoint_id, attempt_no, request_status, provider_message_id, provider_status, request_started_at, request_finished_at, raw_response) VALUES (?, 1, 'accepted', ?, ?, NOW(), NOW(), ?)")
             ->execute([$endpoint['id'], $providerId, $result['status'] ?? 'accepted', json_encode($result['data'] ?? null)]);
-        $this->db->prepare("UPDATE communication_recipient_endpoints SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NOW() WHERE id = ?")
+        $this->db->prepare("UPDATE communication_recipient_endpoints SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NULL WHERE id = ?")
             ->execute([$providerId, $result['status'] ?? 'sent', $endpoint['id']]);
-        $this->db->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NOW(), delivery_attempts = delivery_attempts + 1, last_attempt_at = NOW() WHERE id = ?")
+        $this->db->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NULL, delivery_attempts = delivery_attempts + 1, last_attempt_at = NOW() WHERE id = ?")
             ->execute([$endpoint['recipient_id']]);
     }
 

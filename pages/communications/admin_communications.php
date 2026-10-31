@@ -12,6 +12,7 @@
  * - Campaigns and bulk operations
  * - Full analytics charts
  */
+$whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
 ?>
 
 <!-- Content Area -->
@@ -149,7 +150,7 @@
                 <select class="filter-select" id="channelFilter">
                     <option value="">All Channels</option>
                     <option value="sms">SMS</option>
-                    <option value="whatsapp">WhatsApp</option>
+                    <?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?>
                     <option value="email">Email</option>
                     <option value="push">Push</option>
                 </select>
@@ -230,8 +231,8 @@
                             <input type="radio" class="btn-check" name="channel" id="channelSMS" value="sms" checked>
                             <label class="btn btn-outline-primary" for="channelSMS">📱 SMS</label>
 
-                            <input type="radio" class="btn-check" name="channel" id="channelWhatsApp" value="whatsapp">
-                            <label class="btn btn-outline-success" for="channelWhatsApp">💬 WhatsApp</label>
+                            <?php if ($whatsappSendingEnabled): ?><input type="radio" class="btn-check" name="channel" id="channelWhatsApp" value="whatsapp">
+                            <label class="btn btn-outline-success" for="channelWhatsApp">💬 WhatsApp</label><?php endif; ?>
 
                             <input type="radio" class="btn-check" name="channel" id="channelEmail" value="email">
                             <label class="btn btn-outline-info" for="channelEmail">📧 Email</label>

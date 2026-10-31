@@ -244,6 +244,9 @@ class TwoFactorController extends BaseController
     {
         $userId = $this->getUserId();
         if (!$userId) return $this->unauthorized('Not authenticated');
+        if (!\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) {
+            return $this->badRequest('WhatsApp verification is paused. Use email or SMS instead.');
+        }
         if ($this->isParentAccount($userId)) {
             return $this->forbidden('WhatsApp 2FA is not available to Parent Portal accounts. Use an authenticator app, a passkey, or email verification.');
         }
@@ -361,6 +364,9 @@ class TwoFactorController extends BaseController
         if ($requestedMethod !== '') {
             if (!$this->tfa->setChallengeMethod($challengeToken, $targetUserId, $requestedMethod)) return $this->badRequest('That 2FA method is not enrolled');
             $method = $requestedMethod;
+        }
+        if ($method === 'whatsapp' && !\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) {
+            return $this->badRequest('WhatsApp verification is paused. Choose an enrolled email or SMS method instead.');
         }
 
         if ($method === 'totp') {

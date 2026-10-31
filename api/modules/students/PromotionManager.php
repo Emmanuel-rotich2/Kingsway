@@ -54,7 +54,7 @@ class PromotionManager
         int $fromYearId,
         int $toYearId,
         int $performedBy,
-        string $remarks = null,
+        ?string $remarks = null,
         int $batchId = 0
     ): array {
         $this->db->beginTransaction();
@@ -154,7 +154,7 @@ class PromotionManager
         int $fromYearId,
         int $toYearId,
         int $performedBy,
-        string $remarks = null
+        ?string $remarks = null
     ): array {
         $results = [
             'total' => count($studentIds),
@@ -217,9 +217,9 @@ class PromotionManager
         int $fromYearId,
         int $toYearId,
         int $performedBy,
-        int $teacherId = null,
-        string $classRoom = null,
-        string $remarks = null
+        ?int $teacherId = null,
+        ?string $classRoom = null,
+        ?string $remarks = null
     ): array {
         $this->db->beginTransaction();
 
@@ -309,7 +309,7 @@ class PromotionManager
         int $fromYearId,
         int $toYearId,
         int $performedBy,
-        string $remarks = null
+        ?string $remarks = null
     ): array {
         /**
          * $classMap format:

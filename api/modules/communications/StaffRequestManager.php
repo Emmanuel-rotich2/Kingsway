@@ -123,19 +123,23 @@ class StaffRequestManager
     {
         // Load mail and SMS service
         $mail = new \App\API\Services\MessageService($this->db);
-        $sms = new \App\API\Services\sms\SMSGateway();
+        $config = (new \App\API\Services\SystemCommsConfigService($this->db))->effectiveSmsConfig();
+        $sms = new \App\API\Services\sms\SMSGateway($config);
         // Fetch recipients (e.g. admin/IT/maintenance)
         $recipients = $this->getNotificationRecipients($data['type']);
         $subject = "New Staff Request: " . $data['subject'];
         $body = "A new staff request has been submitted.\nType: {$data['type']}\nDetails: {$data['details']}\n";
         $mail->sendEmail($recipients['emails'], $subject, $body);
-        $sms->send($recipients['phones'], $subject);
+        foreach ((array) $recipients['phones'] as $phone) {
+            if (trim((string) $phone) !== '') $sms->send((string) $phone, $subject);
+        }
     }
 
     private function notifyRequestUpdated($id, $data)
     {
         $mail = new \App\API\Services\MessageService($this->db);
-        $sms = new \App\API\Services\sms\SMSGateway();
+        $config = (new \App\API\Services\SystemCommsConfigService($this->db))->effectiveSmsConfig();
+        $sms = new \App\API\Services\sms\SMSGateway($config);
         // Fetch requester email/phone from persons (staff has no email/phone columns)
         $stmt = $this->db->prepare("SELECT email, phone FROM " . ReadReplicaService::qualifiedRef("staff_directory") . " WHERE staff_id = (SELECT created_by FROM internal_conversations WHERE id = ?) LIMIT 1");
         $stmt->execute([$id]);
@@ -144,7 +148,7 @@ class StaffRequestManager
             $subject = "Your Staff Request Status Updated";
             $body = "Your request status is now: {$data['status']}\nSubject: {$data['subject']}\nDetails: {$data['details']}\n";
             $mail->sendEmail([$row['email']], $subject, $body);
-            $sms->send([$row['phone']], $subject);
+            if (trim((string) ($row['phone'] ?? '')) !== '') $sms->send((string) $row['phone'], $subject);
         }
     }
 

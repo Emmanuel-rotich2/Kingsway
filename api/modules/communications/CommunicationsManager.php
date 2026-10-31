@@ -169,6 +169,14 @@ class CommunicationsManager extends FileLifecycleBase
      */
     public function sendSMSToRecipients($recipients, $variables, $type = 'sms', $category = '', $media = null)
     {
+        $type = strtolower(trim((string) $type));
+        if ($type === 'plain') $type = 'sms';
+        if (!in_array($type, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported message channel', 'sent_count' => 0, 'failed' => (array) $recipients];
+        }
+        if ($type === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         // Use TemplateLoader for template selection and rendering
         $templateLoader = new \App\API\Modules\Communications\Templates\TemplateLoader();
         $template = $templateLoader->getTemplate($type, $category);
@@ -180,7 +188,10 @@ class CommunicationsManager extends FileLifecycleBase
                 'failed' => $recipients
             ];
         }
-        $gateway = new \App\API\Services\sms\SMSGateway();
+        $configService = new \App\API\Services\SystemCommsConfigService($this->db);
+        $gateway = $type === 'whatsapp'
+            ? new \App\API\Services\whatsapp\WhatsAppGateway($configService->effectiveWhatsAppConfig())
+            : new \App\API\Services\sms\SMSGateway($configService->effectiveSmsConfig());
         $sent = 0;
         $failed = [];
         foreach ($recipients as $phone) {
@@ -321,7 +332,7 @@ class CommunicationsManager extends FileLifecycleBase
     public function createCommunication($data)
     {
         // Map channel to type
-        $type = $data['type'] ?? $data['channel'] ?? 'email';
+        $type = strtolower(trim((string) ($data['type'] ?? $data['channel'] ?? 'email')));
         $typeMap = [
             'sms' => 'sms',
             'email' => 'email',
@@ -330,7 +341,10 @@ class CommunicationsManager extends FileLifecycleBase
             'whatsapp' => 'whatsapp',
             'message' => 'email'  // Default to email if type is 'message'
         ];
-        $type = $typeMap[$type] ?? 'email';
+        if (!array_key_exists($type, $typeMap)) {
+            throw new InvalidArgumentException('Unsupported communication channel');
+        }
+        $type = $typeMap[$type];
 
         // Announcements (type=notification) are in-app notices published to the
         // school community. They are not delivery-queued per recipient, so the
@@ -338,7 +352,7 @@ class CommunicationsManager extends FileLifecycleBase
         $isAnnouncement = ($type === 'notification');
 
         // Get content from message or content field
-        $body = $data['body'] ?? $data['content'] ?? $data['message'] ?? 'No content';
+        $body = $data['body'] ?? $data['content'] ?? $data['message'] ?? ($type === 'whatsapp' ? '' : 'No content');
         // If body is array, convert to JSON for storage
         if (is_array($body)) {
             $content = json_encode($body);
@@ -350,12 +364,30 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt = $this->db->prepare($sql);
         $requestedStatus = $this->normalizeStatus($data['status'] ?? 'draft');
         $recordOnly = !empty($data['record_only']);
+        if ($type === 'whatsapp' && !$recordOnly) {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         $storedStatus = $isAnnouncement
             ? $requestedStatus
             : ((!$recordOnly && $requestedStatus === 'sent') ? 'queued' : ($recordOnly && $requestedStatus === 'sent' ? 'delivered' : $requestedStatus));
         if (!$recordOnly && !$isAnnouncement && in_array($storedStatus, ['queued', 'scheduled'], true) && empty($data['recipients'])) {
             throw new \InvalidArgumentException('At least one recipient is required');
         }
+        $channelMeta = $data['channel_meta'] ?? [];
+        if (is_string($channelMeta)) {
+            $decodedMeta = json_decode($channelMeta, true);
+            $channelMeta = is_array($decodedMeta) ? $decodedMeta : [];
+        }
+        if (!is_array($channelMeta)) $channelMeta = [];
+        $recipientType = trim((string) ($data['recipient_type'] ?? ''));
+        if ($recipientType !== '') $channelMeta['recipient_type'] = $recipientType;
+        if ($recipientType === 'selected_students') {
+            $channelMeta['target_student_ids'] = array_values(array_unique(array_filter(
+                array_map('intval', (array) ($data['target_ids'] ?? $data['recipients'] ?? [])),
+                static fn (int $studentId): bool => $studentId > 0
+            )));
+        }
+        $data['channel_meta'] = $channelMeta ?: null;
         // The browser keeps this key stable for one compose action. A named
         // lock serializes concurrent retries without requiring a schema change.
         $submissionId = (string) ($data['channel_meta']['client_submission_id'] ?? '');
@@ -814,6 +846,7 @@ class CommunicationsManager extends FileLifecycleBase
         }
         if (is_array($row['channel_meta'] ?? null)) {
             $row['delivery_mode'] = $row['channel_meta']['delivery_mode'] ?? null;
+            $row['recipient_type'] = $row['recipient_type'] ?? ($row['channel_meta']['recipient_type'] ?? null);
         }
         if (!array_key_exists('content', $row)) {
             $row['content'] = $row['body'] ?? null;
@@ -882,6 +915,7 @@ class CommunicationsManager extends FileLifecycleBase
         $mimeType = $fileData['mime_type'] ?? null;
         $fileSize = $fileData['file_size'] ?? null;
         $mediaId = null;
+        $storedPublicUrl = null;
         $mediaManager = \App\API\Services\ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
         $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
         $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
@@ -897,16 +931,49 @@ class CommunicationsManager extends FileLifecycleBase
                 throw new \RuntimeException('Attachment upload completed without a stored file reference.');
             }
             $filePath = $storedReference;
+            $storedPublicUrl = $mediaManager->getFileUrl($mediaId);
             $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
-            $mimeType = $mimeType ?: ($uploadFile['type'] ?? null);
+            // Trust the validated server-side upload MIME, never the browser header.
+            $mimeType = $mediaManager->getStoredMimeType($mediaId) ?? ($mimeType ?: ($uploadFile['type'] ?? null));
             $fileSize = $fileSize ?: ($uploadFile['size'] ?? null);
         }
 
+        $sourceUrl = trim((string) ($fileData['source_url'] ?? ''));
+        if ($sourceUrl !== '') {
+            $parts = parse_url($sourceUrl);
+            $host = strtolower((string) ($parts['host'] ?? ''));
+            if (!filter_var($sourceUrl, FILTER_VALIDATE_URL)
+                || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
+                || $host === ''
+                || isset($parts['user']) || isset($parts['pass'])
+                || $host === 'localhost' || str_ends_with($host, '.localhost')
+                || str_ends_with($host, '.local')
+                || filter_var($host, FILTER_VALIDATE_IP)) {
+                throw new InvalidArgumentException('Use a public HTTPS link to the media file.');
+            }
+            $addresses = gethostbynamel($host) ?: [];
+            foreach ($addresses as $address) {
+                if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                    throw new InvalidArgumentException('The media link must resolve to a public internet address.');
+                }
+            }
+            if (!$addresses) {
+                throw new InvalidArgumentException('The media link host must resolve publicly before it can be sent.');
+            }
+            $filePath = 'external:' . hash('sha256', $sourceUrl);
+            $fileName = $fileName ?: basename((string) ($parts['path'] ?? 'media'));
+            $extension = strtolower(pathinfo((string) ($parts['path'] ?? ''), PATHINFO_EXTENSION));
+            if (!in_array($extension, ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'jpg', 'jpeg', 'png', 'zip'], true)) {
+                throw new InvalidArgumentException('This media link type is not enabled for WhatsApp yet. Use a supported image or document file.');
+            }
+            $mimeType = $mimeType ?: (['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'pdf' => 'application/pdf', 'mp4' => 'video/mp4', 'mp3' => 'audio/mpeg', 'm4a' => 'audio/mp4', 'ogg' => 'audio/ogg'][$extension] ?? null);
+            $fileSize = null;
+        }
         if (!is_string($filePath) || trim($filePath) === '') {
-            throw new InvalidArgumentException('A file is required for a communication attachment.');
+            throw new InvalidArgumentException('Upload media or provide a public HTTPS media link.');
         }
 
-        $publicUrl = $filePath;
+        $publicUrl = $sourceUrl !== '' ? $sourceUrl : ($storedPublicUrl ?? $filePath);
         $sql = "INSERT INTO communication_attachments (communication_id, file_name, file_path, mime_type, file_size, public_url) VALUES (:communication_id, :file_name, :file_path, :mime_type, :file_size, :public_url)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([

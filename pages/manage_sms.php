@@ -252,17 +252,6 @@
             <div class="kw-compose-grid">
                 <div>
                     <div class="mb-3">
-                        <label class="form-label" for="messageChannel">Channel</label>
-                        <select class="form-select" id="messageChannel">
-                            <option value="sms" selected>SMS</option>
-                            <option value="whatsapp">WhatsApp</option>
-                            <option value="voice">Voice</option>
-                            <option value="mms">MMS</option>
-                            <option value="hashed">Hashed SMS</option>
-                            <option value="campaign">SMS Campaign</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
                         <label class="form-label" for="messageType">Message Type</label>
                         <select class="form-select" id="messageType">
                             <option value="">Select type…</option>
@@ -333,34 +322,6 @@
                             </div>
                         </div>
                     </div>
-                    <div id="mediaUrlDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Media URL <span class="text-danger">*</span></label>
-                        <input type="url" class="form-control" id="mediaUrl" placeholder="https://…">
-                    </div>
-                    <div id="voiceOptionsDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Voice Options</label>
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <select class="form-select form-select-sm" id="voiceLanguage">
-                                    <option value="en">English</option>
-                                    <option value="sw">Swahili</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <select class="form-select form-select-sm" id="voiceGender">
-                                    <option value="female">Female</option>
-                                    <option value="male">Male</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="hashedOptionsDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Recipient Format</label>
-                        <select class="form-select form-select-sm" id="recipientFormat">
-                            <option value="hashed">Hashed</option>
-                            <option value="plain">Plain</option>
-                        </select>
-                    </div>
                 </div>
                 <div>
                     <div class="mb-3">
@@ -383,14 +344,24 @@
                             <span id="smsMetrics"> · <span id="smsCount">0</span> SMS · Est. cost: KES <span id="estimatedCost">0.00</span></span>
                         </small>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Media Attachment <small class="text-muted">(WhatsApp only, optional)</small></label>
-                        <input type="file" class="form-control form-control-sm" id="mediaAttachment" accept="image/*,application/pdf">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label" for="senderSignature">Sender Signature</label>
-                        <input type="text" class="form-control" id="senderSignature" placeholder="e.g. Kingsway Preparatory School">
-                    </div>
+                    <section class="kw-wa-media mb-3" aria-labelledby="smsDocumentTitle">
+                        <label class="form-label mb-2" id="smsDocumentTitle" for="smsRecipientDocument">Recipient-specific document link <small class="text-muted">(optional)</small></label>
+                        <select class="form-select form-select-sm" id="smsRecipientDocument">
+                            <option value="">No document link</option>
+                            <option value="fee_statement">Fee statement for each parent’s linked learner(s)</option>
+                            <option value="payslip">Payslip for each staff member</option>
+                            <option value="report_card">Latest released report card for each linked learner</option>
+                            <option value="student_id_card">Student ID card for each linked learner</option>
+                            <option value="portfolio">Portfolio for each linked learner</option>
+                            <option value="certificate">Issued award certificates for each linked learner</option>
+                            <option value="staff_security_pass">Existing security pass for each staff recipient</option>
+                        </select>
+                        <small class="form-text text-muted">SMS stays text-only. A short-lived link to each recipient’s own PDF is added to their message.</small>
+                        <div id="smsPayslipPeriod" class="row g-2 mt-1" hidden>
+                            <div class="col-6"><label class="form-label form-label-sm" for="smsPayrollMonth">Payroll month</label><select class="form-select form-select-sm" id="smsPayrollMonth"><?php for ($m = 1; $m <= 12; $m++): ?><option value="<?= $m ?>" <?= $m === (int)date('n') ? 'selected' : '' ?>><?= date('F', mktime(0, 0, 0, $m, 1)) ?></option><?php endfor; ?></select></div>
+                            <div class="col-6"><label class="form-label form-label-sm" for="smsPayrollYear">Payroll year</label><input type="number" class="form-control form-control-sm" id="smsPayrollYear" min="2000" max="<?= (int)date('Y') + 1 ?>" value="<?= (int)date('Y') ?>"></div>
+                        </div>
+                    </section>
                     <div class="alert alert-info mb-0 py-2">
                         <small><i class="bi bi-info-circle"></i> Messages are delivered through the configured messaging provider. Standard rates apply.</small>
                     </div>
@@ -501,7 +472,6 @@
                     <label class="form-label fw-semibold">Type</label>
                     <select class="form-select" id="templateType">
                         <option value="sms">SMS</option>
-                        <option value="whatsapp">WhatsApp</option>
                         <option value="announcement">Announcement</option>
                     </select>
                 </div>

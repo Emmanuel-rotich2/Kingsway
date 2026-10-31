@@ -1766,7 +1766,9 @@ class PaymentsAPI extends BaseAPI
 
         try {
             $manager = $this->contract('App\API\Modules\communications\CommunicationsManager', $this->db);
-            foreach (['sms', 'whatsapp'] as $channel) {
+            $channels = ['sms'];
+            if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels[] = 'whatsapp';
+            foreach ($channels as $channel) {
                 $manager->createCommunication([
                     'sender_id' => 1,
                     'subject' => 'Bank fee payment received',
