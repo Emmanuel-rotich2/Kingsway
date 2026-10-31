@@ -732,9 +732,14 @@
         const group = groupId ? this.groups.find((g) => String(g.id) === String(groupId)) : null;
         const idEl = document.getElementById("groupEditId");
         const nameEl = document.getElementById("groupName");
+        const audienceEl = document.getElementById("groupAudience");
         const titleEl = document.getElementById("groupModalTitle");
         if (idEl) idEl.value = group ? group.id : "";
         if (nameEl) nameEl.value = group ? group.name || "" : "";
+        if (audienceEl) {
+          audienceEl.value = group ? group.entity_type || "external" : "external";
+          audienceEl.disabled = !!group && String(group.entity_type || "external") !== "external";
+        }
         if (titleEl) titleEl.innerHTML = group ? '<i class="bi bi-pencil"></i> Rename Group' : '<i class="bi bi-plus-lg"></i> New Group';
         this.groupModal?.show();
       },
@@ -742,12 +747,13 @@
       saveGroup: async function () {
         const name = this.value("groupName").trim();
         const id = this.value("groupEditId");
+        const entityType = this.value("groupAudience") || "external";
         if (!name) { this.notify("Group name is required", "warning"); return; }
         const btn = document.getElementById("saveGroupBtn");
         if (btn) btn.disabled = true;
         try {
-          if (id) await window.API.messaging.updateGroup(id, { name });
-          else await window.API.messaging.createGroup({ name });
+          if (id) await window.API.messaging.updateGroup(id, { name, entity_type: entityType });
+          else await window.API.messaging.createGroup({ name, entity_type: entityType });
           this.groupModal?.hide();
           this.notify(id ? "Group updated" : "Group created", "success");
           await this.loadGroups();
