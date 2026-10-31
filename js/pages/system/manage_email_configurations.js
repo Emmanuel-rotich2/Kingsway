@@ -108,10 +108,7 @@
             const id = Number(p.id);
             const active = Number(p.is_active) === 1;
             const def = Number(p.is_default) === 1;
-            const roleIds = Array.isArray(p.assigned_role_ids) ? p.assigned_role_ids : [];
-            const rolesBadge = roleIds.length
-                ? `<span class="badge bg-primary" title="${this.esc(roleIds.join(", "))}">${roleIds.length} role${roleIds.length > 1 ? "s" : ""}</span>`
-                : '<span class="badge bg-secondary">All staff</span>';
+            const rolesBadge = '<span class="badge bg-info text-dark">Per-mailbox</span>';
             const statusBadge = active
                 ? '<span class="badge bg-success">Active</span>'
                 : '<span class="badge bg-secondary">Inactive</span>';
@@ -169,8 +166,6 @@
             document.getElementById("emailProfileImapUsername").value = editing ? profile.imap_username || "" : "";
             document.getElementById("emailProfileActive").value = editing ? (Number(profile.is_active) === 1 ? "1" : "0") : "1";
             document.getElementById("emailProfileDefault").value = editing ? (Number(profile.is_default) === 1 ? "1" : "0") : "0";
-            const roles = Array.isArray(profile?.assigned_role_ids) ? profile.assigned_role_ids : [];
-            document.getElementById("emailProfileRoles").value = roles.join(", ");
 
             const smtpPassword = document.getElementById("emailProfileSmtpPassword");
             const imapPassword = document.getElementById("emailProfileImapPassword");
@@ -218,12 +213,6 @@
 
             if (smtpPassword !== "") data.smtp_password = smtpPassword;
             if (imapPassword !== "") data.imap_password = imapPassword;
-
-            const rolesRaw = val("emailProfileRoles");
-            const roleIds = rolesRaw.trim()
-                ? rolesRaw.split(",").map((v) => parseInt(v.trim(), 10)).filter((v) => Number.isInteger(v) && v > 0)
-                : null;
-            data.assigned_role_ids = roleIds;
 
             try {
                 const saved = id
@@ -364,14 +353,14 @@
                 this.notify("CSV export is unavailable.", "error");
                 return;
             }
-            const headers = ["Label", "Email Address", "Display Name", "Status", "Default", "Role IDs"];
+            const headers = ["Label", "Email Address", "Display Name", "Status", "Default", "Staff access"];
             const rows = this.profiles.map((p) => [
                 p.label,
                 p.email_address,
                 p.display_name,
                 Number(p.is_active) === 1 ? "Active" : "Inactive",
                 Number(p.is_default) === 1 ? "Yes" : "No",
-                (Array.isArray(p.assigned_role_ids) ? p.assigned_role_ids : []).join(", "),
+                "Managed per mailbox in Kingsway Mail",
             ]);
             const csv = [headers, ...rows]
                 .map((line) => line.map((v) => {

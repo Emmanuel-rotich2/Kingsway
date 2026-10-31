@@ -14,6 +14,8 @@
     messagePages: 1,
     messageTotal: 0,
     messageLimit: 25,
+    messageRequestId: 0,
+    messageRequestController: null,
     filters: { q: "", unread: false, flagged: false },
     outbox: [],
     outboxPage: 1,
@@ -220,6 +222,13 @@
       window.addEventListener("kingsway:data-mutated", (event) => {
         const targets = Array.isArray(event?.detail?.targets) ? event.detail.targets : [];
         if (!targets.includes("communications")) return;
+        const changes = Array.isArray(event?.detail?.events) ? event.detail.events : [];
+        const localEndpoint = String(event?.detail?.endpoint || "");
+        const mailboxChange = /communications\/mailboxes/i.test(localEndpoint) || changes.some((change) => {
+          const descriptor = `${change?.type || ""} ${change?.payload?.action || ""} ${change?.payload?.event || ""}`;
+          return /mailbox|email/i.test(descriptor);
+        });
+        if (!mailboxChange) return;
         if (this.realtimeMailTimer) window.clearTimeout(this.realtimeMailTimer);
         this.realtimeMailTimer = window.setTimeout(() => {
           this.realtimeMailTimer = null;
@@ -237,8 +246,10 @@
       if (this.selectedUid) return;
       const modal = document.getElementById("composeModal");
       if (modal && modal.classList.contains("show")) return;
+      // loadFolders() loads the current message page after refreshing folder
+      // counts. Calling loadMessages() here as well starts two slow IMAP reads
+      // and the second request aborts the first one.
       this.loadFolders();
-      this.loadMessages();
     },
 
     bindComposeEvents() {
@@ -300,6 +311,8 @@
       this.accessSearchCache = {};
       document.getElementById("accessMailboxName").textContent =
         `${mailbox.label || "Mailbox"} <${mailbox.email_address || ""}>`;
+      const helpName = document.getElementById("accessMailboxHelpName");
+      if (helpName) helpName.textContent = `${mailbox.label || "Mailbox"} (${mailbox.email_address || ""})`;
       document.getElementById("accessUserSearch").value = "";
       document.getElementById("accessUserResults").innerHTML = "";
       document.getElementById("accessMembersList").innerHTML =
@@ -323,6 +336,7 @@
           can_compose: !!m.can_compose,
           is_owner: !!m.is_owner,
         }));
+        this.renderAccessUsers(res?.staff || []);
       } catch (e) {
         document.getElementById("accessMembersList").innerHTML =
           `<div class="text-danger small py-3">${this.esc(e?.message || "Members could not be loaded.")}</div>`;
@@ -377,35 +391,40 @@
 
     async searchAccessUsers(q) {
       const box = document.getElementById("accessUserResults");
-      if (!q || q.length < 2) { box.innerHTML = ""; this.accessSearchCache = {}; return; }
+      if (!this.accessMailbox || (q && q.length < 2)) return;
       try {
-        const res = await window.API.communications.searchMessageRecipients(q);
-        const users = Array.isArray(res) ? res : (res?.results || res?.recipients || res?.users || []);
-        const existing = new Set(this.accessMembers.map((m) => m.user_id));
-        this.accessSearchCache = {};
-        const matches = users.filter((u) => {
-          const id = Number(u.id ?? u.user_id);
-          if (existing.has(id)) return false;
-          this.accessSearchCache[id] = {
-            user_id: id,
-            full_name: u.full_name || u.username || ("User #" + id),
-            username: u.username || "",
-            email: u.email || "",
-          };
-          return true;
-        });
-        box.innerHTML = matches.length
-          ? matches.map((u) => {
-              const id = Number(u.id ?? u.user_id);
-              return `<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-add-user="${id}">
-                <span class="kw-avatar" style="width:26px;height:26px;min-width:26px;font-size:.7rem;">${this.esc(this.initials(u.full_name || u.username || "?"))}</span>
-                <span>${this.esc(u.full_name || u.username || ("User #" + id))}<br><small class="text-muted">${this.esc(u.email || u.username || "")}</small></span>
-              </button>`;
-            }).join("")
-          : '<div class="text-muted small p-2">No matching staff found.</div>';
+        const res = await window.API.communications.getMailboxMembers(this.accessMailbox.id, { q });
+        this.renderAccessUsers(res?.staff || []);
       } catch (e) {
         box.innerHTML = `<div class="text-danger small p-2">${this.esc(e?.message || "Search failed")}</div>`;
       }
+    },
+
+    renderAccessUsers(users) {
+      const box = document.getElementById("accessUserResults");
+      const existing = new Set(this.accessMembers.map((m) => m.user_id));
+      this.accessSearchCache = {};
+      const matches = users.filter((u) => {
+        const id = Number(u.user_id ?? u.id);
+        if (!id || existing.has(id)) return false;
+        this.accessSearchCache[id] = {
+          user_id: id,
+          full_name: u.full_name || u.username || ("User #" + id),
+          username: u.username || "",
+          email: u.email || "",
+        };
+        return true;
+      });
+      box.innerHTML = matches.length
+        ? matches.map((u) => {
+            const id = Number(u.user_id ?? u.id);
+            return `<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-add-user="${id}">
+              <span class="kw-avatar" style="width:26px;height:26px;min-width:26px;font-size:.7rem;">${this.esc(this.initials(u.full_name || u.username || "?"))}</span>
+              <span>${this.esc(u.full_name || u.username || ("User #" + id))}<br><small class="text-muted">${this.esc(u.email || u.username || "")}</small></span>
+              <span class="ms-auto small text-primary">Add</span>
+            </button>`;
+          }).join("")
+        : '<div class="text-muted small p-2">No unassigned staff found.</div>';
     },
 
     addAccessMember(userId) {
@@ -464,6 +483,7 @@
       try {
         const res = await window.API.communications.getMailboxes();
         this.mailboxes = res?.mailboxes ?? [];
+        this.canManageAccess = res?.can_manage_access === true;
       } catch (e) {
         console.error("[manage_email] mailboxes failed:", e);
         this.mailboxes = [];
@@ -674,6 +694,11 @@
 
     async loadMessages() {
       if (!this.activeMailbox || this.view !== "messages") return;
+      this.messageRequestController?.abort();
+      const requestId = ++this.messageRequestId;
+      const requestController = new AbortController();
+      this.messageRequestController = requestController;
+      let requestTimedOut = false;
       const list = document.getElementById("messageList");
       const notice = document.getElementById("emptyFolderNotice");
       const pagination = document.getElementById("msgPagination");
@@ -696,13 +721,31 @@
       if (this.filters.flagged) params.flagged = 1;
 
       let data = {};
+      const timeoutId = window.setTimeout(() => {
+        requestTimedOut = true;
+        requestController.abort();
+      }, 45000);
       try {
-        const res = await window.API.communications.getMailboxMessages(this.activeMailbox.id, params);
+        const res = await window.API.communications.getMailboxMessages(
+          this.activeMailbox.id,
+          params,
+          { signal: requestController.signal, coalesce: false },
+        );
         data = res ?? {};
       } catch (e) {
+        if (requestId !== this.messageRequestId) return;
         console.error("[manage_email] messages failed:", e);
-        data = { success: false, message: e?.message || "Unable to read mailbox." };
+        data = {
+          success: false,
+          message: requestTimedOut
+            ? "The mail server took too long to respond. Check the mailbox connection and try again."
+            : e?.message || "Unable to read mailbox.",
+        };
+      } finally {
+        window.clearTimeout(timeoutId);
       }
+      if (requestId !== this.messageRequestId) return;
+      if (this.messageRequestController === requestController) this.messageRequestController = null;
       loader.style.display = "none";
 
       if (data.success === false) {

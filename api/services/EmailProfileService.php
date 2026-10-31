@@ -596,6 +596,40 @@ class EmailProfileService
     }
 
     /**
+     * Search active staff accounts for the per-mailbox access editor.
+     * An empty query returns the first page so the UI can show staff immediately.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function searchStaffUsers(string $query = '', int $limit = 50): array
+    {
+        $query = trim($query);
+        $limit = max(1, min(100, $limit));
+        $staff = ReadReplicaService::qualifiedRef('staff_directory');
+        $sql = "SELECT DISTINCT s.user_id AS user_id, s.full_name,
+                       s.email AS email, u.username
+                  FROM {$staff} s
+                  JOIN users u ON u.id = s.user_id
+                 WHERE s.user_id IS NOT NULL
+                   AND s.staff_status = 'active'
+                   AND s.user_status = 'active'
+                   AND u.status = 'active'
+                   AND (? = '' OR s.full_name LIKE ? OR s.email LIKE ? OR u.username LIKE ?)
+                 ORDER BY s.full_name
+                 LIMIT {$limit}";
+        $like = '%' . $query . '%';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$query, $like, $like, $like]);
+
+        return array_map(static fn(array $row): array => [
+            'user_id' => (int) $row['user_id'],
+            'full_name' => (string) ($row['full_name'] ?? ''),
+            'email' => (string) ($row['email'] ?? ''),
+            'username' => (string) ($row['username'] ?? ''),
+        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Replace the explicit member list of a mailbox. The owner of a personal
      * mailbox is always kept with send access so a direct call cannot lock the
      * owner out of their own mailbox.
@@ -651,10 +685,9 @@ class EmailProfileService
 
     /**
      * Mailboxes a staff user may open in the mail client, with the access level
-     * each grant provides. Rules: School Administrator (role 4) sees everything
-     * with send access; explicit pivot memberships and personal ownership come
-     * next; group mailboxes additionally keep the legacy assigned_role_ids
-     * behaviour (empty list = all staff, intersection = matching roles).
+     * each grant provides. The School Administrator sees every mailbox with
+     * full access; ordinary staff need an explicit per-mailbox membership.
+     * Personal mailbox ownership remains an implicit grant.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -668,8 +701,6 @@ class EmailProfileService
         }
 
         try {
-            $roleIds = array_map('intval', $roleIds);
-
             $pivotStmt = $this->db->prepare('SELECT profile_id, access_level, can_read, can_reply, can_compose FROM comms_email_profile_users WHERE user_id = ?');
             $pivotStmt->execute([$userId]);
             $pivot = [];
@@ -705,11 +736,6 @@ class EmailProfileService
                         'can_reply'   => $pivot[$profileId]['can_reply'],
                         'can_compose' => $pivot[$profileId]['can_compose'],
                     ];
-                } elseif (($profile['mailbox_type'] ?? self::MAILBOX_GROUP) === self::MAILBOX_GROUP) {
-                    $assigned = $profile['assigned_role_ids'] ?? [];
-                    if (!is_array($assigned) || $assigned === [] || array_intersect($assigned, $roleIds) !== []) {
-                        $capabilities = ['can_read' => true, 'can_reply' => true, 'can_compose' => true];
-                    }
                 }
 
                 if ($capabilities === null) {
