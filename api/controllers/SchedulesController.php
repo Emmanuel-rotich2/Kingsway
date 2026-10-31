@@ -479,6 +479,11 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    public function postHolidaysCreate($id = null, $data = [], $segments = [])
+    {
+        return $this->postHolidayCreate($id, $data, $segments);
+    }
+
     /**
      * PUT /api/schedules/holidays-update/{id} - edit/re-date a holiday
      */
@@ -487,6 +492,11 @@ class SchedulesController extends BaseController
         if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->updateHoliday($id, $data);
         return $this->handleResponse($result);
+    }
+
+    public function putHolidaysUpdate($id = null, $data = [], $segments = [])
+    {
+        return $this->putHolidayUpdate($id, $data, $segments);
     }
 
     /**
@@ -499,6 +509,11 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    public function deleteHolidaysDelete($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteHolidayDelete($id, $data, $segments);
+    }
+
     /**
      * POST /api/schedules/holidays-apply - re-apply the registry to the calendar
      */
@@ -507,6 +522,11 @@ class SchedulesController extends BaseController
         if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->applyHolidays($data);
         return $this->handleResponse($result);
+    }
+
+    public function postHolidaysApply($id = null, $data = [], $segments = [])
+    {
+        return $this->postHolidayApply($id, $data, $segments);
     }
 
     // ========================================

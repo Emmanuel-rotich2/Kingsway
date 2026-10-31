@@ -386,8 +386,9 @@ class MenuBuilderService
             $staffRow = $stmt->fetch();
             if ($staffRow) {
                 $staffId = (int) $staffRow['id'];
+                $assignments = ReadReplicaService::masterRef('vw_current_staff_assignments');
                 $stmt2 = $this->db->query(
-                    "SELECT DISTINCT c.level_id, c.name FROM " . ReadReplicaService::qualifiedRef("vw_current_staff_assignments") . " JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON v.class_id = c.id WHERE v.staff_id = ?",
+                    "SELECT DISTINCT c.level_id, c.name FROM {$assignments} v JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON v.class_id = c.id WHERE v.staff_id = ?",
                     [$staffId]
                 );
                 $levels = $stmt2->fetchAll();

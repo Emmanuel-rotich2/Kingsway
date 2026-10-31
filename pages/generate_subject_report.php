@@ -29,15 +29,11 @@
                                 <div class="nav nav-tabs flex-nowrap overflow-auto mb-2" role="tablist" aria-label="Subject report views">
                                     <button class="nav-link active" type="button" data-report-tab-target="reportType" data-report-tab-value="performance">Subject Performance</button>
                                     <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="assessment">Assessment Summary</button>
-                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="progress">Student Progress</button>
-                                    <button class="nav-link" type="button" data-report-tab-target="reportType" data-report-tab-value="comparison">Class Comparison</button>
                                 </div>
                                 <select id="reportType" class="d-none" data-permission="reports_view" aria-hidden="true" tabindex="-1">
                                     <option value="">Select Report Type</option>
                                     <option value="performance" selected>Subject Performance Report</option>
                                     <option value="assessment">Assessment Summary</option>
-                                    <option value="progress">Student Progress Report</option>
-                                    <option value="comparison">Class Comparison Report</option>
                                 </select>
                             </div>
                             <div class="col-md-3">
@@ -55,39 +51,30 @@
                             <div class="col-md-3">
                                 <label class="form-label">Subject</label>
                                 <select id="subjectFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Subjects</option>
+                                    <option value="">All Learning Areas</option>
                                 </select>
                             </div>
+                            <div class="col-md-3"><label class="form-label">Class</label><select id="classFilter" class="form-select" data-permission="academic_view"><option value="">All Classes</option></select></div>
                         </div>
 
+                        <div class="alert alert-danger d-none" id="reportError" role="alert"></div>
+                        <div id="reportSummary" class="d-flex flex-wrap gap-2 mb-3"></div>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="generateBtn" class="btn btn-primary" data-permission="reports_generate">
-                                    <i class="bi bi-printer me-1"></i>Print Report
+                                <button id="printBtn" class="btn btn-outline-primary" data-permission="reports_print">
+                                    <i class="bi bi-printer me-1"></i>Print / PDF
                                 </button>
+                                <button id="exportBtn" class="btn btn-outline-success" data-permission="reports_export"><i class="bi bi-download me-1"></i>Export CSV</button>
                                 <button id="refreshBtn" class="btn btn-outline-secondary">
                                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                                 </button>
                             </div>
-                            <div id="statsContainer" class="d-flex gap-3">
-                                <span class="badge bg-primary">Students: <span id="totalStudents">0</span></span>
-                                <span class="badge bg-success">Reports Generated: <span id="generatedCount">0</span></span>
-                            </div>
+                            <small class="text-muted">Results update when filters change.</small>
                         </div>
 
                         <div class="table-responsive">
                             <table class="table table-hover" id="reportsTable">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Report Type</th>
-                                        <th scope="col">Subject</th>
-                                        <th scope="col">Year</th>
-                                        <th scope="col">Term</th>
-                                        <th scope="col">Generated Date</th>
-                                        <th scope="col">Status</th>
-                                        <th scope="col">Actions</th>
-                                    </tr>
-                                </thead>
+                                <thead><tr id="reportsTableHead"></tr></thead>
                                 <tbody id="reportsTableBody">
                                     <tr>
                                         <td colspan="7" class="text-center text-muted py-4">

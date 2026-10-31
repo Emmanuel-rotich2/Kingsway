@@ -177,6 +177,10 @@ const classPlacementController = {
     
     renderClassesGrid: function() {
         const grid = document.getElementById('classesGrid');
+        // Loads can finish after soft navigation has replaced this page's DOM.
+        // In that case there is no grid to render into; treating it as an
+        // empty-data state would hide the real lifecycle boundary.
+        if (!grid || !grid.isConnected) return;
         const classSummaries = this.getClassSummaries();
         
         if (classSummaries.length === 0) {
@@ -266,6 +270,7 @@ const classPlacementController = {
     
     renderCapacityGrid: function() {
         const grid = document.getElementById('capacityGrid');
+        if (!grid || !grid.isConnected) return;
         
         if (this.classes.length === 0) {
             grid.innerHTML = `
@@ -319,6 +324,7 @@ const classPlacementController = {
     
     renderPlacementsTable: function() {
         const tbody = document.getElementById('placementsTableBody');
+        if (!tbody || !tbody.isConnected) return;
         
         if (this.placements.length === 0) {
             tbody.innerHTML = `

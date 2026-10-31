@@ -139,4 +139,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/upload_teaching_resource.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => uploadResourceController.init());</script>

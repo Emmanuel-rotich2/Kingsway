@@ -292,4 +292,3 @@
 </style>
 
 <?php asset_script($appBase, 'js/pages/data_import.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => dataImportController.init());</script>

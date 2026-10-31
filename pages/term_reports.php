@@ -290,11 +290,7 @@
             <option value="">All Classes</option>
         </select>
     </div>
-    <div class="ms-auto">
-        <button class="btn btn-tr btn-sm" id="loadReports" onclick="termReportsCtrl.loadReports()">
-            <i class="bi bi-search me-1"></i>Load Reports
-        </button>
-    </div>
+    <div class="ms-auto small text-muted">Report status updates when filters change.</div>
 </div>
 
 <!-- TABLE -->

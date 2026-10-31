@@ -32,13 +32,15 @@ const DormitoryManagementController = {
   async loadData() {
     try {
       this.showGridLoading();
-      this.state.dorms = await API.callAPI('/?route=boarding&action=dormitories')
-        .catch(() => []);
+      const response = await window.API.boarding.getDormitories();
+      const dorms = response?.dormitories ?? response?.items ?? response?.data ?? response;
+      if (!Array.isArray(dorms)) throw new Error("Dormitory data was returned in an unexpected format.");
+      this.state.dorms = dorms;
       this.updateStats();
       this.renderDormsGrid();
     } catch (error) {
       console.error("Error loading dormitories:", error);
-      this.renderEmptyGrid();
+      this.renderGridError(error.message || "Unable to load dormitories.");
     }
   },
 
@@ -98,7 +100,7 @@ const DormitoryManagementController = {
                             <div class="d-flex justify-content-between small"><span>Occupancy</span><span>${pct}%</span></div>
                             <div class="progress" style="height:6px;"><div class="progress-bar bg-${pctClass}" style="width:${pct}%"></div></div>
                         </div>
-                        ${dorm.warden ? `<div class="small"><i class="fas fa-user-shield me-1"></i>Warden: ${this.escapeHtml(dorm.warden)}</div>` : ""}
+                        ${(dorm.warden || dorm.patron_name) ? `<div class="small"><i class="fas fa-user-shield me-1"></i>Warden: ${this.escapeHtml(dorm.warden || dorm.patron_name)}</div>` : ""}
                     </div>
                     <div class="card-footer bg-transparent">
                         <div class="btn-group btn-group-sm w-100">
@@ -118,6 +120,12 @@ const DormitoryManagementController = {
     if (grid)
       grid.innerHTML =
         '<div class="col-12 text-center py-5"><i class="fas fa-building fa-3x text-muted mb-3"></i><p class="text-muted">No dormitories found</p></div>';
+  },
+
+  renderGridError(message) {
+    const grid = document.getElementById("dormsGrid");
+    if (!grid) return;
+    grid.innerHTML = `<div class="col-12 text-center py-5 text-danger">${this.escapeHtml(message)}</div>`;
   },
 
   showGridLoading() {
@@ -142,7 +150,7 @@ const DormitoryManagementController = {
                     <div class="col-md-6">
                         <p><strong>Capacity:</strong> ${dorm.capacity || dorm.total_beds || 0}</p>
                         <p><strong>Occupied:</strong> ${dorm.occupied || dorm.occupied_beds || 0}</p>
-                        <p><strong>Warden:</strong> ${this.escapeHtml(dorm.warden || "--")}</p>
+                    <p><strong>Warden:</strong> ${this.escapeHtml(dorm.warden || dorm.patron_name || "--")}</p>
                     </div>
                 </div>`,
       );
@@ -151,8 +159,11 @@ const DormitoryManagementController = {
 
   async viewOccupants(dormId) {
     try {
-      const occupants = await API.callAPI(`/?route=boarding&action=occupants&dorm_id=${dormId}`)
-        .catch(() => []);
+      const response = await window.API.callAPI("/boarding/students", "GET", null, {
+        dormitory_id: Number(dormId),
+      });
+      const occupants = Array.isArray(response) ? response : (response?.students || response?.items || []);
+      if (!Array.isArray(occupants)) throw new Error("Dormitory occupants were returned in an unexpected format.");
       let html =
         occupants.length === 0
           ? '<p class="text-muted">No occupants found</p>'
@@ -169,15 +180,24 @@ const DormitoryManagementController = {
     const form = document.getElementById("addDormForm");
     if (!form) return;
     const data = Object.fromEntries(new FormData(form).entries());
+    data.patron_id = data.warden_id || "";
+    delete data.warden_id;
+    const editId = Number(form.dataset.editId || 0);
 
     try {
-      await API.callAPI('/?route=boarding&action=create-dormitory', 'POST', data);
+      if (editId > 0) await window.API.boarding.updateDormitory(editId, data);
+      else await window.API.boarding.createDormitory(data);
 
-      this.showNotification("Dormitory saved", "success");
+      this.showNotification(editId > 0 ? "Dormitory updated" : "Dormitory saved", "success");
       bootstrap.Modal.getInstance(
         document.getElementById("addDormModal"),
       )?.hide();
       form.reset();
+      delete form.dataset.editId;
+      const modalTitle = document.querySelector("#addDormModal .modal-title");
+      const submit = form.querySelector('button[type="submit"]');
+      if (modalTitle) modalTitle.textContent = "Add Dormitory";
+      if (submit) submit.textContent = "Add Dormitory";
       await this.loadData();
     } catch (error) {
       console.error("Error saving dorm:", error);
@@ -194,6 +214,12 @@ const DormitoryManagementController = {
         const input = form.querySelector(`[name="${k}"]`);
         if (input && v) input.value = v;
       });
+      const patron = form.querySelector('[name="warden_id"]');
+      if (patron) patron.value = dorm.patron_id || dorm.house_parent_id || "";
+      const modalTitle = document.querySelector("#addDormModal .modal-title");
+      const submit = form.querySelector('button[type="submit"]');
+      if (modalTitle) modalTitle.textContent = "Edit Dormitory";
+      if (submit) submit.textContent = "Save Changes";
       new bootstrap.Modal(document.getElementById("addDormModal")).show();
     }
   },

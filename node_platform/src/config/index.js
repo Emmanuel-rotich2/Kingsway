@@ -179,7 +179,12 @@ export function loadConfig(overrides = {}) {
   const rawConfig = {
     ...yamlConfig,
     host: yamlConfig.app?.host,
-    port: yamlConfig.app?.port,
+    // Keep the local gateway port configurable alongside the PHP and
+    // Passenger settings. Without this override a developer can set
+    // NODE_REALTIME_PORT but the process still binds to the YAML default.
+    port: mergedEnv.NODE_REALTIME_PORT
+      ? Number.parseInt(mergedEnv.NODE_REALTIME_PORT, 10)
+      : yamlConfig.app?.port,
     security: {
       ...yamlConfig.security,
       jwtSecret: mergedEnv.JWT_SECRET || yamlConfig.security?.jwtSecret || '',

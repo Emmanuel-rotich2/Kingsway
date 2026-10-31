@@ -159,11 +159,16 @@
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'manager' });
         }
-    });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeFinanceRole, { once: true });
+    } else {
+        initializeFinanceRole();
+    }
 
     function showAddTransactionModal() {
         document.getElementById('modalTitle').textContent = 'Add Transaction';

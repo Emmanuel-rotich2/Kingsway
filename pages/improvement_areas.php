@@ -1,7 +1,7 @@
 <?php
 /**
  * Improvement Areas — PARTIAL
- * Development areas identified for the intern by their mentor.
+ * Improvement feedback recorded in classroom observations for the signed-in staff member.
  * JS controller: js/pages/improvement_areas.js
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
@@ -12,7 +12,7 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
       <h3 class="mb-0"><i class="bi bi-tools me-2 text-primary"></i>Improvement Areas</h3>
-      <small class="text-muted">Development areas identified by your mentor</small>
+      <small class="text-muted">Areas for improvement recorded in your classroom observations</small>
     </div>
   </div>
 
@@ -22,7 +22,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-primary" id="iaStatTotal">—</div>
-          <div class="text-muted small">Total Areas</div>
+          <div class="text-muted small">Feedback Findings</div>
         </div>
       </div>
     </div>
@@ -30,7 +30,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-success" id="iaStatResolved">—</div>
-          <div class="text-muted small">Resolved</div>
+          <div class="text-muted small">With Recommendations</div>
         </div>
       </div>
     </div>
@@ -38,7 +38,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-warning" id="iaStatPending">—</div>
-          <div class="text-muted small">Pending</div>
+          <div class="text-muted small">Average Rating</div>
         </div>
       </div>
     </div>
@@ -60,11 +60,11 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th scope="col">Area</th>
-                <th scope="col">Priority</th>
-                <th scope="col">Identified On</th>
-                <th scope="col">Action Plan</th>
-                <th scope="col">Status</th>
+                <th scope="col">Area for Improvement</th>
+                <th scope="col">Observation Date</th>
+                <th scope="col">Rating</th>
+                <th scope="col">Recommendations</th>
+                <th scope="col">Observation Status</th>
               </tr>
             </thead>
             <tbody id="iaTableBody"></tbody>
@@ -73,8 +73,9 @@
       </div>
       <div id="iaEmpty" style="display:none;" class="text-center py-5">
         <i class="bi bi-check-circle fs-1 text-success"></i>
-        <p class="text-muted mt-2 mb-0">No improvement areas identified yet. Great work!</p>
+        <p class="text-muted mt-2 mb-0">No observation feedback has recorded an area for improvement.</p>
       </div>
+      <div id="iaError" style="display:none;" class="alert alert-danger m-3">Could not load observation feedback. Refresh to try again.</div>
     </div>
   </div>
 

@@ -33,7 +33,7 @@ const myMentorController = (() => {
   }
 
   async function load() {
-    show('mmLoading'); hide('mmContent'); hide('mmEmpty');
+    show('mmLoading'); hide('mmContent'); hide('mmEmpty'); hide('mmError');
     try {
       const r = await callAPI('/staff/my-mentor', 'GET');
       const mentor = r?.data || r || null;
@@ -64,7 +64,7 @@ const myMentorController = (() => {
       show('mmContent');
     } catch (e) {
       hide('mmLoading');
-      show('mmEmpty');
+      show('mmError');
       console.error('my_mentor load error', e);
     }
   }

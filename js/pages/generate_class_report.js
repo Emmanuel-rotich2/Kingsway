@@ -1,114 +1,93 @@
-/**
- * Generate Class Report Controller
- * Generates and manages class-level academic reports.
- */
+/** Class report viewer using AcademicManager::getReports response columns/rows. */
 const generateClassReportController = {
-  state: { classes: [], streams: [], terms: [], report: null, referenceCache: null },
-
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "generate-class-report-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Generate Class Report Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
-  async load() {
-    try {
-      const cache = this.state.referenceCache;
-      const [cls, strms, terms] = await Promise.all([
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
-        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
-        cache?.terms !== undefined ? cache.terms : this.API('GET', '/api/academic/terms-list'),
-      ]);
-      this.state.classes = this.norm(cls);
-      this.state.streams = this.norm(strms);
-      this.state.terms = this.norm(terms);
-      this.populateFilters();
-    } catch (e) { console.error(e); }
-  },
-
-  populateFilters() {
-    const c = document.getElementById('gcrClass');
-    const s = document.getElementById('gcrStream');
-    const t = document.getElementById('gcrTerm');
-    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
-    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
-    t.innerHTML = '<option value="">All Terms</option>' + this.state.terms.map(x => `<option value="${x.id}">${this.esc(x.name || x.term_name)}</option>`).join('');
-  },
-
-  async generate() {
-    const c = document.getElementById('gcrClass')?.value;
-    const s = document.getElementById('gcrStream')?.value;
-    const t = document.getElementById('gcrTerm')?.value;
-    if (!c || !t) return this.notify('Select class and term', 'warning');
-
-    const body = document.getElementById('gcrBody');
-    body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-
-    try {
-      const response = await this.API('POST', '/api/reports/generate-class-report', { class_id: c, stream_id: s || null, term_id: t });
-      this.state.report = response?.data || response || {};
-      this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message || 'Generation failed')}</td></tr>`; }
-  },
-
-  render() {
-    const r = this.state.report;
-    const body = document.getElementById('gcrBody');
-    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No report generated.</td></tr>'; return; }
-    body.innerHTML = r.map(x => `<tr>
-      <td class="small">${this.esc(x.admission_no || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
-      <td class="small">${this.esc(x.subject_name || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.score || '—')}</td>
-      <td class="small"><span class="badge bg-${this.gradeBadge(x.grade)}">${this.esc(x.grade || '—')}</span></td>
-      <td class="small">${this.esc(x.term_name || '—')}</td>
-      <td class="small">${this.esc(x.teacher_name || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="generateClassReportController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
-    </tr>`).join('');
-  },
-
-  gradeBadge(g) { return { 'A': 'success', 'B': 'primary', 'C': 'info', 'D': 'warning', 'E': 'danger' }[g] || 'secondary'; },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "generate-class-report-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Generate Class Report Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
+  state: { years: [], terms: [], classes: [], columns: [], rows: [], summary: {} },
+  API: (method, endpoint, data = null, params = null) => window.callAPI(endpoint, method, data, params),
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]); },
+  rows(response) { const data = response?.data?.data ?? response?.data ?? response ?? []; return Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : []; },
 
   async init() {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
+    const [yearsResponse, classesResponse] = await Promise.all([
+      this.API('GET', '/api/academic/years/list'), this.API('GET', '/api/academic/classes-list')
+    ]);
+    this.state.years = this.rows(yearsResponse);
+    this.state.classes = this.rows(classesResponse);
+    this.fillSelect('yearFilter', this.state.years, 'All Years', (item) => item.year_name || item.name || item.year_code);
+    this.fillSelect('classFilter', this.state.classes, 'All Classes', (item) => item.name || item.class_name);
+    const currentYear = this.state.years.find((year) => year.is_current || year.status === 'current');
+    if (currentYear) document.getElementById('yearFilter').value = String(currentYear.id);
+    await this.loadTerms();
+    document.getElementById('reportType')?.addEventListener('change', () => this.load());
+    document.getElementById('yearFilter')?.addEventListener('change', async () => { await this.loadTerms(); await this.load(); });
+    document.getElementById('termFilter')?.addEventListener('change', () => this.load());
+    document.getElementById('classFilter')?.addEventListener('change', () => this.load());
+    document.getElementById('refreshBtn')?.addEventListener('click', () => this.load());
+    document.getElementById('printBtn')?.addEventListener('click', () => this.print());
+    document.getElementById('exportBtn')?.addEventListener('click', () => this.exportCSV());
     await this.load();
-    window.APIRealtime?.register?.("generate_class_report", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-      }
-    }, ["reports", "academic"]);
+    window.APIRealtime?.register?.('generate_class_report', { refresh: () => this.load() }, ['academic', 'reports']);
   },
-
-  notify(msg, type = 'info') {
-    if (window.showNotification) showNotification(msg, type);
-    else alert(msg);
+  fillSelect(id, rows, firstLabel, label) {
+    const select = document.getElementById(id); if (!select) return;
+    select.innerHTML = `<option value="">${this.esc(firstLabel)}</option>` + rows.map((row) => `<option value="${Number(row.id)}">${this.esc(label(row))}</option>`).join('');
   },
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
+  async loadTerms() {
+    const yearId = document.getElementById('yearFilter')?.value || '';
+    try {
+      const response = await this.API('GET', '/api/academic/terms', null, yearId ? { academic_year_id: yearId } : {});
+      this.state.terms = this.rows(response);
+      this.fillSelect('termFilter', this.state.terms, 'All Terms', (item) => `${item.name || item.term_name || 'Term'} · ${item.year_name || ''}`);
+      const current = this.state.terms.find((term) => term.is_current || term.status === 'current');
+      if (current) document.getElementById('termFilter').value = String(current.id);
+    } catch (error) {
+      this.state.terms = []; this.fillSelect('termFilter', [], 'All Terms', () => '');
+      this.showError(error?.message || 'Terms could not be loaded.');
+    }
+  },
+  async load() {
+    this.setLoading(true); this.hideError();
+    const params = {
+      report_type: document.getElementById('reportType')?.value || 'performance',
+      year_id: document.getElementById('yearFilter')?.value || '',
+      term_id: document.getElementById('termFilter')?.value || '',
+      class_id: document.getElementById('classFilter')?.value || '',
+    };
+    Object.keys(params).forEach((key) => { if (!params[key]) delete params[key]; });
+    try {
+      const response = await this.API('GET', '/api/academic/reports', null, params);
+      const data = response?.data?.data ?? response?.data ?? response ?? {};
+      this.state.columns = Array.isArray(data.columns) ? data.columns : [];
+      this.state.rows = Array.isArray(data.rows) ? data.rows : [];
+      this.state.summary = data.summary || {};
+      this.render();
+    } catch (error) {
+      this.state.columns = []; this.state.rows = []; this.state.summary = {};
+      this.render(); this.showError(error?.message || 'The class report could not be loaded.');
+    } finally { this.setLoading(false); }
+  },
+  setLoading(loading) {
+    document.getElementById('reportLoading')?.classList.toggle('d-none', !loading);
+    const content = document.getElementById('reportContent'); if (content) content.style.display = loading ? 'none' : '';
+  },
+  showError(message) { const error = document.getElementById('reportError'); if (error) { error.textContent = message; error.classList.remove('d-none'); } },
+  hideError() { document.getElementById('reportError')?.classList.add('d-none'); },
+  render() {
+    const head = document.getElementById('reportsTableHead'); const body = document.getElementById('reportsTableBody');
+    const summary = document.getElementById('reportSummary');
+    if (head) head.innerHTML = this.state.columns.map((column) => `<th scope="col">${this.esc(column.label || column.key)}</th>`).join('');
+    if (body) body.innerHTML = this.state.rows.length ? this.state.rows.map((row) => `<tr>${this.state.columns.map((column) => `<td>${this.esc(row[column.key] ?? '—')}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${Math.max(1,this.state.columns.length)}" class="text-center text-muted py-4">No report data matches these filters.</td></tr>`;
+    if (summary) summary.innerHTML = Object.entries(this.state.summary).map(([label, value]) => `<span class="badge text-bg-light border">${this.esc(label)}: ${Number(value || 0).toLocaleString()}</span>`).join(' ');
+  },
+  exportCSV() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('reports')) return window.showNotification?.('You do not have permission to export reports.', 'error');
+    if (!this.state.columns.length || !this.state.rows.length) return window.showNotification?.('There is no report data to export.', 'info');
+    const quote = (value) => `"${String(value ?? '').replaceAll('"','""')}"`;
+    const csv = [this.state.columns.map((column) => column.label), ...this.state.rows.map((row) => this.state.columns.map((column) => row[column.key]))].map((row) => row.map(quote).join(',')).join('\r\n');
+    window.KingswayFileLifecycle?.exportText?.(csv, 'class-report.csv', 'text/csv;charset=utf-8;');
+  },
+  print() { if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('reports')) return window.showNotification?.('You do not have permission to print reports.', 'error'); window.print(); },
 };
-
 window.generateClassReportController = generateClassReportController;
-document.addEventListener('DOMContentLoaded', () => generateClassReportController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => generateClassReportController.init().catch((error) => {
+  generateClassReportController.setLoading(false); generateClassReportController.showError(error?.message || 'Class report page setup failed.');
+}));

@@ -20,8 +20,14 @@ const lessonPlansController = (() => {
   let isAcademicLeader = false;
   let personalMode = false;
 
+  const esc = (value) => {
+    const node = document.createElement('span');
+    node.textContent = String(value ?? '');
+    return node.innerHTML;
+  };
+
   const statusBadge = (s) => {
-    const normalized = (s || "draft").toLowerCase();
+    const normalized = String(s || "draft").toLowerCase();
     const m = {
       approved: "success",
       submitted: "warning",
@@ -36,7 +42,7 @@ const lessonPlansController = (() => {
       rejected: "Rejected",
       completed: "Completed",
     };
-    return `<span class="badge bg-${m[normalized] || "secondary"}">${labels[normalized] || s}</span>`;
+    return `<span class="badge bg-${m[normalized] || "secondary"}">${labels[normalized] || esc(s)}</span>`;
   };
 
   async function init() {
@@ -229,18 +235,18 @@ const lessonPlansController = (() => {
     plans.forEach((p, i) => {
       html += `<tr>
                 <td>${i + 1}</td>
-                <td>${p.topic || ""}</td>
-                <td>${p.learning_area_name || ""}</td>
-                <td>${p.class_name || ""}</td>
-                ${personalMode ? "" : `<td>${p.teacher_name || ""}</td>`}
-                <td>${p.lesson_date || ""}</td>
+                <td>${esc(p.topic)}</td>
+                <td>${esc(p.learning_area_name)}</td>
+                <td>${esc(p.class_name)}</td>
+                ${personalMode ? "" : `<td>${esc(p.teacher_name)}</td>`}
+                <td>${esc(p.lesson_date)}</td>
                 <td>${statusBadge(p.status)}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="lessonPlansController.viewPlan(${p.id})" title="View"><i class="bi bi-eye"></i></button>
-                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" onclick="lessonPlansController.editPlan(${p.id})" title="Edit"><i class="bi bi-pencil"></i></button>` : ""}
-                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" onclick="lessonPlansController.deletePlan(${p.id})" title="Archive"><i class="bi bi-trash"></i></button>` : ""}
-                        ${personalMode ? `<button class="btn btn-outline-secondary" onclick="lessonPlansController.duplicatePlan(${p.id})" title="Duplicate"><i class="bi bi-files"></i></button>` : ""}
+                        <button class="btn btn-outline-primary" onclick="lessonPlansController.viewPlan(${Number(p.id) || 0})" title="View"><i class="bi bi-eye"></i></button>
+                        ${personalMode && p.status !== "archived" ? `<button class="btn btn-outline-warning" onclick="lessonPlansController.editPlan(${Number(p.id) || 0})" title="Edit"><i class="bi bi-pencil"></i></button>` : ""}
+                        ${personalMode && p.status === "draft" ? `<button class="btn btn-outline-danger" onclick="lessonPlansController.deletePlan(${Number(p.id) || 0})" title="Archive"><i class="bi bi-trash"></i></button>` : ""}
+                        ${personalMode ? `<button class="btn btn-outline-secondary" onclick="lessonPlansController.duplicatePlan(${Number(p.id) || 0})" title="Duplicate"><i class="bi bi-files"></i></button>` : ""}
                     </div>
                 </td>
             </tr>`;
@@ -254,28 +260,28 @@ const lessonPlansController = (() => {
     if (!plan) return;
     const modal = document.createElement("div");
     modal.innerHTML = `<div class="modal fade" id="viewPlanModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">${plan.topic || "Lesson Plan"}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-header"><h5 class="modal-title">${esc(plan.topic || "Lesson Plan")}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <div class="row mb-3">
-                    <div class="col-md-4"><strong>Subject:</strong> ${plan.learning_area_name || ""}</div>
-                    <div class="col-md-4"><strong>Class:</strong> ${plan.class_name || ""}</div>
-                    <div class="col-md-4"><strong>Teacher:</strong> ${plan.teacher_name || ""}</div>
+                    <div class="col-md-4"><strong>Subject:</strong> ${esc(plan.learning_area_name)}</div>
+                    <div class="col-md-4"><strong>Class:</strong> ${esc(plan.class_name)}</div>
+                    <div class="col-md-4"><strong>Teacher:</strong> ${esc(plan.teacher_name)}</div>
                 </div>
                 <div class="row mb-3">
-                    <div class="col-md-4"><strong>Date:</strong> ${plan.lesson_date || ""}</div>
+                    <div class="col-md-4"><strong>Date:</strong> ${esc(plan.lesson_date)}</div>
                     <div class="col-md-4"><strong>Status:</strong> ${statusBadge(plan.status)}</div>
-                    <div class="col-md-4"><strong>Duration:</strong> ${plan.duration ? plan.duration + " min" : "N/A"}</div>
+                    <div class="col-md-4"><strong>Duration:</strong> ${Number(plan.duration) > 0 ? `${Number(plan.duration)} min` : "N/A"}</div>
                 </div>
-                ${plan.subtopic ? `<div class="mb-3"><strong>Subtopic:</strong> ${plan.subtopic}</div>` : ""}
-                ${plan.unit_name ? `<div class="mb-3"><strong>Curriculum Unit:</strong> ${plan.unit_name}</div>` : ""}
+                ${plan.subtopic ? `<div class="mb-3"><strong>Subtopic:</strong> ${esc(plan.subtopic)}</div>` : ""}
+                ${plan.unit_name ? `<div class="mb-3"><strong>Curriculum Unit:</strong> ${esc(plan.unit_name)}</div>` : ""}
                 <hr>
-                <h6>Objectives</h6><p>${plan.objectives || "Not specified."}</p>
-                <h6>Activities</h6><p>${plan.activities || "Not specified."}</p>
-                <h6>Resources / Teaching Aids</h6><p>${plan.resources || "N/A"}</p>
-                <h6>Assessment</h6><p>${plan.assessment || "N/A"}</p>
-                <h6>Homework</h6><p>${plan.homework || "N/A"}</p>
-                ${plan.remarks ? `<h6>Remarks</h6><p>${plan.remarks}</p>` : ""}
-                ${plan.approved_by_name ? `<p class="text-muted mt-3"><small>Approved by ${plan.approved_by_name} on ${plan.approved_at || ""}</small></p>` : ""}
+                <h6>Objectives</h6><p>${esc(plan.objectives || "Not specified.")}</p>
+                <h6>Activities</h6><p>${esc(plan.activities || "Not specified.")}</p>
+                <h6>Resources / Teaching Aids</h6><p>${esc(plan.resources || "N/A")}</p>
+                <h6>Assessment</h6><p>${esc(plan.assessment || "N/A")}</p>
+                <h6>Homework</h6><p>${esc(plan.homework || "N/A")}</p>
+                ${plan.remarks ? `<h6>Remarks</h6><p>${esc(plan.remarks)}</p>` : ""}
+                ${plan.approved_by_name ? `<p class="text-muted mt-3"><small>Approved by ${esc(plan.approved_by_name)} on ${esc(plan.approved_at)}</small></p>` : ""}
             </div>
         </div></div></div>`;
     document.body.appendChild(modal);
@@ -301,7 +307,7 @@ const lessonPlansController = (() => {
     const isEdit = !!plan;
     const currentTeacherId = currentStaffId || "";
 
-    const schemeOpts = approvedSchemes.map((s) => `<option value="${s.id}" ${plan?.scheme_of_work_id == s.id ? "selected" : ""}>Week ${s.week_number || "-"} · ${s.class_name || ""} ${s.stream_name || ""} · ${s.learning_area_name || s.subject_name || ""} · ${s.strand_name || ""} / ${s.sub_strand_name || ""}</option>`).join("");
+    const schemeOpts = approvedSchemes.map((s) => `<option value="${Number(s.id)}" ${plan?.scheme_of_work_id == s.id ? "selected" : ""}>Week ${esc(s.week_number || "-")} · ${esc(s.class_name)} ${esc(s.stream_name)} · ${esc(s.learning_area_name || s.subject_name)} · ${esc(s.strand_name)} / ${esc(s.sub_strand_name)}</option>`).join("");
 
     const m = document.createElement("div");
     m.innerHTML = `<div class="modal fade" id="lessonFormModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
@@ -314,30 +320,30 @@ const lessonPlansController = (() => {
                             <select class="form-select" name="scheme_of_work_id" id="lpFormScheme" ${isEdit ? "disabled" : "required"}>
                                 <option value="">Select an approved scheme week</option>${schemeOpts}
                             </select>
-                            ${isEdit ? `<input type="hidden" name="scheme_of_work_id" value="${plan.scheme_of_work_id || ""}">` : ""}
+                            ${isEdit ? `<input type="hidden" name="scheme_of_work_id" value="${Number(plan.scheme_of_work_id) || ""}">` : ""}
                             <div class="form-text">The scheme supplies the authorised stream, learning area, strand, sub-strand and teaching week.</div>
                         </div>
                         <div class="col-12"><div id="lpSchemeContext" class="alert alert-light border mb-0">Select a scheme row to load its curriculum choices and calendar days.</div></div>
-                        <div class="col-md-6"><label class="form-label">Topic *</label><input class="form-control" name="topic" value="${plan?.topic || ""}" required></div>
-                        <div class="col-md-6"><label class="form-label">Subtopic</label><input class="form-control" name="subtopic" value="${plan?.subtopic || ""}"></div>
+                        <div class="col-md-6"><label class="form-label">Topic *</label><input class="form-control" name="topic" value="${esc(plan?.topic)}" required></div>
+                        <div class="col-md-6"><label class="form-label">Subtopic</label><input class="form-control" name="subtopic" value="${esc(plan?.subtopic)}"></div>
                         <div class="col-md-4"><label class="form-label">Lesson Date *</label><select class="form-select" name="lesson_date" id="lpFormDate" required><option value="">Select calendar day</option></select></div>
-                        <div class="col-md-4"><label class="form-label">Duration (minutes) *</label><input type="number" class="form-control" name="duration" value="${plan?.duration || "40"}" min="1" required></div>
+                        <div class="col-md-4"><label class="form-label">Duration (minutes) *</label><input type="number" class="form-control" name="duration" value="${Number(plan?.duration) || "40"}" min="1" required></div>
                         <div class="col-12"><label class="form-label">Specific learning outcomes *</label><div id="lpSchemeOutcomes" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
                         <div class="col-12"><label class="form-label">Learning experiences *</label><div id="lpSchemeExperiences" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
                         <div class="col-12"><label class="form-label">Key inquiry questions</label><div id="lpSchemeQuestions" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Activities *</label><textarea class="form-control" name="activities" rows="3" required>${plan?.activities || ""}</textarea></div>
+                        <div class="col-12"><label class="form-label">Activities *</label><textarea class="form-control" name="activities" rows="3" required>${esc(plan?.activities)}</textarea></div>
                         <div class="col-12"><label class="form-label">Resources, competencies, tools and rubrics</label><div id="lpSchemeAssessment" class="row g-2"><div class="text-muted">Load a scheme first.</div></div></div>
-                        <div class="col-12"><label class="form-label">Homework</label><textarea class="form-control" name="homework" rows="2">${plan?.homework || ""}</textarea></div>
-                        <input type="hidden" name="teacher_id" value="${currentTeacherId}">
-                        <input type="hidden" name="learning_area_id" value="${plan?.learning_area_id || ""}">
-                        <input type="hidden" name="class_id" value="${plan?.class_id || ""}">
+                        <div class="col-12"><label class="form-label">Homework</label><textarea class="form-control" name="homework" rows="2">${esc(plan?.homework)}</textarea></div>
+                        <input type="hidden" name="teacher_id" value="${Number(currentTeacherId) || ""}">
+                        <input type="hidden" name="learning_area_id" value="${Number(plan?.learning_area_id) || ""}">
+                        <input type="hidden" name="class_id" value="${Number(plan?.class_id) || ""}">
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-outline-primary" onclick="lessonPlansController.savePlan(${plan?.id || "null"}, 'draft')"><i class="bi bi-save"></i> Save Draft</button>
-                <button class="btn btn-primary" onclick="lessonPlansController.savePlan(${plan?.id || "null"}, 'published')"><i class="bi bi-send"></i> ${isEdit ? "Update & Publish" : "Publish Lesson Plan"}</button>
+                <button class="btn btn-outline-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'draft')"><i class="bi bi-save"></i> Save Draft</button>
+                <button class="btn btn-primary" onclick="lessonPlansController.savePlan(${Number(plan?.id) || "null"}, 'published')"><i class="bi bi-send"></i> ${isEdit ? "Update & Publish" : "Publish Lesson Plan"}</button>
             </div>
         </div></div></div>`;
     document.body.appendChild(m);
@@ -366,8 +372,8 @@ const lessonPlansController = (() => {
       const calendarDays = choices.calendar_days || [];
       const today = new Date().toISOString().slice(0, 10);
       const defaultDate = plan?.lesson_date || (calendarDays.some((d) => d.date === today) ? today : (calendarDays[0]?.date || ""));
-      if (dateSelect) dateSelect.innerHTML = '<option value="">Select calendar day</option>' + calendarDays.map((d) => `<option value="${d.date}" ${defaultDate === d.date ? "selected" : ""}>${d.date}${d.title ? " · " + d.title : ""}</option>`).join("");
-      if (contextBox) contextBox.innerHTML = `<strong>${activeSchemeContext.learning_area_name || "Learning area"}</strong> · ${activeSchemeContext.class_name || ""} ${activeSchemeContext.stream_name || ""}<br><span class="small">Week ${activeSchemeContext.week_number || "-"}: ${activeSchemeContext.week_start || ""} to ${activeSchemeContext.week_end || ""} · ${activeSchemeContext.strand_name || ""} / ${activeSchemeContext.sub_strand_name || ""}</span>`;
+      if (dateSelect) dateSelect.innerHTML = '<option value="">Select calendar day</option>' + calendarDays.map((d) => `<option value="${esc(d.date)}" ${defaultDate === d.date ? "selected" : ""}>${esc(d.date)}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
+      if (contextBox) contextBox.innerHTML = `<strong>${esc(activeSchemeContext.learning_area_name || "Learning area")}</strong> · ${esc(activeSchemeContext.class_name)} ${esc(activeSchemeContext.stream_name)}<br><span class="small">Week ${esc(activeSchemeContext.week_number || "-")}: ${esc(activeSchemeContext.week_start)} to ${esc(activeSchemeContext.week_end)} · ${esc(activeSchemeContext.strand_name)} / ${esc(activeSchemeContext.sub_strand_name)}</span>`;
       const selected = activeSchemeContext?.selected || {};
       const checked = new Set((plan?.atomic_content?.outcomes || []).map((x) => String(x.id)));
       const expChecked = new Set((plan?.atomic_content?.experiences || []).map((x) => String(x.id)));
@@ -375,7 +381,7 @@ const lessonPlansController = (() => {
         (selected.outcome_ids || []).forEach((id) => checked.add(String(id)));
         (selected.experience_ids || []).forEach((id) => expChecked.add(String(id)));
       }
-      const makeChecks = (items, name, selected) => (items || []).map((item) => `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="${name}" value="${item.id}" data-text="${String(item.text || item.name || "").replace(/"/g, '&quot;')}" ${selected.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small">${item.text || item.name || ""}</span></label></div>`).join("") || '<div class="text-muted small">No suggested choices configured for this scheme row.</div>';
+      const makeChecks = (items, name, selected) => (items || []).map((item) => `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="${name}" value="${Number(item.id) || 0}" data-text="${esc(item.text || item.name)}" ${selected.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small">${esc(item.text || item.name)}</span></label></div>`).join("") || '<div class="text-muted small">No suggested choices configured for this scheme row.</div>';
       document.getElementById("lpSchemeOutcomes").innerHTML = makeChecks(choices.outcomes, "learning_outcome_ids", checked);
       const experiences = [...(choices.experiences || [])];
       (selected.experiences || []).forEach((item) => {
@@ -396,7 +402,7 @@ const lessonPlansController = (() => {
       };
       document.getElementById("lpSchemeAssessment").innerHTML = assessmentItems.map((item) => {
         const label = item.kind === "assessment_rubric" ? (item.criteria_name || "Assessment rubric") : (item.name || item.text || item.code || "");
-        return `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="scheme_${item.kind}_ids" value="${item.id}" ${selectedIds[item.kind]?.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small"><span class="badge text-bg-light me-1">${item.kind === "assessment_rubric" ? "rubric" : item.kind}</span>${label}</span></label></div>`;
+        return `<div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="scheme_${item.kind}_ids" value="${Number(item.id) || 0}" ${selectedIds[item.kind]?.has(String(item.id)) ? "checked" : ""}><span class="form-check-label small"><span class="badge text-bg-light me-1">${item.kind === "assessment_rubric" ? "rubric" : item.kind}</span>${esc(label)}</span></label></div>`;
       }).join("") || '<div class="text-muted small">No linked resources or assessment mappings configured.</div>';
       document.querySelector('[name="learning_area_id"]').value = activeSchemeContext.learning_area_id || "";
       document.querySelector('[name="class_id"]').value = activeSchemeContext.class_id || "";

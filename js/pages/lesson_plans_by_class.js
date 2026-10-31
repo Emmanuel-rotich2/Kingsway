@@ -7,7 +7,7 @@ const lessonPlansByClassController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   async loadReferencesComposed() {
     try {
@@ -39,7 +39,8 @@ const lessonPlansByClassController = {
 
   renderLessonPlans() {
     const plans = this.state.lessonPlans;
-    const body = document.getElementById('lpbcPlansBody');
+    const body = document.getElementById('byClassTableBody');
+    if (!body) return;
     if (!plans.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No lesson plans.</td></tr>'; return; }
     body.innerHTML = plans.map(p => `<tr>
       <td class="small">${this.esc(p.class_name || '—')}</td>
@@ -54,7 +55,7 @@ const lessonPlansByClassController = {
   renderFilters() {
     const classes = this.state.classes;
     const subjects = this.state.subjects;
-    const classSelect = document.getElementById('lpbcClassFilter');
+    const classSelect = document.getElementById('classFilterLPC');
     const subjectSelect = document.getElementById('lpbcSubjectFilter');
     if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
     if (subjectSelect) subjectSelect.innerHTML = '<option value="">All Subjects</option>' + subjects.map(s => `<option value="${s.id}">${this.esc(s.name)}</option>`).join('');

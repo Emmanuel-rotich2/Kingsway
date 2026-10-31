@@ -14,6 +14,51 @@
   'use strict';
 
   let isNavigating = false;
+  const pageScriptRoutes = new Map();
+
+  // Page scripts use DOMContentLoaded to initialize their controllers. Soft
+  // navigation emits a synthetic DOMContentLoaded after every route change;
+  // without route scoping, listeners from every previously visited page run
+  // against the new page's DOM (often dereferencing a missing tbody).
+  const nativeDocumentAddEventListener = document.addEventListener.bind(document);
+  document.addEventListener = function (type, listener, options) {
+    const currentScript = document.currentScript;
+    const scriptUrl = currentScript?.src || '';
+    const isExternalPageScript = /\/js\/pages\//.test(scriptUrl);
+    const isInlinePageScript = Boolean(currentScript && !scriptUrl && currentScript.closest?.('#main-content-segment'));
+    if (type === 'DOMContentLoaded' && typeof listener === 'function' && (isExternalPageScript || isInlinePageScript)) {
+      let registeredRoutes;
+      if (isExternalPageScript) {
+        const scriptPath = scriptUrl.split('?')[0];
+        registeredRoutes = pageScriptRoutes.get(scriptPath);
+        if (!registeredRoutes) {
+          registeredRoutes = new Set();
+          pageScriptRoutes.set(scriptPath, registeredRoutes);
+        }
+        if (window.REQUESTED_ROUTE) registeredRoutes.add(window.REQUESTED_ROUTE);
+      } else {
+        // Inline initializers in the first server-rendered page also remain
+        // registered after soft navigation. Bind each one to its source route
+        // so it cannot touch DOM belonging to a different page.
+        registeredRoutes = new Set(window.REQUESTED_ROUTE ? [window.REQUESTED_ROUTE] : []);
+      }
+      const once = typeof options === 'object' && options !== null && options.once === true;
+      let invoked = false;
+      const routeScopedListener = function (event) {
+        if (invoked) return;
+        if (!registeredRoutes.has(window.REQUESTED_ROUTE)) return;
+        if (once) {
+          invoked = true;
+          nativeDocumentRemoveEventListener(type, routeScopedListener, options);
+        }
+        return listener.call(this, event);
+      };
+      const nativeDocumentRemoveEventListener = document.removeEventListener.bind(document);
+      const scopedOptions = once ? { ...options, once: false } : options;
+      return nativeDocumentAddEventListener(type, routeScopedListener, scopedOptions);
+    }
+    return nativeDocumentAddEventListener(type, listener, options);
+  };
 
   /**
    * Dynamically load an external script by URL.
@@ -116,8 +161,37 @@
 
       const sanitizedHtml = temp.innerHTML;
 
+      // Page controllers commonly bind listeners to concrete DOM nodes and
+      // keep one-time `initialized` flags. Re-inserting a visited route does
+      // not recreate those listeners, and triggering old realtime callbacks
+      // against the replacement DOM causes null tbody/innerHTML failures.
+      // Start a clean document whenever the route's controller was loaded
+      // before; first visits remain soft navigations.
+      const previouslyLoadedPageController = scriptSrcs.some((src) => {
+        const path = src.split('?')[0];
+        if (!/\/js\/pages\//.test(path)) return false;
+        return Array.from(document.querySelectorAll('script[src]'))
+          .some((script) => script.src.split('?')[0] === path);
+      });
+      if (previouslyLoadedPageController) {
+        const params = extraParams ? `&${extraParams}` : '';
+        window.location.assign(`${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(route)}${params}`);
+        return;
+      }
+
       // --- Insert sanitized content (no scripts) ---
       container.innerHTML = sanitizedHtml;
+
+      // The page controller's DOMContentLoaded listener must capture the route
+      // being loaded, because it is evaluated before the navigation event is
+      // dispatched below.
+      window.REQUESTED_ROUTE = route;
+
+      // Remove the prior page's realtime subscriptions before incoming page
+      // scripts evaluate. Some controllers register at script evaluation time.
+      window.dispatchEvent(new CustomEvent('kingsway:page-will-load', {
+        detail: { route: route, extraParams: extraParams }
+      }));
 
       // --- Load external page-specific scripts (skipped if already loaded) ---
       for (const src of scriptSrcs) {
@@ -142,6 +216,12 @@
       // error reporting) reads REQUESTED_ROUTE, and it must no longer describe
       // the page the user first landed on.
       window.REQUESTED_ROUTE = route;
+
+      // Fragment navigation leaves the shell and its sidebar in place, so the
+      // shell's initial route highlighting does not run again automatically.
+      // Reuse its existing matcher to move the active item and expand the
+      // matching submenu as soon as the new route is committed.
+      window.KingswayShell?.markActiveRoute?.();
 
       // Update browser URL so F5/hard refresh keeps the current page
       if (updateHistory) {

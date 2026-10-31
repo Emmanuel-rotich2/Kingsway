@@ -299,4 +299,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/assessment_overview.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => assessmentOverviewCtrl.init());</script>

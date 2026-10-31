@@ -81,14 +81,12 @@ class HttpWhatsAppProvider implements WhatsAppProvider
         if ($sender === '') {
             $sender = trim((string) ($config['wa_number'] ?? ''));
         }
-        if ($sender === '') {
-            $sender = trim((string) ($config['username'] ?? ''));
-        }
         $this->senderId = $sender;
     }
 
     public function sendMessage($to, $message)
     {
+        $this->assertConfigured();
         return $this->wrapSend($this->request('POST', '/sms/send', [
             'recipient' => $to,
             'sender_id' => $this->senderId,
@@ -99,6 +97,7 @@ class HttpWhatsAppProvider implements WhatsAppProvider
 
     public function sendMedia($to, $message, $mediaType, $url, $caption = null)
     {
+        $this->assertConfigured();
         $url = trim((string) $url);
         if (!filter_var($url, FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
             throw new \InvalidArgumentException('WhatsApp media URL must be a public HTTPS URL');
@@ -122,6 +121,7 @@ class HttpWhatsAppProvider implements WhatsAppProvider
      */
     public function sendTemplate($to, $templateId, $variables = [])
     {
+        $this->assertConfigured();
         foreach (['body', 'message', 'text'] as $key) {
             $rendered = trim((string) (is_array($variables) ? ($variables[$key] ?? '') : ''));
             if ($rendered !== '') {
@@ -171,5 +171,15 @@ class HttpWhatsAppProvider implements WhatsAppProvider
     private function request(string $method, string $path, ?array $body = null): array
     {
         return $this->providerTransport($this->config, strtoupper($method), $path, $body);
+    }
+
+    private function assertConfigured(): void
+    {
+        if ($this->apiKey === '') {
+            throw new \RuntimeException('WhatsApp API credentials are not configured.');
+        }
+        if ($this->senderId === '') {
+            throw new \RuntimeException('WhatsApp Business number is not configured. Set the WhatsApp Number separately; the SMS sender ID cannot be used for WhatsApp.');
+        }
     }
 }

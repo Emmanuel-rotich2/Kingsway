@@ -17,12 +17,18 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    var initializeViewerTransport = function () {
         loadTransportInfo();
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeViewerTransport, { once: true });
+    } else {
+        initializeViewerTransport();
+    }
 
     async function loadTransportInfo() {
         const container = document.getElementById('transportContainer');
+        if (!container || !container.isConnected) return;
         const user = AuthContext.getUser();
 
         if (!user) {
@@ -41,6 +47,8 @@
                 return;
             }
 
+            if (!container.isConnected) return;
+
             if (response.success && response.data) {
                 if (Array.isArray(response.data)) {
                     container.innerHTML = response.data.map(t => renderTransportCard(t)).join('');
@@ -52,7 +60,7 @@
             }
         } catch (error) {
             console.error('Error loading transport info:', error);
-            container.innerHTML = '<div class="error-card">Unable to load transport info</div>';
+            if (container.isConnected) container.innerHTML = '<div class="error-card">Unable to load transport info</div>';
         }
     }
 

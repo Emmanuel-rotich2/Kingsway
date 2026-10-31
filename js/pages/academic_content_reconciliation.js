@@ -1,84 +1,81 @@
-/**
- * Academic Content Reconciliation Controller
- * Reconciles academic content across terms and years.
- */
+/** Admin review of legacy academic content with unresolved school context. */
 const academicContentReconciliationController = {
-  state: { referenceCache: null, discrepancies: [], years: [], classes: [] },
+  items: [],
+  esc(value) {
+    const node = document.createElement('span');
+    node.textContent = String(value ?? '');
+    return node.innerHTML;
+  },
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("academic", "academic-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Academic Content Reconciliation Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+  async init() {
+    await window.AuthContext?.ready?.();
+    if (window.AuthContext && !window.AuthContext.isAuthenticated()) {
+      window.location.href = `${window.APP_BASE || ''}/index.php`;
+      return;
     }
+    document.getElementById('acrRefresh')?.addEventListener('click', () => this.load());
+    await this.load();
   },
 
   async load() {
+    const body = document.querySelector('#acrTable tbody');
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="5" class="text-center py-4">Loading reconciliation queue…</td></tr>';
     try {
-      const cache = this.state.referenceCache;
-      const [discrepancies, years, classes] = await Promise.all([
-        cache?.discrepancies !== undefined ? cache.discrepancies : this.API('GET', '/api/academic/content-reconciliation'),
-        cache?.years !== undefined ? cache.years : this.API('GET', '/api/academic/years/list'),
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
-      ]);
-      this.state.discrepancies = Array.isArray(discrepancies?.data) ? discrepancies.data : (Array.isArray(discrepancies) ? discrepancies : []);
-      this.state.years = Array.isArray(years?.data) ? years.data : (Array.isArray(years) ? years : []);
-      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
-      this.renderDiscrepancies();
-      this.renderFilters();
-    } catch (e) { console.error(e); }
+      const response = await window.API.apiCall('/academic/legacy-content-reconciliation', 'GET');
+      const payload = response?.data || response || {};
+      this.items = Array.isArray(payload.items) ? payload.items : [];
+      this.render();
+    } catch (error) {
+      console.error('Could not load academic content reconciliation queue:', error);
+      body.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${this.esc(error.message || 'Could not load reconciliation items.')}</td></tr>`;
+    }
   },
 
-  getCache(key) { return this.state.referenceCache?.[key]; },
-
-  renderDiscrepancies() {
-    const discrepancies = this.state.discrepancies;
-    const body = document.getElementById('acrDiscrepanciesBody');
-    if (!discrepancies.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No discrepancies found.</td></tr>'; return; }
-    body.innerHTML = discrepancies.map(d => `<tr>
-      <td class="small">${this.esc(d.year || '—')}</td>
-      <td class="small">${this.esc(d.class_name || '—')}</td>
-      <td class="small">${this.esc(d.subject || '—')}</td>
-      <td class="small"><span class="badge bg-${d.severity === 'high' ? 'danger' : d.severity === 'medium' ? 'warning' : 'info'}">${this.esc(d.severity || '—')}</span></td>
-      <td class="small">${this.esc(d.description || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="academicContentReconciliationController.resolve(${d.id})"><i class="bi bi-check-circle"></i></button></td>
-    </tr>`).join('');
+  render() {
+    const body = document.querySelector('#acrTable tbody');
+    if (!body) return;
+    if (!this.items.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No unresolved academic content.</td></tr>';
+      return;
+    }
+    body.innerHTML = this.items.map((item, index) => {
+      const candidates = Array.isArray(item.candidates) ? item.candidates : [];
+      const weeks = Array.isArray(item.available_weeks) ? item.available_weeks : [];
+      const contextOptions = candidates.map((candidate, candidateIndex) => `<option value="${candidateIndex}">${this.esc([candidate.class_name, candidate.stream_name].filter(Boolean).join(' — ') || 'Candidate context')}</option>`).join('');
+      const weekOptions = weeks.map((week) => `<option value="${Number(week.id)}">Week ${this.esc(week.week_number)} (${this.esc(week.week_start)} – ${this.esc(week.week_end)})</option>`).join('');
+      const contextControls = candidates.length
+        ? `<select class="form-select form-select-sm mb-1" data-candidate>${contextOptions}</select><select class="form-select form-select-sm" data-week>${weekOptions}</select>`
+        : '<span class="text-muted">No provable context available</span>';
+      const canResolve = candidates.length > 0 && weeks.length > 0;
+      return `<tr data-item-index="${index}"><td>${this.esc(String(item.content_type || 'content').replaceAll('_', ' '))}</td><td>${this.esc(item.title || item.content_title || `${item.content_type || 'Record'} #${item.content_id || item.id}`)}</td><td>${this.esc(item.reason || item.status || 'Legacy context requires review')}</td><td>${contextControls}</td><td><button class="btn btn-sm btn-success" type="button" data-resolve ${canResolve ? '' : 'disabled'}>Resolve</button></td></tr>`;
+    }).join('');
+    body.querySelectorAll('[data-resolve]').forEach((button) => button.addEventListener('click', (event) => this.resolve(event.currentTarget.closest('tr'))));
   },
 
-  renderFilters() {
-    const years = this.state.years;
-    const classes = this.state.classes;
-    const yearSelect = document.getElementById('acrYearFilter');
-    const classSelect = document.getElementById('acrClassFilter');
-    if (yearSelect) yearSelect.innerHTML = '<option value="">All Years</option>' + years.map(y => `<option value="${y.id}">${this.esc(y.name)}</option>`).join('');
-    if (classSelect) classSelect.innerHTML = '<option value="">All Classes</option>' + classes.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
-  },
-
-  async resolve(id) {
+  async resolve(row) {
+    const item = this.items[Number(row?.dataset.itemIndex)];
+    const candidateIndex = Number(row?.querySelector('[data-candidate]')?.value);
+    const candidate = item?.candidates?.[candidateIndex];
+    const weekId = Number(row?.querySelector('[data-week]')?.value || 0);
+    if (!item || !candidate || !weekId) return;
+    const payload = {
+      queue_id: Number(item.id),
+      stream_learning_area_id: Number(candidate.stream_learning_area_id),
+      calendar_week_id: weekId,
+    };
+    if (item.content_type === 'lesson_plan') payload.scheme_of_work_id = Number(item.scheme_of_work_id || item.content_id);
     try {
-      await this.API('POST', `/api/academic/content-reconciliation/${id}/resolve`);
-      this.notify('Discrepancy resolved', 'success');
+      await window.API.apiCall('/academic/resolve-legacy-academic-content', 'POST', payload);
+      window.showNotification?.('Academic content resolved.', 'success');
       await this.load();
-    } catch (e) { this.notify('Resolution failed', 'danger'); }
-  },
-
-  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("academic_content_reconciliation", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
-    }, ["academic"]);
+    } catch (error) {
+      window.showNotification?.(error.message || 'Could not resolve this content item.', 'error');
+    }
   },
 };
 
 window.academicContentReconciliationController = academicContentReconciliationController;
-document.addEventListener('DOMContentLoaded', () => academicContentReconciliationController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => academicContentReconciliationController.init().catch((error) => {
+  console.error('Academic content reconciliation initialization failed:', error);
+}));

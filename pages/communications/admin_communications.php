@@ -296,7 +296,7 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeAdminCommunications = function () {
         loadMessages();
         initCharts();
 
@@ -305,7 +305,12 @@
             new bootstrap.Modal(document.getElementById('composeModal')).show();
         });
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeAdminCommunications, { once: true });
+    } else {
+        initializeAdminCommunications();
+    }
 
     let _allMessages = [];
 

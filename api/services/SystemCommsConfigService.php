@@ -193,9 +193,6 @@ class SystemCommsConfigService
 
         $provider = $rows['comms_sms_provider']['setting_value'] ?? $this->envValue('SMS_PROVIDER');
         $senderId = $rows['comms_wa_number']['setting_value'] ?? $this->envValue('SMS_WHATSAPP_NUMBER');
-        if ($senderId === '') {
-            $senderId = $rows['comms_sms_sender_id']['setting_value'] ?? $this->envValue('SMS_SENDER_ID');
-        }
 
         return [
             'provider'  => $provider !== '' ? $provider : 'talksasa',

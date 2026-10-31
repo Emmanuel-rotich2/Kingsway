@@ -108,11 +108,16 @@
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'operator' });
         }
-    });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeFinanceRole, { once: true });
+    } else {
+        initializeFinanceRole();
+    }
 
     function showRequestModal() {
         document.getElementById('requestForm').reset();

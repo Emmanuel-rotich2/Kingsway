@@ -271,8 +271,12 @@ final class GateScanService
         }
 
         if ($action === 'dropped_off' && !$result['eligible']) {
-            $prior = $this->pdo->prepare("SELECT id FROM student_transport_attendance WHERE student_id=? AND attendance_date=CURDATE() AND trip_session=? AND status='picked_up' LIMIT 1");
-            $prior->execute([(int)$student['student_id'], $tripSession]);
+            // Pickup and drop-off are distinct trip sessions. A learner who
+            // boarded on the morning run must still be allowed to leave the
+            // vehicle at the end of the day even if their payment entitlement
+            // changed during the trip.
+            $prior = $this->pdo->prepare("SELECT id FROM student_transport_attendance WHERE student_id=? AND route_id=? AND attendance_date=CURDATE() AND status='picked_up' LIMIT 1");
+            $prior->execute([(int)$student['student_id'], $routeId]);
             if ($prior->fetchColumn()) {
                 $result['eligible'] = true;
                 $result['boarding_decision'] = 'dropoff_allowed';

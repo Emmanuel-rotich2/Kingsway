@@ -196,56 +196,6 @@
         },
 
         /**
-         * Show create modal
-         */
-        showCreateModal: function () {
-            document.getElementById("bankAccountModalLabel").innerHTML =
-                '<i class="fas fa-university me-2"></i> Add Bank Account';
-            document.getElementById("bankAccountForm").reset();
-            document.getElementById("ba_id").value = "";
-
-            var modal = new bootstrap.Modal(document.getElementById("bankAccountModal"));
-            modal.show();
-        },
-
-        /**
-         * Save account (create or update)
-         */
-        saveAccount: async function () {
-            var form = document.getElementById("bankAccountForm");
-            if (!form.checkValidity()) {
-                form.reportValidity();
-                return;
-            }
-
-            var payload = {
-                id: document.getElementById("ba_id").value || null,
-                bank_name: document.getElementById("ba_bank_name").value,
-                branch: document.getElementById("ba_branch").value,
-                account_name: document.getElementById("ba_account_name").value,
-                account_number: document.getElementById("ba_account_number").value,
-                account_type: document.getElementById("ba_type").value,
-                purpose: document.getElementById("ba_purpose").value,
-                opening_balance: parseFloat(document.getElementById("ba_opening_balance").value) || 0
-            };
-
-            try {
-                var endpoint = "/accounts/bank-accounts";
-                var method = payload.id ? "PUT" : "POST";
-                if (payload.id) endpoint += "/" + payload.id;
-
-                await API.callAPI(endpoint, method, payload);
-
-                this.showNotification("Bank account saved successfully", "success");
-                bootstrap.Modal.getInstance(document.getElementById("bankAccountModal")).hide();
-                await this.loadData();
-            } catch (error) {
-                console.error("Error saving bank account:", error);
-                this.showNotification("Failed to save bank account", "error");
-            }
-        },
-
-        /**
          * View account details
          */
         viewAccount: async function (id) {
@@ -259,45 +209,6 @@
                 "Balance: KES " + this.formatCurrency(acc.balance || acc.current_balance || 0) + "\n" +
                 "Status: " + (acc.status || "-");
             await window.infoDialog('Notice', msg);
-        },
-
-        /**
-         * Edit account
-         */
-        editAccount: function (id) {
-            var acc = this.data.find(function (a) { return a.id === id; });
-            if (!acc) return;
-
-            document.getElementById("bankAccountModalLabel").innerHTML =
-                '<i class="fas fa-university me-2"></i> Edit Bank Account';
-            document.getElementById("ba_id").value = acc.id;
-            document.getElementById("ba_bank_name").value = acc.bank_name || "";
-            document.getElementById("ba_branch").value = acc.branch || "";
-            document.getElementById("ba_account_name").value = acc.account_name || "";
-            document.getElementById("ba_account_number").value = acc.account_number || "";
-            document.getElementById("ba_type").value = acc.account_type || acc.type || "";
-            document.getElementById("ba_purpose").value = (acc.purposes || "operations").split(",")[0] || "operations";
-            document.getElementById("ba_opening_balance").value = acc.opening_balance || acc.balance || 0;
-
-            var modal = new bootstrap.Modal(document.getElementById("bankAccountModal"));
-            modal.show();
-        },
-
-        /**
-         * Delete account
-         */
-        deleteAccount: async function (id) {
-            if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this bank account?", { confirmText: 'Delete', danger: true }))) return;
-
-            try {
-                await API.callAPI("/accounts/bank-accounts/" + id, "DELETE");
-
-                this.showNotification("Bank account deleted", "success");
-                await this.loadData();
-            } catch (error) {
-                console.error("Error deleting bank account:", error);
-                this.showNotification("Failed to delete bank account", "error");
-            }
         },
 
         /**

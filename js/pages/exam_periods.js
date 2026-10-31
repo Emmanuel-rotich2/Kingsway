@@ -528,7 +528,7 @@
         reviewedAssessments.add(Number(r.assessment_id));
         reviewAction=`<button class="btn btn-sm btn-outline-success" data-register-review="${Number(r.assessment_id)}" data-review-action="approve">Approve</button> <button class="btn btn-sm btn-outline-warning" data-register-review="${Number(r.assessment_id)}" data-review-action="reject">Return</button>`;
       }
-      return `<tr class="${r.result_deleted_at ? 'table-secondary' : ''}"><td>${esc(r.class_name)}${r.stream_name ? ` · ${esc(r.stream_name)}` : ''}</td><td>${esc(r.learning_area)}</td><td>${esc(r.admission_no)}</td><td>${esc(r.learner_name)}</td><td>${esc(r.marks_obtained ?? '—')}</td><td>${esc(r.max_marks)}</td><td>${esc(r.grade || '—')}</td><td>${esc(r.entry_status || 'Not entered')}</td><td>${esc(r.assessment_status)}</td>${canReview ? `<td>${reviewAction}</td>` : ''}${!mine && canManage() && r.result_id ? `<td>${r.result_deleted_at ? `<button class="btn btn-sm btn-outline-success" data-result-restore="${Number(r.result_id)}">Restore</button>` : `<button class="btn btn-sm btn-outline-primary" data-result-edit="${Number(r.resultEdit)}" data-marks="${esc(r.marks_obtained ?? '')}" data-entry="${esc(r.entry_status || 'present')}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-result-delete="${Number(r.result_id)}">Delete</button>`}</td>` : ''}</tr>`;
+      return `<tr class="${r.result_deleted_at ? 'table-secondary' : ''}"><td>${esc(r.class_name)}${r.stream_name ? ` · ${esc(r.stream_name)}` : ''}</td><td>${esc(r.learning_area)}</td><td>${esc(r.admission_no)}</td><td>${esc(r.learner_name)}</td><td>${esc(r.marks_obtained ?? '—')}</td><td>${esc(r.max_marks)}</td><td>${esc(r.grade || '—')}</td><td>${esc(r.entry_status || 'Not entered')}</td><td>${esc(r.assessment_status)}</td>${canReview ? `<td>${reviewAction}</td>` : ''}${!mine && canManage() && r.result_id ? `<td>${r.result_deleted_at ? `<button class="btn btn-sm btn-outline-success" data-result-restore="${Number(r.result_id)}">Restore</button>` : `<button class="btn btn-sm btn-outline-primary" data-result-edit="${Number(r.result_id)}" data-marks="${esc(r.marks_obtained ?? '')}" data-entry="${esc(r.entry_status || 'present')}">Edit</button> <button class="btn btn-sm btn-outline-danger" data-result-delete="${Number(r.result_id)}">Delete</button>`}</td>` : ''}</tr>`;
     }).join('');
     root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><div><h4 class="modal-title fs-5">${esc(p.title)} · ${mine ? 'My teaching results' : 'School results'}</h4><small class="text-muted">${mine ? 'Results are limited to assigned streams and learning areas.' : 'Leadership view across selected classes and learning areas.'}</small></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><div class="d-flex gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" id="examResultsCsv">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="examResultsPrint">Print / PDF</button>${!mine && canManage() ? `<button class="btn btn-sm btn-outline-warning" id="toggleDeletedResults">${includeDeleted ? 'Hide deleted results' : 'Show deleted results'}</button>` : ''}</div><div class="table-responsive"><table class="table table-sm table-striped" id="examPeriodResultsTable"><thead><tr><th>Class / stream</th><th>Learning area</th><th>Admission no.</th><th>Learner</th><th>Mark</th><th>Out of</th><th>Grade</th><th>Entry</th><th>Assessment</th>${canReview ? '<th>Class-teacher review</th>' : ''}${!mine && canManage() ? '<th>Admin actions</th>' : ''}</tr></thead><tbody>${rows || '<tr><td colspan="10" class="text-center text-muted">No results found for this period and teaching assignment.</td></tr>'}</tbody></table></div></div></div>`;
     bootstrap.Modal.getOrCreateInstance(root).show();
@@ -664,10 +664,126 @@
         notify('Select at least one applicable class.', 'error');
         return;
       }
+      const kindPayload = assessmentPayloadFromKind($('examPeriodEditAssessmentKind'));
+      const button = $('saveExamPeriodEditBtn');
+      if (button) button.disabled = true;
+      try {
+        await call(`/academic/exam-periods/${id}`, 'PUT', {
+          title,
+          starts_on,
+          ends_on,
+          entry_mode: $('examPeriodEditEntryMode')?.value || 'timetable',
+          ...kindPayload,
+          assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null,
+          national_assessment_code: $('examPeriodEditNationalCode')?.value || null,
+          academic_year_class_ids,
+        });
+        bootstrap.Modal.getInstance($('examPeriodEditModal'))?.hide();
+        await loadPeriods();
+        notify('Exam period updated.', 'success');
+      } catch (error) {
+        notify(error.message || 'Unable to update the exam period.', 'error');
+      } finally {
+        if (button) button.disabled = false;
+      }
     });
     // Attach AI draft button handler
     $('draftExamPeriodTimetable')?.addEventListener('click', () => queueAiTimetableDraft(state.activePeriod, state.detail));
+    // Row action menu. The buttons are re-rendered on every reload of the
+    // period list, so one delegated listener on the table body owns them all.
+    $('examPeriodsBody')?.addEventListener('click', onPeriodAction);
+
+    // Initial data load. The delegated listener above is registered first so
+    // the very first render already responds to every action button.
+    await loadOptions($('examPeriodTerm')?.value || '');
+    await loadPeriods();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
-  else init();
+
+  async function onPeriodAction(event) {
+    const button = event.target.closest('[data-period-action]');
+    if (!button || button.disabled) return;
+    const action = button.dataset.periodAction;
+    const periodId = Number(button.dataset.id || 0);
+    if (!periodId) return;
+    const period = state.periods.find((p) => Number(p.id) === periodId);
+    const label = period ? period.title : 'this exam period';
+
+    switch (action) {
+      case 'schedule': await showSchedule(periodId); break;
+      case 'edit': await openEdit(periodId); break;
+      case 'delete': await deletePeriod(periodId, label); break;
+      case 'reopen': await reopenPeriod(periodId, label); break;
+      case 'publish': await publishPeriod(periodId, label); break;
+      case 'open': await openPeriodResults(periodId, label); break;
+      case 'results': await showResults(periodId); break;
+      case 'my-results': await showResults(periodId, true); break;
+      case 'publish-results': await publishPeriodResults(periodId, label); break;
+      case 'national-timetable': await showNationalTimetable(periodId); break;
+      default: break;
+    }
+  }
+
+  async function openEdit(periodId) {
+    const data = await call(`/academic/exam-periods/${periodId}`);
+    const period = data.period || {};
+    $('examPeriodEditForm').dataset.periodId = String(periodId);
+    if ($('examPeriodEditTitle')) $('examPeriodEditTitle').value = period.title || '';
+    if ($('examPeriodEditStart')) $('examPeriodEditStart').value = period.starts_on || '';
+    if ($('examPeriodEditEnd')) $('examPeriodEditEnd').value = period.ends_on || '';
+    renderClasses('examPeriodEditClasses', (period.classes || []).map((c) => Number(c.academic_year_class_id)));
+    bootstrap.Modal.getOrCreateInstance($('examPeriodEditModal')).show();
+  }
+
+  async function deletePeriod(periodId, label) {
+    if (!confirm(`Delete ${label}? Its records stay in the system but it is hidden from the list.`)) return;
+    try { await call(`/academic/exam-periods/${periodId}`, 'DELETE'); notify('Exam period deleted.', 'success'); await loadPeriods(); }
+    catch (error) { notify(error.message || 'Unable to delete exam period.', 'error'); }
+  }
+
+  async function reopenPeriod(periodId, label) {
+    if (!confirm(`Reopen the timetable for ${label}? Result entry is closed until it is reopened.`)) return;
+    try {
+      await call(`/academic/exam-periods/${periodId}/reopen`, 'POST', { target: 'timetable' });
+      notify('Exam period reopened for timetable editing.', 'success');
+      await loadPeriods();
+    } catch (error) { notify(error.message || 'Unable to reopen the exam period.', 'error'); }
+  }
+
+  async function publishPeriod(periodId, label) {
+    if (!confirm(`Publish the timetable for ${label}? Teachers and learners see the sittings after this.`)) return;
+    try {
+      await call(`/academic/exam-periods/${periodId}/publish`, 'POST', {});
+      notify('Exam timetable published.', 'success');
+      await loadPeriods();
+    } catch (error) { notify(error.message || 'Unable to publish the timetable.', 'error'); }
+  }
+
+  async function openPeriodResults(periodId, label) {
+    if (!confirm(`Open result entry for ${label}? Subject teachers can then record marks.`)) return;
+    try {
+      await call(`/academic/exam-periods/${periodId}/open-results`, 'POST', {});
+      notify('Result entry opened.', 'success');
+      await loadPeriods();
+    } catch (error) { notify(error.message || 'Unable to open result entry.', 'error'); }
+  }
+
+  async function publishPeriodResults(periodId, label) {
+    if (!confirm(`Publish the results for ${label}? Every register must be submitted and Grade 4-9 registers approved by their class teacher. Parents are notified when the report cards are released.`)) return;
+    try {
+      const result = await call(`/academic/exam-periods/${periodId}/publish-results`, 'POST', {});
+      notify(result.official_parent_view || 'Results published to the official term results.', 'success');
+      await loadPeriods();
+    } catch (error) { notify(error.message || 'Unable to publish results.', 'error'); }
+  }
+
+  async function showNationalTimetable(periodId) {
+    $('examDocumentSuggestedMapping')?.classList.add('d-none');
+    $('examDocumentPreviewWrap')?.classList.add('d-none');
+    $('examDocumentPreviewActions')?.classList.add('d-none');
+    if ($('examDocumentStatus')) $('examDocumentStatus').textContent = '';
+    state.activePeriod = Number(periodId);
+    bootstrap.Modal.getOrCreateInstance($('examDocumentImportModal')).show();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, { once: true });
+  else attach();
 })();

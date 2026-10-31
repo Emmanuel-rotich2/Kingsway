@@ -55,6 +55,7 @@
       groups: [],
       contacts: [],
       templates: [],
+      templateLoadFailed: false,
       optOuts: [],
       audiences: { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] },
       currentPage: 1,
@@ -64,7 +65,6 @@
       activeGroupId: null,
       gatewayLoaded: false,
       optOutsLoaded: false,
-      remoteLoaded: false,
       recipientPicker: null,
       composeOffcanvas: null,
       groupModal: null,
@@ -95,7 +95,7 @@
         this.setupVariableMenu();
         if (this.cfg.channel === "sms") this.checkBalance();
         else this.hideBalanceChip();
-        this.loadGateway();
+        this.loadSmsTopup();
       },
 
       hideBalanceChip: function () {
@@ -121,10 +121,16 @@
       applyPermissionGates: function () {
         const canExport = window.AuthContext?.canExport ? AuthContext.canExport("communications") : true;
         const canPrint = window.AuthContext?.canPrint ? AuthContext.canPrint("communications") : true;
+        const user = window.AuthContext?.getUser?.() || {};
+        const isTestAccount = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
+        const canCompose = isTestAccount || !window.AuthContext?.hasPermission ||
+          AuthContext.hasPermission("communications_create") || AuthContext.hasPermission("communications_manage");
         const ex = document.getElementById("exportBtn");
         const pr = document.getElementById("printBtn");
+        const compose = document.getElementById("composeBtn");
         if (ex && !canExport) ex.style.display = "none";
         if (pr && !canPrint) pr.style.display = "none";
+        if (compose) compose.hidden = !canCompose;
       },
 
       bindEvents: function () {
@@ -211,12 +217,8 @@
         const optOutsCollapse = document.getElementById("optOutsCollapse");
         if (optOutsCollapse) optOutsCollapse.addEventListener("shown.bs.collapse", function () { if (!self.optOutsLoaded) self.loadOptOuts(); });
 
-        this.on("refreshGatewayBtn", "click", () => self.loadGateway(true));
         this.on("refreshBalanceBtn", "click", () => self.checkBalance());
         this.on("loadProfileBtn", "click", () => self.loadProfile());
-        const remoteDetails = document.getElementById("remoteLogDetails");
-        if (remoteDetails) remoteDetails.addEventListener("toggle", function () { if (this.open && !self.remoteLoaded) self.loadRemoteMessages(); });
-        this.on("refreshRemoteMsgsBtn", "click", () => self.loadRemoteMessages(true));
 
         this.on("addContactBtn", "click", () => self.openContactForm());
         this.on("cancelContactBtn", "click", () => self.hideContactForm());
@@ -274,12 +276,14 @@
       loadAudienceOptions: async function () {
         try {
           const r = await window.API.communications.getAudienceOptions();
-          const data = r?.data || r || {};
+          let data = r?.data || r || {};
+          if (data?.data && typeof data.data === "object") data = data.data;
           this.audiences = data;
           const allowed = data.allowed_audiences || [];
           const select = document.getElementById("recipientType");
           if (select && allowed.length) Array.from(select.options).forEach((o) => { if (o.value && !allowed.includes(o.value)) o.remove(); });
         } catch (e) {
+          this.audiences = { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] };
           console.error("Audience load failed", e);
         }
       },
@@ -418,6 +422,10 @@
         if (!item) return;
         const id = item.id || item.communication_id;
         this.selectedId = id;
+        const listPane = document.querySelector(".kw-console-list");
+        const detailPane = document.getElementById("detailPane");
+        if (listPane) listPane.hidden = true;
+        if (detailPane) detailPane.hidden = false;
         const body = String(item.content || item.message || item.body || "No message content.");
         const msgType = String(item.subject || item.category || this.cfg.title + " Broadcast").replace(/_/g, " ");
         const recipients = item.recipient_summary || item.recipient_type || (item.recipient_count ? item.recipient_count + " recipients" : "—");
@@ -445,18 +453,20 @@
         if (schedWrap) schedWrap.hidden = !(isScheduled && window.API?.communications?.updateCommunication);
         const schedInput = document.getElementById("detailScheduleTime");
         if (schedInput && item.scheduled_at) schedInput.value = String(item.scheduled_at).replace(" ", "T").slice(0, 16);
-        if (this.root && window.matchMedia("(max-width:1200px)").matches) this.root.classList.add("kw-detail-open");
         this.renderTable();
         if (id) this.loadDelivery(id);
       },
 
       closeDetail: function () {
         this.selectedId = null;
+        const listPane = document.querySelector(".kw-console-list");
+        const detailPane = document.getElementById("detailPane");
+        if (listPane) listPane.hidden = false;
+        if (detailPane) detailPane.hidden = true;
         const empty = document.getElementById("detailEmpty");
         const content = document.getElementById("detailContent");
         if (empty) empty.hidden = false;
         if (content) content.hidden = true;
-        if (this.root) this.root.classList.remove("kw-detail-open");
         this.renderTable();
       },
 
@@ -845,17 +855,40 @@
       },
 
       loadTemplates: async function () {
+        this.templateLoadFailed = false;
         try {
-          const res = await window.API.communications.getTemplates();
-          this.templates = (Array.isArray(res) ? res : (res?.data || [])).filter((t) => this.templateVisible(t));
+          const res = await window.API.communications.getTemplates({ channel: this.cfg.channel, status: "active" });
+          const catalogs = this.unwrapList(res, ["templates", "items", "rows", "records"]);
+          this.templates = catalogs.flatMap((catalog) => {
+            const versions = Array.isArray(catalog.versions) ? catalog.versions : [];
+            const version = versions.find((candidate) =>
+              Array.isArray(candidate.channels) && candidate.channels.some((channel) => channel.channel === this.cfg.channel)
+            );
+            if (!version) return [];
+            return version.channels
+              .filter((channel) => channel.channel === this.cfg.channel)
+              .map((channel) => ({
+                ...catalog,
+                ...channel,
+                id: channel.channel_id || channel.id,
+                name: catalog.name || channel.name || "Message template",
+                category: catalog.purpose || catalog.code || "",
+                template_type: channel.channel,
+                template_body: channel.body || "",
+                status: version.status || catalog.status || "active",
+              }));
+          }).filter((template) => this.templateVisible(template));
         } catch (e) {
+          this.templateLoadFailed = true;
           this.templates = [];
+          console.error("Template load failed", e);
         }
         this.renderTemplates();
         const sel = document.getElementById("templateSelect");
         if (sel) {
           const current = sel.value;
-          sel.innerHTML = '<option value="">No template</option>' +
+          const emptyLabel = this.templateLoadFailed ? "Templates could not be loaded" : (this.templates.length ? "No template" : "No active templates available");
+          sel.innerHTML = '<option value="">' + this.esc(emptyLabel) + "</option>" +
             this.templates.map((t) => '<option value="' + t.id + '">' + this.esc(t.name) + "</option>").join("");
           if (current) sel.value = current;
         }
@@ -865,7 +898,7 @@
         const container = document.getElementById("templatesList");
         if (!container) return;
         if (!this.templates.length) {
-          container.innerHTML = '<div class="kw-rail-empty">No templates yet.</div>';
+          container.innerHTML = '<div class="kw-rail-empty">' + (this.templateLoadFailed ? "Templates could not be loaded. Refresh to try again." : "No active templates for this channel yet.") + "</div>";
           return;
         }
         const self = this;
@@ -973,29 +1006,6 @@
         }).join("") + (this.optOuts.length > 60 ? '<div class="kw-rail-empty">Showing 60 of ' + this.optOuts.length + "</div>" : "");
       },
 
-      loadGateway: async function (force) {
-        if (this.gatewayLoaded && !force) return;
-        if (!window.API.messaging?.getGateway) return;
-        try {
-          const res = await window.API.messaging.getGateway();
-          const info = res?.data && typeof res.data === "object" ? res.data : (res || {});
-          const rows = [
-            ["Provider", info.provider || "—"],
-            ["Sender ID", info.sender_id || "—"],
-            ["API URL", info.api_url || "—"],
-            ["API Key", info.api_key_masked || "—"],
-            ["Configured", info.configured ? "Yes" : "No"],
-          ];
-          const dl = document.getElementById("gatewayInfo");
-          if (dl) dl.innerHTML = rows.map(([k, v]) => "<dt>" + this.esc(k) + "</dt><dd>" + this.esc(v) + "</dd>").join("");
-          this.gatewayLoaded = true;
-        } catch (e) {
-          const dl = document.getElementById("gatewayInfo");
-          if (dl) dl.innerHTML = '<dd class="text-danger">Unable to load provider info.</dd>';
-        }
-        this.loadSmsTopup();
-      },
-
       loadSmsTopup: async function () {
         if (this.cfg.channel !== "sms") return;
         const set = (id, value, fallback) => {
@@ -1026,29 +1036,6 @@
             this.esc(typeof profile === "object" ? JSON.stringify(profile, null, 2) : String(profile)) + "</pre>";
         } catch (e) {
           this.notify("Unable to load profile", "warning");
-        }
-      },
-
-      loadRemoteMessages: async function (force) {
-        const listEl = document.getElementById("remoteMessagesList");
-        if (!listEl) return;
-        try {
-          const res = await window.API.messaging.getRemoteMessages();
-          const list = this.unwrapList(res, ["messages", "data"]);
-          this.remoteLoaded = true;
-          if (!list.length) {
-            listEl.innerHTML = '<div class="kw-rail-empty">No provider messages.</div>';
-            return;
-          }
-          const self = this;
-          listEl.innerHTML = list.slice(0, 30).map(function (m) {
-            return '<div class="kw-log-row">' +
-              "<span>" + self.esc(m.recipient || m.to || m.uid || m.id || "—") + "</span>" +
-              '<span class="' + badgeClass(m.status) + '">' + self.esc(m.status || "—") + "</span>" +
-              "</div>";
-          }).join("");
-        } catch (e) {
-          listEl.innerHTML = '<div class="kw-rail-empty kw-danger">Unable to load provider log.</div>';
         }
       },
 
@@ -1120,6 +1107,13 @@
           selected_vendors: this.audiences.vendors,
         };
         const items = map[type] || [];
+        if (!items.length) {
+          const option = document.createElement("option");
+          option.disabled = true;
+          option.textContent = "No matching records are available";
+          sel.appendChild(option);
+          return;
+        }
         items.forEach((c) => {
           const opt = document.createElement("option");
           opt.value = c.id;
@@ -1172,7 +1166,11 @@
 
       openCompose: function () {
         const form = document.getElementById("composeForm");
-        if (form) form.reset();
+        if (form) {
+          form.reset();
+          form.dataset.submissionKey = (window.crypto?.randomUUID?.() || (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+          delete form.dataset.submitting;
+        }
         ["recipientSelector", "groupSelector", "customNumbersDiv", "recipientPickerDiv", "reminderOptions"].forEach((id) => {
           const el = document.getElementById(id);
           if (el) el.style.display = "none";
@@ -1236,10 +1234,16 @@
       },
 
       submitMessage: async function () {
+        const form = document.getElementById("composeForm");
+        // Multiple fragment/controller instances can bind the same button.
+        // Guard on the shared form before the first await so only one handler
+        // can create a communication for this compose action.
+        if (form?.dataset.submitting === "1") return;
         const msg = this.value("messageBody").trim();
         const channel = this.value("messageChannel") || this.cfg.channel;
         if (!msg && channel !== "mms") { this.notify("Message is required", "warning"); return; }
         if (!this.value("recipientType")) { this.notify("Select recipients", "warning"); return; }
+        if (form) form.dataset.submitting = "1";
         const sendBtn = document.getElementById("sendBtn");
         if (sendBtn) {
           sendBtn.disabled = true;
@@ -1251,9 +1255,10 @@
             if (this.composeOffcanvas) this.composeOffcanvas.hide();
           } else {
             const data = this.collectFormData(channel);
+            if (form) data.client_submission_id = form.dataset.submissionKey || "";
             const created = await window.API.communications.createCommunication(data);
             const commId = created?.id || created?.communication_id || created?.data?.id;
-            if (channel === "whatsapp") await this.uploadMedia(commId);
+            if (channel === "whatsapp" && !created?.idempotent_replay) await this.uploadMedia(commId);
             const result = data.status === "sent" && commId
               ? await window.API.communications.dispatchCommunication(commId)
               : created;
@@ -1267,6 +1272,7 @@
           console.error("Send error:", e);
           this.notify(e.message || "Failed to send", "error");
         } finally {
+          if (form) delete form.dataset.submitting;
           if (sendBtn) {
             sendBtn.disabled = false;
             sendBtn.innerHTML = this.cfg.sendLabel;
@@ -1291,6 +1297,7 @@
           mode: channel,
           message,
           schedule_time: this.value("scheduleTime") || null,
+          client_submission_id: document.getElementById("composeForm")?.dataset.submissionKey || "",
         };
         if (channel === "mms") payload.media_url = this.value("mediaUrl").trim();
         if (channel === "voice") {

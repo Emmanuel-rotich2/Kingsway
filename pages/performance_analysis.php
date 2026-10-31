@@ -48,8 +48,8 @@
         </div>
     </div>
     <div class="row mb-4">
-        <div class="col-md-6 mb-3"><div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Trend Chart</h6></div><div class="card-body"><canvas id="trendChart" height="250"></canvas></div></div></div>
-        <div class="col-md-6 mb-3"><div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Comparison Chart</h6></div><div class="card-body"><canvas id="comparisonChart" height="250"></canvas></div></div></div>
+        <div class="col-md-6 mb-3"><div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Mean Score by Subject</h6></div><div class="card-body"><canvas id="trendChart" height="250"></canvas></div></div></div>
+        <div class="col-md-6 mb-3"><div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Pass Rate by Subject</h6></div><div class="card-body"><canvas id="comparisonChart" height="250"></canvas></div></div></div>
     </div>
 
     <div class="card shadow-sm mb-4">
@@ -66,13 +66,13 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Performance Analysis</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="PerformanceAnalysisController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" onclick="PerformanceAnalysisController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" onclick="PerformanceAnalysisController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
-                    <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Subject</th><th scope="col">Students</th><th scope="col">Mean Score</th><th scope="col">Highest</th><th scope="col">Lowest</th><th scope="col">Pass Rate</th></tr></thead>
-                    <tbody><tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <thead class="table-light"><tr><th scope="col">Subject</th><th scope="col">Students Assessed</th><th scope="col">Mean Score</th><th scope="col">EE</th><th scope="col">ME</th><th scope="col">AE</th><th scope="col">BE</th><th scope="col">Pass Rate</th></tr></thead>
+                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
             </div>
         </div>

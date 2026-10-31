@@ -21,21 +21,33 @@ final class ReportCardReleaseService
         $where = ['r.version_no = (SELECT MAX(r2.version_no) FROM report_card_releases r2 WHERE r2.student_id=r.student_id AND r2.academic_year_term_id=r.academic_year_term_id)'];
         $params = [];
         if (!empty($filters['term_id'])) { $where[] = 'r.academic_year_term_id=?'; $params[] = (int) $filters['term_id']; }
+        if (!empty($filters['year_id'])) { $where[] = 'ayt.academic_year_id=?'; $params[] = (int) $filters['year_id']; }
         if (!empty($filters['student_id'])) { $where[] = 'r.student_id=?'; $params[] = (int) $filters['student_id']; }
         if (!empty($filters['status'])) { $where[] = 'r.status=?'; $params[] = (string) $filters['status']; }
         if (!empty($filters['class_id'])) {
-            $where[] = '(ayc.class_id=? OR sae.academic_year_class_stream_id=?)';
-            $params[] = (int) $filters['class_id'];
+            $where[] = 'ayc.class_id=?';
             $params[] = (int) $filters['class_id'];
         }
+        if (!empty($filters['stream_id'])) { $where[] = 'aycs.stream_id=?'; $params[] = (int) $filters['stream_id']; }
         $stmt = $this->db->prepare(
-            'SELECT r.id AS release_id, r.student_id, r.academic_year_term_id, r.version_no,
+            'SELECT r.id AS release_id, r.student_id, s.admission_no,
+                    CONCAT_WS(" ", p.first_name, p.middle_name, p.last_name) AS student_name,
+                    cls.name AS class_name, st.name AS stream_name,
+                    ay.year_name, t.term_name AS term_name,
+                    r.academic_year_term_id, r.version_no,
                     r.status, r.overall_percentage, r.class_position, r.class_population,
                     r.generated_at, r.approved_at, r.released_at, r.pdf_path
              FROM report_card_releases r
              JOIN ' . ReadReplicaService::qualifiedRef('student_academic_enrollments') . ' sae ON sae.id=r.student_academic_enrollment_id
              JOIN ' . ReadReplicaService::qualifiedRef('academic_year_class_streams') . ' aycs ON aycs.id=sae.academic_year_class_stream_id
              JOIN ' . ReadReplicaService::qualifiedRef('academic_year_classes') . ' ayc ON ayc.id=aycs.academic_year_class_id
+             JOIN ' . ReadReplicaService::qualifiedRef('students') . ' s ON s.id=r.student_id
+             JOIN ' . ReadReplicaService::qualifiedRef('persons') . ' p ON p.id=s.person_id
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('classes') . ' cls ON cls.id=ayc.class_id
+             LEFT JOIN ' . ReadReplicaService::qualifiedRef('streams') . ' st ON st.id=aycs.stream_id
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' ayt ON ayt.id=r.academic_year_term_id
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_years') . ' ay ON ay.id=ayt.academic_year_id
+             JOIN ' . ReadReplicaService::qualifiedRef('academic_term') . ' t ON t.academic_year_term_id=ayt.id
              WHERE ' . implode(' AND ', $where) . '
              ORDER BY r.generated_at DESC'
         );
@@ -68,8 +80,11 @@ final class ReportCardReleaseService
             throw new RuntimeException("Report card is incomplete: {$complete} of {$expected} learning areas are ready", 409);
         }
 
-        $reportData['level'] = $this->level((string) ($student['class_name'] ?? ''));
-        $reportData['comments'] = $reportData['comments'] ?? [];
+        $reportData['level'] = $this->levelForClass((string) ($student['class_name'] ?? ''));
+        // Fill teacher/headteacher remarks, next-term focus and per-subject
+        // remarks from what the school already recorded. Explicitly supplied
+        // remarks (on-demand print) always win over derived ones.
+        (new ReportCardRemarkService($this->db))->hydrate($reportData);
         if ((int) ($reportData['result_policy']['publish_rank_to_guardians'] ?? 1) !== 1) {
             $reportData['ranking']['class_position'] = null;
             $reportData['ranking']['cohort_position'] = null;
@@ -284,7 +299,12 @@ final class ReportCardReleaseService
         }
     }
 
-    private function level(string $className): string
+    /**
+     * CBC level for a class name. The single source of truth for report-card
+     * artwork selection; ReportCardsProducer delegates here so the synchronous
+     * and bulk paths can never disagree.
+     */
+    public function levelForClass(string $className): string
     {
         if (preg_match('/play|pre.?primary|pp\s*[12]/i', $className)) return 'PP';
         if (preg_match('/([1-9])/', $className, $match)) {

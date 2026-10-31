@@ -8,7 +8,14 @@ class LogsReportManager extends BaseAPI
     public function getCommunicationLogs($filters = [])
     {
         $entries = FileLogger::recent('audit', 100, ['entity' => 'communication']);
-        return array_map([$this, 'normalizeEntry'], $entries);
+        return array_map(static function (array $entry): array {
+            return [
+                'action' => $entry['action'] ?? null,
+                'entity_type' => $entry['entity'] ?? null,
+                'level' => $entry['level'] ?? null,
+                'created_at' => $entry['timestamp'] ?? null,
+            ];
+        }, $entries);
     }
 
     public function getFeeStructureLogs($filters = [])

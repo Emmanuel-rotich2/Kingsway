@@ -8,6 +8,7 @@ const developmentProgressController = (() => {
   function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
   function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
   function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function formatDate(d) {
     if (!d) return '—';
@@ -21,7 +22,7 @@ const developmentProgressController = (() => {
       pending: 'bg-secondary',
       not_started: 'bg-light text-dark border',
     };
-    return `<span class="badge ${map[status] || 'bg-secondary'}">${(status || 'pending').replace(/_/g, ' ')}</span>`;
+    return `<span class="badge ${map[status] || 'bg-secondary'}">${esc((status || 'pending').replace(/_/g, ' '))}</span>`;
   }
 
   function weeksRemaining(endDate) {
@@ -61,6 +62,8 @@ const developmentProgressController = (() => {
     } catch (e) {
       hide('dpLoading');
       show('dpEmpty');
+      const message = document.querySelector('#dpEmpty p');
+      if (message) message.textContent = 'Milestones could not be loaded. The page cannot confirm that no milestones exist.';
       console.error('development_progress load error', e);
     }
   }
@@ -72,15 +75,15 @@ const developmentProgressController = (() => {
       <tr>
         <td class="text-muted small">${i + 1}</td>
         <td>
-          <div class="fw-semibold">${m.title || m.name || m.milestone || '—'}</div>
-          ${m.description ? `<small class="text-muted">${m.description}</small>` : ''}
+          <div class="fw-semibold">${esc(m.title || m.name || m.milestone || '—')}</div>
+          ${m.description ? `<small class="text-muted">${esc(m.description)}</small>` : ''}
         </td>
-        <td><span class="badge bg-primary-subtle text-primary border border-primary">${m.category || m.type || '—'}</span></td>
+        <td><span class="badge bg-primary-subtle text-primary border border-primary">${esc(m.category || m.type || '—')}</span></td>
         <td class="text-nowrap small">${formatDate(m.due_date || m.target_date)}</td>
         <td>${statusBadge(m.status)}</td>
         <td>
           ${m.status !== 'completed'
-            ? `<button class="btn btn-outline-success btn-sm" onclick="developmentProgressController.markComplete(${m.id})">
+            ? `<button class="btn btn-outline-success btn-sm" onclick="developmentProgressController.markComplete(${Number(m.id)})">
                 <i class="bi bi-check-circle me-1"></i>Complete
                </button>`
             : `<span class="text-muted small"><i class="bi bi-check-circle-fill text-success me-1"></i>${formatDate(m.completed_at)}</span>`

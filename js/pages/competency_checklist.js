@@ -14,6 +14,7 @@ const competencyChecklistController = (() => {
 
   function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
   function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function ratingColor(r) {
     if (r >= 4) return 'success';
@@ -25,7 +26,11 @@ const competencyChecklistController = (() => {
   async function load() {
     show('ccLoading'); hide('ccContent'); hide('ccEmpty');
     try {
-      const r = await callAPI('/staff/competency-checklist', 'GET');
+      const params = new URLSearchParams();
+      if (currentAcademicYear) params.set('academic_year_id', currentAcademicYear);
+      if (currentTerm) params.set('academic_year_term_id', currentTerm);
+      const query = params.toString();
+      const r = await callAPI('/staff/competency-checklist' + (query ? `?${query}` : ''), 'GET');
       items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       hide('ccLoading');
       if (!items.length) { show('ccEmpty'); return; }
@@ -34,6 +39,10 @@ const competencyChecklistController = (() => {
     } catch (e) {
       hide('ccLoading');
       show('ccEmpty');
+      const message = document.querySelector('#ccEmpty p');
+      if (message) message.textContent = 'Competencies could not be loaded. The page cannot confirm that no checklist is assigned.';
+      const saveButton = document.getElementById('ccSaveAllBtn');
+      if (saveButton) saveButton.disabled = true;
       console.error('competency_checklist load error', e);
     }
   }
@@ -55,7 +64,7 @@ const competencyChecklistController = (() => {
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-header bg-light border-bottom py-2 d-flex align-items-center">
           <i class="bi bi-bookmark-fill me-2 text-primary"></i>
-          <span class="fw-semibold">${domain}</span>
+          <span class="fw-semibold">${esc(domain)}</span>
           <span class="ms-auto badge bg-secondary">${its.length} items</span>
         </div>
         <div class="card-body p-0">
@@ -100,8 +109,8 @@ const competencyChecklistController = (() => {
     return `
       <tr id="ccItem_${item.id}">
         <td>
-          <div class="fw-semibold small">${item.competency || item.name || item.title || '—'}</div>
-          ${item.description ? `<div class="text-muted" style="font-size:.75rem;">${item.description}</div>` : ''}
+          <div class="fw-semibold small">${esc(item.competency || item.name || item.title || '—')}</div>
+          ${item.description ? `<div class="text-muted" style="font-size:.75rem;">${esc(item.description)}</div>` : ''}
         </td>
         <td>
           <div class="btn-group btn-group-sm" role="group">
@@ -111,7 +120,7 @@ const competencyChecklistController = (() => {
         </td>
         <td>${validationBadge}</td>
         <td>
-          <small class="text-muted">${item.evidence || '—'}</small>
+          <small class="text-muted">${esc(item.evidence || '—')}</small>
         </td>
       </tr>
     `;
@@ -131,7 +140,12 @@ const competencyChecklistController = (() => {
     let saved = 0;
     for (const item of changed) {
       try {
-        await callAPI(`/staff/competency-checklist/${item.id}`, 'PUT', { self_rating: item.self_rating });
+        await callAPI(`/staff/competency-checklist/${Number(item.id)}`, 'PUT', {
+          self_rating: item.self_rating,
+          evidence: item.evidence || '',
+          academic_year_id: currentAcademicYear || 0,
+          academic_year_term_id: currentTerm || 0,
+        });
         saved++;
       } catch (e) {
         console.error('save rating error for item', item.id, e);

@@ -119,7 +119,7 @@ final class AssessmentAggregationService
              JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
              WHERE sae.student_id = :sid
                AND ar.deleted_at IS NULL
-               AND ar.entry_status = 'final'
+               AND ar.entry_status = 'present'
                AND a.academic_year_term_id = :tid
                AND a.learning_area_id = :laid
              GROUP BY a.is_formative"
@@ -473,7 +473,7 @@ final class AssessmentAggregationService
                AND a.assessment_type_classification_id = 2
                AND a.academic_year_class_stream_id IN ($ids)
                AND a.learning_area_id IN ($areaCols)
-               AND ar.deleted_at IS NULL AND ar.entry_status = 'final'
+               AND ar.deleted_at IS NULL AND ar.entry_status = 'present'
              GROUP BY ar.student_academic_enrollment_id, a.learning_area_id"
         );
         $scoresStmt->execute([':tid' => $termId]);
@@ -696,7 +696,7 @@ final class AssessmentAggregationService
                     JOIN exam_period_class_learning_areas epcla ON epcla.id = ept.exam_period_class_learning_area_id
                     JOIN exam_period_classes epc ON epc.id = epcla.exam_period_class_id
                     JOIN exam_periods ep ON ep.id = epc.exam_period_id AND ep.id IN ({$piList})
-                    WHERE ar.deleted_at IS NULL AND ar.entry_status = 'final' {$scopeWhere}";
+                    WHERE ar.deleted_at IS NULL AND ar.entry_status = 'present' {$scopeWhere}";
             $stmt = $this->db->prepare($sql);
             // The exams query scopes periods via the IN list, not :tid — drop it
             // or native prepares reject the unused bind (HY093).
@@ -720,7 +720,7 @@ final class AssessmentAggregationService
                            sae.student_id, apr.marks_obtained
                     FROM assessment_papers ap
                     JOIN assessments a ON a.id = ap.assessment_id AND a.academic_year_term_id = :tid AND a.is_formative = 0
-                    JOIN assessment_paper_results apr ON apr.assessment_paper_id = ap.id AND apr.entry_status = 'final'
+                    JOIN assessment_paper_results apr ON apr.assessment_paper_id = ap.id AND apr.entry_status = 'present'
                     JOIN student_academic_enrollments sae ON sae.id = apr.student_academic_enrollment_id
                     {$scopeJoin}
                     WHERE 1=1 {$scopeWhere}";
@@ -759,7 +759,7 @@ final class AssessmentAggregationService
              JOIN assessments a ON a.id = ar.assessment_id AND a.academic_year_term_id = :tid AND a.is_formative = 1
              JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
              {$scopeJoin}
-             WHERE ar.deleted_at IS NULL AND ar.entry_status = 'final'
+             WHERE ar.deleted_at IS NULL AND ar.entry_status = 'present'
                AND ar.marks_obtained IS NOT NULL AND a.max_marks > 0 {$scopeWhere}"
         );
         $ar->execute($scopeParams);

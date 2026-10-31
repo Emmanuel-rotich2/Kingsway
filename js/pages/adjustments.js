@@ -53,7 +53,7 @@ const adjustmentsController = {
 
   _loadStudents: async function () {
     try {
-      const r = await callAPI('/students', 'GET');
+      const r = await callAPI('/students/get-all', 'GET');
       const students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('ajStudentId');
       if (sel) {

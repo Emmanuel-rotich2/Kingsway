@@ -18,6 +18,10 @@ const AccountStatusController = {
 
   elements: {},
 
+  isMounted() {
+    return Boolean(this.elements.root?.isConnected);
+  },
+
   async init() {
     if (this.state.initializationPromise) {
       return this.state.initializationPromise;
@@ -191,6 +195,7 @@ const AccountStatusController = {
   },
 
   async loadData() {
+    if (!this.isMounted()) return;
     if (this.state.loading) return;
 
     this.state.loading = true;
@@ -203,6 +208,7 @@ const AccountStatusController = {
 
     try {
       const response = await window.API.system.getAccountStatuses();
+      if (!this.isMounted()) return;
       this.state.accounts = this.extractRows(response);
       this.renderSummary();
       this.renderTable();
@@ -213,6 +219,7 @@ const AccountStatusController = {
         this.hideState();
       }
     } catch (error) {
+      if (!this.isMounted()) return;
       console.error("[AccountStatusController] Failed to load data:", error);
       this.state.accounts = [];
       this.renderSummary();
@@ -511,6 +518,10 @@ const AccountStatusController = {
     }
 
     const template = document.getElementById("accountStatusRowTemplate");
+    if (!this.isMounted()) return;
+    if (!template?.content || !this.elements.tableBody?.isConnected) {
+      return this.showTableMessage("Account Status markup is unavailable. Reopen this page to load accounts.", "text-danger");
+    }
     const rows = visibleAccounts.map((account) => this.buildAccountRow(template, account));
     this.elements.tableBody.replaceChildren(...rows);
 

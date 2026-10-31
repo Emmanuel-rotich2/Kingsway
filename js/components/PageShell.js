@@ -138,7 +138,51 @@ const PageShell = (() => {
         const contentEl = document.getElementById(contentId);
 
         function showError(html) {
-            if (loadingEl) loadingEl.innerHTML = html;
+            if (loadingEl) {
+                loadingEl.style.display = 'block';
+                loadingEl.innerHTML = html;
+            }
+            if (contentEl) contentEl.style.display = 'none';
+        }
+
+        function ensureExternalScript(src) {
+            const requested = new URL(src, window.location.href);
+            const existing = Array.from(document.scripts).find((script) => {
+                if (!script.src) return false;
+                try {
+                    const loaded = new URL(script.src, window.location.href);
+                    return loaded.origin === requested.origin && loaded.pathname === requested.pathname;
+                } catch (_) {
+                    return false;
+                }
+            });
+            if (existing?.dataset.kingswayScriptState === 'error') {
+                existing.remove();
+            } else if (existing) {
+                if (existing.dataset.kingswayScriptState === 'loading') {
+                    return new Promise((resolve, reject) => {
+                        existing.addEventListener('load', () => resolve(existing), { once: true });
+                        existing.addEventListener('error', () => reject(new Error('Script load failed: ' + src)), { once: true });
+                    });
+                }
+                return Promise.resolve(existing);
+            }
+
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.dataset.kingswayScriptState = 'loading';
+                script.addEventListener('load', () => {
+                    script.dataset.kingswayScriptState = 'loaded';
+                    resolve(script);
+                }, { once: true });
+                script.addEventListener('error', () => {
+                    script.dataset.kingswayScriptState = 'error';
+                    reject(new Error('Script load failed: ' + src));
+                }, { once: true });
+                document.body.appendChild(script);
+            });
         }
 
         // Auth check — MUST wait for the silent boot refresh (AuthContext.ready())
@@ -204,19 +248,13 @@ const PageShell = (() => {
                 }
                 return response.text();
             })
-            .then(function (html) {
+            .then(async function (html) {
                 if (loadingEl) loadingEl.style.display = 'none';
                 if (contentEl) {
                     contentEl.innerHTML = html;
                     contentEl.style.display = 'block';
                 }
 
-                // Apply page-specific post-processing before generic role-based UI.
-                if (typeof afterLoad === 'function') {
-                    afterLoad(contentEl, match);
-                }
-
-                // Apply RoleBasedUI to injected content
                 if (window.RoleBasedUI && typeof window.RoleBasedUI.applyTo === 'function') {
                     window.RoleBasedUI.applyTo(contentEl);
                 }
@@ -224,33 +262,42 @@ const PageShell = (() => {
                     window.API.applyPermissionContract(contentEl);
                 }
 
-                // Re-execute <script> tags in injected HTML
-                if (contentEl) {
-                    contentEl.querySelectorAll('script').forEach(function (original) {
-                        const script = document.createElement('script');
-                        if (original.src) {
-                            script.src = original.src;
-                            script.async = false;
-                        } else {
-                            script.textContent = original.textContent;
-                        }
-                        document.body.appendChild(script);
-                    });
-                }
-
-                // Lazy-load the module JS controller if provided and not already present
-                if (scriptSrc) {
-                    const controllerName = _guessControllerName(scriptSrc);
-                    if (controllerName && typeof window[controllerName] === 'undefined') {
-                        const s = document.createElement('script');
-                        s.src = (window.APP_BASE || '') + scriptSrc;
-                        document.body.appendChild(s);
-                    } else if (!controllerName) {
-                        const s = document.createElement('script');
-                        s.src = (window.APP_BASE || '') + scriptSrc;
-                        document.body.appendChild(s);
+                // Make controller code available before inline template bootstraps run.
+                // Dynamic scripts are not parser-blocking: appending an external script
+                // and then immediately executing inline code races the network load.
+                const templateScripts = contentEl
+                    ? Array.from(contentEl.querySelectorAll('script'))
+                    : [];
+                const inlineScripts = [];
+                for (const original of templateScripts) {
+                    if (original.src) {
+                        const src = original.src;
+                        original.remove();
+                        await ensureExternalScript(src);
+                    } else {
+                        inlineScripts.push(original.textContent || '');
+                        original.remove();
                     }
                 }
+
+                if (scriptSrc) {
+                    await ensureExternalScript((window.APP_BASE || '') + scriptSrc);
+                }
+
+                // Apply page-specific post-processing before generic role-based UI.
+                if (typeof afterLoad === 'function') {
+                    await afterLoad(contentEl, match);
+                }
+
+                inlineScripts.forEach((source) => {
+                    const script = document.createElement('script');
+                    script.textContent = source;
+                    document.body.appendChild(script);
+                });
+                window.APIRealtime?.attachCurrentRouteControllers?.();
+                window.dispatchEvent(new CustomEvent('kingsway:role-template-loaded', {
+                    detail: { route: window.REQUESTED_ROUTE, file: match.file, container: contentEl },
+                }));
             })
             .catch(function (error) {
                 showError(
@@ -261,17 +308,6 @@ const PageShell = (() => {
                     '</div>'
                 );
             });
-    }
-
-    /**
-     * Guess the global controller variable name from a script src path.
-     * e.g. '/js/pages/boarding.js' → 'boardingController'
-     */
-    function _guessControllerName(src) {
-        const match = src.match(/\/([^/]+)\.js$/);
-        if (!match) return null;
-        const base = match[1]; // e.g. 'boarding'
-        return base + 'Controller';
     }
 
     // -------------------------------------------------------------------------

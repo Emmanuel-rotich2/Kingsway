@@ -134,12 +134,6 @@ if (!isset($appBase)) {
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
                         <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
@@ -537,6 +531,12 @@ if (!isset($appBase)) {
             </div>
             <div class="modal-body">
                 <form id="addBoardingNoteForm">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="boardingNoteStudent">Student</label>
+                        <select class="form-select" id="boardingNoteStudent" required>
+                            <option value="">Select Student</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Note Type</label>
                         <select class="form-select" id="boardingNoteType">

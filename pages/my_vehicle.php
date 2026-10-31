@@ -178,34 +178,8 @@
             <!-- Documents Tab -->
             <div class="tab-pane fade" id="documents" role="tabpanel">
                 <div class="mt-3">
-                    <div class="list-group">
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">Insurance Certificate</h6>
-                                    <small class="text-muted">Expires: <span id="insuranceExpiry"></span></small>
-                                </div>
-                                <button class="btn btn-sm btn-outline-primary">View</button>
-                            </div>
-                        </div>
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">PSV License</h6>
-                                    <small class="text-muted">Expires: <span id="psvExpiry"></span></small>
-                                </div>
-                                <button class="btn btn-sm btn-outline-primary">View</button>
-                            </div>
-                        </div>
-                        <div class="list-group-item">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">Road Worthiness Certificate</h6>
-                                    <small class="text-muted">Expires: <span id="roadworthinessExpiry"></span></small>
-                                </div>
-                                <button class="btn btn-sm btn-outline-primary">View</button>
-                            </div>
-                        </div>
+                    <div class="list-group list-group-flush" id="documentsBody">
+                        <div class="list-group-item text-muted text-center py-3">Loading vehicle documents…</div>
                     </div>
                 </div>
             </div>

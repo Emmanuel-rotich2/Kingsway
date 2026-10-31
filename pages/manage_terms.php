@@ -28,25 +28,25 @@
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
                 <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="bi bi-list-ul text-primary fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Total Terms</h6><h4 class="mb-0" id="statTotal">0</h4></div>
+                <div><h6 class="text-muted mb-1">Total Terms</h6><h4 class="mb-0" id="mtStatTotal">0</h4></div>
             </div></div></div>
         </div>
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
                 <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i class="bi bi-play-circle text-success fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Active Term</h6><h4 class="mb-0" id="statActive">0</h4></div>
+                <div><h6 class="text-muted mb-1">Active Term</h6><h4 class="mb-0" id="mtStatActive">0</h4></div>
             </div></div></div>
         </div>
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
                 <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3"><i class="bi bi-check-lg-circle text-info fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Completed</h6><h4 class="mb-0" id="statCompleted">0</h4></div>
+                <div><h6 class="text-muted mb-1">Completed</h6><h4 class="mb-0" id="mtStatCompleted">0</h4></div>
             </div></div></div>
         </div>
         <div class="col-md-3 mb-3">
             <div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center">
                 <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3"><i class="bi bi-skip-forward text-warning fa-lg"></i></div>
-                <div><h6 class="text-muted mb-1">Upcoming</h6><h4 class="mb-0" id="statUpcoming">0</h4></div>
+                <div><h6 class="text-muted mb-1">Upcoming</h6><h4 class="mb-0" id="mtStatUpcoming">0</h4></div>
             </div></div></div>
         </div>
     </div>
@@ -72,7 +72,7 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light"><tr><th scope="col">#</th><th scope="col">Term Name</th><th scope="col">Academic Year</th><th scope="col">Start Date</th><th scope="col">End Date</th><th scope="col">Weeks</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
-                    <tbody><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+                    <tbody id="mtTermsBody"><tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                 </table>
             </div>
         </div>

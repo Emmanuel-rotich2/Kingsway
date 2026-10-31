@@ -1,77 +1,44 @@
-/**
- * My Classes Taught Controller
- * Teacher view of their assigned classes and subjects.
- */
+/** Teacher's current class and learning-area assignments. */
 const myClassesTaughtController = {
-  state: { referenceCache: null, classes: [], subjects: [] },
-
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  async loadReferencesComposed() {
+  state: { rows: [] },
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]); },
+  async load() {
+    const body = document.getElementById('myClassesTableBody');
+    if (body) body.innerHTML = '<tr><td colspan="8" class="text-center py-4">Loading your teaching assignments…</td></tr>';
     try {
-      const response = await window.API.nodeViews.read("academic", "teacher-performance-reviews-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
+      const response = await window.API.academic.getMyClasses();
+      const payload = response?.data?.data ?? response?.data ?? response ?? [];
+      this.state.rows = Array.isArray(payload) ? payload : [];
+      this.render();
     } catch (error) {
-      console.warn("My Classes Taught Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+      if (body) body.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-4">${this.esc(error?.message || 'Teaching assignments could not be loaded.')}</td></tr>`;
     }
   },
-
-  async load() {
-    try {
-      const cache = this.state.referenceCache;
-      const [classes, subjects] = await Promise.all([
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/teacher/my-classes'),
-        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/teacher/my-subjects'),
-      ]);
-      this.state.classes = Array.isArray(classes?.data) ? classes.data : (Array.isArray(classes) ? classes : []);
-      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
-      this.renderClasses();
-      this.renderSubjects();
-    } catch (e) { console.error(e); }
+  render() {
+    const rows = this.state.rows;
+    const body = document.getElementById('myClassesTableBody');
+    if (body) body.innerHTML = rows.length ? rows.map((row, index) => `<tr><td>${index + 1}</td><td>${this.esc(row.class_name || '—')}</td><td>${this.esc(row.stream_name || '—')}</td><td>${Number(row.student_count || 0)}</td><td>${this.esc(row.subject_name || '—')}</td><td>${Number(row.lessons_per_week || 0)}</td><td>${this.esc(row.class_teacher_name || '—')}</td><td>—</td></tr>`).join('') : '<tr><td colspan="8" class="text-center text-muted py-4">No teaching assignments are recorded for the current academic year.</td></tr>';
+    const classes = new Map();
+    rows.forEach((row) => { const key = row.class_id ?? row.class_name; const current = classes.get(key) || { students: 0 }; current.students = Math.max(current.students, Number(row.student_count || 0)); classes.set(key, current); });
+    this.text('totalClassesCount', classes.size);
+    this.text('totalStudentsCount', [...classes.values()].reduce((sum, row) => sum + row.students, 0));
+    this.text('subjectsTeachingCount', new Set(rows.map((row) => row.subject_id).filter(Boolean)).size);
+    this.text('lessonsPerWeekCount', rows.reduce((sum, row) => sum + Number(row.lessons_per_week || 0), 0));
   },
-
-  getCache(key) { return this.state.referenceCache?.[key]; },
-
-  renderClasses() {
-    const classes = this.state.classes;
-    const body = document.getElementById('mctClassesBody');
-    if (!classes.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No assigned classes.</td></tr>'; return; }
-    body.innerHTML = classes.map(c => `<tr>
-      <td class="small">${this.esc(c.name || '—')}</td>
-      <td class="small">${this.esc(c.stream_name || '—')}</td>
-      <td class="small text-center">${c.student_count || 0}</td>
-      <td class="small">${this.esc(c.subjects_taught || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="myClassesTaughtController.viewClass(${c.id})"><i class="bi bi-eye"></i></button></td>
-    </tr>`).join('');
+  text(id, value) { const node = document.getElementById(id); if (node) node.textContent = String(value); },
+  exportClasses() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) return window.showNotification?.('You do not have permission to export assignments.', 'error');
+    const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const data = [['Class','Stream','Students','Learning Area','Lessons per Week','Class Teacher'], ...this.state.rows.map((row) => [row.class_name,row.stream_name,row.student_count,row.subject_name,row.lessons_per_week,row.class_teacher_name])];
+    window.KingswayFileLifecycle?.exportText?.(data.map((row) => row.map(quote).join(',')).join('\r\n'), 'my-teaching-assignments.csv', 'text/csv;charset=utf-8;');
   },
-
-  renderSubjects() {
-    const subjects = this.state.subjects;
-    const body = document.getElementById('mctSubjectsBody');
-    if (!subjects.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No assigned subjects.</td></tr>'; return; }
-    body.innerHTML = subjects.map(s => `<tr>
-      <td class="small">${this.esc(s.name || '—')}</td>
-      <td class="small">${this.esc(s.classes_taught || '—')}</td>
-      <td class="small text-center">${s.lessons_this_week || 0}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="myClassesTaughtController.viewSubject(${s.id})"><i class="bi bi-eye"></i></button></td>
-    </tr>`).join('');
-  },
-
-  async viewClass(id) { /* open class detail */ },
-  async viewSubject(id) { /* open subject detail */ },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("my_classes_taught", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
-    }, ["academic"]);
+  init() {
+    document.getElementById('myClassesRefresh')?.addEventListener('click', () => this.load());
+    document.getElementById('myClassesExport')?.addEventListener('click', () => this.exportClasses());
+    document.getElementById('myClassesPrint')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('academic')) window.print(); });
+    if (window.AuthContext?.ready) window.AuthContext.ready().then(() => this.load()); else this.load();
+    window.APIRealtime?.register?.('my_classes_taught', { refresh: () => this.load() }, ['academic']);
   },
 };
-
 window.myClassesTaughtController = myClassesTaughtController;
-document.addEventListener('DOMContentLoaded', () => myClassesTaughtController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => myClassesTaughtController.init());

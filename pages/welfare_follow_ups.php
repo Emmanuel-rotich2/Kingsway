@@ -119,4 +119,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/welfare_follow_ups.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => welfareFUController.init());</script>

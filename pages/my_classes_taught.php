@@ -16,10 +16,10 @@
                 <i class="bi bi-people"></i> Classes I Teach
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="MyClassesController.refresh()">
+                <button class="btn btn-light btn-sm" id="myClassesRefresh" type="button">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="MyClassesController.exportClasses()">
+                <button class="btn btn-outline-light btn-sm" id="myClassesExport" type="button">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -64,18 +64,7 @@
         </div>
 
         <!-- Academic Year/Term Selector -->
-        <div class="row mb-3">
-            <div class="col-md-6">
-                <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
-                </select>
-            </div>
-        </div>
+        <p class="text-muted small">Assignments are shown for the current academic year.</p>
 
         <!-- Classes Table -->
         <div class="table-responsive">
@@ -92,7 +81,7 @@
                         <th scope="col">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="myClassesTableBody">
                     <tr>
                         <td colspan="8" class="text-center py-4">
                             <div class="spinner-border text-primary" role="status">
@@ -106,5 +95,7 @@
         </div>
     </div>
 </div>
+<button class="btn btn-outline-secondary d-print-none" id="myClassesPrint" type="button">Print / PDF</button>
+<style>@media print { #myClassesRefresh, #myClassesExport, #myClassesPrint { display:none !important; } }</style>
 
 <?php asset_script($appBase, 'js/pages/my_classes_taught.js'); ?>

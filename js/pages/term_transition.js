@@ -29,6 +29,8 @@ const termTransitionController = {
       const r = await callAPI('/academic/term-transition/context', 'GET');
       const payload = r?.data || r || {};
       this._allTerms = Array.isArray(payload.terms) ? payload.terms : [];
+      this._resultReadiness = payload.result_readiness || null;
+      this._lessonPlanSummary = payload.lesson_plan_summary || null;
       this._currentTerm = payload.current_term || this._allTerms.find(t => (t.status || '').toLowerCase() === 'current');
       this._nextTerm = payload.next_term || this._allTerms.find(t =>
         (t.status || '').toLowerCase() === 'upcoming' &&
@@ -43,6 +45,7 @@ const termTransitionController = {
       if (closeBtn && this._currentTerm) {
         closeBtn.textContent = `Close ${this._currentTerm.name}`;
       }
+      this._renderResultReadiness();
       const nameEl = document.getElementById('ttCurrentTermName');
       if (nameEl && this._currentTerm) nameEl.textContent = this._currentTerm.name;
 
@@ -163,15 +166,13 @@ const termTransitionController = {
 
     // Load counts for completed/pending checklist
     try {
-      const [rLP, rAttn, rResults] = await Promise.allSettled([
-        callAPI('/academic/lesson-plans-list?term_id=' + (term?.id || ''), 'GET'),
+      const [rAttn, rResults] = await Promise.allSettled([
         callAPI('/attendance/academic-summary?term_id=' + (term?.id || ''), 'GET'),
         callAPI('/academic/grading-results?term_id=' + (term?.id || ''), 'GET'),
       ]);
 
-      const lp      = this._extract(rLP);
-      const approved = lp.filter(p => (p.status || '') === 'approved').length;
-      const pending  = lp.filter(p => ['draft','submitted'].includes(p.status || '')).length;
+      const approved = Number(this._lessonPlanSummary?.approved || 0);
+      const pending = Number(this._lessonPlanSummary?.pending || 0);
 
       if (completedEl) completedEl.innerHTML = this._checkItem('Timetable configured', slots > 0) +
         this._checkItem(`Lesson plans approved (${approved})`, approved > 0) +
@@ -307,6 +308,10 @@ const termTransitionController = {
     try {
       const keepTeachers = document.getElementById('ttKeepTeachers')?.checked ?? true;
       const keepRooms = document.getElementById('ttKeepRooms')?.checked ?? true;
+      const readiness = this._resultReadiness;
+      const forceReason = readiness && !readiness.ready
+        ? (document.getElementById('ttForceReason')?.value || '').trim()
+        : '';
       await callAPI('/academic/term-transition/execute', 'POST', {
         from_term_id: this._currentTerm.id,
         to_term_id: this._nextTerm.id,
@@ -314,6 +319,7 @@ const termTransitionController = {
         rollover_timetable: this._timetableSlots.length > 0,
         keep_teachers: keepTeachers,
         keep_rooms: keepRooms,
+        ...(forceReason ? { force_reason: forceReason } : {}),
         dates: {
           start_date: this._nextTerm.start_date,
           end_date: this._nextTerm.end_date,
@@ -330,6 +336,28 @@ const termTransitionController = {
       if (errEl) { errEl.textContent = e.message || 'Activation failed.'; errEl.classList.remove('d-none'); }
       if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-play-fill me-1"></i> Activate ${this._nextTerm?.name || 'Next Term'} Now`; }
     }
+  },
+
+  // ── Result readiness ──────────────────────────────────────────────────────
+  // A term cannot carry unapproved marks into the record: TermResultsService
+  // only consumes approved evidence. Surface the blockers before the operator
+  // commits to closing the term.
+  _renderResultReadiness: function () {
+    const el = document.getElementById('ttResultsReadiness');
+    if (!el) return;
+    const r = this._resultReadiness;
+    if (!r || r.ready) { el.classList.add('d-none'); el.innerHTML = ''; return; }
+
+    const parts = [];
+    if (Number(r.pending_registers) > 0) parts.push(`${this._esc(r.pending_registers)} learning-area register(s) still awaiting approval`);
+    if (Number(r.pending_learners) > 0) parts.push(`${this._esc(r.pending_learners)} learner result(s) still awaiting approval`);
+
+    el.innerHTML = `<div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-2"></i>Close the assessment cycle first</div>`
+      + `<p class="mb-2 small">${parts.join(' and ')}. Marks that are recorded but never approved are not part of the official term results.</p>`
+      + `<p class="mb-2 small text-muted">Publish the exam results, or send the registers back to the subject teachers from the exam period results view. If this term genuinely holds no marks, you may continue — the reason is recorded.</p>`
+      + `<label class="form-label small fw-semibold" for="ttForceReason">Reason for closing without approved results</label>`
+      + `<input class="form-control form-control-sm" type="text" id="ttForceReason" maxlength="255" placeholder="Required only if you continue with results outstanding">`;
+    el.classList.remove('d-none');
   },
 
   // ── Utilities ─────────────────────────────────────────────────────────────

@@ -1,107 +1,133 @@
 /**
- * Exeat Reports Controller
- * Student exeat/leave reports and tracking.
+ * Exeat reports use the authorized boarding endpoint and render the targets in
+ * pages/exeat_reports.php. The API returns the newest 200 permission records.
  */
 const exeatReportsController = {
-  state: { students: [], exeatTypes: [], statuses: [], report: null, referenceCache: null },
+  state: { records: [], requestId: 0 },
 
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+  escape(value) {
+    const element = document.createElement('span');
+    element.textContent = String(value ?? '');
+    return element.innerHTML;
+  },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "exeat-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Exeat Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
+  rows(response) {
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response?.data)) return response.data;
+    if (Array.isArray(response?.data?.items)) return response.data.items;
+    if (Array.isArray(response?.items)) return response.items;
+    return [];
   },
 
   async load() {
-    try {
-      const cache = this.state.referenceCache;
-      const [students, types, statuses] = await Promise.all([
-        cache?.students !== undefined ? cache.students : this.API('GET', '/api/students/get-all', null, { limit: '500', status: 'active' }),
-        cache?.exeatTypes !== undefined ? cache.exeatTypes : this.API('GET', '/api/attendance/permission-types'),
-        cache?.statuses !== undefined ? cache.statuses : this.API('GET', '/api/students/boarding-meta'),
-      ]);
-      const exeatTypesRaw = this.norm(types);
-      const statusesRaw = this.norm(statuses);
-      const exeatTypeList = Array.isArray(exeatTypesRaw) ? exeatTypesRaw : (exeatTypesRaw?.permission_types || []);
-      const statusList = Array.isArray(statusesRaw) ? statusesRaw : (statusesRaw?.exeat_statuses || []);
-      this.state.students = this.norm(students);
-      this.state.exeatTypes = exeatTypeList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
-      this.state.statuses = statusList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
-      this.populateFilters();
-      await this.loadReport();
-    } catch (e) { console.error(e); }
-  },
-
-  populateFilters() {
-    const s = document.getElementById('exStudent');
-    const t = document.getElementById('exType');
-    const st = document.getElementById('exStatus');
-    s.innerHTML = '<option value="">All Students</option>' + this.state.students.map(x => `<option value="${x.id}">${this.esc(x.admission_no || '')} ${this.esc(x.first_name || '')} ${this.esc(x.last_name || '')}</option>`).join('');
-    t.innerHTML = '<option value="">All Types</option>' + this.state.exeatTypes.map(x => `<option value="${x.id}">${this.esc(x.name || x.exeat_type)}</option>`).join('');
-    st.innerHTML = '<option value="">All Statuses</option>' + this.state.statuses.map(x => `<option value="${x.id}">${this.esc(x.name || x.status)}</option>`).join('');
-  },
-
-  async loadReport() {
-    const params = new URLSearchParams();
-    if (document.getElementById('exStudent')?.value) params.set('student_id', document.getElementById('exStudent').value);
-    if (document.getElementById('exType')?.value) params.set('type_id', document.getElementById('exType').value);
-    if (document.getElementById('exStatus')?.value) params.set('status_id', document.getElementById('exStatus').value);
+    const requestId = ++this.state.requestId;
+    this.renderLoading();
 
     try {
-      const response = await this.API('GET', '/api/reports/exeats', null, params);
-      this.state.report = response?.data || response || {};
+      const response = await window.API.callAPI('/boarding/exeats', 'GET');
+      if (requestId !== this.state.requestId) return;
+      this.state.records = this.rows(response);
       this.render();
-    } catch (e) { console.error(e); }
-  },
-
-  render() {
-    const r = this.state.report;
-    const body = document.getElementById('exBody');
-    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No exeat records.</td></tr>'; return; }
-    body.innerHTML = r.map(x => `<tr>
-      <td class="small">${this.esc(x.admission_no || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
-      <td class="small">${this.esc(x.exeat_type || '—')}</td>
-      <td class="small">${this.esc(x.leave_at || '—')}</td>
-      <td class="small">${this.esc(x.expected_return || '—')}</td>
-      <td class="small"><span class="badge bg-${x.status === 'approved' ? 'success' : x.status === 'pending' ? 'warning' : 'danger'}">${this.esc(x.status || '—')}</span></td>
-      <td class="small">${this.esc(x.destination || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="exeatReportsController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
-    </tr>`).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "exeat-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
     } catch (error) {
-      console.warn("Exeat Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+      if (requestId !== this.state.requestId) return;
+      console.error('Exeat report could not be loaded:', error);
+      this.renderError();
     }
   },
 
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("exeat_reports", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["reports", "students"]);
+  renderLoading() {
+    const kpis = document.getElementById('xrKpis');
+    const statusBody = document.getElementById('xrStatusBody');
+    const recordsBody = document.getElementById('xrBody');
+    if (kpis) kpis.innerHTML = '';
+    if (statusBody) statusBody.innerHTML = '<tr><td colspan="3" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading leave requests…</td></tr>';
+    if (recordsBody) recordsBody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading leave requests…</td></tr>';
+  },
+
+  renderError() {
+    const message = '<tr><td colspan="3" class="text-center py-4 text-danger">Leave requests could not be loaded. Refresh to try again.</td></tr>';
+    const statusBody = document.getElementById('xrStatusBody');
+    const recordsBody = document.getElementById('xrBody');
+    const kpis = document.getElementById('xrKpis');
+    if (kpis) kpis.innerHTML = '<div class="col-12"><div class="alert alert-danger mb-0">Leave request data could not be loaded.</div></div>';
+    if (statusBody) statusBody.innerHTML = message;
+    if (recordsBody) recordsBody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-danger">Leave requests could not be loaded. Refresh to try again.</td></tr>';
+  },
+
+  render() {
+    const records = this.state.records;
+    const kpis = document.getElementById('xrKpis');
+    const statusBody = document.getElementById('xrStatusBody');
+    const recordsBody = document.getElementById('xrBody');
+    if (!kpis || !statusBody || !recordsBody) return;
+
+    const counts = records.reduce((result, record) => {
+      const status = String(record.status || 'unknown').trim().toLowerCase();
+      result[status] = (result[status] || 0) + 1;
+      return result;
+    }, {});
+    const total = records.length;
+    const pending = counts.pending || 0;
+    const approved = counts.approved || counts.out || 0;
+    const completed = counts.returned || counts.completed || 0;
+
+    const cards = [
+      ['Recent Requests', total, 'primary'],
+      ['Pending', pending, 'warning'],
+      ['Approved / Out', approved, 'success'],
+      ['Returned', completed, 'info'],
+    ];
+    kpis.innerHTML = cards.map(([label, value, color]) => `
+      <div class="col-6 col-xl-3">
+        <div class="card border-0 shadow-sm h-100"><div class="card-body">
+          <div class="small text-muted">${label}</div>
+          <div class="fs-3 fw-bold text-${color}">${value}</div>
+        </div></div>
+      </div>`).join('');
+
+    const statuses = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    statusBody.innerHTML = statuses.length
+      ? statuses.map(([status, count]) => `<tr>
+          <td class="text-capitalize">${this.escape(status)}</td>
+          <td>${count}</td>
+          <td>${total ? `${Math.round((count / total) * 100)}%` : '0%'}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="3" class="text-center py-4 text-muted">No leave requests found.</td></tr>';
+
+    recordsBody.innerHTML = records.length
+      ? records.map((record) => `
+          <tr>
+            <td class="small">${this.escape(record.admission_no || '—')}</td>
+            <td class="small fw-semibold">${this.escape(record.student_name || '—')}</td>
+            <td class="small">${this.escape(record.dormitory_name || '—')}</td>
+            <td class="small">${this.escape(record.permission_type_name || 'Leave')}</td>
+            <td class="small">${this.escape(record.start_date || '—')}</td>
+            <td class="small">${this.escape(record.end_date || '—')}</td>
+            <td class="small"><span class="badge bg-${this.statusColor(record.status)} text-capitalize">${this.escape(record.status || 'unknown')}</span></td>
+          </tr>`).join('')
+      : '<tr><td colspan="7" class="text-center py-4 text-muted">No recent leave requests.</td></tr>';
+  },
+
+  statusColor(status) {
+    switch (String(status || '').toLowerCase()) {
+      case 'approved':
+      case 'out':
+      case 'returned':
+      case 'completed': return 'success';
+      case 'pending': return 'warning';
+      case 'rejected':
+      case 'cancelled': return 'danger';
+      default: return 'secondary';
+    }
+  },
+
+  init() {
+    this.load();
+    window.APIRealtime?.register?.('exeat_reports', {
+      refresh: () => this.load(),
+    }, ['boarding', 'students']);
   },
 };
 
 window.exeatReportsController = exeatReportsController;
-document.addEventListener('DOMContentLoaded', () => exeatReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => exeatReportsController.init());

@@ -210,12 +210,6 @@ class CommunicationPlatformService
         $stmt->execute([$channel, $channel . '.' . $code]);
         $template = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$template) {
-            $stmt->execute([$channel, $code]);
-        }
-        if (!$template) {
-            $template = $stmt->fetch(PDO::FETCH_ASSOC);
-        }
-        if (!$template) {
             $legacy = $this->legacyTemplates->getTemplate($channel, $code);
             if ($legacy) {
                 $template = [

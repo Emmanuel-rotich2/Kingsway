@@ -120,4 +120,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/audit_logs.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => auditLogsController.init());</script>

@@ -1,71 +1,58 @@
-/**
- * Boarding Reports Controller
- * Generates and views boarding-related reports.
- */
+/** Boarding report view backed by the canonical occupancy and roll-call APIs. */
 const boardingReportsController = {
-  state: { referenceCache: null, reports: [], stats: null },
-
+  state: { stats: {}, occupancy: [] },
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  async loadReferencesComposed() {
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]); },
+  data(response) { return response?.data?.data ?? response?.data ?? response ?? {}; },
+  async load() {
+    const body = document.getElementById('brBody');
+    if (body) body.innerHTML = '<tr><td colspan="8" class="text-center py-4">Loading dormitory occupancy…</td></tr>';
+    const error = document.getElementById('brError'); if (error) error.classList.add('d-none');
     try {
-      const response = await window.API.nodeViews.read("boarding", "boarding-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Boarding Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+      const [statsResponse, occupancyResponse] = await Promise.all([
+        this.API('GET', '/api/boarding/stats'), this.API('GET', '/api/boarding/occupancy')
+      ]);
+      this.state.stats = this.data(statsResponse);
+      const rows = this.data(occupancyResponse);
+      this.state.occupancy = Array.isArray(rows) ? rows : [];
+      this.render();
+    } catch (exception) {
+      if (body) body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Boarding data could not be loaded.</td></tr>';
+      if (error) { error.textContent = exception?.message || 'Boarding data could not be loaded.'; error.classList.remove('d-none'); }
     }
   },
-
-  async load() {
-    try {
-      const cache = this.state.referenceCache;
-      const [reports, stats] = await Promise.all([
-        cache?.reports !== undefined ? cache.reports : this.API('GET', '/api/boarding/reports'),
-        cache?.stats !== undefined ? cache.stats : this.API('GET', '/api/boarding/stats'),
-      ]);
-      this.state.reports = Array.isArray(reports?.data) ? reports.data : (Array.isArray(reports) ? reports : []);
-      this.state.stats = stats?.data || stats || {};
-      this.renderStats();
-      this.renderReports();
-    } catch (e) { console.error(e); }
+  render() {
+    const stats = this.state.stats;
+    const metrics = [
+      ['Boarders', stats.total_boarders ?? '—'], ['Dormitories', stats.dormitories ?? '—'],
+      ['Bed capacity', stats.total_capacity ?? '—'], ['Occupied beds', stats.assigned_beds ?? '—'],
+      ['Available beds', stats.available_beds ?? '—'], ['Occupancy', `${stats.occupancy_rate ?? '—'}%`],
+      ['Present tonight', stats.present_tonight ?? '—'], ['Roll-call coverage', `${stats.roll_call_pct ?? '—'}%`]
+    ];
+    const kpis = document.getElementById('brKpis');
+    if (kpis) kpis.innerHTML = metrics.map(([label, value]) => `<div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">${label}</div><div class="fs-4 fw-semibold">${this.esc(value)}</div></div></div></div>`).join('');
+    const body = document.getElementById('brBody');
+    if (!body) return;
+    body.innerHTML = this.state.occupancy.length ? this.state.occupancy.map((row, index) => `<tr>
+      <td>${this.esc(row.dormitory_name || row.name || '—')}</td><td>${this.esc(row.code || '—')}</td>
+      <td>${this.esc(row.gender || '—')}</td><td>${this.esc(row.house_parent || '—')}</td>
+      <td class="text-end">${Number(row.capacity || 0)}</td><td class="text-end">${Number(row.occupied || 0)}</td>
+      <td class="text-end">${Number(row.available || 0)}</td><td class="text-end">${Number(row.capacity) > 0 ? `${(Number(row.occupied || 0) / Number(row.capacity) * 100).toFixed(1)}%` : '—'}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="text-center py-4 text-muted">No active dormitories are configured.</td></tr>';
   },
-
-  getCache(key) { return this.state.referenceCache?.[key]; },
-
-  renderStats() {
-    const s = this.state.stats;
-    { const el = document.getElementById('brTotalBoarders'); if (el) el.textContent = s.total_boarders ?? '—'; }
-    { const el = document.getElementById('brOccupancyRate'); if (el) el.textContent = `${s.occupancy_rate ?? '—'}%`; }
-    { const el = document.getElementById('brAttendanceRate'); if (el) el.textContent = `${s.attendance_rate ?? '—'}%`; }
-    { const el = document.getElementById('brIncidents'); if (el) el.textContent = s.incidents_this_term ?? '—'; }
+  exportCSV() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('boarding')) return window.showNotification?.('You do not have permission to export boarding data.', 'error');
+    const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [['Dormitory','Code','Gender','House Parent','Capacity','Occupied','Available'], ...this.state.occupancy.map((row) => [row.dormitory_name || row.name,row.code,row.gender,row.house_parent,row.capacity,row.occupied,row.available])];
+    window.KingswayFileLifecycle?.exportText?.(rows.map((row) => row.map(quote).join(',')).join('\r\n'), 'boarding-occupancy.csv', 'text/csv;charset=utf-8;');
   },
-
-  renderReports() {
-    const reports = this.state.reports;
-    const body = document.getElementById('brReportsBody');
-    if (!reports.length) { body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No reports available.</td></tr>'; return; }
-    body.innerHTML = reports.map(r => `<tr>
-      <td class="small">${this.esc(r.title || '—')}</td>
-      <td class="small">${this.fmtDate(r.period_start)} - ${this.fmtDate(r.period_end)}</td>
-      <td class="small">${this.esc(r.generated_by || '—')}</td>
-      <td><a href="${r.pdf_url}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="bi bi-file-pdf"></i> Download</a></td>
-    </tr>`).join('');
-  },
-
-  fmtDate(v) { if (!v) return '—'; const dt = new Date(String(v).replace(' ', 'T')); return isNaN(dt) ? this.esc(v) : dt.toLocaleDateString(); },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("boarding_reports", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
-    }, ["boarding", "reports"]);
-  },
+  init() {
+    document.getElementById('brPrint')?.addEventListener('click', () => {
+      if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('boarding')) window.print();
+    });
+    window.APIRealtime?.register?.('boarding_reports', { refresh: () => this.load() }, ['boarding']);
+    return this.load();
+  }
 };
-
 window.boardingReportsController = boardingReportsController;
-document.addEventListener('DOMContentLoaded', () => boardingReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => boardingReportsController.init());

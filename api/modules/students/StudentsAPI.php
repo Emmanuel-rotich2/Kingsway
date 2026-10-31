@@ -3954,7 +3954,7 @@ private function getCurrentStudentTransport(int $studentId): array
     private function getDisciplineRecords($id) {
         $sql = "
             SELECT di.*
-            FROM " . ReadReplicaService::qualifiedRef("discipline_incidents") . "
+            FROM " . ReadReplicaService::masterRef("discipline_incidents") . " di
             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = di.student_academic_enrollment_id
             WHERE sae.student_id = ?
             ORDER BY di.incident_date DESC
@@ -5464,7 +5464,7 @@ private function getCurrentStudentTransport(int $studentId): array
                        per.first_name, per.last_name, per.middle_name,
                        per.gender, per.dob AS date_of_birth, per.photo_url,
                        sae.academic_year_class_stream_id,
-                       sm.name AS stream_name, c.name AS class_name
+                       ayc.class_id AS class_id, sm.name AS stream_name, c.name AS class_name
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " per ON per.id = s.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae

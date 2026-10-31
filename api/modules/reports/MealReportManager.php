@@ -83,7 +83,7 @@ class MealReportManager extends BaseAPI
                     mi.name AS menu_item, mi.description,
                     mp.planned_servings, mp.prepared_quantity,
                     mp.actual_servings, mp.status, mp.prepared_at, mp.notes
-             FROM " . ReadReplicaService::qualifiedRef("meal_plans") . "
+             FROM " . ReadReplicaService::qualifiedRef("meal_plans") . " mp
              LEFT JOIN menu_items mi ON mi.id = mp.menu_item_id
              WHERE mp.plan_date BETWEEN ? AND ?
              ORDER BY FIELD(mp.meal_type, 'breakfast', 'snack', 'lunch', 'dinner'),

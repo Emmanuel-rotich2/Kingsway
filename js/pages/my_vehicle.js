@@ -44,40 +44,22 @@
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
-            const user = AuthContext.getUser();
-            this.driverId = user.staff_id || user.id || null;
             this.bindModalEvents();
             await this.loadData();
         },
 
         loadData: async function () {
             try {
-                const res = await window.API.transport.getVehicles();
-                const all = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
-                // Find vehicle assigned to this driver
-                this.vehicle = all.find(v =>
-                    !this.driverId ||
-                    String(v.driver_id) === String(this.driverId) ||
-                    String(v.assigned_driver_id) === String(this.driverId) ||
-                    String(v.staff_id) === String(this.driverId)
-                ) || all[0] || null;
+                const response = await window.API.transport.getMyVehicle();
+                this.vehicle = response?.data ?? response ?? null;
 
-                if (!this.vehicle) {
+                if (!this.vehicle || !this.vehicle.id) {
+                    this.vehicle = null;
                     showToast('No vehicle assigned to your account.', 'warning');
                     this.renderEmpty();
                     return;
                 }
-
-                // If vehicle has an id, try fetching full details
-                if (this.vehicle.id) {
-                    try {
-                        const detail = await window.API.transport.getVehicles(this.vehicle.id);
-                        const full = (detail && detail.data) ? detail.data : detail;
-                        if (full && full.id) this.vehicle = full;
-                    } catch (e) {
-                        // Use summary data — non-critical
-                    }
-                }
+                this.driverId = this.vehicle.driver_id || null;
 
                 this.render();
             } catch (error) {
@@ -99,6 +81,8 @@
             ['vehicleReg','vehicleModel','capacity','vehicleType','vehicleYear','currentMileage'].forEach(id => {
                 const el = document.getElementById(id); if (el) el.textContent = '--';
             });
+            const documents = document.getElementById('documentsBody');
+            if (documents) documents.innerHTML = '<div class="list-group-item text-muted text-center py-3">No vehicle is assigned to your account.</div>';
         },
 
         renderVehicleInfo: function () {
@@ -194,19 +178,21 @@
 
         renderDocumentsTab: function () {
             const docs = this.vehicle.documents || this.vehicle.vehicle_documents || [];
-            const container = document.querySelector('#documentsBody');
+            const container = document.getElementById('documentsBody');
             if (!container) return;
 
             if (!docs.length) {
-                container.innerHTML = '<p class="text-muted text-center py-3">No documents on file.</p>';
+                const insuranceExpiry = this.vehicle.insurance_expiry || this.vehicle.insurance_expiry_date;
+                container.innerHTML = insuranceExpiry
+                    ? `<div class="list-group-item d-flex justify-content-between align-items-center"><strong>Insurance Certificate</strong><small class="text-muted">Expires: ${esc(fmtDate(insuranceExpiry))}</small></div>`
+                    : '<div class="list-group-item text-muted text-center py-3">No vehicle documents are recorded.</div>';
                 return;
             }
             const docTypeIcon = t => {
                 const icons = { insurance: 'bi-shield-check', inspection: 'bi-clipboard-check', license: 'bi-card-text', logbook: 'bi-book' };
                 return icons[String(t).toLowerCase()] || 'bi-file-earmark';
             };
-            container.innerHTML = `<div class="list-group list-group-flush">` +
-                docs.map(d => {
+            container.innerHTML = docs.map(d => {
                     const expired = d.expiry_date && new Date(d.expiry_date) < new Date();
                     return `<div class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
@@ -221,7 +207,7 @@
                             ${d.file_url ? `<a href="${esc(d.file_url)}" target="_blank" class="btn btn-sm btn-outline-secondary ms-2">View</a>` : ''}
                         </div>
                     </div>`;
-                }).join('') + `</div>`;
+                }).join('');
         },
 
         logMaintenance: async function () {

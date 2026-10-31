@@ -1,8 +1,7 @@
 /**
- * Student Sanctions Controller
- * Manage active detentions, suspensions, expulsions.
- * Approve/lift workflow with reason.
- * API: /students/discipline-get, /students/discipline-get (POST/PUT)
+ * Student discipline case controller backed by discipline_incidents.
+ * API: GET /students/discipline-get, POST /students/discipline-record,
+ * POST /students/discipline-resolve.
  */
 
 const sanctionsController = {
@@ -20,20 +19,18 @@ const sanctionsController = {
     }
     this._logModal  = new bootstrap.Modal(document.getElementById('saModal'));
     this._liftModal = new bootstrap.Modal(document.getElementById('saLiftModal'));
-    await Promise.all([this._loadStats(), this._loadData(), this._loadStudents()]);
+    await Promise.all([this._loadData(), this._loadStudents()]);
   },
 
-  _loadStats: async function () {
-    try {
-      const r = await callAPI('/students/discipline-get?status=active', 'GET');
-      const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const count = type => items.filter(i => (i.sanction_type || i.type || '').toLowerCase().includes(type.toLowerCase())).length;
-      this._set('saStatDetention',  count('Detention'));
-      this._set('saStatSuspension', count('Suspension'));
-      this._set('saStatExpulsion',  count('Expulsion'));
-      const pending = items.filter(i => (i.status||'').toLowerCase() === 'pending_review').length;
-      this._set('saStatPending', pending);
-    } catch (e) { console.warn('Stats failed:', e); }
+  _extractPayload: function (response) {
+    let value = response;
+    for (let depth = 0; depth < 5; depth += 1) {
+      if (Array.isArray(value)) return { cases: value };
+      if (!value || typeof value !== 'object') break;
+      if (Array.isArray(value.cases)) return value;
+      value = value.data;
+    }
+    return {};
   },
 
   _loadData: async function () {
@@ -41,17 +38,23 @@ const sanctionsController = {
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
-      const r = await callAPI('/students/discipline-get?status=active', 'GET');
-      this._data = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/students/discipline-get', 'GET');
+      const payload = this._extractPayload(r);
+      this._data = Array.isArray(payload.cases) ? payload.cases : [];
+      const summary = payload.summary || {};
+      this._set('saStatTotal', summary.total ?? this._data.length);
+      this._set('saStatPending', summary.pending ?? this._data.filter(item => item.status === 'pending').length);
+      this._set('saStatResolved', summary.resolved ?? this._data.filter(item => item.status === 'resolved').length);
+      this._set('saStatEscalated', summary.escalated ?? this._data.filter(item => item.status === 'escalated').length);
       this._render(this._data);
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="9" class="text-danger text-center py-4">Failed to load sanctions.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="text-danger text-center py-4">Failed to load discipline cases: ${this._esc(e.message || 'Request failed')}</td></tr>`;
     }
   },
 
   _loadStudents: async function () {
     try {
-      const r = await callAPI('/students', 'GET');
+      const r = await callAPI('/students/get-all', 'GET');
       const students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('saStudentId');
       if (sel) {
@@ -65,27 +68,26 @@ const sanctionsController = {
     const tbody = document.getElementById('saTableBody');
     if (!tbody) return;
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">No sanctions found for the selected filter.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted">No discipline cases found.</td></tr>';
       return;
     }
-    const statusCls = { active: 'danger', pending_review: 'warning', lifted: 'success', expired: 'secondary' };
-    const typeCls   = { Detention: 'warning', Suspension: 'orange', Expulsion: 'danger', 'Community Service': 'info' };
+    const statusCls = { pending: 'warning', resolved: 'success', escalated: 'danger' };
 
     tbody.innerHTML = items.map(s => {
-      const status   = (s.status || 'active').toLowerCase();
-      const type     = s.sanction_type || s.type || s.violation_type || '—';
-      const isActive = status === 'active' || status === 'pending_review';
+      const status = String(s.status || 'pending').toLowerCase();
+      const type = s.type || 'general';
+      const learner = [s.first_name, s.last_name].filter(Boolean).join(' ') || s.student_name || '—';
       return `<tr>
-        <td class="fw-semibold">${this._esc(s.student_name || s.first_name || '—')}</td>
+        <td class="fw-semibold">${this._esc(learner)}${s.admission_no ? `<div class="small text-muted">${this._esc(s.admission_no)}</div>` : ''}</td>
         <td>${this._esc(s.class_name || '—')}</td>
-        <td><span class="badge bg-${typeCls[type] || 'secondary'}" style="${type==='Suspension'?'background:#e67e22!important':''}">${this._esc(type)}</span></td>
-        <td class="small text-muted" style="max-width:180px;">${this._esc((s.reason||s.description||'—').substring(0,80))}</td>
-        <td>${this._esc(s.start_date || s.incident_date || '—')}</td>
-        <td>${this._esc(s.end_date || '—')}</td>
-        <td><span class="badge bg-${statusCls[status] || 'secondary'}">${this._esc(s.status || '—')}</span></td>
-        <td>${this._esc(s.issued_by || s.teacher_name || '—')}</td>
+        <td><span class="badge bg-secondary">${this._esc(type)}</span></td>
+        <td><span class="badge bg-${s.severity === 'high' ? 'danger' : s.severity === 'medium' ? 'warning' : 'info'}">${this._esc(s.severity || '—')}</span></td>
+        <td class="small text-muted" style="max-width:180px;">${this._esc((s.description || '—').substring(0,80))}</td>
+        <td>${this._esc(s.incident_date || '—')}</td>
+        <td><span class="badge bg-${statusCls[status] || 'secondary'}">${this._esc(status)}</span></td>
+        <td>${this._esc(s.action_taken || '—')}</td>
         <td class="text-end">
-          ${isActive ? `<button class="btn btn-sm btn-outline-success" onclick="sanctionsController.showLiftModal(${s.id})">Lift</button>` : ''}
+          ${status === 'pending' ? `<button class="btn btn-sm btn-outline-success" onclick="sanctionsController.showLiftModal(${Number(s.id)})">Resolve</button>` : ''}
         </td>
       </tr>`;
     }).join('');
@@ -103,12 +105,10 @@ const sanctionsController = {
   },
 
   showLogModal: function () {
-    ['saStudentId','saType','saStatus','saReason','saStartDate','saEndDate'].forEach(id => {
+    ['saStudentId','saType','saSeverity','saDescription','saIncidentDate','saActionTaken'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    const cb = document.getElementById('saParentNotified');
-    if (cb) cb.checked = false;
     const err = document.getElementById('saError');
     if (err) { err.classList.add('d-none'); err.textContent = ''; }
     this._logModal.show();
@@ -117,27 +117,26 @@ const sanctionsController = {
   logSanction: async function () {
     const student  = document.getElementById('saStudentId')?.value;
     const type     = document.getElementById('saType')?.value;
-    const status   = document.getElementById('saStatus')?.value || 'active';
-    const reason   = document.getElementById('saReason')?.value.trim();
-    const start    = document.getElementById('saStartDate')?.value;
-    const end      = document.getElementById('saEndDate')?.value;
-    const notified = document.getElementById('saParentNotified')?.checked;
+    const severity = document.getElementById('saSeverity')?.value;
+    const description = document.getElementById('saDescription')?.value.trim();
+    const incidentDate = document.getElementById('saIncidentDate')?.value;
+    const actionTaken = document.getElementById('saActionTaken')?.value.trim();
     const errEl    = document.getElementById('saError');
 
-    if (!student || !type || !reason || !start) {
-      if (errEl) { errEl.textContent = 'Student, type, reason, and start date are required.'; errEl.classList.remove('d-none'); }
+    if (!student || !type || !severity || !description || !incidentDate) {
+      if (errEl) { errEl.textContent = 'Student, incident type, severity, description, and incident date are required.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      await callAPI('/students/discipline-get', 'POST', {
-        student_id: student, sanction_type: type, status, reason, start_date: start,
-        end_date: end || null, parent_notified: notified,
+      await callAPI('/students/discipline-record', 'POST', {
+        student_id: Number(student), type, severity, description,
+        incident_date: incidentDate, action_taken: actionTaken || null, status: 'pending',
       });
-      showNotification('Sanction logged successfully.', 'success');
+      showNotification('Discipline case recorded.', 'success');
       this._logModal.hide();
-      await Promise.all([this._loadStats(), this._loadData()]);
+      await this._loadData();
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to log sanction.'; errEl.classList.remove('d-none'); }
     }
@@ -164,10 +163,10 @@ const sanctionsController = {
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      await callAPI('/students/discipline-get/' + id, 'PUT', { status: 'lifted', lift_reason: reason });
-      showNotification('Sanction lifted successfully.', 'success');
+      await callAPI('/students/discipline-resolve', 'POST', { record_id: Number(id), action_taken: reason });
+      showNotification('Discipline case resolved.', 'success');
       this._liftModal.hide();
-      await Promise.all([this._loadStats(), this._loadData()]);
+      await this._loadData();
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to lift sanction.'; errEl.classList.remove('d-none'); }
     }

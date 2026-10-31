@@ -234,9 +234,9 @@
                     <table class="table table-hover table-sm mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Subject</th>
-                                <th>Channel</th>
-                                <th>Status</th>
+                                <th>Action</th>
+                                <th>Record</th>
+                                <th>Level</th>
                                 <th class="d-none d-md-table-cell">Created</th>
                             </tr>
                         </thead>

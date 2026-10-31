@@ -58,14 +58,42 @@ class TermTransitionService
                 }
             }
 
+            $readiness = $current ? $this->termResultReadiness((int) $current['id']) : null;
+            $lessonPlanSummary = $current ? $this->lessonPlanSummary((int) $current['id']) : null;
+
             return formatResponse(true, [
                 'terms' => $terms,
                 'current_term' => $current,
                 'next_term' => $next,
+                'result_readiness' => $readiness,
+                'lesson_plan_summary' => $lessonPlanSummary,
             ], 'Term transition context retrieved');
         } catch (Exception $e) {
             return formatResponse(false, null, $e->getMessage());
         }
+    }
+
+    /** Return checklist counts without exposing lesson-plan rows to this page. */
+    private function lessonPlanSummary(int $termId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT
+                SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN lp.status IN ('draft', 'submitted') THEN 1 ELSE 0 END) AS pending
+             FROM " . ReadReplicaService::qualifiedRef('lesson_plans') . " lp
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " aycd
+                ON aycd.id = lp.academic_year_calendar_day_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar') . " ayc
+                ON ayc.id = aycd.academic_year_calendar_id
+             WHERE ayc.academic_year_term_id = ?"
+        );
+        $stmt->execute([$termId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'approved' => (int) ($row['approved'] ?? 0),
+            'pending' => (int) ($row['pending'] ?? 0),
+        ];
     }
 
     public function execute(array $payload): array
@@ -94,6 +122,21 @@ class TermTransitionService
             }
             if (($fromTerm['status'] ?? '') !== 'current') {
                 return formatResponse(false, null, 'Only the current term can be closed');
+            }
+
+            // A term may not be closed while its assessment cycle is still open.
+            // TermResultsService only consumes approved evidence, so closing a
+            // term with unpublished registers would leave the official record
+            // permanently incomplete for the learners whose marks never landed.
+            // A named override exists for the case where the school genuinely
+            // holds no marks for a term, but it must be declared and journalled.
+            $readiness = $this->termResultReadiness($fromTermId);
+            if (!$readiness['ready']) {
+                $overrideReason = trim((string) ($payload['force_reason'] ?? ''));
+                if ($overrideReason === '') {
+                    return formatResponse(false, $readiness, $readiness['message']);
+                }
+                $this->logAction($fromTermId, $toTermId, $academicYearId, 'results_readiness_overridden', 'completed', $readiness + ['reason' => $overrideReason]);
             }
             if (($toTerm['status'] ?? '') !== 'upcoming' || (int) $toTerm['term_id'] !== (int) $fromTerm['term_id'] + 1) {
                 return formatResponse(false, null, 'The target must be the next upcoming term in the same academic year');
@@ -282,6 +325,64 @@ class TermTransitionService
         )->execute([$toTermId, $academicYearId]);
 
         $this->logAction(null, $toTermId, $academicYearId, 'activate_term', 'completed', ['to_term_id' => $toTermId]);
+    }
+
+    /**
+     * Whether the term's assessment cycle is closed enough to move on.
+     *
+     * The blocker is registers, not learners: a register (class-stream x
+     * learning area) that is still pending submission, submitted, or awaiting
+     * approval holds marks that TermResultsService will never fold into the
+     * official term results. Enrollments are per academic year and carry no
+     * term, so learner coverage is measured through the registers themselves.
+     *
+     * @return array{ready:bool,message:string,pending_registers:int,pending_learners:int}
+     */
+    public function termResultReadiness(int $termId): array
+    {
+        $registerStmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM assessments
+             WHERE academic_year_term_id = ?
+               AND status IN ('pending_submission','submitted','pending_approval')"
+        );
+        $registerStmt->execute([$termId]);
+        $pendingRegisters = (int) $registerStmt->fetchColumn();
+
+        $learnerStmt = $this->db->prepare(
+            "SELECT COUNT(DISTINCT ar.student_academic_enrollment_id)
+             FROM assessment_results ar
+             JOIN assessments a ON a.id = ar.assessment_id
+             WHERE a.academic_year_term_id = ?
+               AND ar.deleted_at IS NULL
+               AND ar.is_approved = 0"
+        );
+        $learnerStmt->execute([$termId]);
+        $pendingLearners = (int) $learnerStmt->fetchColumn();
+
+        if ($pendingRegisters === 0 && $pendingLearners === 0) {
+            return [
+                'ready' => true,
+                'message' => 'All examination registers for this term are approved.',
+                'pending_registers' => 0,
+                'pending_learners' => 0,
+            ];
+        }
+
+        $parts = [];
+        if ($pendingRegisters > 0) {
+            $parts[] = $pendingRegisters . ' learning-area register(s) are not yet approved';
+        }
+        if ($pendingLearners > 0) {
+            $parts[] = $pendingLearners . ' learner result(s) are not yet approved';
+        }
+
+        return [
+            'ready' => false,
+            'message' => 'Close the assessment cycle before ending this term: ' . implode(' and ', $parts)
+                . '. Publish the results, or send the registers back to the subject teachers.',
+            'pending_registers' => $pendingRegisters,
+            'pending_learners' => $pendingLearners,
+        ];
     }
 
     private function logAction(?int $fromTermId, ?int $toTermId, int $academicYearId, string $action, string $status, array $details = [], ?string $error = null): int

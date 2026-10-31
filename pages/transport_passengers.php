@@ -136,12 +136,6 @@ if (!isset($appBase)) {
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
-                    <button class="btn btn-primary w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
-                </div>
-
-                <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
                         <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
@@ -372,9 +366,6 @@ if (!isset($appBase)) {
                 </button>
                 <button class="btn btn-danger" id="markAbsentBtn">
                     <i class="bi bi-x-circle me-1"></i> Mark Absent
-                </button>
-                <button class="btn btn-secondary" id="addTransportNoteBtn">
-                    <i class="bi bi-plus-circle me-1"></i> Add Note
                 </button>
             </div>
 

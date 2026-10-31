@@ -1,7 +1,7 @@
 /**
  * Observation Feedback Controller
  * Display feedback received from classroom observation sessions.
- * Ratings: Planning, Delivery, Classroom Management, Student Engagement, Assessment.
+ * Displays the single rating and narrative fields stored by lesson_observations.
  * API: GET /staff/observation-feedback
  * Integrates with AcademicContext for academic year awareness
  */
@@ -59,19 +59,22 @@ const observationFeedbackController = {
   },
 
   _setStats: function () {
-    const term     = this._data.length; // simplified: all as "this term"
-    const ratings  = this._data.map(f => this._avgRating(f)).filter(v => v > 0);
+    const ratings  = this._data.map(f => Number(f.rating || 0)).filter(v => v > 0);
     const avg      = ratings.length ? (ratings.reduce((s, v) => s + v, 0) / ratings.length).toFixed(1) : '—';
 
     this._set('ofStatTotal',     this._data.length);
-    this._set('ofStatThisTerm',  term);
+    this._set('ofStatThisTerm',  this._data.filter(f => this._isCurrentTerm(f.observation_date)).length);
     this._set('ofStatAvgRating', avg);
   },
 
-  _avgRating: function (f) {
-    const dims = ['planning', 'delivery', 'classroom_management', 'student_engagement', 'assessment'];
-    const vals = dims.map(d => Number(f[d] || f['rating_' + d] || 0)).filter(v => v > 0);
-    return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+  _isCurrentTerm: function (dateValue) {
+    if (!dateValue) return false;
+    const date = new Date(dateValue);
+    const context = window.AcademicContext;
+    const start = context?.state?.termStartDate;
+    const end = context?.state?.termEndDate;
+    if (start && end) return date >= new Date(start) && date <= new Date(end);
+    return false;
   },
 
   _render: function () {
@@ -85,15 +88,8 @@ const observationFeedbackController = {
       return;
     }
 
-    const dims = [
-      { key: 'planning',             label: 'Planning' },
-      { key: 'delivery',             label: 'Content Delivery' },
-      { key: 'classroom_management', label: 'Classroom Mgmt' },
-      { key: 'student_engagement',   label: 'Student Engagement' },
-      { key: 'assessment',           label: 'Assessment' },
-    ];
-
-    const ratingBadge = v => {
+    const ratingBadge = value => {
+      const v = Number(value || 0);
       if (!v) return '<span class="badge bg-secondary">—</span>';
       const cls = v >= 3.5 ? 'success' : v >= 2.5 ? 'primary' : v >= 1.5 ? 'warning' : 'danger';
       const lbl = v >= 3.5 ? 'Excellent' : v >= 2.5 ? 'Good' : v >= 1.5 ? 'Developing' : 'Needs Work';
@@ -101,36 +97,23 @@ const observationFeedbackController = {
     };
 
     list.innerHTML = this._data.map(f => {
-      const avg = this._avgRating(f);
-      const dimRows = dims.map(d => {
-        const val = Number(f[d.key] || f['rating_' + d.key] || 0);
-        const pct = val > 0 ? (val / 4) * 100 : 0;
-        return `<div class="d-flex align-items-center gap-2 mb-1">
-          <span class="text-muted small" style="width:130px;">${d.label}</span>
-          <div class="progress flex-grow-1" style="height:6px;">
-            <div class="progress-bar ${pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-primary' : 'bg-warning'}" style="width:${pct}%"></div>
-          </div>
-          <span class="small fw-semibold">${val > 0 ? val + '/4' : '—'}</span>
-        </div>`;
-      }).join('');
-
       return `<div class="col-md-6 col-lg-4">
         <div class="card border-0 shadow-sm h-100">
           <div class="card-header bg-transparent d-flex justify-content-between align-items-center py-2">
             <div>
-              <div class="fw-semibold">${this._esc(f.class_name || f.class || 'Unknown class')}</div>
-              <div class="text-muted small">${this._esc(f.subject || '')} · ${this._esc(f.observation_date || f.date || '—')}</div>
+              <div class="fw-semibold">${this._esc(f.class_name || (f.class_id ? `Class ${f.class_id}` : 'Class not recorded'))}</div>
+              <div class="text-muted small">${this._esc(f.learning_area_name || f.subject_name || (f.learning_area_id ? `Learning area ${f.learning_area_id}` : ''))} · ${this._esc(f.observation_date || '—')}</div>
             </div>
-            ${ratingBadge(avg)}
+            ${ratingBadge(f.rating)}
           </div>
           <div class="card-body">
-            ${dimRows}
             ${f.strengths ? `<div class="mt-2"><span class="fw-semibold small text-success">Strengths:</span> <span class="small">${this._esc(f.strengths)}</span></div>` : ''}
-            ${f.improvements ? `<div class="mt-1"><span class="fw-semibold small text-warning">Improve:</span> <span class="small">${this._esc(f.improvements)}</span></div>` : ''}
-            ${f.comments || f.notes ? `<div class="mt-2 p-2 bg-light rounded small text-muted">${this._esc((f.comments || f.notes || '').substring(0, 150))}</div>` : ''}
+            ${f.areas_for_improvement ? `<div class="mt-1"><span class="fw-semibold small text-warning">Areas for improvement:</span> <span class="small">${this._esc(f.areas_for_improvement)}</span></div>` : ''}
+            ${f.recommendations ? `<div class="mt-1"><span class="fw-semibold small">Recommendations:</span> <span class="small">${this._esc(f.recommendations)}</span></div>` : ''}
+            ${f.feedback ? `<div class="mt-2 p-2 bg-light rounded small text-muted">${this._esc(f.feedback.substring(0, 300))}</div>` : ''}
           </div>
           <div class="card-footer bg-transparent small text-muted">
-            Observer: ${this._esc(f.observer_name || f.observer || '—')}
+            Observer staff ID: ${this._esc(f.observer_id || '—')} · ${this._esc(f.status || '—')}
           </div>
         </div>
       </div>`;

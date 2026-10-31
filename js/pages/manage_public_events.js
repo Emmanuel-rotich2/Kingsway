@@ -29,15 +29,18 @@ const managePublicEventsController = {
     try {
       const r = await this.API('GET', 'website/stats');
       if (r.status === 'success' && r.data) {
-        document.getElementById('statEvents').textContent = r.data.events ?? '\u2014';
+        const events = document.getElementById('statEvents');
+        if (events) events.textContent = r.data.events ?? '\u2014';
       }
       const upcoming = this.state.items.filter(e => e.status === 'upcoming' || e.status === 'ongoing').length;
-      document.getElementById('statUpcoming').textContent = upcoming;
+      const upcomingStat = document.getElementById('statUpcoming');
+      if (upcomingStat) upcomingStat.textContent = upcoming;
     } catch (_) {}
   },
 
   async loadData() {
     const body = document.getElementById('eventsTableBody');
+    if (!body) return;
     body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const upcoming = document.getElementById('eventsUpcomingOnly')?.checked ? '1' : '';
@@ -46,12 +49,13 @@ const managePublicEventsController = {
       this.render();
       this.loadStats();
     } catch (e) {
-      body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`;
+      if (body.isConnected) body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`;
     }
   },
 
   render() {
     const body = document.getElementById('eventsTableBody');
+    if (!body) return;
     if (!this.state.items.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No events found.</td></tr>'; return; }
     body.innerHTML = this.state.items.map(ev => `
       <tr>

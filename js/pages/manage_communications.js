@@ -18,33 +18,32 @@ const manageCommunicationsController = {
 
     API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-    esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-    async loadReferencesComposed() {
-        try {
-            const response = await window.API.nodeViews.read("communications", "manage-communications-references");
-            this.state.referenceCache = response?.data?.sources || response?.sources || {};
-        } catch (error) {
-            console.warn("Manage Communications Node view failed; using direct reads:", error);
-            this.state.referenceCache = null;
-        }
-    },
+    esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
     async load() {
+        await Promise.all([this.loadTemplates(), this.loadRecentActivity()]);
+    },
+
+    async loadRecentActivity() {
+        const body = document.getElementById('activitiesTablebody');
+        if (!body) return;
+        body.innerHTML = '<tr><td colspan="4" class="text-center py-3 text-muted">Loading activity…</td></tr>';
         try {
-            const cache = this.state.referenceCache;
-            const [templates, lists, channels] = await Promise.all([
-                cache?.templates !== undefined ? cache.templates : this.API('GET', '/api/communications/templates'),
-                cache?.lists !== undefined ? cache.lists : this.API('GET', '/api/communications/lists'),
-                cache?.channels !== undefined ? cache.channels : this.API('GET', '/api/communications/channels'),
-            ]);
-            this.state.templates = Array.isArray(templates?.templates) ? templates.templates : (Array.isArray(templates) ? templates : []);
-            this.state.lists = Array.isArray(lists?.lists) ? lists.lists : (Array.isArray(lists) ? lists : []);
-            this.state.channels = Array.isArray(channels?.channels) ? channels.channels : (Array.isArray(channels) ? channels : []);
-            this.renderTemplates();
-            this.renderLists();
-            this.renderChannels();
-        } catch (e) { console.error(e); }
+            const response = await window.API.reports.getCommunicationLogs({ limit: 100 });
+            const entries = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            if (!entries.length) {
+                body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No communication activity recorded.</td></tr>';
+                return;
+            }
+            body.innerHTML = entries.map((entry) => `<tr>
+                <td>${this.esc(entry.action || 'Communication event')}</td>
+                <td>${this.esc(entry.entity_type || entry.entity || '—')}</td>
+                <td><span class="badge bg-${entry.level === 'error' ? 'danger' : entry.level === 'warning' ? 'warning text-dark' : 'secondary'}">${this.esc(entry.level || 'recorded')}</span></td>
+                <td class="d-none d-md-table-cell">${this.fmtDate(entry.created_at)}</td>
+            </tr>`).join('');
+        } catch (error) {
+            body.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-danger">${this.esc(error?.message || 'Could not load recent activity.')}</td></tr>`;
+        }
     },
 
     getCache(key) { return this.state.referenceCache?.[key]; },
@@ -794,8 +793,8 @@ const manageCommunicationsController = {
 
     async init() {
         if (window.AuthContext?.ready) await window.AuthContext.ready();
-        await this.loadReferencesComposed();
         await this.load();
+        document.getElementById('refreshActivities')?.addEventListener('click', () => this.loadRecentActivity());
 
         // Template UI bindings
         this.bindTemplateFilters();
@@ -814,7 +813,7 @@ const manageCommunicationsController = {
         document.getElementById('addMediaBtn').onclick = () => this.addMediaRow();
 
         window.APIRealtime?.register?.("manage_communications", {
-            refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
+            refresh: async () => { await this.load(); }
         }, ["communications"]);
     },
 };
@@ -822,4 +821,16 @@ const manageCommunicationsController = {
 function debounce(fn, delay) { let timer; return function(...args) { clearTimeout(timer); timer = setTimeout(() => fn.apply(this, args), delay); }; }
 
 window.manageCommunicationsController = manageCommunicationsController;
-document.addEventListener('DOMContentLoaded', () => manageCommunicationsController.init().catch(() => {}));
+let initializedCommunicationsRoot = null;
+function initializeManageCommunications(route) {
+    const root = document.getElementById('templateManagerBody');
+    if (route !== 'manage_communications' || !root || root === initializedCommunicationsRoot) return;
+    initializedCommunicationsRoot = root;
+    manageCommunicationsController.init().catch((error) => console.error('Communications page initialization failed:', error));
+}
+window.addEventListener('kingsway:page-loaded', (event) => initializeManageCommunications(event.detail?.route));
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => initializeManageCommunications(window.REQUESTED_ROUTE), { once: true });
+} else {
+    initializeManageCommunications(window.REQUESTED_ROUTE);
+}

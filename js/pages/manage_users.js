@@ -25,6 +25,10 @@ const ManageUsersController = {
 
   elements: {},
 
+  isMounted() {
+    return Boolean(this.elements.root?.isConnected);
+  },
+
   async init() {
     if (window.__KINGSWAY_MANAGE_USERS_INITIALIZED__) {
       return window.__KINGSWAY_MANAGE_USERS_INITIALIZED__;
@@ -309,6 +313,7 @@ const ManageUsersController = {
   },
 
   async loadData() {
+    if (!this.isMounted()) return;
     if (this.state.loading) return;
 
     this.state.loading = true;
@@ -327,6 +332,7 @@ const ManageUsersController = {
         window.API.system.getEnvironmentPhase().catch(() => null),
         window.API.system.getTestDataInventory().catch(() => null),
       ]);
+      if (!this.isMounted()) return;
 
       this.state.users = this.extractRows(usersResponse);
       this.state.roles = this.extractRows(rolesResponse);
@@ -347,6 +353,7 @@ const ManageUsersController = {
         this.hideState();
       }
     } catch (error) {
+      if (!this.isMounted()) return;
       console.error("[ManageUsersController] Failed to load data:", error);
       this.state.users = [];
       this.state.roles = [];
@@ -1017,6 +1024,10 @@ const ManageUsersController = {
     }
 
     const template = document.getElementById("userAccountsRowTemplate");
+    if (!this.isMounted()) return;
+    if (!template?.content || !this.elements.tableBody?.isConnected) {
+      return this.showTableMessage("User account table markup is unavailable. Reopen this page to load accounts.", "text-danger");
+    }
     const rows = visibleUsers.map((user) => this.buildUserRow(template, user));
     this.elements.tableBody.replaceChildren(...rows);
 

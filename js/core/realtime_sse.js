@@ -169,14 +169,24 @@
     source = new EventSource(endpoint.toString());
     connectStartedAt = Date.now();
     source.addEventListener('kingsway', deliver);
+    let streamReady = false;
     const onStreamOpen = () => {
+      if (streamReady) return;
+      streamReady = true;
       const isReconnect = retryAttempt > 0;
       retryAttempt = 0;
       fastFailures = 0;
-      // Gateway restart catch-up: after a reconnect the socket missed every
-      // event published while it was down. Patch handlers will catch up
-      // incrementally when events resume; no full refresh needed.
       emit('kingsway:realtime-status', { detail: { state: 'connected' } });
+      // EventSource's native Last-Event-ID replay is not available here because
+      // reconnects are deliberately closed and recreated with a refreshed
+      // capability. Domain events may have been missed while offline, so
+      // refresh the active page's registered data dependencies once the stream
+      // is live again. APIRealtime scopes these dependencies to the current
+      // soft-navigation route.
+      if (isReconnect) {
+        const dependencies = window.APIRealtime?.dependencies?.() || [];
+        if (dependencies.length) window.APIRealtime?.schedule?.(dependencies);
+      }
     };
     // The gateway announces the stream with a `connected` frame; an older
     // server build used `ready`. Accept both so liveness detection never

@@ -1,102 +1,88 @@
-/**
- * Enrollment Reports Controller
- * Student enrollment, class placement, and transition reports.
- */
+/** Admissions reporting backed by the permission-scoped admission queue contract. */
 const enrollmentReportsController = {
-  state: { classes: [], streams: [], years: [], report: null, referenceCache: null },
-
+  applications: [], charts: {},
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "enrollment-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Enrollment Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]); },
+  payload(response) { return response?.data?.data ?? response?.data ?? response ?? {}; },
+  date(row) { return String(row.created_at || row.submitted_at || '').slice(0, 10); },
+  filtered() {
+    const from = document.getElementById('filterDateFrom')?.value || '';
+    const to = document.getElementById('filterDateTo')?.value || '';
+    return this.applications.filter((row) => {
+      const date = this.date(row);
+      return (!from || date >= from) && (!to || date <= to);
+    });
   },
-
   async load() {
+    const body = document.getElementById('reportsTableBody');
+    if (body) body.innerHTML = '<tr><td colspan="7" class="text-center py-4">Loading admissions data…</td></tr>';
+    const error = document.getElementById('enrollmentReportError'); if (error) error.classList.add('d-none');
     try {
-      const cache = this.state.referenceCache;
-      const [cls, strms, years] = await Promise.all([
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
-        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
-        cache?.years !== undefined ? cache.years : this.API('GET', '/api/academic/years/list'),
-      ]);
-      this.state.classes = this.norm(cls);
-      this.state.streams = this.norm(strms);
-      this.state.years = this.norm(years);
-      this.populateFilters();
-      await this.loadReport();
-    } catch (e) { console.error(e); }
-  },
-
-  populateFilters() {
-    const c = document.getElementById('erClass');
-    const s = document.getElementById('erStream');
-    const y = document.getElementById('erYear');
-    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
-    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
-    y.innerHTML = '<option value="">All Years</option>' + this.state.years.map(x => `<option value="${x.id}">${this.esc(x.year_name || x.year_code)}</option>`).join('');
-  },
-
-  async loadReport() {
-    const params = new URLSearchParams();
-    if (document.getElementById('erClass')?.value) params.set('class_id', document.getElementById('erClass').value);
-    if (document.getElementById('erStream')?.value) params.set('stream_id', document.getElementById('erStream').value);
-    if (document.getElementById('erYear')?.value) params.set('year_id', document.getElementById('erYear').value);
-
-    try {
-      const response = await this.API('GET', '/api/reports/enrollment', null, params);
-      this.state.report = response?.data || response || {};
+      const response = await this.API('GET', '/api/admission/queues');
+      const payload = this.payload(response);
+      const queues = payload.queues || {};
+      if (!Array.isArray(queues.all_applications)) {
+        throw new Error('Your account does not have access to the admissions reporting queue.');
+      }
+      this.applications = queues.all_applications;
       this.render();
-    } catch (e) { console.error(e); }
-  },
-
-  render() {
-    const r = this.state.report;
-    const body = document.getElementById('erBody');
-    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No enrollment data.</td></tr>'; return; }
-    body.innerHTML = r.map(x => `<tr>
-      <td class="small">${this.esc(x.admission_no || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
-      <td class="small">${this.esc(x.class_name || '—')}</td>
-      <td class="small">${this.esc(x.stream_name || '—')}</td>
-      <td class="small">${this.esc(x.admission_date || '—')}</td>
-      <td class="small">${this.esc(x.student_type || '—')}</td>
-      <td class="small">${this.esc(x.status || '—')}</td>
-    </tr>`).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "enrollment-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Enrollment Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+    } catch (exception) {
+      if (body) body.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Admissions data could not be loaded.</td></tr>';
+      if (error) { error.textContent = exception?.message || 'Admissions data could not be loaded.'; error.classList.remove('d-none'); }
     }
   },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("enrollment_reports", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["reports", "admissions"]);
+  render() {
+    const rows = this.filtered();
+    const statuses = (needle) => rows.filter((row) => String(row.status || '').toLowerCase().includes(needle)).length;
+    const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+    text('statTotalApplications', rows.length);
+    text('statApproved', statuses('approved') + statuses('admitted') + statuses('enrolled'));
+    text('statWaitlisted', statuses('waitlist'));
+    text('statEnrolled', statuses('enrolled'));
+    const body = document.getElementById('reportsTableBody');
+    if (body) body.innerHTML = rows.length ? rows.map((row) => `<tr>
+      <td>${this.esc(row.application_no || '—')}</td><td>${this.esc(row.applicant_name || '—')}</td>
+      <td>${this.esc(row.grade_applying_for || '—')}</td><td>${this.esc(row.gender || '—')}</td>
+      <td>${this.esc(row.status || '—')}</td><td>${this.esc(this.date(row) || '—')}</td>
+      <td>${this.esc(String(row.current_stage || '—').replace(/_/g, ' '))}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="text-center py-4 text-muted">No applications match the selected dates.</td></tr>';
+    this.drawCharts(rows);
   },
+  drawCharts(rows) {
+    if (!window.Chart) return;
+    const make = (id, type, labels, values, colors) => {
+      const canvas = document.getElementById(id); if (!canvas) return;
+      this.charts[id]?.destroy();
+      this.charts[id] = new Chart(canvas, { type, data: { labels, datasets: [{ data: values, backgroundColor: colors || ['#0d6efd','#198754','#ffc107','#dc3545','#6c757d'] }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: type === 'doughnut' || type === 'pie' } } } });
+    };
+    const countBy = (key, normalize = (v) => v || 'Unknown') => {
+      const values = new Map(); rows.forEach((row) => { const k = normalize(row[key]); values.set(k, (values.get(k) || 0) + 1); });
+      return { labels: [...values.keys()], values: [...values.values()] };
+    };
+    const status = countBy('status'); make('statusChart', 'doughnut', status.labels, status.values);
+    const classes = countBy('grade_applying_for'); make('classChart', 'bar', classes.labels, classes.values);
+    const genders = countBy('gender'); make('genderChart', 'doughnut', genders.labels, genders.values);
+    const months = countBy('created_at', (value) => String(value || '').slice(0, 7) || 'Unknown');
+    make('trendChart', 'line', months.labels, months.values);
+  },
+  refreshData() { return this.load(); },
+  exportReport() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('admissions')) return window.showNotification?.('You do not have permission to export admissions data.', 'error');
+    const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [['Application No','Applicant','Grade','Gender','Status','Submitted','Stage'], ...this.filtered().map((row) => [row.application_no,row.applicant_name,row.grade_applying_for,row.gender,row.status,this.date(row),row.current_stage])];
+    window.KingswayFileLifecycle?.exportText?.(rows.map((row) => row.map(quote).join(',')).join('\r\n'), 'admissions-report.csv', 'text/csv;charset=utf-8;');
+  },
+  init() {
+    ['filterDateFrom','filterDateTo'].forEach((id) => document.getElementById(id)?.addEventListener('change', () => this.render()));
+    document.getElementById('filterAcademicYear')?.closest('.col-md-3')?.classList.add('d-none');
+    document.getElementById('filterTerm')?.closest('.col-md-3')?.classList.add('d-none');
+    document.getElementById('filterReportType')?.addEventListener('change', () => this.render());
+    document.getElementById('printEnrollmentReport')?.addEventListener('click', () => {
+      if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('admissions')) window.print();
+    });
+    window.APIRealtime?.register?.('enrollment_reports', { refresh: () => this.load() }, ['admissions']);
+    return this.load();
+  }
 };
-
 window.enrollmentReportsController = enrollmentReportsController;
-document.addEventListener('DOMContentLoaded', () => enrollmentReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => enrollmentReportsController.init());

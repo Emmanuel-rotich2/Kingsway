@@ -23,6 +23,7 @@
                         </div>
                         <p class="mt-2 text-muted">Loading exam schedule...</p>
                     </div>
+                    <div id="scheduleError" class="alert alert-danger d-none" role="alert"></div>
                     <div id="scheduleContent" style="display: none;">
                         <div class="row mb-3">
                             <div class="col-md-4">
@@ -52,6 +53,9 @@
                                 </button>
                                 <button id="exportBtn" class="btn btn-outline-success" data-permission="assessments_export">
                                     <i class="bi bi-download me-1"></i>Export
+                                </button>
+                                <button id="schedulePrint" class="btn btn-outline-secondary" type="button">
+                                    <i class="bi bi-printer me-1"></i>Print
                                 </button>
                             </div>
                             <div id="statsContainer" class="d-flex gap-3">

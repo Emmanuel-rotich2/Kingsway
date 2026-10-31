@@ -113,6 +113,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->deactivateVolunteer((int) $id));
     }
 
+    public function deleteVolunteers($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteVolunteer($id, $data, $segments);
+    }
+
     /* ===== Phase B — spiritual programs, sessions, attendance ===== */
 
     /**
@@ -160,6 +165,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->resolveNextDate($_GET ?? []));
     }
 
+    public function getProgramsNextDate($id = null, $data = [], $segments = [])
+    {
+        return $this->getNextDate($id, $data, $segments);
+    }
+
     /**
      * GET /api/chaplaincy/sessions
      */
@@ -188,6 +198,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->updateSession((int) $id, $data));
     }
 
+    public function putSessions($id = null, $data = [], $segments = [])
+    {
+        return $this->putSession($id, $data, $segments);
+    }
+
     /**
      * DELETE /api/chaplaincy/sessions/{id}
 
@@ -199,6 +214,11 @@ class ChaplaincyController extends BaseController
         return $this->handleResponse($this->api->deleteSession((int) $id));
     }
 
+    public function deleteSessions($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteSession($id, $data, $segments);
+    }
+
     /**
      * GET /api/chaplaincy/sessions/{id}/attendance
      */
@@ -206,6 +226,11 @@ class ChaplaincyController extends BaseController
     {
         if (!$id) return $this->badRequest('Session ID is required');
         return $this->handleResponse($this->api->getSessionAttendance((int) $id));
+    }
+
+    public function getSessionsAttendance($id = null, $data = [], $segments = [])
+    {
+        return $this->getSessionAttendance($id, $data, $segments);
     }
 
     /**
@@ -216,6 +241,11 @@ class ChaplaincyController extends BaseController
         if ($guard = $this->guardChaplaincy()) return $guard;
         if (!$id) return $this->badRequest('Session ID is required');
         return $this->handleResponse($this->api->saveAttendance((int) $id, $data));
+    }
+
+    public function putSessionsAttendance($id = null, $data = [], $segments = [])
+    {
+        return $this->putSessionAttendance($id, $data, $segments);
     }
 
     /* ===== Phase C — recurring groups, spiritual profiles & pastoral care ===== */

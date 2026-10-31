@@ -13,6 +13,7 @@ const mentorMeetingsController = (() => {
   function val(id) { const el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
   function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function formatDate(d) {
     if (!d) return '—';
@@ -44,7 +45,7 @@ const mentorMeetingsController = (() => {
       informal: 'bg-secondary',
       observation_debrief: 'bg-info text-dark',
     };
-    return `<span class="badge ${map[type] || 'bg-light text-dark'}">${(type || '—').replace(/_/g, ' ')}</span>`;
+    return `<span class="badge ${map[type] || 'bg-light text-dark'}">${esc((type || '—').replace(/_/g, ' '))}</span>`;
   }
 
   function statusBadge(dateStr) {
@@ -73,6 +74,12 @@ const mentorMeetingsController = (() => {
     } catch (e) {
       hide('mmLoading');
       show('mmEmpty');
+      const empty = document.getElementById('mmEmpty');
+      const message = empty?.querySelector('p');
+      if (message) message.textContent = 'Mentor meetings could not be loaded. The page cannot confirm that no meetings exist.';
+      empty?.querySelectorAll('button').forEach(button => { button.disabled = true; button.hidden = true; });
+      const scheduleButton = document.getElementById('mmScheduleBtn');
+      if (scheduleButton) scheduleButton.disabled = true;
       console.error('mentor_meetings load error', e);
     }
   }
@@ -87,12 +94,12 @@ const mentorMeetingsController = (() => {
         <tr>
           <td class="text-nowrap">${formatDateTime(dateStr, timeStr)}</td>
           <td>${typeBadge(m.type || m.meeting_type)}</td>
-          <td>${m.location || m.venue || '—'}</td>
-          <td class="small">${m.agenda || m.topic || '—'}</td>
+          <td>${esc(m.location || m.venue || '—')}</td>
+          <td class="small">${esc(m.agenda || m.topic || '—')}</td>
           <td>${statusBadge(dateStr)}</td>
-          <td class="small text-muted" style="max-width:200px;">${m.notes || m.summary || '—'}</td>
+          <td class="small text-muted" style="max-width:200px;">${esc(m.notes || m.summary || '—')}</td>
           <td>
-            <button class="btn btn-outline-primary btn-sm" onclick="mentorMeetingsController.editMeeting(${m.id})">
+            <button class="btn btn-outline-primary btn-sm" onclick="mentorMeetingsController.editMeeting(${Number(m.id)})">
               <i class="bi bi-pencil"></i>
             </button>
           </td>

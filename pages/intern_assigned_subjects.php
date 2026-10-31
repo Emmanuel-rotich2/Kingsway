@@ -22,11 +22,15 @@
                 <button class="btn btn-outline-light btn-sm" onclick="InternAssignedSubjectsController.exportSubjects()">
                     <i class="bi bi-download"></i> Export
                 </button>
+                <button class="btn btn-outline-light btn-sm" id="iasPrint" type="button">
+                    <i class="bi bi-printer"></i> Print
+                </button>
             </div>
         </div>
     </div>
     
     <div class="card-body">
+        <div id="iasError" class="alert alert-danger d-none" role="alert"></div>
         <!-- Statistics Cards -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -40,7 +44,7 @@
             <div class="col-md-3">
                 <div class="card border-success">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Classes</h6>
+                        <h6 class="text-muted mb-2">Class Assignments</h6>
                         <h3 class="text-success mb-0" id="classesCount">0</h3>
                     </div>
                 </div>
@@ -48,7 +52,7 @@
             <div class="col-md-3">
                 <div class="card border-warning">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Hours/Week</h6>
+                        <h6 class="text-muted mb-2">Periods/Week</h6>
                         <h3 class="text-warning mb-0" id="hoursPerWeekCount">0</h3>
                     </div>
                 </div>
@@ -56,24 +60,10 @@
             <div class="col-md-3">
                 <div class="card border-info">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Syllabus Progress</h6>
+                        <h6 class="text-muted mb-2">Strands Tracked</h6>
                         <h3 class="text-info mb-0" id="syllabusProgress">0%</h3>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Academic Year/Term Selector -->
-        <div class="row mb-3">
-            <div class="col-md-6">
-                <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
-                </select>
             </div>
         </div>
 
@@ -89,12 +79,11 @@
                         <th scope="col">Teacher</th>
                         <th scope="col">Periods/Week</th>
                         <th scope="col">Status</th>
-                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="iasAssignmentsBody">
                     <tr>
-                        <td colspan="8" class="text-center py-4">
+                        <td colspan="7" class="text-center py-4">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>

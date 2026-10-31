@@ -46,6 +46,12 @@ const academicReportsCtrl = (() => {
         return Number.isFinite(n) ? n : 0;
     }
 
+    function escapeHtml(value) {
+        const node = document.createElement('span');
+        node.textContent = String(value ?? '');
+        return node.innerHTML;
+    }
+
     function cbcBand(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
@@ -317,25 +323,27 @@ const academicReportsCtrl = (() => {
             return;
         }
         tbody.innerHTML = metrics.map((m) => {
-            const avg = m.average_score != null ? `${m.average_score.toFixed(1)}%` : '—';
-            const pass = m.pass_rate != null ? `${m.pass_rate.toFixed(1)}%` : '—';
-            const top = m.top_score != null ? `${m.top_score.toFixed(1)}%` : '—';
-            const scoreHealth = m.scored_count > 0 ? `${m.scored_count}/${m.student_count}` : '0';
+            const gradeCounts = m.grade_counts || {};
+            const avg = m.average_score != null ? `${toNumber(m.average_score).toFixed(1)}%` : '—';
+            const pass = m.pass_rate != null ? `${toNumber(m.pass_rate).toFixed(1)}%` : '—';
+            const top = m.top_score != null ? `${toNumber(m.top_score).toFixed(1)}%` : '—';
+            const scoreHealth = m.scored_count > 0 ? `${toNumber(m.scored_count)}/${toNumber(m.student_count)}` : '0';
+            const grades = ['EE', 'ME', 'AE', 'BE'].map((grade) => toNumber(gradeCounts[grade]) || '—');
             if (reportType === 'student') return `
-                <tr><td><strong>${m.student_name || '—'}</strong></td><td>${m.admission_no || '—'}</td><td>${m.level_name || '—'}</td><td>${m.stream_name || m.stream_count || '—'}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
+                <tr><td><strong>${escapeHtml(m.student_name || '—')}</strong></td><td>${escapeHtml(m.admission_no || '—')}</td><td>${escapeHtml(m.level_name || '—')}</td><td>${escapeHtml(m.stream_name || m.stream_count || '—')}</td><td>${avg}</td><td>${grades[0]}</td><td>${grades[1]}</td><td>${grades[2]}</td><td>${grades[3]}</td><td>${pass}</td></tr>`;
             if (reportType === 'subject') return `
-                <tr><td><strong>${m.class_name}</strong></td><td>${m.level_name}</td><td>${m.student_count}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
+                <tr><td><strong>${escapeHtml(m.class_name || '—')}</strong></td><td>${escapeHtml(m.level_name || '—')}</td><td>${toNumber(m.student_count)}</td><td>${avg}</td><td>${grades[0]}</td><td>${grades[1]}</td><td>${grades[2]}</td><td>${grades[3]}</td><td>${pass}</td></tr>`;
             return `
                 <tr>
-                    <td><strong>${m.class_name}</strong></td>
-                    <td>${m.level_name}</td>
-                    <td>${m.student_count}</td>
-                    <td>${m.stream_count}</td>
+                    <td><strong>${escapeHtml(m.class_name || '—')}</strong></td>
+                    <td>${escapeHtml(m.level_name || '—')}</td>
+                    <td>${toNumber(m.student_count)}</td>
+                    <td>${escapeHtml(m.stream_count ?? '—')}</td>
                     <td>${avg}</td>
-                    <td>${m.grade_counts.EE || '—'}</td>
-                    <td>${m.grade_counts.ME || '—'}</td>
-                    <td>${m.grade_counts.AE || '—'}</td>
-                    <td>${m.grade_counts.BE || '—'}</td>
+                    <td>${grades[0]}</td>
+                    <td>${grades[1]}</td>
+                    <td>${grades[2]}</td>
+                    <td>${grades[3]}</td>
                     <td>${pass}</td>
                 </tr>
             `;

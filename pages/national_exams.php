@@ -142,7 +142,7 @@
           </div>
           <div class="col-md-3">
             <label class="form-label fw-semibold">Learning Area <span class="text-danger">*</span></label>
-            <select id="natEntrySubject" class="form-select">
+          <select id="natEntrySubject" class="form-select" onchange="natExamCtrl.loadEntryStudents()">
               <option value="">— Select learning area —</option>
             </select>
           </div>
@@ -176,4 +176,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/national_exams.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => natExamCtrl.init());</script>

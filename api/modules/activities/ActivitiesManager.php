@@ -85,7 +85,7 @@ class ActivitiesManager extends BaseAPI
                     COUNT(DISTINCT ap.id) as participant_count,
                     COUNT(DISTINCT ar.id) as resource_count,
                     SUM(CASE WHEN ap.status = 'active' THEN 1 ELSE 0 END) as active_participants
-                FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                FROM " . ReadReplicaService::masterRef("activities") . " a
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_participants") . " ap ON a.id = ap.activity_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_resources") . " ar ON a.id = ar.activity_id
@@ -130,7 +130,7 @@ class ActivitiesManager extends BaseAPI
                     a.*,
                     ac.name as category_name,
                     ac.description as category_description
-                FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                FROM " . ReadReplicaService::masterRef("activities") . " a
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON a.category_id = ac.id
                 WHERE a.id = ?
             ";
@@ -294,7 +294,7 @@ class ActivitiesManager extends BaseAPI
         $transactionStarted = false;
         try {
             // Check if activity exists
-            $stmt = $this->db->prepare("SELECT id, title, status FROM " . ReadReplicaService::qualifiedRef("activities") . " id = ?");
+            $stmt = $this->db->prepare("SELECT id, title, status FROM " . ReadReplicaService::masterRef("activities") . " WHERE id = ?");
             $stmt->execute([$id]);
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -404,7 +404,7 @@ class ActivitiesManager extends BaseAPI
                     a.title, 
                     a.status,
                     COUNT(ap.id) as participant_count
-                FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                FROM " . ReadReplicaService::masterRef("activities") . " a
                 LEFT JOIN activity_participants ap ON a.id = ap.activity_id AND ap.status = 'active'
                 WHERE a.id = ?
                 GROUP BY a.id

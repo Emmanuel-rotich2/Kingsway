@@ -2,7 +2,7 @@
  * products_catalog_management.js — catalogue management controller.
  * Injecting page: pages/products_catalog_management.php.
  *
- * View-only for all authenticated staff; sell + management actions require an
+ * View-only for all authenticated staff; catalogue management actions require an
  * inventory write permission (mirrors InventoryController::guardInventoryWrite:
  * inventory.manage / inventory.admin / system administrator).
  */
@@ -11,11 +11,8 @@ const internalProductsCatalogController = {
   state: {
     products: [],
     items: [],
-    students: [],
-    allStudents: [],
     filters: { q: '', status: 'all', category: 'all' },
     canManage: false,
-    sellProduct: null,
   },
 
   esc(s) {
@@ -52,6 +49,7 @@ const internalProductsCatalogController = {
       el.classList.toggle('d-none', this.state.canManage);
     });
     const grid = document.getElementById('ipcProductsBody');
+    if (!grid) return;
     grid.classList.toggle('internal-products-grid', this.state.canManage);
     grid.classList.toggle('catalog-product-grid', !this.state.canManage);
     document.getElementById('ipcPageTitle').textContent = this.state.canManage
@@ -111,6 +109,7 @@ const internalProductsCatalogController = {
 
   async loadData() {
     const body = document.getElementById('ipcProductsBody');
+    if (!body) return;
     body.innerHTML = '<div class="catalog-loading"><div class="spinner-border spinner-border-sm me-2"></div>Loading collection…</div>';
     try {
       const d = await window.API.inventory.getUniformCatalog({ management: 1 });
@@ -149,35 +148,8 @@ const internalProductsCatalogController = {
     }
   },
 
-  async loadStudents() {
-    try {
-      const r = await window.API.students.get();
-      const arr = Array.isArray(r) ? r : (r?.students ?? r?.data ?? []);
-      this.state.allStudents = Array.isArray(arr)
-        ? arr.filter((s) => typeof s === 'object' && s !== null)
-        : [];
-      this.filterStudents('');
-    } catch (err) {
-      this.state.allStudents = [];
-      const sel = document.getElementById('ipcSellStudentLarge');
-      sel.innerHTML = '<option value="">Unable to load learners</option>';
-    }
-  },
-
-  filterStudents(q) {
-    const filtered = this.state.allStudents.filter((s) => {
-      if (!q) return true;
-      const name = `${s.first_name || ''} ${s.last_name || ''} ${s.admission_number || ''} ${s.admission_no || ''}`;
-      return name.toLowerCase().includes(q);
-    });
-    this.state.students = filtered;
-    const sel = document.getElementById('ipcSellStudentLarge');
-    sel.innerHTML = filtered.length
-      ? filtered.map((s) => `<option value="${Number(s.id)}">${this.esc(s.first_name || '')} ${this.esc(s.last_name || '')} (${this.esc(s.admission_number || 'N/A')})</option>`).join('')
-      : '<option value="">No matching learners</option>';
-  },
-
   render() {
+    if (!document.getElementById('ipcProductsBody')) return;
     if (!this.state.canManage) {
       this.renderBuyerCatalogue();
       return;
@@ -260,6 +232,8 @@ const internalProductsCatalogController = {
   },
 
   renderBuyerCatalogue() {
+    const productsBody = document.getElementById('ipcProductsBody');
+    if (!productsBody) return;
     const { q, category } = this.state.filters;
     const seen = new Set();
     const products = this.state.products.filter((p) => {
@@ -274,7 +248,7 @@ const internalProductsCatalogController = {
     document.getElementById('ipcCount').textContent = `${products.length} item${products.length === 1 ? '' : 's'}`;
     const fallback = `${window.APP_BASE || ''}/uploads/school_assets/official_school_logo.png`;
     const base = String(window.APP_BASE || '').replace(/\/+$/, '');
-    document.getElementById('ipcProductsBody').innerHTML = products.map((p, index) => {
+    productsBody.innerHTML = products.map((p, index) => {
       const image = p.image_url || fallback;
       const sizes = p.sizes || [];
       const available = sizes.reduce((total, size) => total + Number(size.available || 0), 0);
@@ -296,58 +270,6 @@ const internalProductsCatalogController = {
         </div>
       </article>`;
     }).join('') || '<div class="catalog-empty"><i class="bi bi-search fs-2 d-block mb-2"></i>No matching products.</div>';
-  },
-
-  openSell(product) {
-    if (!this.state.canManage) return;
-    this.state.sellProduct = product;
-    document.getElementById('ipcSellProductInfo').innerHTML =
-      `<strong>${this.esc(product.title)}</strong> <span class="text-muted">· SKU ${this.esc(product.code || '')}</span>`;
-    document.getElementById('ipcSellProductId').value = product.id;
-    document.getElementById('ipcSellQty').value = 1;
-    const sizeSel = document.getElementById('ipcSellSize');
-    const sizes = product.sizes || [];
-    sizeSel.innerHTML = sizes.length
-      ? '<option value="">Select size…</option>' + sizes.map((s) => {
-          const available = Number(s.available || 0);
-          const variant = (product.variants || []).find((v) => Number(v.id) === Number(s.variant_id));
-          return `<option value="${Number(s.size_id)}" data-variant-id="${Number(s.variant_id || 0)}" ${available < 1 ? 'disabled' : ''}>` +
-            `${variant ? this.esc(variant.name) + ' · ' : ''}${this.esc(s.size_label || s.size)} · KES ${Number(s.unit_price || 0).toLocaleString()} (${available} available)` +
-            `</option>`;
-        }).join('')
-      : '<option value="">No sizes in stock</option>';
-    if (!this.state.students.length && this.state.allStudents.length) this.filterStudents('');
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('ipcSellModal')).show();
-  },
-
-  async submitSell() {
-    const productId = Number(document.getElementById('ipcSellProductId').value);
-    const studentId = Number(document.getElementById('ipcSellStudentLarge').value);
-    const sizeId = Number(document.getElementById('ipcSellSize').value);
-    const variantId = Number(document.getElementById('ipcSellSize').selectedOptions[0]?.dataset.variantId || 0);
-    const quantity = Number(document.getElementById('ipcSellQty').value);
-    if (!studentId || !sizeId || quantity < 1) {
-      this.notify('Select a learner, size and a positive quantity.', 'danger');
-      return;
-    }
-    const btn = document.getElementById('ipcSellSaveBtn');
-    btn.disabled = true;
-    try {
-      await window.API.inventory.createUniformCatalogPurchase({
-        student_id: studentId,
-        product_id: productId,
-        size_id: sizeId,
-        variant_id: variantId || null,
-        quantity,
-      });
-      bootstrap.Modal.getInstance(document.getElementById('ipcSellModal')).hide();
-      this.notify('Purchase created. Collect payment in the Uniform Sales workflow.');
-      this.loadData();
-    } catch (err) {
-      this.notify(err?.message || 'Unable to create the purchase.', 'danger');
-    } finally {
-      btn.disabled = false;
-    }
   },
 
   openEdit(product) {
