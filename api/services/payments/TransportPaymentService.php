@@ -197,7 +197,9 @@ class TransportPaymentService
             $s=$this->db->prepare("SELECT st.phone, st.email FROM " . ReadReplicaService::qualifiedRef('person_directory') . " st WHERE st.student_id=?"); $s->execute([$studentId]); $p=$s->fetch(PDO::FETCH_ASSOC) ?: [];
             $body='Kingsway transport payment received: KES '.number_format($amount,2).' (Ref '.$reference.'). View your parent portal for the transport receipt.';
             $m=ServiceContractBroker::contract('App\API\Modules\communications\CommunicationsManager', [], $this->db);
-            foreach (['sms'=>'phone','whatsapp'=>'phone','email'=>'email'] as $type=>$field) if (!empty($p[$field])) $m->createCommunication(['sender_id'=>1,'subject'=>'Transport payment received','body'=>$body,'type'=>$type,'status'=>'queued','priority'=>'normal','recipients'=>[$p[$field]]]);
+            $channels = ['sms'=>'phone', 'email'=>'email'];
+            if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms'=>'phone', 'whatsapp'=>'phone', 'email'=>'email'];
+            foreach ($channels as $type=>$field) if (!empty($p[$field])) $m->createCommunication(['sender_id'=>1,'subject'=>'Transport payment received','body'=>$body,'type'=>$type,'status'=>'queued','priority'=>'normal','recipients'=>[$p[$field]]]);
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[TransportPaymentService] notification failed: '.$e->getMessage()); }
     }
 

@@ -83,6 +83,11 @@ class MediaManager
         return $this->mediaService->getStoredReference($mediaId);
     }
 
+    public function getStoredMimeType($mediaId)
+    {
+        return $this->mediaService->getStoredMimeType($mediaId);
+    }
+
     // Import existing file from disk into uploads and register metadata
     public function import($sourcePath, $context, $entityId = null, $originalName = null, $uploaderId = null, $description = '', $tags = '')
     {

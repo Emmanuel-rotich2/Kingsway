@@ -42,7 +42,12 @@ class Database
         throw new Exception("Cloning of " . __CLASS__ . " is not allowed.");
     }
 
-    public function __wakeup()
+    public function __serialize(): array
+    {
+        throw new Exception('Cannot serialize singleton');
+    }
+
+    public function __unserialize(array $data): void
     {
         throw new Exception("Cannot unserialize singleton");
     }

@@ -1145,7 +1145,9 @@ class FeeManager
             $eventId = $eventService->getOrCreate('fee_reminder', $studentId . ':manual:' . date('Y-m-d'), date('Y-m-d H:i:s'), null);
             $eventService->linkFeeStudent($eventId, (int) $studentId, 'manual');
             $queued = [];
-            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+            $channels = ['sms', 'email'];
+            if (\App\API\Services\whatsapp\WhatsAppGateway::isEnabled()) $channels = ['sms', 'whatsapp', 'email'];
+            foreach ($channels as $channel) {
                 $queued[$channel] = $platform->queueForStudentParents((int) $studentId, $channel, 'fees', [
                     'parent_name' => 'Parent/Guardian',
                     'amount_due' => number_format((float) $student['amount_due'], 2),
@@ -1160,7 +1162,7 @@ class FeeManager
                 ]);
             }
             $eventService->markProcessed($eventId);
-            return formatResponse(true, ['message' => 'Fee reminders queued for SMS, WhatsApp and email.', 'channels' => $queued]);
+            return formatResponse(true, ['message' => 'Fee reminders queued for SMS and email.', 'channels' => $queued]);
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'An internal error occurred.');

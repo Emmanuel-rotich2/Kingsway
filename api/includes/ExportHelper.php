@@ -56,15 +56,15 @@ final class ExportHelper
             throw new \RuntimeException('Unable to create CSV buffer.');
         }
 
-        fputcsv($stream, [$this->schoolName()]);
-        fputcsv($stream, [$this->schoolMotto()]);
-        fputcsv($stream, ['Generated: ' . date('Y-m-d H:i:s')]);
-        fputcsv($stream, []);
+        fputcsv($stream, [$this->schoolName()], ',', '"', '\\');
+        fputcsv($stream, [$this->schoolMotto()], ',', '"', '\\');
+        fputcsv($stream, ['Generated: ' . date('Y-m-d H:i:s')], ',', '"', '\\');
+        fputcsv($stream, [], ',', '"', '\\');
 
         if ($rows !== []) {
-            fputcsv($stream, array_keys($rows[0]));
+            fputcsv($stream, array_keys($rows[0]), ',', '"', '\\');
             foreach ($rows as $row) {
-                fputcsv($stream, $row);
+                fputcsv($stream, $row, ',', '"', '\\');
             }
         }
 

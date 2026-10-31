@@ -32,7 +32,7 @@ class ScanController extends BaseController {
        Body: { qr_data, context, operator_id, session_id? }
        ========================================================= */
 
-    public function postVerify(int $id = null, array $data = [], array $segments = []): array {
+    public function postVerify(?int $id = null, array $data = [], array $segments = []): array {
         $qrData     = trim((string)($data['qr_data'] ?? ''));
         $context    = strtolower(trim((string)($data['context'] ?? 'gate')));
         $operatorId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);

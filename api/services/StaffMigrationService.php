@@ -44,7 +44,7 @@ final class StaffMigrationService
         try {
             $stmt = $this->db->prepare(
                 "SELECT ui.staff_id, ui.status
-                 FROM " . ReadReplicaService::masterRef("user_invitations") . " JOIN users u ON u.id = ui.user_id
+                 FROM " . ReadReplicaService::masterRef("user_invitations") . " ui JOIN users u ON u.id = ui.user_id
                  WHERE ui.token_hash = ? AND (
                      (ui.status = 'pending' AND ui.expires_at > NOW() AND u.status = 'active' AND u.force_password_change = 1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL)
                      OR (ui.status = 'accepted' AND u.status = 'active' AND u.force_password_change = 0 AND u.password_changed_at IS NOT NULL AND u.profile_completed_at IS NULL)
@@ -628,13 +628,18 @@ PHP;
             $claim
                 ->execute([(int)$message['id']]);
             if ($claim->rowCount() !== 1) continue;
+            // Each queued invitation has a different recipient and token.
+            // Never allow a failed row to reuse a previous row's payload or
+            // rendered body during the SMTP fallback.
+            $payload = [];
+            $body = null;
             try {
                 $payload = json_decode($message['payload_json'], true, 512, JSON_THROW_ON_ERROR);
                 $setupUrl = (string)($payload['setup_url'] ?? $payload['activation_url'] ?? '');
                 if (!preg_match('/(?:\?|&)token=([a-f0-9]{64})(?:&|$)/i', $setupUrl, $tokenMatch)) {
                     throw new RuntimeException('Invitation email has no valid setup token.');
                 }
-                $liveInvitation = $this->db->prepare("SELECT ui.id FROM " . ReadReplicaService::masterRef("user_invitations") . " JOIN users u ON u.id=ui.user_id WHERE ui.user_id=? AND ui.token_hash=? AND ui.status='pending' AND ui.expires_at>NOW() AND u.status='active' AND u.force_password_change=1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL LIMIT 1");
+                $liveInvitation = $this->db->prepare("SELECT ui.id FROM " . ReadReplicaService::masterRef("user_invitations") . " ui JOIN users u ON u.id=ui.user_id WHERE ui.user_id=? AND ui.token_hash=? AND ui.status='pending' AND ui.expires_at>NOW() AND u.status='active' AND u.force_password_change=1 AND u.password_changed_at IS NULL AND u.profile_completed_at IS NULL LIMIT 1");
                 $liveInvitation->execute([(int)$message['user_id'], hash('sha256', $tokenMatch[1])]);
                 if (!$liveInvitation->fetchColumn()) {
                     $this->db->prepare("UPDATE outbound_messages SET status='cancelled',last_error='Invitation token is no longer active',updated_at=NOW() WHERE id=? AND status='processing'")
@@ -661,7 +666,7 @@ PHP;
                 $attempts = (int) $message['attempts'] + 1;
                 // After the PHP SMTP attempts are exhausted, try the Python
                 // smtplib resilience path before scheduling another retry.
-                if ($attempts >= MessageService::SMTP_MAX_ATTEMPTS && isset($body)) {
+                if ($attempts >= MessageService::SMTP_MAX_ATTEMPTS && is_string($body) && $body !== '' && isset($payload['name'])) {
                     $fallback = $service->sendViaPythonFallback(
                         [$message['recipient'] => (string) ($payload['name'] ?? '')],
                         $message['subject'] ?: 'Your Kingsway account is ready',

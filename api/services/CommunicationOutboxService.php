@@ -39,7 +39,7 @@ class CommunicationOutboxService
         return $result;
     }
 
-    public function processOne(int $communicationId): string
+    public function processOne(int $communicationId, ?array $recipientRowIds = null): string
     {
         $claim = $this->db->prepare(
             "UPDATE communications SET status = 'processing', locked_at = NOW(), locked_by = ?, attempt_count = attempt_count + 1
@@ -53,15 +53,23 @@ class CommunicationOutboxService
         $communication = $commStmt->fetch(PDO::FETCH_ASSOC);
         if (!$communication) return 'skipped';
 
+        $recipientFilter = '';
+        $endpointParams = [$communicationId];
+        if ($recipientRowIds !== null) {
+            $recipientRowIds = array_values(array_unique(array_filter(array_map('intval', $recipientRowIds), static fn(int $id): bool => $id > 0)));
+            if ($recipientRowIds === []) return 'skipped';
+            $recipientFilter = ' AND r.id IN (' . implode(',', array_fill(0, count($recipientRowIds), '?')) . ')';
+            $endpointParams = array_merge($endpointParams, $recipientRowIds);
+        }
         $endpointStmt = $this->db->prepare(
             "SELECT e.*, r.id AS recipient_row_id, r.recipient_id
                FROM communication_recipient_endpoints e
                JOIN communication_recipients r ON r.id = e.communication_recipient_id
               WHERE r.communication_id = ? AND e.status IN ('pending','retry')
-                AND (e.next_attempt_at IS NULL OR e.next_attempt_at <= NOW())
+                AND (e.next_attempt_at IS NULL OR e.next_attempt_at <= NOW())$recipientFilter
               ORDER BY e.id"
         );
-        $endpointStmt->execute([$communicationId]);
+        $endpointStmt->execute($endpointParams);
         $endpoints = $endpointStmt->fetchAll(PDO::FETCH_ASSOC);
         if (!$endpoints) {
             $this->db->prepare("UPDATE communications SET status = 'failed', processed_at = NOW(), locked_at = NULL, locked_by = NULL, last_error = ? WHERE id = ?")
@@ -69,9 +77,34 @@ class CommunicationOutboxService
             return 'failed';
         }
         $hadFailure = false;
+        $personalizedMeta = is_array($communication['channel_meta'] ?? null)
+            ? $communication['channel_meta']
+            : (json_decode((string) ($communication['channel_meta'] ?? ''), true) ?: []);
+        $conflictedAddresses = [];
+        $personalizedStrategy = (string) ($personalizedMeta['recipient_document_strategy'] ?? $personalizedMeta['whatsapp_document_strategy'] ?? '');
+        if (in_array($communication['type'], ['email', 'sms', 'whatsapp'], true)
+            && in_array($personalizedStrategy, ['fee_statement', 'payslip', 'report_card'], true)) {
+            $ownersByAddress = [];
+            foreach ($endpoints as $candidate) {
+                $address = $communication['type'] === 'email'
+                    ? strtolower(trim((string) ($candidate['address'] ?? '')))
+                    : \App\API\Services\PhoneNumberNormalizer::normalize((string) ($candidate['address'] ?? ''));
+                $recipientUserId = (int) ($candidate['recipient_id'] ?? 0);
+                if ($address !== null && $recipientUserId > 0) $ownersByAddress[$address][$recipientUserId] = true;
+            }
+            foreach ($ownersByAddress as $address => $owners) {
+                if (count($owners) > 1) $conflictedAddresses[$address] = true;
+            }
+        }
         foreach ($endpoints as $endpoint) {
             $this->markEndpointProcessing((int) $endpoint['id']);
             try {
+                $normalizedAddress = $communication['type'] === 'email'
+                    ? strtolower(trim((string) ($endpoint['address'] ?? '')))
+                    : \App\API\Services\PhoneNumberNormalizer::normalize((string) ($endpoint['address'] ?? ''));
+                if ($normalizedAddress !== null && isset($conflictedAddresses[$normalizedAddress])) {
+                    throw new \RuntimeException('This contact address is linked to multiple accounts. Personalized document delivery needs a unique parent or staff contact address.');
+                }
                 $response = $this->deliver($communication, $endpoint);
                 $this->recordAttempt($endpoint, 'accepted', $response, null);
                 $this->markEndpointSuccess($endpoint, $response);
@@ -112,7 +145,14 @@ class CommunicationOutboxService
             // before this fix and manually retried use the provider format.
             $endpoint['address'] = $normalized;
         }
-        $body = $this->renderBody((string) ($communication['body'] ?? ''), $endpoint);
+        $recipientContext = $this->recipientContext($endpoint);
+        $variableService = new CommunicationVariableService();
+        $body = $variableService->render((string) ($communication['body'] ?? ''), $recipientContext);
+        $subject = $variableService->render((string) ($communication['subject'] ?? ''), $recipientContext);
+        $channelMeta = is_array($communication['channel_meta'] ?? null)
+            ? $communication['channel_meta']
+            : (json_decode((string) ($communication['channel_meta'] ?? ''), true) ?: []);
+        $documentStrategy = (string) ($channelMeta['recipient_document_strategy'] ?? $channelMeta['whatsapp_document_strategy'] ?? '');
         // Apply DB-stored provider configuration (System Admin pages) as an
         // overlay over the environment-config defaults.
         $commsConfig = new SystemCommsConfigService($this->db);
@@ -121,17 +161,22 @@ class CommunicationOutboxService
         if ($type === 'email') {
             $service = new MessageService($this->db);
             $service->applySmtpOverlay($commsConfig->effectiveSmtp());
-            $body = $service->renderEmail($communication['subject'], $body, $communication['sender_signature'] ?? '', '');
-            $attachmentStmt = $this->db->prepare("SELECT file_path FROM communication_attachments WHERE communication_id = ? AND file_path IS NOT NULL");
-            $attachmentStmt->execute([(int) $communication['id']]);
-            $attachments = array_values(array_filter($attachmentStmt->fetchAll(PDO::FETCH_COLUMN)));
+            $body = $service->renderEmail($subject, $body, $communication['sender_signature'] ?? '', '');
+            if ($documentStrategy !== '') {
+                $personalizedDocument = (new CommunicationRecipientDocumentService($this->db))->generate($documentStrategy, $endpoint, $channelMeta);
+                $attachments = $personalizedDocument['file_paths'];
+            } else {
+                $attachmentStmt = $this->db->prepare("SELECT file_path FROM communication_attachments WHERE communication_id = ? AND file_path IS NOT NULL");
+                $attachmentStmt->execute([(int) $communication['id']]);
+                $attachments = array_values(array_filter($attachmentStmt->fetchAll(PDO::FETCH_COLUMN)));
+            }
             $attempts = ((int) ($endpoint['attempt_count'] ?? 0)) + 1;
-            if (!$service->sendEmail([$endpoint['address'] => ''], $communication['subject'], $body, $attachments, (bool) ($communication['audit_bcc'] ?? 0))) {
+            if (!$service->sendEmail([$endpoint['address'] => ''], $subject, $body, $attachments, (bool) ($communication['audit_bcc'] ?? 0))) {
                 // After the PHP SMTP attempts are exhausted, one Python
                 // smtplib fallback is attempted before the endpoint is
                 // marked permanently failed by markEndpointFailure().
                 if ($attempts >= MessageService::SMTP_MAX_ATTEMPTS) {
-                    $fallback = $service->sendViaPythonFallback([$endpoint['address'] => ''], (string) $communication['subject'], $body, $attachments);
+                    $fallback = $service->sendViaPythonFallback([$endpoint['address'] => ''], $subject, $body, $attachments);
                     if ($fallback !== null && !empty($fallback['ok'])) {
                         FileLogger::write('communications', [
                             'type' => 'outbox_email_python_fallback',
@@ -157,7 +202,7 @@ class CommunicationOutboxService
             }
             return ['status' => 'sent'];
         }
-        if ($type === 'whatsapp' && !empty($communication['template_channel_id'])) {
+        if ($type === 'whatsapp' && $documentStrategy === '' && !empty($communication['template_channel_id'])) {
             $templateStmt = $this->db->prepare("SELECT provider_template_id FROM communication_template_channels WHERE id = ? LIMIT 1");
             $templateStmt->execute([(int) $communication['template_channel_id']]);
             $providerTemplateId = $templateStmt->fetchColumn();
@@ -181,15 +226,37 @@ class CommunicationOutboxService
             }
         }
         if ($type === 'whatsapp') {
-            $mediaStmt = $this->db->prepare(
-                "SELECT a.public_url, a.file_path, a.mime_type
-                   FROM " . ReadReplicaService::qualifiedRef("communication_attachments") . " a
-                   JOIN communication_attachment_channels ac ON ac.attachment_id = a.id
-                  WHERE a.communication_id = ? AND ac.channel = 'whatsapp' AND ac.status IN ('ready','pending')
-                  ORDER BY a.id"
-            );
-            $mediaStmt->execute([(int) $communication['id']]);
-            $media = $mediaStmt->fetch(PDO::FETCH_ASSOC);
+            if ($documentStrategy !== '') {
+                $media = (new CommunicationRecipientDocumentService($this->db))->generate($documentStrategy, $endpoint, $channelMeta);
+                if (empty($media['public_url']) && !empty($media['link_message'])) {
+                    $body = trim($body . "\n\n" . $media['link_message']);
+                }
+            } else {
+                // This write may be dispatched immediately after attachment
+                // creation. Read the primary so projection lag cannot omit it.
+                $mediaStmt = $this->db->prepare(
+                    "SELECT a.id, a.public_url, a.file_path, a.mime_type
+                       FROM communication_attachments a
+                      WHERE a.communication_id = ?
+                      ORDER BY a.id LIMIT 1"
+                );
+                $mediaStmt->execute([(int) $communication['id']]);
+                $media = $mediaStmt->fetch(PDO::FETCH_ASSOC);
+                if ($media) {
+                    $channelStmt = $this->db->prepare(
+                        "SELECT provider_media_url FROM communication_attachment_channels
+                          WHERE attachment_id = ? AND channel = 'whatsapp'
+                            AND status IN ('ready','pending') LIMIT 1"
+                    );
+                    $channelStmt->execute([(int) $media['id']]);
+                    $channelUrl = $channelStmt->fetchColumn();
+                    if (is_string($channelUrl) && $channelUrl !== '') {
+                        $media['public_url'] = $channelUrl;
+                    } else {
+                        $media = null;
+                    }
+                }
+            }
             if ($media && !empty($media['public_url'])) {
                 $mime = strtolower((string) ($media['mime_type'] ?? ''));
                 $mediaType = strpos($mime, 'image/') === 0 ? 'image' : (strpos($mime, 'video/') === 0 ? 'video' : (strpos($mime, 'audio/') === 0 ? 'audio' : 'document'));
@@ -198,6 +265,13 @@ class CommunicationOutboxService
                 $response = $whatsappGateway->sendMessage($endpoint['address'], $body);
             }
         } else {
+            if ($documentStrategy !== '') {
+                $personalizedDocument = (new CommunicationRecipientDocumentService($this->db))->generate($documentStrategy, $endpoint, $channelMeta);
+                $links = $personalizedDocument['link_message'] !== ''
+                    ? $personalizedDocument['link_message']
+                    : (string) ($personalizedDocument['public_url'] ?? '');
+                $body = trim($body . "\n\n" . $links);
+            }
             $response = $smsGateway->send($endpoint['address'], $body);
         }
         if (!$this->successful($response)) throw new \RuntimeException('Message provider rejected the message');
@@ -229,6 +303,35 @@ class CommunicationOutboxService
             $context['full_name'] = $person['full_name'] ?? trim(($person['first_name'] ?? '') . ' ' . ($person['last_name'] ?? ''));
             $context['email'] = $person['email'] ?? '';
             $context['phone'] = $person['phone'] ?? '';
+            $context['recipient_name'] = $context['full_name'] !== '' ? $context['full_name'] : ($context['first_name'] ?? '');
+        }
+
+        $userId = (int) ($endpoint['recipient_id'] ?? 0);
+        if ($userId > 0) {
+            try {
+                $guardianLink = ReadReplicaService::qualifiedRef('guardian_link');
+                $students = ReadReplicaService::qualifiedRef('students');
+                $persons = ReadReplicaService::qualifiedRef('persons');
+                $stmt = $this->db->prepare(
+                    "SELECT DISTINCT CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS learner_name
+                       FROM {$guardianLink} gl
+                       JOIN {$students} s ON s.id = gl.student_id
+                       JOIN {$persons} p ON p.id = s.person_id
+                      WHERE gl.parent_user_id = ? AND gl.student_status = 'active' AND gl.parent_status = 'active'
+                        AND s.status = 'active'
+                      ORDER BY learner_name"
+                );
+                $stmt->execute([$userId]);
+                $learnerNames = array_values(array_filter(array_map('trim', $stmt->fetchAll(PDO::FETCH_COLUMN))));
+                if ($learnerNames) {
+                    $context['learner_names'] = implode(', ', $learnerNames);
+                    $context['child_names'] = $context['learner_names'];
+                    $context['learner_count'] = (string) count($learnerNames);
+                    if (count($learnerNames) === 1) $context['learner_name'] = $learnerNames[0];
+                }
+            } catch (Throwable $e) {
+                // Unknown or non-parent recipients retain all other variables.
+            }
         }
 
         return $context;

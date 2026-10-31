@@ -28,7 +28,6 @@ class SMSGateway
             'sender_id'        => defined('SMS_SENDER_ID') ? constant('SMS_SENDER_ID') : '',
             'shortcode'        => defined('SMS_SHORTCODE') ? constant('SMS_SHORTCODE') : '',
             'api_url'          => defined('SMS_API_URL') ? constant('SMS_API_URL') : 'https://bulksms.talksasa.com/api/v3/',
-            'wa_number'        => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
             'voice_language'   => defined('SMS_VOICE_LANGUAGE') ? constant('SMS_VOICE_LANGUAGE') : 'en-gb',
             'voice_gender'     => defined('SMS_VOICE_GENDER') ? constant('SMS_VOICE_GENDER') : 'female',
         ];
@@ -71,6 +70,7 @@ class SMSGateway
 
     public function sendWhatsApp($to, $message, $media = null)
     {
+        \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
         return $this->providerCall('sendWhatsApp', [$to, (string) $message, $media]);
     }
 
