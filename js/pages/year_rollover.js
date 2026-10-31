@@ -62,7 +62,7 @@ const yearRolloverController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    await Promise.all([this._loadStatus(), this._loadYears()]);
+    await Promise.allSettled([this._loadStatus(), this._loadYears()]);
     await this._resumeInstance();
     this._bindHalfTermToggles();
     this._render();
@@ -96,7 +96,7 @@ const yearRolloverController = {
       this._years = years;
       this._currentYear = years.find(y => y.is_current) || years.find(y => (y.status || '').toLowerCase() === 'active') || years[0] || null;
       if (this._currentYear) {
-        this._loadTermsForPrefill(this._currentYear.id);
+        await this._loadTermsForPrefill(this._currentYear.id);
       }
     } catch (e) {
       console.warn('Failed to load academic years:', e);
@@ -105,11 +105,9 @@ const yearRolloverController = {
 
   _loadTermsForPrefill: async function (yearId) {
     try {
-      // /academic/terms returns terms across ALL years (getAcademicTerms ignores
-      // academic_year_id), so filter client-side on the `year` field.
-      const r = await callAPI('/academic/terms', 'GET');
+      const r = await callAPI('/academic/terms', 'GET', null, { academic_year_id: yearId });
       const all = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      this._terms = all.filter(t => Number(t.year) === Number(yearId));
+      this._terms = all;
       this._prefillForm();
     } catch (e) {
       console.warn('Failed to load terms for prefill:', e);

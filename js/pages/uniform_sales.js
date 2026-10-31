@@ -599,6 +599,7 @@ const UniformSalesController = {
      */
     loadSales: async function() {
         const tbody = document.getElementById('salesTableBody');
+        if (!tbody) return;
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" class="text-center py-4">
@@ -657,6 +658,7 @@ const UniformSalesController = {
      */
     renderSalesTable: function(sales) {
         const tbody = document.getElementById('salesTableBody');
+        if (!tbody) return;
 
         if (!sales || sales.length === 0) {
             tbody.innerHTML = `
@@ -873,6 +875,7 @@ const UniformSalesController = {
      */
     loadLowStock: async function() {
         const tbody = document.getElementById('lowStockTableBody');
+        if (!tbody) return;
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">Loading...</td></tr>';
 
         try {

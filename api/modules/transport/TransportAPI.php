@@ -292,6 +292,11 @@ class TransportAPI extends BaseAPI
     {
         return $this->assignmentManager->withdrawAssignment($studentId, $month, $year);
     }
+
+    public function withdrawAssignmentById(int $assignmentId): bool
+    {
+        return $this->assignmentManager->withdrawAssignmentById($assignmentId);
+    }
     public function getAssignments($studentId)
     {
         return $this->assignmentManager->getAssignments($studentId);

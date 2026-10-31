@@ -80,6 +80,7 @@ const UnmatchedPaymentsController = (() => {
 
   function renderTable(items) {
     const tbody = document.querySelector("#dataTable tbody");
+    if (!tbody) return;
     if (!items.length) {
       tbody.innerHTML =
         '<tr><td colspan="9" class="text-center text-muted py-4">No unmatched payments found</td></tr>';

@@ -6,6 +6,7 @@ namespace App\API\Services\documents;
 
 use App\API\Modules\academic\AcademicManager;
 use App\API\Services\PrintService;
+use App\API\Services\ReportCardReleaseService;
 use PDO;
 
 /**
@@ -20,9 +21,11 @@ final class ReportCardsProducer implements DocumentBatchProducer
 {
     private AcademicManager $academic;
     private PrintService $prints;
+    private PDO $db;
 
     public function __construct(?PDO $db = null, ?AcademicManager $academic = null, ?PrintService $prints = null)
     {
+        $this->db = $db ?? \App\Database\Database::getInstance()->getConnection();
         $this->academic = $academic ?? new AcademicManager();
         $this->prints = $prints ?? new PrintService();
     }
@@ -99,23 +102,14 @@ final class ReportCardsProducer implements DocumentBatchProducer
         }
     }
 
+    /**
+     * CBC level for a class name.
+     *
+     * Delegates to ReportCardReleaseService so the synchronous release path and
+     * the bulk producer can never disagree about which artwork a learner gets.
+     */
     private function mapClassToLevel(string $className): string
     {
-        $className = strtolower(trim($className));
-        if ($className === '') return 'PP';
-
-        if (preg_match('/^pp\d?$|^pre.primary|^play.group|^nursery/', $className)) {
-            return 'PP';
-        }
-        if (preg_match('/^grade\s*[123]|^lower.primary|^std\s*[123]/', $className)) {
-            return 'LowerPrimary';
-        }
-        if (preg_match('/^grade\s*[456]|^upper.primary|^std\s*[456]/', $className)) {
-            return 'UpperPrimary';
-        }
-        if (preg_match('/^grade\s*[789]|^junior.secondary|^form\s*[123]/', $className)) {
-            return 'JuniorSecondary';
-        }
-        return 'PP';
+        return (new ReportCardReleaseService($this->db))->levelForClass($className);
     }
 }

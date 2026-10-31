@@ -103,6 +103,15 @@ class CommunicationOutboxService
     private function deliver(array $communication, array $endpoint)
     {
         $type = $communication['type'];
+        if (in_array($type, ['sms', 'whatsapp'], true)) {
+            $normalized = \App\API\Services\PhoneNumberNormalizer::normalize((string) ($endpoint['address'] ?? ''));
+            if ($normalized === null) {
+                throw new \InvalidArgumentException('Invalid Kenyan mobile number. Use 07XXXXXXXX, 01XXXXXXXX, or 254XXXXXXXXX.');
+            }
+            // Normalize at dispatch as well as persistence so messages created
+            // before this fix and manually retried use the provider format.
+            $endpoint['address'] = $normalized;
+        }
         $body = $this->renderBody((string) ($communication['body'] ?? ''), $endpoint);
         // Apply DB-stored provider configuration (System Admin pages) as an
         // overlay over the environment-config defaults.
@@ -174,7 +183,7 @@ class CommunicationOutboxService
         if ($type === 'whatsapp') {
             $mediaStmt = $this->db->prepare(
                 "SELECT a.public_url, a.file_path, a.mime_type
-                   FROM " . ReadReplicaService::qualifiedRef("communication_attachments") . "
+                   FROM " . ReadReplicaService::qualifiedRef("communication_attachments") . " a
                    JOIN communication_attachment_channels ac ON ac.attachment_id = a.id
                   WHERE a.communication_id = ? AND ac.channel = 'whatsapp' AND ac.status IN ('ready','pending')
                   ORDER BY a.id"

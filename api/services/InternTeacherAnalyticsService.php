@@ -26,12 +26,20 @@ class InternTeacherAnalyticsService
 {
     private $db;
     private $userId;
+    private int $staffId;
     private array $period;
 
     public function __construct($userId)
     {
         $this->db = Database::getInstance();
-        $this->userId = $userId;
+        $this->userId = (int) $userId;
+        $staffContext = StaffRecordsService::staffContextForUserId(
+            $this->db->getConnection(),
+            $this->userId
+        );
+        $this->staffId = in_array($staffContext['state'] ?? '', ['active', 'on_leave'], true)
+            ? (int) ($staffContext['staff_id'] ?? 0)
+            : 0;
         $this->period = DashboardPeriodService::resolve($this->db->getConnection(), []);
     }
 
@@ -59,7 +67,7 @@ class InternTeacherAnalyticsService
                       LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = csd.id 
                         AND sae.enrollment_status = 'active'
                       WHERE ayclat.staff_id = ?";
-            $stmt = $this->db->query($query, [$this->userId]);
+            $stmt = $this->db->query($query, [$this->staffId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
@@ -116,7 +124,7 @@ class InternTeacherAnalyticsService
                         SUM(CASE WHEN resource_type = 'teaching_aid' THEN 1 ELSE 0 END) as teaching_aids
                       FROM teaching_materials 
                       WHERE status = 'approved' AND (access_scope IN ('school','public') OR teacher_id = ?)";
-            $stmt = $this->db->query($query, [$this->userId]);
+            $stmt = $this->db->query($query, [$this->staffId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
@@ -156,7 +164,7 @@ class InternTeacherAnalyticsService
                             WHERE a.id=ar.assessment_id AND a.assessment_date BETWEEN ? AND ?
                         )
                         AND sae.enrollment_status = 'active'";
-            $stmt = $this->db->query($query, [$this->userId, $this->period['date_from'], $this->period['date_to']]);
+            $stmt = $this->db->query($query, [$this->staffId, $this->period['date_from'], $this->period['date_to']]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
@@ -181,7 +189,7 @@ class InternTeacherAnalyticsService
             $query = "SELECT 
                         COUNT(DISTINCT cc.id) as total_competencies,
                         COUNT(DISTINCT lc.competency_id) as completed
-                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . "
+                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . " cc
                       LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
                       WHERE cc.status = 'active'";
             $stmt = $this->db->query($query, [$this->userId]);
@@ -236,7 +244,7 @@ class InternTeacherAnalyticsService
                       WHERE ayclat.staff_id = ?
                       GROUP BY csd.academic_year_class_id, csd.id, csd.class_name, csd.stream_name, la.name
                       ORDER BY csd.class_name";
-            $stmt = $this->db->query($query, [$this->userId]);
+            $stmt = $this->db->query($query, [$this->staffId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("getAssignedClassesTable error: " . $e->getMessage());
@@ -291,7 +299,7 @@ class InternTeacherAnalyticsService
                         lc.assessed_date as achieved_date,
                         lc.teacher_notes as notes,
                         CASE WHEN lc.id IS NOT NULL THEN 100 ELSE 0 END as score
-                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . "
+                      FROM " . ReadReplicaService::qualifiedRef("core_competencies") . " cc
                       LEFT JOIN " . ReadReplicaService::qualifiedRef("learner_competencies") . " lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
                       WHERE cc.status = 'active'
                       ORDER BY cc.sort_order, cc.name";

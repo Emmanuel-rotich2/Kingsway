@@ -66,7 +66,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Comparative Reports</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="ComparativeReportsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" onclick="ComparativeReportsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" onclick="ComparativeReportsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">

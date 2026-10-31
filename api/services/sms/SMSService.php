@@ -569,6 +569,41 @@ class SMSService
 
     public function send(array $params): array
     {
+        $submissionId = trim((string) ($params['client_submission_id'] ?? ''));
+        if ($submissionId === '' || !preg_match('/^[A-Za-z0-9_-]{12,100}$/', $submissionId)) {
+            return $this->sendOnce($params);
+        }
+
+        $senderId = $this->currentUserId();
+        $lockName = 'sms_submit_' . substr(hash('sha256', (string) $senderId . ':' . $submissionId), 0, 48);
+        $lock = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+        $lock->execute([$lockName]);
+        if ((int) $lock->fetchColumn() !== 1) {
+            throw new \RuntimeException('Could not safely confirm message submission; please retry.');
+        }
+
+        try {
+            $existing = $this->db->prepare(
+                "SELECT id, status FROM communications WHERE sender_id <=> ? AND JSON_UNQUOTE(JSON_EXTRACT(channel_meta, '$.client_submission_id')) = ? ORDER BY id DESC LIMIT 1"
+            );
+            $existing->execute([$senderId, $submissionId]);
+            $row = $existing->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                return [
+                    'communication_id' => (int) $row['id'],
+                    'mode' => (string) ($params['mode'] ?? $params['channel'] ?? 'sms'),
+                    'status' => (string) $row['status'],
+                    'idempotent_replay' => true,
+                ];
+            }
+            return $this->sendOnce($params);
+        } finally {
+            $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+        }
+    }
+
+    private function sendOnce(array $params): array
+    {
         $mode = strtolower((string) ($params['mode'] ?? $params['channel'] ?? 'sms'));
         $allowed = ['sms', 'whatsapp', 'voice', 'mms', 'hashed', 'campaign'];
         if (!in_array($mode, $allowed, true)) {
@@ -595,6 +630,7 @@ class SMSService
 
         $channelMeta = array_filter([
             'mode' => $mode,
+            'client_submission_id' => $params['client_submission_id'] ?? null,
             'schedule_time' => $scheduleTime,
             'media_url' => $params['media_url'] ?? null,
             'language' => $params['language'] ?? null,

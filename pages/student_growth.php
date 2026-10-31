@@ -224,4 +224,3 @@
 </style>
 
 <?php asset_script($appBase, 'js/pages/student_growth.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => studentGrowthCtrl.init());</script>

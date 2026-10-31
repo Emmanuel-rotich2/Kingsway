@@ -190,7 +190,7 @@ const welfareFUController = {
 
   _loadStudents: async function () {
     try {
-      const r = await callAPI('/students?status=active&limit=500', 'GET');
+      const r = await callAPI('/students/get-all?status=active&limit=500', 'GET');
       this._students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('wfStudentId');
       if (!sel) return;
@@ -206,15 +206,15 @@ const welfareFUController = {
 
   _loadStaff: async function () {
     try {
-      const r = await callAPI('/staff?limit=200', 'GET');
-      this._staff = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/students/counseling-meta', 'GET');
+      this._staff = Array.isArray(r?.data?.staff) ? r.data.staff : [];
       const sel = document.getElementById('wfAssignedTo');
       if (!sel) return;
       sel.innerHTML = '<option value="">— Select staff —</option>';
       this._staff.forEach(s => {
         const o = document.createElement('option');
         o.value       = s.id;
-        o.textContent = `${s.first_name || ''} ${s.last_name || s.name || ''}`.trim();
+        o.textContent = s.full_name || `${s.first_name || ''} ${s.last_name || s.name || ''}`.trim();
         sel.appendChild(o);
       });
     } catch (e) { console.warn('Could not load staff:', e); }

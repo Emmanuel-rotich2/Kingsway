@@ -322,7 +322,9 @@ class TransportController extends BaseController
         if (empty($data['student_id']) || empty($data['route_id'])) {
             return $this->badRequest('student_id and route_id are required');
         }
-        $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'] ?? null, $data['month'] ?? null, $data['year'] ?? null);
+        $month = isset($data['month']) && $data['month'] !== '' ? (int) $data['month'] : null;
+        $year = isset($data['year']) && $data['year'] !== '' ? (int) $data['year'] : null;
+        $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'] ?? null, $month, $year);
         return $this->handleResponse($result);
     }
     public function postWithdrawAssignment($id = null, $data = [], $segments = [])
@@ -334,6 +336,19 @@ class TransportController extends BaseController
         $result = $this->api->withdrawAssignment($data['student_id'], $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
+    public function postUnassignStudent($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        $assignmentId = (int) ($data['assignment_id'] ?? $id ?? 0);
+        if ($assignmentId < 1) {
+            return $this->badRequest('assignment_id is required');
+        }
+        $withdrawn = $this->api->withdrawAssignmentById($assignmentId);
+        if (!$withdrawn) {
+            return $this->notFound('Active route assignment not found');
+        }
+        return $this->success(['withdrawn' => true, 'assignment_id' => $assignmentId], 'Student unassigned from route');
+    }
     public function getAssignments($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getAssignments($data['student_id'] ?? null);
@@ -341,7 +356,9 @@ class TransportController extends BaseController
     }
     public function getStudentsByRoute($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getStudentsByRoute($data['route_id'] ?? null, $data['month'] ?? null, $data['year'] ?? null);
+        $month = isset($data['month']) && $data['month'] !== '' ? (int) $data['month'] : null;
+        $year = isset($data['year']) && $data['year'] !== '' ? (int) $data['year'] : null;
+        $result = $this->api->getStudentsByRoute($data['route_id'] ?? null, $month, $year);
         return $this->handleResponse($result);
     }
 

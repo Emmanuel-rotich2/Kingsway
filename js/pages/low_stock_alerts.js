@@ -13,7 +13,7 @@ const lowStockAlertsController = {
     setTimeout(() => el.remove(), 3000);
   },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.items || r?.data?.items || r?.data || []); },
 

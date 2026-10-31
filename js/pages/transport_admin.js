@@ -147,4 +147,11 @@ const transportAdminController = {
 };
 
 window.transportAdminController = transportAdminController;
-document.addEventListener('DOMContentLoaded', () => transportAdminController.init().catch(() => {}));
+function initializeTransportAdminPage() {
+  transportAdminController.init().catch((error) => console.error('Transport administration failed to initialize:', error));
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeTransportAdminPage, { once: true });
+} else {
+  initializeTransportAdminPage();
+}

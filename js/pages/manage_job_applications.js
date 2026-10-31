@@ -117,18 +117,20 @@ const jobAppsController = {
 
   async loadData() {
     const body = document.getElementById('jobAppsTableBody');
+    if (!body) return;
     body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const r = await this.API('GET', 'website/job-applications');
       this.state.items = r?.data?.items || [];
       this.render();
     } catch (e) {
-      body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`;
+      if (body.isConnected) body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`;
     }
   },
 
   render() {
     const body = document.getElementById('jobAppsTableBody');
+    if (!body) return;
     document.getElementById('statApps').textContent = this.state.items.length;
     const status = document.getElementById('appStatusFilter').value;
     const q = (document.getElementById('appSearch').value || '').toLowerCase();

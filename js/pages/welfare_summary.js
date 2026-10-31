@@ -22,6 +22,7 @@ const welfareSummaryController = {
 
   renderBars(groups, tbodyId, total, colorMap) {
     const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
     const keys = Object.keys(groups).sort((a, b) => groups[b] - groups[a]);
     if (!keys.length) { tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No data.</td></tr>'; return; }
     tbody.innerHTML = keys.map(k => {
@@ -33,8 +34,13 @@ const welfareSummaryController = {
   },
 
   async load() {
-    document.getElementById('wsKpis').innerHTML = '';
-    ['wsCat','wsPrio','wsStatus'].forEach(id => document.getElementById(id).innerHTML = '<tr><td colspan="3" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>');
+    const kpis = document.getElementById('wsKpis');
+    if (!kpis) return;
+    kpis.innerHTML = '';
+    ['wsCat','wsPrio','wsStatus'].forEach(id => {
+      const body = document.getElementById(id);
+      if (body) body.innerHTML = '<tr><td colspan="3" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    });
     try {
       const [casesRes, metaRes] = await Promise.all([
         this.API('GET', '/students/welfare-cases').catch(() => []),
@@ -43,10 +49,14 @@ const welfareSummaryController = {
       this.state.cases = this.norm(casesRes);
       this.state.meta = metaRes?.data || metaRes || {};
       this.render();
-    } catch (e) { document.getElementById('wsKpis').innerHTML = `<p class="text-danger">${this.esc(e.message || 'Load failed')}</p>`; }
+    } catch (e) {
+      const target = document.getElementById('wsKpis');
+      if (target) target.innerHTML = `<p class="text-danger">${this.esc(e.message || 'Load failed')}</p>`;
+    }
   },
 
   render() {
+    if (!document.getElementById('wsKpis')) return;
     const cases = this.state.cases;
     const total = cases.length;
     const open = cases.filter(c => ['open','in_progress'].includes(c.status)).length;

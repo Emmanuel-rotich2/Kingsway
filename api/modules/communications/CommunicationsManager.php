@@ -3,6 +3,7 @@ namespace App\API\Modules\communications;
 use App\API\Services\ReadReplicaService;
 
 use App\API\Core\FileLifecycleBase;
+use InvalidArgumentException;
 use PDO;
 
 class CommunicationsManager extends FileLifecycleBase
@@ -345,7 +346,7 @@ class CommunicationsManager extends FileLifecycleBase
             $content = $body;
         }
 
-        $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature, audit_bcc) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature, :audit_bcc)";
+        $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature, audit_bcc, channel_meta) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature, :audit_bcc, :channel_meta)";
         $stmt = $this->db->prepare($sql);
         $requestedStatus = $this->normalizeStatus($data['status'] ?? 'draft');
         $recordOnly = !empty($data['record_only']);
@@ -354,6 +355,38 @@ class CommunicationsManager extends FileLifecycleBase
             : ((!$recordOnly && $requestedStatus === 'sent') ? 'queued' : ($recordOnly && $requestedStatus === 'sent' ? 'delivered' : $requestedStatus));
         if (!$recordOnly && !$isAnnouncement && in_array($storedStatus, ['queued', 'scheduled'], true) && empty($data['recipients'])) {
             throw new \InvalidArgumentException('At least one recipient is required');
+        }
+        // The browser keeps this key stable for one compose action. A named
+        // lock serializes concurrent retries without requiring a schema change.
+        $submissionId = (string) ($data['channel_meta']['client_submission_id'] ?? '');
+        $lockName = '';
+        $lockHeld = false;
+        if ($submissionId !== '' && preg_match('/^[A-Za-z0-9_-]{12,100}$/', $submissionId)) {
+            $senderId = (int) ($data['sender_id'] ?? 1);
+            $lockName = 'comm_submit_' . substr(hash('sha256', $senderId . ':' . $submissionId), 0, 48);
+            $lockStmt = $this->db->prepare('SELECT GET_LOCK(?, 10)');
+            $lockStmt->execute([$lockName]);
+            $lockHeld = (int) $lockStmt->fetchColumn() === 1;
+            if (!$lockHeld) throw new \RuntimeException('Could not safely confirm message submission; please retry.');
+            try {
+                $existingStmt = $this->db->prepare(
+                    "SELECT id FROM communications WHERE sender_id = ? AND type = ? AND JSON_UNQUOTE(JSON_EXTRACT(channel_meta, '$.client_submission_id')) = ? ORDER BY id DESC LIMIT 1"
+                );
+                $existingStmt->execute([$senderId, $type, $submissionId]);
+                $existingId = (int) ($existingStmt->fetchColumn() ?: 0);
+            } catch (\Throwable $e) {
+                $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+                throw $e;
+            }
+            if ($existingId > 0) {
+                try {
+                    $existing = $this->getCommunication($existingId);
+                    $existing['idempotent_replay'] = true;
+                    return $existing;
+                } finally {
+                    $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
+                }
+            }
         }
         $startedTransaction = !$this->db->inTransaction();
         if ($startedTransaction) $this->db->beginTransaction();
@@ -370,10 +403,11 @@ class CommunicationsManager extends FileLifecycleBase
             ':reminder_at' => $data['reminder_at'] ?? null,
             ':sender_signature' => $data['sender_signature'] ?? $data['signature'] ?? null,
             ':audit_bcc' => !empty($data['audit_bcc']) ? 1 : 0,
+            ':channel_meta' => isset($data['channel_meta']) ? json_encode($data['channel_meta'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) : null,
         ]);
         $communicationId = (int) $this->db->lastInsertId();
         if (!empty($data['recipients'])) {
-            $this->createCommunicationRecipients($communicationId, $type, (array) $data['recipients'], $data['recipient_type'] ?? null, $recordOnly, $requestedStatus, (array) ($data['target_ids'] ?? []));
+            $this->createCommunicationRecipients($communicationId, $type, (array) $data['recipients'], $data['recipient_type'] ?? null, $recordOnly, $data['record_only_status'] ?? $requestedStatus, (array) ($data['target_ids'] ?? []));
         }
         $communication = $this->getCommunication($communicationId);
         if ($startedTransaction) $this->db->commit();
@@ -381,6 +415,8 @@ class CommunicationsManager extends FileLifecycleBase
         } catch (\Throwable $e) {
             if ($startedTransaction && $this->db->inTransaction()) $this->db->rollBack();
             throw $e;
+        } finally {
+            if ($lockHeld) $this->db->prepare('SELECT RELEASE_LOCK(?)')->execute([$lockName]);
         }
     }
 
@@ -541,6 +577,21 @@ class CommunicationsManager extends FileLifecycleBase
             $rows[] = [null, $value];
         }
         if (!$rows) throw new \InvalidArgumentException('At least one valid recipient is required');
+        if (in_array($type, ['sms', 'whatsapp'], true)) {
+            foreach ($rows as &$row) {
+                $normalized = \App\API\Services\PhoneNumberNormalizer::normalize((string) ($row[1] ?? ''));
+                if ($normalized === null) {
+                    throw new \InvalidArgumentException('A recipient has an invalid Kenyan mobile number. Use 07XXXXXXXX, 01XXXXXXXX, or 254XXXXXXXXX.');
+                }
+                $row[1] = $normalized;
+            }
+            unset($row);
+            $uniqueRows = [];
+            foreach ($rows as $row) {
+                $uniqueRows[(string) ($row[0] ?? '') . ':' . $row[1]] = $row;
+            }
+            $rows = array_values($uniqueRows);
+        }
         $recipientStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'queued';
         $endpointStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'pending';
         $recipientStmt = $this->db->prepare(
@@ -563,7 +614,7 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row !== false && !$this->communicationVisibleTo($row, $filters)) {
+        if ($row !== false && (!$this->communicationVisibleTo($row, $filters) || !$this->communicationInScope($row, $filters))) {
             return null;
         }
         return $row === false ? null : $this->decorateRow($row);
@@ -591,6 +642,15 @@ class CommunicationsManager extends FileLifecycleBase
             return (bool) $recipientStmt->fetchColumn();
         }
         return false;
+    }
+
+    private function communicationInScope(array $row, array $filters): bool
+    {
+        $scope = $filters['data_scope'] ?? 'both';
+        if (!in_array($scope, ['live', 'test'], true)) return true;
+        $metadata = json_decode((string) ($row['channel_meta'] ?? ''), true);
+        $recordScope = is_array($metadata) ? ($metadata['data_scope'] ?? 'live') : 'live';
+        return $scope === 'test' ? $recordScope === 'test' : $recordScope !== 'test';
     }
     public function updateCommunication($id, $data)
     {
@@ -647,6 +707,12 @@ class CommunicationsManager extends FileLifecycleBase
             $params[':visibility_recipient'] = $visibilityUserId;
         } elseif ($visibility === 'teacher_parent') {
             $sql .= " AND EXISTS (SELECT 1 FROM user_roles sender_role WHERE sender_role.user_id = communications.sender_id AND sender_role.role_id IN (7, 8, 9)) AND (sender_signature LIKE '%parent%' OR sender_signature LIKE '%selected_students%' OR sender_signature LIKE '%selected_class%' OR EXISTS (SELECT 1 FROM communication_recipients cr_parent JOIN users parent_user ON parent_user.id = cr_parent.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr_parent.communication_id = communications.id))";
+        }
+        if (in_array($filters['data_scope'] ?? '', ['live', 'test'], true)) {
+            $scope = $filters['data_scope'];
+            $sql .= $scope === 'test'
+                ? " AND JSON_UNQUOTE(JSON_EXTRACT(channel_meta, '$.data_scope')) = 'test'"
+                : " AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(channel_meta, '$.data_scope')), 'live') <> 'test'";
         }
         if (isset($filters['from_date'])) {
             $sql .= " AND created_at >= :from_date";
@@ -742,6 +808,13 @@ class CommunicationsManager extends FileLifecycleBase
      */
     private function decorateRow(array $row): array
     {
+        if (isset($row['channel_meta']) && is_string($row['channel_meta'])) {
+            $metadata = json_decode($row['channel_meta'], true);
+            if (is_array($metadata)) $row['channel_meta'] = $metadata;
+        }
+        if (is_array($row['channel_meta'] ?? null)) {
+            $row['delivery_mode'] = $row['channel_meta']['delivery_mode'] ?? null;
+        }
         if (!array_key_exists('content', $row)) {
             $row['content'] = $row['body'] ?? null;
         }
@@ -809,22 +882,28 @@ class CommunicationsManager extends FileLifecycleBase
         $mimeType = $fileData['mime_type'] ?? null;
         $fileSize = $fileData['file_size'] ?? null;
         $mediaId = null;
-        try {
-            $mediaManager = \App\API\Services\ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
-            $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
-            $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
-            if ($uploadFile) {
-                $mediaId = $mediaManager->upload($uploadFile, 'communications', $communicationId, null, $uploader, $fileData['description'] ?? 'communication attachment');
-                // Persist only the upload-root-relative reference. Resolve it
-                // through UPLOAD_URL when building a browser response.
-                $storedReference = $mediaManager->getStoredReference($mediaId);
-                $filePath = $storedReference ?: $filePath;
-                $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
-                $mimeType = $mimeType ?: ($uploadFile['type'] ?? null);
-                $fileSize = $fileSize ?: ($uploadFile['size'] ?? null);
+        $mediaManager = \App\API\Services\ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
+        $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
+        $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
+        if (is_array($uploadFile)) {
+            if ((int) ($uploadFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                throw new InvalidArgumentException('Attachment upload failed. Select a file and retry.');
             }
-        } catch (\Exception $e) {
-            // fallback to provided file_path/file_name if media upload fails
+            $mediaId = $mediaManager->upload($uploadFile, 'communications', $communicationId, null, $uploader, $fileData['description'] ?? 'communication attachment');
+            // Persist only the upload-root-relative reference. Resolve it
+            // through UPLOAD_URL when building a browser response.
+            $storedReference = $mediaManager->getStoredReference($mediaId);
+            if (!is_string($storedReference) || trim($storedReference) === '') {
+                throw new \RuntimeException('Attachment upload completed without a stored file reference.');
+            }
+            $filePath = $storedReference;
+            $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
+            $mimeType = $mimeType ?: ($uploadFile['type'] ?? null);
+            $fileSize = $fileSize ?: ($uploadFile['size'] ?? null);
+        }
+
+        if (!is_string($filePath) || trim($filePath) === '') {
+            throw new InvalidArgumentException('A file is required for a communication attachment.');
         }
 
         $publicUrl = $filePath;

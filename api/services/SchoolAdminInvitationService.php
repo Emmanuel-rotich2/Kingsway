@@ -37,8 +37,9 @@ final class SchoolAdminInvitationService
         if ($schoolAdminRole) {
             $countStmt = $this->pdo->prepare(
                 'SELECT COUNT(DISTINCT u.id)
-                 FROM ' . ReadReplicaService::qualifiedRef('person_directory') . '  
-                 WHERE ur.role_id=? AND COALESCE(u.is_test_user,0)=0'
+                 FROM users u
+                 JOIN user_roles ur ON ur.user_id = u.id
+                 WHERE ur.role_id = ? AND COALESCE(u.is_test_user, 0) = 0'
             );
             $countStmt->execute([(int) $schoolAdminRole['id']]);
             $count = (int) $countStmt->fetchColumn();
@@ -78,9 +79,9 @@ final class SchoolAdminInvitationService
                        om.sent_at AS invitation_sent_at, ui.expires_at,
                        ui.accepted_at
                 FROM users u
-                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " pd ON pd.person_id = u.person_id
+                JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " p ON p.person_id = u.person_id
                 JOIN user_roles ur ON ur.user_id=u.id AND ur.role_id=?
-                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.person_id=p.id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.person_id=p.person_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " sda ON sda.id=(
                     SELECT a.id FROM " . ReadReplicaService::qualifiedRef("staff_department_assignments") . " a
                     WHERE a.staff_id=s.id AND a.effective_to IS NULL

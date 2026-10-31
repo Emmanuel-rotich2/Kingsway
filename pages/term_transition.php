@@ -69,6 +69,7 @@
             I confirm that all <span id="ttConfirmTermName">current term</span> data (results, attendance, lesson plans) has been finalised
           </label>
         </div>
+        <div id="ttResultsReadiness" class="alert alert-warning d-none mb-3"></div>
         <div id="ttCloseError" class="alert alert-danger d-none"></div>
       </div>
     </div>
@@ -246,4 +247,3 @@
 </style>
 
 <?php asset_script($appBase, 'js/pages/term_transition.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => termTransitionController.init());</script>

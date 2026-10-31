@@ -1,103 +1,38 @@
 <?php
-/**
- * Class Report Cards - Class Teacher Specific Report Card Generation
- * Role: Class Teacher (7)
- * Purpose: Generate report cards for their assigned classes
- * Shows only classes the teacher is assigned to
- */
+/** Class-teacher view of assessment results used to prepare report cards. */
 ?>
 <div class="container-fluid py-4">
-    <div class="row">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-file-earmark-text me-2"></i>Class Report Cards
-                    </h5>
-                    <small class="text-muted">View and prepare report cards for your assigned classes</small>
+    <div class="card">
+        <div class="card-header">
+            <h5 class="card-title mb-1"><i class="bi bi-file-earmark-text me-2"></i>Class Report Card Results</h5>
+            <small class="text-muted">Review assessment results for classes assigned to you.</small>
+        </div>
+        <div class="card-body">
+            <div id="reportCardsError" class="alert alert-danger d-none" role="alert"></div>
+            <div id="reportCardsLoading" class="text-center py-4" role="status">
+                <div class="spinner-border text-primary" aria-hidden="true"></div>
+                <p class="mt-2 text-muted">Loading assessment results…</p>
+            </div>
+            <div id="reportCardsContent" style="display:none">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3"><label class="form-label" for="yearFilter">Academic Year</label><select id="yearFilter" class="form-select"><option value="">All Years</option></select></div>
+                    <div class="col-md-3"><label class="form-label" for="termFilter">Term</label><select id="termFilter" class="form-select"><option value="">All Terms</option></select></div>
+                    <div class="col-md-3"><label class="form-label" for="classFilter">Class</label><select id="classFilter" class="form-select"><option value="">All Assigned Classes</option></select></div>
+                    <div class="col-md-3"><label class="form-label" for="studentFilter">Find Student</label><input id="studentFilter" class="form-control" type="search" placeholder="Name or admission number"></div>
                 </div>
-                <div class="card-body">
-                    <div id="reportCardsLoading" class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2 text-muted">Loading class data...</p>
-                    </div>
-                    <div id="reportCardsContent" style="display: none;">
-                        <div class="row mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Term</label>
-                                <select id="termFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Terms</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Class</label>
-                                <select id="classFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Classes</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Student</label>
-                                <select id="studentFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Students</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div class="d-flex gap-2">
-                                <button id="loadStudentsBtn" class="btn btn-primary" data-permission="report_cards_view">
-                                    <i class="bi bi-search me-1"></i>Load Students
-                                </button>
-                                <button id="generateSingleBtn" class="btn btn-success" data-permission="report_cards_generate">
-                                    <i class="bi bi-file-earmark-plus me-1"></i>Create Report Card
-                                </button>
-                                <button id="generateBatchBtn" class="btn btn-outline-success" data-permission="report_cards_generate">
-                                    <i class="bi bi-files me-1"></i>Generate All
-                                </button>
-                            </div>
-                            <div id="statsContainer" class="d-flex gap-3">
-                                <span class="badge bg-primary">Students: <span id="totalStudents">0</span></span>
-                                <span class="badge bg-info">Generated: <span id="generatedCount">0</span></span>
-                            </div>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table table-hover" id="studentsTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 50px;">
-                                            <input type="checkbox" id="selectAllStudents">
-                                        </th>
-                                        <th scope="col">Student</th>
-                                        <th scope="col">Adm No</th>
-                                        <th scope="col">Class</th>
-                                        <th scope="col">Term Average</th>
-                                        <th scope="col">Overall Grade</th>
-                                        <th scope="col">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="studentsTableBody">
-                                    <tr>
-                                        <td colspan="7" class="text-center text-muted py-4">
-                                            Select filters and click Load Students
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                    <div class="d-flex gap-2"><button id="exportBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-download me-1"></i>Export CSV</button><button id="printBtn" type="button" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>Print</button></div>
+                    <div class="d-flex gap-2"><span class="badge text-bg-primary">Students: <span id="totalStudents">0</span></span><span class="badge text-bg-info">Assessment results: <span id="generatedCount">0</span></span></div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover" id="studentsTable">
+                        <thead><tr><th scope="col">Student</th><th scope="col">Adm No</th><th scope="col">Class</th><th scope="col">Learning Area</th><th scope="col">Assessment</th><th scope="col">Score %</th><th scope="col">Grade</th></tr></thead>
+                        <tbody id="studentsTableBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading assessment results…</td></tr></tbody>
+                    </table>
                 </div>
             </div>
         </div>
     </div>
 </div>
-
+<style>@media print { .btn, select, input { display:none !important; } }</style>
 <?php asset_script($appBase, 'js/pages/class_report_cards.js'); ?>

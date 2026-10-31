@@ -14,7 +14,8 @@ if ($appBase === '.') $appBase = '';
     <div class="d-flex gap-2 align-items-end flex-wrap">
       <div><label class="form-label small fw-semibold">From</label><input type="date" class="form-control form-control-sm" id="msFrom"></div>
       <div><label class="form-label small fw-semibold">To</label><input type="date" class="form-control form-control-sm" id="msTo"></div>
-      <button class="btn btn-outline-success btn-sm" onclick="mealStatisticsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-success btn-sm" id="msExportBtn"><i class="bi bi-download me-1"></i>Export CSV</button>
+      <button class="btn btn-outline-secondary btn-sm" id="msPrintBtn"><i class="bi bi-printer me-1"></i>Print / PDF</button>
     </div>
   </div>
 

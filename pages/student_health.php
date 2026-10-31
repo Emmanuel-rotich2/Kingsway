@@ -33,6 +33,9 @@ if (!isset($appBase)) {
                     <button class="btn btn-outline-light btn-sm" id="exportBtn">
                         <i class="bi bi-download"></i> Export
                     </button>
+                    <button class="btn btn-outline-light btn-sm" id="printBtn" type="button">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
                     <button class="btn btn-light btn-sm" id="addRecordBtn">
                         <i class="bi bi-plus-circle"></i> Add Record
                     </button>

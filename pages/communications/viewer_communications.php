@@ -60,11 +60,16 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeViewerCommunications = function () {
         loadInbox();
 
         document.getElementById('markAllRead').addEventListener('click', markAllAsRead);
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeViewerCommunications, { once: true });
+    } else {
+        initializeViewerCommunications();
+    }
 
     async function loadInbox() {
         try {

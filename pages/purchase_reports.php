@@ -11,7 +11,7 @@ if ($appBase === '.') $appBase = '';
       <h4 class="fw-bold mb-0"><i class="bi bi-receipt-cutoff text-primary me-2"></i>Purchase Reports</h4>
       <p class="text-muted small mb-0 mt-1">Purchase order totals, status breakdown and supplier activity.</p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="purchaseReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" id="prExportBtn" type="button"><i class="bi bi-download me-1"></i>Export CSV</button><button class="btn btn-outline-secondary btn-sm" id="prPrintBtn" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
   </div>
 
   <div id="prStats" class="row g-3 mb-4"></div>
@@ -37,5 +37,6 @@ if ($appBase === '.') $appBase = '';
   </div>
 
 </div>
+<style>@media print { #prExportBtn, #prPrintBtn { display:none !important; } }</style>
 
 <?php asset_script($appBase, 'js/pages/purchase_reports.js'); ?>

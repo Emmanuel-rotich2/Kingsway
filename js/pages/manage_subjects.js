@@ -1,85 +1,75 @@
-/**
- * Manage Subjects Controller
- * Manages learning areas/subjects.
- */
+/** Read-only canonical learning-area register. Changes use curriculum proposals. */
 const manageSubjectsController = {
-  state: { referenceCache: null, subjects: [], categories: [] },
-
+  rows: [],
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  async loadReferencesComposed() {
+  esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+  },
+  unwrap(response) {
+    let value = response;
+    for (let i = 0; i < 3 && value && !Array.isArray(value); i += 1) {
+      value = value.data ?? value.result ?? value;
+    }
+    return Array.isArray(value) ? value : [];
+  },
+  async load() {
+    const body = document.getElementById('msSubjectsBody');
+    const error = document.getElementById('msError');
+    if (error) error.classList.add('d-none');
+    if (body) body.innerHTML = '<tr><td colspan="4" class="text-center py-4">Loading learning areas…</td></tr>';
     try {
-      const response = await window.API.nodeViews.read("academic", "curriculum-cbc-reference");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Manage Subjects Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+      const response = await this.API('GET', '/api/academic/learning-areas/list');
+      this.rows = this.unwrap(response);
+      this.render();
+    } catch (exception) {
+      if (body) body.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-4">Learning areas could not be loaded.</td></tr>';
+      if (error) { error.textContent = exception?.message || 'Learning areas could not be loaded.'; error.classList.remove('d-none'); }
     }
   },
-
-  async load() {
-    try {
-      const cache = this.state.referenceCache;
-      const [subjects, categories] = await Promise.all([
-        cache?.subjects !== undefined ? cache.subjects : this.API('GET', '/api/academic/learning-areas'),
-        cache?.categories !== undefined ? cache.categories : this.API('GET', '/api/academic/subject-categories'),
-      ]);
-      this.state.subjects = Array.isArray(subjects?.data) ? subjects.data : (Array.isArray(subjects) ? subjects : []);
-      this.state.categories = Array.isArray(categories?.data) ? categories.data : (Array.isArray(categories) ? categories : []);
-      this.renderSubjects();
-      this.renderFormOptions();
-    } catch (e) { console.error(e); }
-  },
-
-  getCache(key) { return this.state.referenceCache?.[key]; },
-
-  renderSubjects() {
-    const subjects = this.state.subjects;
+  render() {
     const body = document.getElementById('msSubjectsBody');
-    if (!subjects.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No subjects defined.</td></tr>'; return; }
-    body.innerHTML = subjects.map(s => `<tr>
-      <td class="small">${this.esc(s.code || '—')}</td>
-      <td class="small">${this.esc(s.name || '—')}</td>
-      <td class="small">${this.esc(s.category || '—')}</td>
-      <td class="small"><span class="badge bg-${s.is_active ? 'success' : 'secondary'}">${s.is_active ? 'Active' : 'Inactive'}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="manageSubjectsController.editSubject(${s.id})"><i class="bi bi-pencil"></i></button></td>
-    </tr>`).join('');
+    const search = (document.getElementById('searchSubjects')?.value || '').trim().toLowerCase();
+    const status = document.getElementById('subjectStatusFilter')?.value || '';
+    const rows = this.rows.filter((row) => {
+      const active = String(row.status || '').toLowerCase() === 'active';
+      return (!search || `${row.name || ''} ${row.code || ''}`.toLowerCase().includes(search))
+        && (!status || (status === 'active') === active);
+    });
+    if (body) body.innerHTML = rows.length ? rows.map((row, index) => {
+      const active = String(row.status || '').toLowerCase() === 'active';
+      return `<tr><td>${index + 1}</td><td>${this.esc(row.name || '—')}</td><td>${this.esc(row.code || '—')}</td><td><span class="badge bg-${active ? 'success' : 'secondary'}">${this.esc(row.status || 'Unknown')}</span></td></tr>`;
+    }).join('') : '<tr><td colspan="4" class="text-center py-4 text-muted">No matching learning areas.</td></tr>';
+    const activeCount = this.rows.filter((row) => String(row.status || '').toLowerCase() === 'active').length;
+    const total = document.getElementById('totalSubjectsCount'); if (total) total.textContent = this.rows.length;
+    const core = document.getElementById('coreSubjectsCount'); if (core) core.textContent = activeCount;
+    const optional = document.getElementById('optionalSubjectsCount'); if (optional) optional.textContent = this.rows.length - activeCount;
+    const teachers = document.getElementById('teachersAssignedCount'); if (teachers) teachers.textContent = '—';
+    const from = document.getElementById('subjShowingFrom'); if (from) from.textContent = rows.length ? '1' : '0';
+    const to = document.getElementById('subjShowingTo'); if (to) to.textContent = rows.length;
+    const count = document.getElementById('subjTotalRecords'); if (count) count.textContent = rows.length;
+    const pagination = document.getElementById('subjectsPagination'); if (pagination) pagination.replaceChildren();
   },
-
-  renderFormOptions() {
-    const categories = this.state.categories;
-    const categorySelect = document.getElementById('msCategorySelect');
-    if (categorySelect) categorySelect.innerHTML = '<option value="">Select Category</option>' + categories.map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('');
+  exportSubjects() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('academic')) return window.showNotification?.('You do not have permission to export.', 'warning');
+    const rows = this.rows.map((row) => [row.name || '', row.code || '', row.status || '']);
+    const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [['Name', 'Code', 'Status'], ...rows].map((row) => row.map(quote).join(',')).join('\r\n');
+    window.KingswayFileLifecycle?.exportText?.(csv, 'learning-areas.csv', 'text/csv;charset=utf-8;');
   },
-
-  async createSubject() {
-    const code = document.getElementById('msCode')?.value;
-    const name = document.getElementById('msName')?.value;
-    const category = document.getElementById('msCategorySelect')?.value;
-    if (!code || !name) { this.notify('Code and name required', 'warning'); return; }
-    try {
-      await this.API('POST', '/api/academic/learning-areas', { code, name, category_id: category });
-      this.notify('Subject created', 'success');
-      document.getElementById('msForm')?.reset();
-      await this.load();
-    } catch (e) { this.notify('Creation failed', 'danger'); }
-  },
-
-  async editSubject(id) { /* open edit modal */ },
-
-  notify(msg, type = 'info') { if (window.showNotification) window.showNotification(msg, type); else if (window.showToast) window.showToast(msg, type); else alert(msg); },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("manage_subjects", {
-      refresh: async () => { this.state.referenceCache = null; await this.loadReferencesComposed(); await this.load(); }
-    }, ["academic"]);
-  },
+  init() {
+    document.getElementById('searchSubjects')?.addEventListener('input', () => this.render());
+    document.getElementById('subjectStatusFilter')?.addEventListener('change', () => this.render());
+    document.getElementById('categoryFilter')?.closest('.col-md-3')?.classList.add('d-none');
+    document.getElementById('levelFilter')?.closest('.col-md-3')?.classList.add('d-none');
+    document.getElementById('printSubjects')?.addEventListener('click', () => {
+      if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('academic')) window.print();
+    });
+    window.APIRealtime?.register?.('manage_subjects', { refresh: () => this.load() }, ['academic']);
+    return this.load();
+  }
 };
-
 window.manageSubjectsController = manageSubjectsController;
-document.addEventListener('DOMContentLoaded', () => manageSubjectsController.init().catch(() => {}));
+window.ManageSubjectsController = manageSubjectsController;
+document.addEventListener('DOMContentLoaded', () => manageSubjectsController.init());

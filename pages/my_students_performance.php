@@ -47,9 +47,6 @@
 
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="loadPerformanceBtn" class="btn btn-primary" data-permission="results_view">
-                                    <i class="bi bi-search me-1"></i>Load Performance
-                                </button>
                                 <button id="exportBtn" class="btn btn-outline-success" data-permission="results_export">
                                     <i class="bi bi-download me-1"></i>Export
                                 </button>
@@ -72,16 +69,16 @@
                                         <th scope="col">Adm No</th>
                                         <th scope="col">Class</th>
                                         <th scope="col">Overall Average</th>
-                                        <th scope="col">Best Subject</th>
-                                        <th scope="col">Needs Improvement</th>
-                                        <th scope="col">Trend</th>
-                                        <th scope="col">Actions</th>
+                                        <th scope="col">Best Learning Area</th>
+                                        <th scope="col">Area for Support</th>
+                                        <th scope="col">Rank</th>
+                                        <th scope="col">Graded Assessments</th>
                                     </tr>
                                 </thead>
                                 <tbody id="performanceTableBody">
                                     <tr>
                                         <td colspan="8" class="text-center text-muted py-4">
-                                            Select filters and click Load Performance
+                                            Loading your assigned learners’ results…
                                         </td>
                                     </tr>
                                 </tbody>

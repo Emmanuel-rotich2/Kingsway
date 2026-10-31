@@ -174,6 +174,7 @@ viewSpecs.set('academic/manager-overview', {
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'learningAreas', endpoint: '/api/academic/learning-areas/list' },
     { key: 'years', endpoint: '/api/academic/years/list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
   ],
   aggregations: {},
 });
@@ -412,6 +413,7 @@ viewSpecs.set('academic/academic-reports-references', {
   permissions: [],
   queries: [
     { key: 'years', endpoint: '/api/academic/years-list' },
+    { key: 'terms', endpoint: '/api/academic/terms-list' },
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'learningAreas', endpoint: '/api/academic/learning-areas/list' },
   ],
@@ -525,7 +527,6 @@ viewSpecs.set('students/management-reference-data', {
   service: 'php',
   permissions: [],
   queries: [
-    { key: 'importContext', endpoint: '/api/students/import-context' },
     { key: 'classes', endpoint: '/api/academic/classes-list' },
     { key: 'studentTypes', endpoint: '/api/finance/student-types-list' },
     { key: 'streams', endpoint: '/api/academic/streams-list' },
@@ -629,7 +630,7 @@ viewSpecs.set('finance/payment-reconciliation-references', {
   queries: [
     { key: 'students', endpoint: '/api/students/get-all', staticParams: { limit: '1000', status: 'active' } },
     { key: 'fundSources', endpoint: '/api/finance/student-fund-sources' },
-    { key: 'uniformSales', endpoint: '/api/inventory/list-uniform-sales', staticParams: { limit: '1000' } },
+    { key: 'uniformSales', endpoint: '/api/inventory/uniform-sales-list', staticParams: { limit: '1000' } },
   ],
   aggregations: {},
 });
@@ -718,7 +719,7 @@ viewSpecs.set('inventory/requisitions-references', {
   service: 'php',
   permissions: [],
   queries: [
-    { key: 'requisitions', endpoint: '/api/inventory/requisitions' },
+    { key: 'requisitions', endpoint: '/api/inventory/requisitions-list' },
   ],
   aggregations: {},
 });
@@ -730,7 +731,7 @@ viewSpecs.set('inventory/stock-references', {
   permissions: [],
   queries: [
     { key: 'items', endpoint: '/api/inventory/assets' },
-    { key: 'movements', endpoint: '/api/inventory/stock' },
+    { key: 'movements', endpoint: '/api/inventory/movements-list' },
   ],
   aggregations: {},
 });

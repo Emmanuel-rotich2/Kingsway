@@ -1,7 +1,7 @@
 <?php
 /**
- * Observation Schedule — PARTIAL
- * Planned classroom observation sessions.
+ * Observation Schedule
+ * Shows classroom observation records linked to the signed-in staff member.
  * JS controller: js/pages/observation_schedule.js
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
@@ -12,11 +12,8 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <div>
       <h3 class="mb-0"><i class="bi bi-eye me-2 text-primary"></i>Observation Schedule</h3>
-      <small class="text-muted">Classroom observation sessions planned and completed</small>
+    <small class="text-muted">Scheduled and completed sessions recorded in the school observation register</small>
     </div>
-    <button class="btn btn-primary btn-sm" id="osScheduleBtn">
-      <i class="bi bi-plus-circle me-1"></i> Schedule Observation
-    </button>
   </div>
 
   <!-- Stats -->
@@ -41,7 +38,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-secondary" id="osStatThisTerm">—</div>
-          <div class="text-muted small">This Term</div>
+          <div class="text-muted small">Total Records</div>
         </div>
       </div>
     </div>
@@ -64,12 +61,10 @@
             <thead class="table-light">
               <tr>
                 <th scope="col">Date</th>
-                <th scope="col">Time</th>
+                <th scope="col">Learning Area</th>
                 <th scope="col">Class</th>
-                <th scope="col">Subject</th>
                 <th scope="col">Observer</th>
                 <th scope="col">Status</th>
-                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="osTableBody"></tbody>
@@ -78,52 +73,11 @@
       </div>
       <div id="osEmpty" style="display:none;" class="text-center py-5">
         <i class="bi bi-eye-slash fs-1 text-muted"></i>
-        <p class="text-muted mt-2 mb-0">No observations scheduled yet.</p>
+        <p class="text-muted mt-2 mb-0">No observation records are linked to your staff account.</p>
       </div>
     </div>
   </div>
 
 </div>
 
-<!-- Schedule Observation Modal -->
-<div class="modal fade" id="osModal" tabindex="-1" aria-labelledby="osModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <div class="modal-header border-bottom">
-        <h5 class="modal-title" id="osModalLabel"><i class="bi bi-eye me-2 text-primary"></i>Schedule Observation</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Date <span class="text-danger">*</span></label>
-            <input type="date" class="form-control" id="osObsDate">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Time</label>
-            <input type="time" class="form-control" id="osObsTime">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Class <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="osClass" placeholder="e.g. Grade 4A">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Subject <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="osSubject" placeholder="e.g. Mathematics">
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Observer / Mentor</label>
-            <input type="text" class="form-control" id="osObserver" placeholder="Name of observer">
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer border-top">
-        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary btn-sm" id="osSaveBtn">
-          <i class="bi bi-check-circle me-1"></i> Save
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
 <?php asset_script($appBase, 'js/pages/observation_schedule.js'); ?>

@@ -394,6 +394,9 @@ class ReportsController extends BaseController
     // --- Logs Reports ---
     public function getCommunicationLogs($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['communications_view', 'communications_manage', 'reports_view'], [1, 3, 4, 5, 6, 7, 8], [])) {
+            return $this->forbidden('Communication activity access is required');
+        }
         return $this->handleResponse($this->api->communicationLogs($data));
     }
     public function getFeeStructureLogs($id = null, $data = [], $segments = [])

@@ -115,6 +115,8 @@
         </div>
     </section>
 
+    <div id="rollCallError" class="alert alert-danger d-none" role="alert"></div>
+
     <!-- Selection Controls -->
     <div class="card shadow-sm mb-4">
         <div class="card-body">

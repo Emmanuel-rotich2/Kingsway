@@ -105,8 +105,15 @@ class StudentTransportStatusManager
             "SELECT DISTINCT tr.id, tr.name, tr.code, tr.start_point, tr.end_point,
                     tr.morning_departure, tr.afternoon_departure,
                     v.id AS vehicle_id, v.registration_number AS vehicle_registration
-             FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
-             WHERE u.id = ? AND ds.status IN ('active','on_leave')
+             FROM " . ReadReplicaService::qualifiedRef("staff") . " s
+             JOIN transport_vehicles v ON v.driver_id = s.id
+             JOIN " . ReadReplicaService::qualifiedRef("transport_vehicle_routes") . " tvr
+               ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+             JOIN " . ReadReplicaService::qualifiedRef("transport_routes") . " tr
+               ON tr.id = tvr.route_id AND tr.status = 'active'
+             JOIN users u ON u.person_id = s.person_id
+             WHERE u.id = ? AND s.status IN ('active', 'on_leave')
+               AND v.status = 'active'
              ORDER BY tr.name"
         );
         $routeStmt->execute([$userId]);
@@ -120,14 +127,22 @@ class StudentTransportStatusManager
         $month = (int)$dateObj->format('n');
         $year = (int)$dateObj->format('Y');
         $sql = "SELECT s.id AS student_id, s.admission_no, p.first_name, p.last_name,
+                       roster.full_name, roster.gender, roster.class_id, roster.class_name,
+                       roster.stream_id, roster.stream_name, roster.guardian_phone,
+                       roster.vehicle_id, roster.vehicle_name AS vehicle_registration,
+                       roster.pickup_point, roster.dropoff_point,
+                       roster.assignment_status,
                        a.route_id, a.stop_id, COALESCE(a.pickup_stop_id, a.stop_id) AS pickup_stop_id,
                        COALESCE(ps.name, ss.name) AS stop_name,
                        ps.sequence AS stop_sequence, ps.arrival_time, ps.departure_time,
                        sta.id AS attendance_id, sta.status AS attendance_status,
                        sta.marked_time, sta.marked_by, sta.vehicle_id AS attendance_vehicle_id
-                FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . "
+                FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
                 JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON s.id = a.student_id
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_roster") . " roster
+                  ON roster.assignment_id = a.id AND roster.student_id = a.student_id
+                 AND roster.route_id = a.route_id
                 LEFT JOIN transport_stops ps ON ps.id = a.pickup_stop_id
                 LEFT JOIN transport_stops ss ON ss.id = a.stop_id
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("student_transport_attendance") . " sta
@@ -137,7 +152,7 @@ class StudentTransportStatusManager
                  AND sta.trip_session = ?
                 WHERE a.route_id IN ($placeholders)
                   AND a.month = ? AND a.year = ?
-                  AND a.status IN ('active','suspended')
+                  AND a.status = 'active'
                 ORDER BY a.route_id, COALESCE(ps.sequence, 9999), p.last_name, p.first_name";
         $params = array_merge([$date, $tripSession], $routeIds, [$month, $year]);
         $stmt = $this->db->prepare($sql);
@@ -148,7 +163,9 @@ class StudentTransportStatusManager
             $status = (string)($student['attendance_status'] ?? '');
             $student['boarding_status'] = $status === 'picked_up' ? 'boarded'
                 : ($status === 'dropped_off' ? 'dropped_off' : 'not_boarded');
-            $student['boarded'] = $status === 'picked_up';
+            $student['boarded'] = $tripSession === 'evening_dropoff'
+                ? $status === 'dropped_off'
+                : $status === 'picked_up';
             $student['attendance_id'] = $student['attendance_id'] ? (int)$student['attendance_id'] : null;
             $student['student_id'] = (int)$student['student_id'];
             $student['route_id'] = (int)$student['route_id'];

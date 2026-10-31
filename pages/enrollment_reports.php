@@ -89,11 +89,15 @@ if ($appBase === '.')
                 <button class="btn btn-light" onclick="enrollmentReportsController.exportReport()">
                     <i class="bi bi-download me-2"></i>Export
                 </button>
+                <button class="btn btn-outline-light" id="printEnrollmentReport" type="button">
+                    <i class="bi bi-printer me-2"></i>Print
+                </button>
             </div>
         </div>
     </div>
 
     <!-- Summary Cards -->
+    <div class="alert alert-danger d-none" id="enrollmentReportError" role="alert"></div>
     <div class="row g-3 mb-4" id="summaryCards">
         <div class="col-6 col-md-3">
             <div class="stat-card p-3">

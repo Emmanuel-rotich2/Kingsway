@@ -120,11 +120,6 @@ if (!isset($appBase)) {
                     </select>
                 </div>
 
-                <div class="col-xl-2 col-md-4">
-                    <label class="form-label fw-semibold">Month</label>
-                    <input type="month" class="form-control" id="monthFilter">
-                </div>
-
                 <div class="col-xl-4 col-md-8">
                     <label class="form-label fw-semibold">Search Student</label>
                     <div class="input-group">
@@ -134,12 +129,6 @@ if (!isset($appBase)) {
                         <input type="text" class="form-control" id="studentSearch"
                                placeholder="Search by name, admission number, student ID, or UPI">
                     </div>
-                </div>
-
-                <div class="col-xl-2 col-md-6 d-flex align-items-end">
-                    <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="bi bi-funnel me-1"></i> Apply
-                    </button>
                 </div>
 
                 <div class="col-xl-2 col-md-6 d-flex align-items-end">
@@ -275,21 +264,9 @@ if (!isset($appBase)) {
                 <div class="card border-0 bg-light mb-4">
                     <div class="card-body">
                         <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold">Academic Year</label>
-                                <select class="form-select" id="modalAcademicYear"></select>
-                            </div>
-
-                            <div class="col-md-4">
+                            <div class="col-md-8">
                                 <label class="form-label fw-semibold">Term</label>
                                 <select class="form-select" id="modalTerm"></select>
-                            </div>
-
-                            <div class="col-md-4">
-                                <label class="form-label fw-semibold">Assessment</label>
-                                <select class="form-select" id="modalAssessment">
-                                    <option value="">All Assessments</option>
-                                </select>
                             </div>
 
                             <div class="col-md-12 text-end">

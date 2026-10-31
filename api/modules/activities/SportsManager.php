@@ -241,8 +241,8 @@ class SportsManager extends BaseAPI
                        DATE_FORMAT(f.fixture_date, '%H:%i') AS time,
                        f.venue, f.fixture_type, f.home_away, f.status,
                        f.our_score, f.opponent_score, f.result, f.season
-                FROM " . ReadReplicaService::qualifiedRef("sports_fixtures") . "
-                JOIN sports_teams t ON t.id = f.team_id
+                FROM " . ReadReplicaService::masterRef("sports_fixtures") . " f
+                JOIN " . ReadReplicaService::masterRef("sports_teams") . " t ON t.id = f.team_id
                 WHERE $whereClause
                 ORDER BY f.fixture_date DESC, f.id DESC
                 LIMIT $limit
@@ -271,8 +271,8 @@ class SportsManager extends BaseAPI
                        f.venue, f.fixture_type, f.home_away, f.status,
                        f.our_score, f.opponent_score, f.result, f.season,
                        f.match_report, f.referee
-                FROM " . ReadReplicaService::qualifiedRef("sports_fixtures") . "
-                JOIN sports_teams t ON t.id = f.team_id
+                FROM " . ReadReplicaService::masterRef("sports_fixtures") . " f
+                JOIN " . ReadReplicaService::masterRef("sports_teams") . " t ON t.id = f.team_id
                 WHERE f.id = ?
             ";
             $stmt = $this->db->prepare($sql);
@@ -350,7 +350,7 @@ class SportsManager extends BaseAPI
                 return ['success' => false, 'message' => 'Fixture ID is required', 'data' => null];
             }
 
-            $stmt = $this->db->prepare('SELECT id, team_id, status FROM ' . ReadReplicaService::qualifiedRef('sports_fixtures') . ' WHERE id = ?');
+            $stmt = $this->db->prepare('SELECT id, team_id, status FROM ' . ReadReplicaService::masterRef('sports_fixtures') . ' WHERE id = ?');
             $stmt->execute([$fixtureId]);
             $fixture = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$fixture) {

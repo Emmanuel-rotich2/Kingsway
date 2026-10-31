@@ -8,6 +8,7 @@
   })[c]);
   const notify = (message, type = "info") => {
     const box = el("bootstrapAlert");
+    if (!box) return;
     box.className = `alert alert-${type}`;
     box.textContent = message;
     box.classList.remove("d-none");
@@ -20,16 +21,19 @@
   };
 
   function renderInvitations(items) {
+    const body = el("schoolAdminInvitationsBody");
+    if (!body) return;
     state.invitations = Array.isArray(items) ? items : [];
-    el("schoolAdminInvitationCount").textContent = `${state.invitations.length} account/invitation record(s)`;
+    const count = el("schoolAdminInvitationCount");
+    if (count) count.textContent = `${state.invitations.length} account/invitation record(s)`;
     if (!state.invitations.length) {
-      el("schoolAdminInvitationsBody").innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No School Administrator accounts or invitations yet.</td></tr>';
+      body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No School Administrator accounts or invitations yet.</td></tr>';
       return;
     }
     const badge = (status, palette) => `<span class="badge text-bg-${palette}">${escapeHtml(status)}</span>`;
     const invitePalette = { pending: "warning", accepted: "success", expired: "secondary", revoked: "danger", not_sent: "dark" };
     const accountPalette = { active: "success", pending: "warning", inactive: "secondary", suspended: "danger", locked: "danger" };
-    el("schoolAdminInvitationsBody").innerHTML = state.invitations.map((item) => {
+    body.innerHTML = state.invitations.map((item) => {
       const invite = item.invitation_status || "not_sent";
       const profileComplete = Number(item.profile_completed) === 1;
       const account = profileComplete
@@ -138,24 +142,29 @@
 
   async function refreshInvitations(showMessage = false) {
     if (state.loading) return false;
+    const refreshButton = el("refreshSchoolAdminInvitations");
+    if (!refreshButton) return false;
     state.loading = true;
-    el("refreshSchoolAdminInvitations").disabled = true;
+    refreshButton.disabled = true;
     try {
       const response = rows(await window.API.staff.getSchoolAdministratorBootstrap());
-      el("bootstrapDepartment").innerHTML = '<option value="">Select department</option>' +
-        (response.departments || []).map((department) => `<option value="${Number(department.id)}">${escapeHtml(department.name)}</option>`).join("");
+      const department = el("bootstrapDepartment");
+      if (department) department.innerHTML = '<option value="">Select department</option>' +
+        (response.departments || []).map((item) => `<option value="${Number(item.id)}">${escapeHtml(item.name)}</option>`).join("");
       populateEmploymentReferences(response);
-      el("bootstrapAvailability").textContent = `${Number(response.administrator_count || 0)} administrators`;
+      const availability = el("bootstrapAvailability");
+      if (availability) availability.textContent = `${Number(response.administrator_count || 0)} administrators`;
       renderInvitations(response.invitations || []);
       if (showMessage) notify("Invitation history refreshed.", "success");
       return true;
     } catch (error) {
-      el("schoolAdminInvitationsBody").innerHTML = '<tr><td colspan="9" class="text-center text-danger py-4">Invitation history could not be loaded.</td></tr>';
+      const body = el("schoolAdminInvitationsBody");
+      if (body) body.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-4">Invitation history could not be loaded.</td></tr>';
       if (showMessage) notify(error?.message || "Could not refresh invitation history.", "danger");
       return false;
     } finally {
       state.loading = false;
-      el("refreshSchoolAdminInvitations").disabled = false;
+      refreshButton.disabled = false;
     }
   }
 
@@ -187,9 +196,12 @@
       notify("Only a System Administrator may invite School Administrators.", "danger");
       return;
     }
-    el("schoolAdminBootstrapForm").classList.remove("d-none");
-    el("bootstrapAvailability").className = "badge text-bg-primary px-3 py-2";
-    el("bootstrapAvailability").textContent = "Invitations available";
+    el("schoolAdminBootstrapForm")?.classList.remove("d-none");
+    const availability = el("bootstrapAvailability");
+    if (availability) {
+      availability.className = "badge text-bg-primary px-3 py-2";
+      availability.textContent = "Invitations available";
+    }
     if (await refreshInvitations()) notify("Create another School Administrator invitation at any time.", "info");
   }
 
@@ -249,6 +261,14 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    // Soft navigation re-dispatches a synthetic DOMContentLoaded on `document`
+    // for every fragment swap (see js/core/soft_navigation.js). That means this
+    // handler runs again after the user has navigated away and this page's DOM
+    // has been replaced. Without this guard the handler dereferences elements
+    // that no longer exist (`el("exportSchoolAdminInvitations").hidden` throws
+    // "can't access property \"hidden\", el(...) is null") and re-fires load().
+    if (!el("bootstrapAlert") || !el("schoolAdminInvitationsBody")) return;
+
     el("schoolAdminBootstrapForm")?.addEventListener("submit", submit);
     el("refreshSchoolAdminInvitations")?.addEventListener("click", () => refreshInvitations(true));
     el("exportSchoolAdminInvitations")?.addEventListener("click", exportInvitations);
@@ -257,8 +277,14 @@
       window.PrintManager?.printPage({ title: "School Administrator Invitations", orientation: "landscape" }) ?? window.print();
     });
     el("schoolAdminInvitationsBody")?.addEventListener("click", handleInvitationAction);
-    if (typeof window.AuthContext?.canExport === "function") el("exportSchoolAdminInvitations").hidden = !window.AuthContext.canExport("users");
-    if (typeof window.AuthContext?.canPrint === "function") el("printSchoolAdminInvitations").hidden = !window.AuthContext.canPrint("users");
+    const exportButton = el("exportSchoolAdminInvitations");
+    if (exportButton && typeof window.AuthContext?.canExport === "function") {
+      exportButton.hidden = !window.AuthContext.canExport("users");
+    }
+    const printButton = el("printSchoolAdminInvitations");
+    if (printButton && typeof window.AuthContext?.canPrint === "function") {
+      printButton.hidden = !window.AuthContext.canPrint("users");
+    }
     load();
   });
 })();

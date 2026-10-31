@@ -199,7 +199,7 @@ async function runGateway() {
   }
 
   await gateway.start()
-    .then(() => {
+    .then(async () => {
       if (underPassenger) {
         gateway.server.listen('passenger', () => {
           process.stdout.write(
@@ -209,15 +209,24 @@ async function runGateway() {
         });
         return;
       }
-      gateway.server.listen(gateway.config.port, gateway.config.host, () => {
-        process.stdout.write(
-          `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
-          + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
-        );
+      await new Promise((resolve, reject) => {
+        const onError = (error) => reject(error);
+        gateway.server.once('error', onError);
+        gateway.server.listen(gateway.config.port, gateway.config.host, () => {
+          gateway.server.removeListener('error', onError);
+          process.stdout.write(
+            `Kingsway realtime listening on ${gateway.config.host}:${gateway.config.port} `
+            + `(bus: jsonl-file, pool: ${gateway.config.sse.maxConnections})\n`,
+          );
+          resolve();
+        });
       });
     })
     .catch((error) => {
-      process.stderr.write(`Kingsway realtime failed to start: ${error.message}\n`);
+      const message = error.code === 'EADDRINUSE'
+        ? `port ${gateway.config.port} is already in use; check NODE_ENV / NODE_REALTIME_PORT and stop or reconfigure only the process that owns that port`
+        : error.message;
+      process.stderr.write(`Kingsway realtime failed to start: ${message}\n`);
       process.exit(1);
     });
 

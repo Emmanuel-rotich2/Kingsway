@@ -511,7 +511,7 @@ define(
 
 define(
     'NODE_REALTIME_PUBLIC_URL',
-    $_ENV['NODE_REALTIME_URL'] ?? 'http://localhost:3000'
+    $_ENV['NODE_REALTIME_URL'] ?? 'http://127.0.0.1:3000'
 );
 
 define(

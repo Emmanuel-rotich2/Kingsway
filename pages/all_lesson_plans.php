@@ -14,12 +14,13 @@
             <small class="text-muted">View and manage lesson plans across all teachers and subjects</small>
         </div>
         <div class="btn-group">
+            <button class="btn btn-outline-secondary btn-sm" id="printLessonPlansBtn" type="button"><i class="bi bi-printer"></i> Print / PDF</button>
             <button class="btn btn-outline-primary btn-sm" id="exportLessonPlansBtn">
                 <i class="bi bi-download"></i> Export
             </button>
-            <button class="btn btn-success btn-sm" id="addLessonPlanBtn">
+            <a class="btn btn-success btn-sm" id="addLessonPlanBtn" href="<?= htmlspecialchars(($appBase ?? '') . '/home.php?route=create_lesson_plan', ENT_QUOTES, 'UTF-8') ?>">
                 <i class="bi bi-plus-circle"></i> New Lesson Plan
-            </button>
+            </a>
         </div>
     </div>
 

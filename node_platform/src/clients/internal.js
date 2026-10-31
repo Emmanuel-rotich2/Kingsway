@@ -49,7 +49,15 @@ class CircuitBreaker {
       this.onSuccess();
       return result;
     } catch (e) {
-      this.onFailure();
+      const statusCode = Number(e?.statusCode);
+      if (Number.isInteger(statusCode) && statusCode >= 400 && statusCode < 500) {
+        // A PHP 4xx is an application/authentication response, not evidence
+        // that PHP is unavailable. Do not let expected client errors open the
+        // shared circuit and turn unrelated page reads into 502s.
+        this.onSuccess();
+      } else {
+        this.onFailure();
+      }
       throw e;
     }
   }

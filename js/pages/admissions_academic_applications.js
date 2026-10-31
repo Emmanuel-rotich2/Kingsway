@@ -57,12 +57,24 @@ const academicApplicationsController = {
         }
     },
 
+    listFrom(response, keys = []) {
+        let value = response;
+        for (let depth = 0; depth < 6; depth += 1) {
+            if (Array.isArray(value)) return value;
+            if (!value || typeof value !== 'object') return [];
+            const nested = keys.map((key) => value[key]).find((item) => item !== undefined);
+            value = nested !== undefined
+                ? nested
+                : value.data ?? value.items ?? value.rows ?? value.records;
+        }
+        return Array.isArray(value) ? value : [];
+    },
+
     loadPlacementTests: async function() {
         try {
             const cache = this.state.referenceCache;
             const response = cache?.placementTests !== undefined ? cache.placementTests : await API.callAPI('/admission/placement-tests', 'GET');
-            const payload = response?.data || response || {};
-            this.placementTests = payload.tests || payload.placement_tests || [];
+            this.placementTests = this.listFrom(response, ['tests', 'placement_tests']);
         } catch (error) {
             console.error('Failed to load placement tests:', error);
             this.placementTests = [];
@@ -73,8 +85,7 @@ const academicApplicationsController = {
         try {
             const cache = this.state.referenceCache;
             const response = cache?.classes !== undefined ? cache.classes : await API.callAPI('/admission/placement-classes', 'GET');
-            const payload = response?.data || response || {};
-            this.classes = payload.classes || [];
+            this.classes = this.listFrom(response, ['classes']);
             this.populateClassDropdown();
         } catch (error) {
             console.error('Failed to load classes:', error);
@@ -211,6 +222,7 @@ const academicApplicationsController = {
     
     renderApplicationsTable: function() {
         const tbody = document.getElementById('applicationsTableBody');
+        if (!tbody) return;
         
         if (this.filteredApplications.length === 0) {
             tbody.innerHTML = `
@@ -368,14 +380,6 @@ const academicApplicationsController = {
             }
         });
         
-        // Class placement form submission
-        const placementForm = document.getElementById('classPlacementForm');
-        if (placementForm) {
-            placementForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.submitPlacement();
-            });
-        }
     },
     
     viewApplication: function(applicationId) {
@@ -442,8 +446,6 @@ const academicApplicationsController = {
     },
     
     makePlacement: function(applicationId) {
-        document.getElementById('placementApplicationId').value = applicationId;
-        
         // Load applicant details for the modal
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
@@ -464,38 +466,6 @@ const academicApplicationsController = {
             .catch(error => {
                 console.error('Failed to load applicant details:', error);
                 showNotification('error', 'Failed to load applicant details');
-            });
-    },
-    
-    submitPlacement: function() {
-        const applicationId = document.getElementById('placementApplicationId').value;
-        const submitBtn = document.querySelector('#classPlacementForm button[type="submit"]');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
-        
-        const placementData = {
-            assigned_class_id: document.getElementById('recommendedClass').value,
-            placement_type: document.getElementById('placementType').value,
-            remarks: document.getElementById('placementRemarks').value
-        };
-        
-        API.callAPI('/admission/generate-placement-offer', 'POST', {
-            application_id: applicationId,
-            ...placementData
-        })
-            .then(response => {
-                showNotification('success', 'Class placement recorded successfully');
-                bootstrap.Modal.getInstance(document.getElementById('classPlacementModal')).hide();
-                document.getElementById('classPlacementForm').reset();
-                this.loadApplications();
-            })
-            .catch(error => {
-                console.error('Failed to submit placement:', error);
-                showNotification('error', 'Failed to submit placement');
-            })
-            .finally(() => {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Submit Placement';
             });
     },
     

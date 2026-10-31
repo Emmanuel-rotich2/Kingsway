@@ -113,12 +113,6 @@ class ControllerRouter
             }
             $ctrlCamel = ucfirst($controllerName);
             $httpLower = strtolower($method);
-            $isPlural = (substr($ctrlCamel, -1) === 's');
-            $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
-            $candidates[] = $httpLower . $ctrlCamel;
-            if ($isPlural) {
-                $candidates[] = $httpLower . $singular;
-            }
             // Only fall back to the generic action/list handlers (get, index) for a
             // BARE resource (e.g. GET /api/academic or /api/academic/{id}). A NAMED
             // resource that has no handler must 404 — otherwise unknown slugs silently
@@ -126,6 +120,12 @@ class ControllerRouter
             // broken endpoints as a false "success"). This was the root cause of
             // academic pages appearing to work while fetching irrelevant subjects data.
             if (!$resource) {
+                $isPlural = (substr($ctrlCamel, -1) === 's');
+                $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
+                $candidates[] = $httpLower . $ctrlCamel;
+                if ($isPlural) {
+                    $candidates[] = $httpLower . $singular;
+                }
                 $candidates[] = $httpLower;
                 $candidates[] = 'index';
             }
@@ -140,14 +140,27 @@ class ControllerRouter
                 }
             }
 
-            // Fallback: if the full joined resource resolves to nothing but the
-            // resource-minus-last-segment maps to an existing method, treat the
-            // last segment as a string ID. This supports RESTful routes with
-            // non-numeric IDs (e.g. /parent-portal/mpesa-status/{checkoutRequestId}
-            // where Safaricom checkout IDs are alphanumeric). Only applies when the
-            // full resource would otherwise 404, so existing named resources such
-            // as /inventory/items-list are never affected.
-            if (!$found && $resource && count($segments) > 1) {
+            // When a numeric ID is followed by an action segment, route to the
+            // resource handler and pass only the action suffix. For example,
+            // /library/issues/12/return resolves to putIssues(12, ..., ['return']).
+            // Keep the numeric ID intact; treating "return" as the ID silently
+            // sends the wrong value to handlers that support nested actions.
+            if (!$found && $resource && $id !== null && count($segments) > 1) {
+                for ($prefixLength = count($segments) - 1; $prefixLength > 0; $prefixLength--) {
+                    $prefixResource = implode('-', array_slice($segments, 0, $prefixLength));
+                    $prefixMethod = $this->buildMethodName($method, $prefixResource);
+                    if (method_exists($controller, $prefixMethod)) {
+                        $found = $prefixMethod;
+                        $segments = array_slice($segments, $prefixLength);
+                        break;
+                    }
+                }
+            }
+
+            // Fallback for RESTful routes with non-numeric IDs (for example,
+            // /parent-portal/mpesa-status/{checkoutRequestId}). This is only
+            // available when no numeric ID was already extracted.
+            if (!$found && $resource && $id === null && count($segments) > 1) {
                 $stringId = array_pop($segments);
                 $prefixResource = implode('-', $segments);
                 $prefixMethod = $this->buildMethodName($method, $prefixResource);

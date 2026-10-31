@@ -14,9 +14,14 @@ const RubricsController = {
         pageSize: 25,
     },
 
+    isMounted() {
+        return Boolean(document.getElementById('assessmentRubricsPage')?.isConnected);
+    },
+
     async init() {
-        if (this.initialized) return;
+        if (this.initialized || !this.isMounted()) return;
         await window.AuthContext?.ready?.();
+        if (!this.isMounted()) return;
         if (!window.AuthContext?.isAuthenticated?.()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -31,7 +36,9 @@ const RubricsController = {
         document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !this.canManage));
         this.setupEventListeners();
         await this.loadToolReferencesComposed();
+        if (!this.isMounted()) return;
         await this.loadRubrics();
+        if (!this.isMounted()) return;
         window.APIRealtime?.register?.(
             "assessment_rubrics",
             { refresh: async () => { await this.loadToolReferencesComposed(); await this.loadRubrics(); } },
@@ -60,6 +67,7 @@ const RubricsController = {
     },
 
     async loadToolReferences() {
+        if (!this.isMounted()) return;
         try {
             const [types, areas] = await Promise.all([
                 callAPI('/api/academic/assessment-classifications'),
@@ -67,9 +75,13 @@ const RubricsController = {
             ]);
             const typeRows = Array.isArray(types) ? types : (types?.data || []);
             const areaRows = Array.isArray(areas) ? areas : (areas?.data || []);
-            document.getElementById('toolType').innerHTML = '<option value="">Select type</option>' +
+            const typeSelect = document.getElementById('toolType');
+            const areaSelect = document.getElementById('toolArea');
+            if (!this.isMounted()) return;
+            if (!typeSelect || !areaSelect) return;
+            typeSelect.innerHTML = '<option value="">Select type</option>' +
                 typeRows.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            document.getElementById('toolArea').innerHTML = '<option value="">Select learning area</option>' +
+            areaSelect.innerHTML = '<option value="">Select learning area</option>' +
                 areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
         } catch (e) {
             console.error('Failed to load assessment tool references', e);
@@ -79,22 +91,29 @@ const RubricsController = {
     // Composed startup read: one authorized Node view supplies assessment
     // classifications, learning areas and tools; rubric rows stay a direct read.
     async loadToolReferencesComposed() {
+        if (!this.isMounted()) return;
         try {
             const response = await window.API.nodeViews.resolve("academic", "assessment-rubrics-reference");
+            if (!this.isMounted()) return;
             const sources = response?.data?.sources || response?.sources || {};
             const pick = (value) => (Array.isArray(value) ? value : (value?.data || []));
             const typeRows = pick(sources.classifications);
             const areaRows = pick(sources.learningAreas);
             this.state.tools = pick(sources.tools);
-            document.getElementById('toolType').innerHTML = '<option value="">Select type</option>' +
+            const typeSelect = document.getElementById('toolType');
+            const areaSelect = document.getElementById('toolArea');
+            if (!typeSelect || !areaSelect) return;
+            typeSelect.innerHTML = '<option value="">Select type</option>' +
                 typeRows.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            document.getElementById('toolArea').innerHTML = '<option value="">Select learning area</option>' +
+            areaSelect.innerHTML = '<option value="">Select learning area</option>' +
                 areaRows.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join('');
             this.populateToolSelects();
         } catch (e) {
             console.error('Assessment rubric reference Node view failed; falling back to direct reads:', e);
-            await this.loadToolReferences();
-            await this.loadTools();
+            if (this.isMounted()) {
+                await this.loadToolReferences();
+                if (this.isMounted()) await this.loadTools();
+            }
         }
     },
 
@@ -126,8 +145,10 @@ const RubricsController = {
     },
 
     async loadTools() {
+        if (!this.isMounted()) return;
         try {
             const res = await callAPI('/api/academic/assessment-tools');
+            if (!this.isMounted()) return;
             this.state.tools = Array.isArray(res) ? res : (res?.data || []);
             this.populateToolSelects();
         } catch (e) {
@@ -148,10 +169,12 @@ const RubricsController = {
     },
 
     async loadRubrics() {
+        if (!this.isMounted()) return;
         try {
             const toolId = document.getElementById('toolFilter')?.value || '';
             const url = toolId ? `/api/academic/assessment-rubrics?tool_id=${toolId}` : '/api/academic/assessment-rubrics';
             const res = await callAPI(url);
+            if (!this.isMounted()) return;
             this.state.rubrics = Array.isArray(res) ? res : (res?.data || []);
             this.state.page = 1;
             this.render();

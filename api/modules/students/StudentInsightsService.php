@@ -205,7 +205,7 @@ class StudentInsightsService
         $attendance = $this->fetchAttendanceSummary($studentId, $termId, $yearId);
         $disciplineRecords = $this->fetchAll(
             "SELECT di.id, di.incident_date AS date, di.description AS case_title, di.severity, di.status, di.action_taken
-             FROM " . ReadReplicaService::qualifiedRef("discipline_incidents") . "
+             FROM " . ReadReplicaService::masterRef("discipline_incidents") . " di
              JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = di.student_academic_enrollment_id
              WHERE ae.student_id = ? ORDER BY di.incident_date DESC",
             [$studentId]

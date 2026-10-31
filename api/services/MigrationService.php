@@ -15,6 +15,34 @@ class MigrationService
         $this->ensureMigrationsTable();
     }
 
+    /**
+     * Resolve the MySQL client binary.
+     *
+     * The stack is system Apache + system MariaDB (XAMPP was removed), so the
+     * client that ships with the OS package is the one that exists. A packaged
+     * XAMPP path is deliberately NOT a fallback any more: it would make the
+     * migration runner fail on every clean install with a misleading
+     * "mysql client not executable" error instead of finding the real client.
+     *
+     * An explicit MYSQL_BIN still overrides everything (CI, odd PATHs).
+     */
+    private static function mysqlBinary(): string
+    {
+        $env = getenv('MYSQL_BIN');
+        if (is_string($env) && $env !== '' && is_executable($env)) {
+            return $env;
+        }
+
+        foreach (['/usr/bin/mysql', '/usr/local/bin/mysql'] as $candidate) {
+            if (is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        $which = @shell_exec('command -v mysql 2>/dev/null');
+        return is_string($which) && trim($which) !== '' ? trim($which) : '/usr/bin/mysql';
+    }
+
     private function ensureMigrationsTable(): void
     {
         $this->db->exec("CREATE TABLE IF NOT EXISTS migrations (
@@ -100,7 +128,7 @@ class MigrationService
             throw new \InvalidArgumentException('At least one migration filename is required');
         }
 
-        $mysql = getenv('MYSQL_BIN') ?: '/opt/lampp/bin/mysql';
+        $mysql = self::mysqlBinary();
         if (!is_executable($mysql)) {
             throw new \RuntimeException("mysql client not executable: {$mysql}");
         }

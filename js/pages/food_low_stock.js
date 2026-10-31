@@ -3,7 +3,7 @@ const foodLowStockController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   norm(r) { return Array.isArray(r) ? r : (r?.data || r?.items || r || []); },
 
@@ -33,13 +33,14 @@ const foodLowStockController = {
 
   async load() {
     const body = document.getElementById('flsBody');
+    if (!body) return;
     body.innerHTML = '<tr><td colspan="9" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const cache = this.state.referenceCache;
       const r = cache?.items !== undefined ? cache.items : await this.API('GET', '/catering/food-stock', null, { low_stock: '1', limit: 200 });
       this.state.items = this.norm(r);
       this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+    } catch (e) { if (body.isConnected) body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
   },
 
   render() {
@@ -49,7 +50,7 @@ const foodLowStockController = {
     const reorder = items.filter(i => String(i.stock_status || '').toUpperCase() === 'REORDER').length;
     const low = items.filter(i => String(i.stock_status || '').toUpperCase() === 'LOW STOCK').length;
     const expiring = items.filter(i => i.expiry_status && String(i.expiry_status).toUpperCase() !== 'OK').length;
-    stats.innerHTML = [
+    if (stats) stats.innerHTML = [
       `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Out of Stock</div><div class="fs-4 fw-bold text-danger">${this.esc(out)}</div></div></div>`,
       `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Reorder</div><div class="fs-4 fw-bold text-warning">${this.esc(reorder)}</div></div></div>`,
       `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Low Stock</div><div class="fs-4 fw-bold">${this.esc(low)}</div></div></div>`,
@@ -57,6 +58,7 @@ const foodLowStockController = {
     ].join('');
 
     const body = document.getElementById('flsBody');
+    if (!body) return;
     if (!items.length) { body.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No low-stock food items found.</td></tr>'; return; }
     body.innerHTML = items.map(i => {
       const expiryWarn = i.expiry_status && String(i.expiry_status).toUpperCase() !== 'OK';

@@ -13,31 +13,3 @@
 <div id="library-content" style="display:none;"></div>
 
 <?php asset_script($appBase, 'js/pages/manage_library.js'); ?>
-<script>
-  document.addEventListener('DOMContentLoaded', function () {
-    PageShell.loadRoleTemplate({
-      loadingId:   'library-loading',
-      contentId:   'library-content',
-      templateDir: '/pages/library/',
-      module:      'Library',
-      levels: [
-        {
-          file: 'admin_library.php',
-          test: function () {
-            return PageShell.hasAny(['library.manage', 'library.issue', 'library.create']);
-          },
-        },
-        {
-          file: 'viewer_library.php',
-          test: function () {
-            return PageShell.hasAny(['library.view', 'library_view']) ||
-                   PageShell.hasRole(['parent', 'student']);
-          },
-        },
-      ],
-      afterLoad: function () {
-        if (typeof libraryController !== 'undefined') libraryController.init();
-      },
-    });
-  });
-</script>

@@ -142,7 +142,7 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeManagerCommunications = function () {
         loadMessages();
         initCharts();
 
@@ -150,7 +150,12 @@
             new bootstrap.Modal(document.getElementById('composeModal')).show();
         });
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeManagerCommunications, { once: true });
+    } else {
+        initializeManagerCommunications();
+    }
 
     let _managerMessages = [];
 

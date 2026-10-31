@@ -46,7 +46,9 @@ const classParentContactsController = {
   _load: async function () {
     this._show('cpLoading');
     try {
-      const r = await callAPI('/students/parents?class=self', 'GET');
+      // The named /parents resource is not a collection route; use the
+      // role-scoped list handler, which forces class-teacher scope server-side.
+      const r = await callAPI('/students/parents/list?class=self', 'GET');
       this._data = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       this._filtered = [...this._data];
       this._render();

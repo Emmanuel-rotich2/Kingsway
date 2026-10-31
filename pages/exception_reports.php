@@ -5,11 +5,9 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
       <h3 class="mb-0"><i class="bi bi-exclamation-octagon me-2 text-danger"></i>Exception Reports</h3>
-      <small class="text-muted">Flagged transactions · Unmatched payments · Policy anomalies</small>
+      <small class="text-muted">Fee credit adjustments awaiting review or recently dismissed</small>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" onclick="exceptionReportsController.exportCSV()">
-      <i class="bi bi-download me-1"></i> Export CSV
-    </button>
+    <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" id="erRefresh">Refresh</button><button class="btn btn-sm btn-outline-success" id="erExport">Export CSV</button><button class="btn btn-sm btn-outline-secondary" id="erPrint">Print</button></div>
   </div>
 
   <!-- Stats -->
@@ -26,7 +24,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-info" id="erStatUnmatched">—</div>
-          <div class="text-muted small">Unmatched Payments</div>
+          <div class="text-muted small">Awaiting Review</div>
         </div>
       </div>
     </div>
@@ -34,7 +32,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold text-danger" id="erStatCritical">—</div>
-          <div class="text-muted small">Critical</div>
+          <div class="text-muted small">High Value</div>
         </div>
       </div>
     </div>
@@ -42,7 +40,7 @@
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
           <div class="fs-2 fw-bold" id="erStatHigh" style="color:#e67e22;">—</div>
-          <div class="text-muted small">High Severity</div>
+          <div class="text-muted small">Dismissed</div>
         </div>
       </div>
     </div>
@@ -51,23 +49,24 @@
   <!-- Severity Filter -->
   <ul class="nav nav-tabs mb-3" id="erSeverityTabs">
     <li class="nav-item">
-      <button class="nav-link active" onclick="exceptionReportsController.filterBySeverity('all',this)">All</button>
+      <button class="nav-link active" data-severity="all">All</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" onclick="exceptionReportsController.filterBySeverity('critical',this)">
-        <span class="badge bg-danger me-1">!</span>Critical
+      <button class="nav-link" data-severity="high">
+        <span class="badge bg-danger me-1">!</span>High Value
       </button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" onclick="exceptionReportsController.filterBySeverity('high',this)">High</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" onclick="exceptionReportsController.filterBySeverity('medium',this)">Medium</button>
+      <button class="nav-link" data-severity="medium">Medium</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" onclick="exceptionReportsController.filterBySeverity('low',this)">Low</button>
+      <button class="nav-link" data-severity="low">Low</button>
     </li>
   </ul>
+
+  <div class="alert alert-danger d-none" id="erError" role="alert"></div>
 
   <!-- Table -->
   <div class="card border-0 shadow-sm">
@@ -101,4 +100,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/exception_reports.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());</script>

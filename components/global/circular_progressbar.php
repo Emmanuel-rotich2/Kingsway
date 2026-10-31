@@ -1,4 +1,4 @@
-<!-- filepath: /home/opt/lampp/htdocs/Kingsway/components/global/circular_progressbar.php -->
+<!-- filepath: components/global/circular_progressbar.php -->
 <div class="d-flex justify-content-center align-items-center" style="height:100px;">
   <div class="circular-loader">
     <svg class="circular" viewBox="25 25 50 50">

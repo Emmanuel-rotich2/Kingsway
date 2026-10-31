@@ -7,7 +7,7 @@ const cbcCurriculumController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   async loadReferencesComposed() {
     try {
@@ -40,7 +40,8 @@ const cbcCurriculumController = {
 
   renderStrands() {
     const strands = this.state.strands;
-    const body = document.getElementById('cbcStrandsBody');
+    const body = document.getElementById('ssTableBody');
+    if (!body) return;
     if (!strands.length) { body.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No strands defined.</td></tr>'; return; }
     body.innerHTML = strands.map(s => `<tr>
       <td class="small">${this.esc(s.name || '—')}</td>
@@ -51,7 +52,8 @@ const cbcCurriculumController = {
 
   renderCompetencies() {
     const competencies = this.state.competencies;
-    const body = document.getElementById('cbcCompetenciesBody');
+    const body = document.getElementById('loTableBody');
+    if (!body) return;
     if (!competencies.length) { body.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No competencies defined.</td></tr>'; return; }
     body.innerHTML = competencies.map(c => `<tr>
       <td class="small">${this.esc(c.name || '—')}</td>
@@ -62,7 +64,8 @@ const cbcCurriculumController = {
 
   renderLearningAreas() {
     const learningAreas = this.state.learningAreas;
-    const body = document.getElementById('cbcLearningAreasBody');
+    const body = document.getElementById('cwTableBody');
+    if (!body) return;
     if (!learningAreas.length) { body.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">No learning areas defined.</td></tr>'; return; }
     body.innerHTML = learningAreas.map(a => `<tr>
       <td class="small">${this.esc(a.name || '—')}</td>

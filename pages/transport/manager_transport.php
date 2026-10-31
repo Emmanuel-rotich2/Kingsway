@@ -121,22 +121,31 @@
 
 <script>
 (function () {
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeManagerTransport = function () {
         loadRoutes();
         loadStats();
         document.getElementById('filterStatus').addEventListener('change', applyFilters);
         document.getElementById('searchRoute').addEventListener('input', debounce(applyFilters, 300));
         document.getElementById('saveRouteBtn').addEventListener('click', saveRoute);
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeManagerTransport, { once: true });
+    } else {
+        initializeManagerTransport();
+    }
 
     async function loadRoutes() {
+        const body = document.getElementById('routesTableBody');
+        if (!body || !body.isConnected) return;
         try {
             const response = await API.transport.getRoutes();
-            if (response?.success || Array.isArray(response?.data)) {
-                renderRoutesTable(response.data || []);
-            }
+            if (!body.isConnected) return;
+            const routes = Array.isArray(response?.data) ? response.data
+                : (Array.isArray(response?.data?.routes) ? response.data.routes
+                    : (Array.isArray(response) ? response : []));
+            renderRoutesTable(routes);
         } catch (error) {
-            document.getElementById('routesTableBody').innerHTML =
+            if (body.isConnected) body.innerHTML =
                 '<tr><td colspan="6" class="text-center text-danger py-3">Failed to load routes.</td></tr>';
         }
     }
@@ -144,17 +153,25 @@
     async function loadStats() {
         try {
             const response = await API.transport.getStats();
-            if (response?.success) {
-                document.getElementById('totalRoutes').textContent = response.data?.routes || 0;
-                document.getElementById('totalVehicles').textContent = response.data?.vehicles || 0;
-                document.getElementById('studentsCount').textContent = response.data?.students || 0;
+            if (response?.success && document.getElementById('routesTableBody')?.isConnected) {
+                const set = (id, value) => {
+                    const target = document.getElementById(id);
+                    if (target?.isConnected) target.textContent = String(value ?? 0);
+                };
+                set('totalRoutes', response.data?.routes);
+                set('totalVehicles', response.data?.vehicles);
+                set('studentsCount', response.data?.students);
             }
         } catch (e) { /* stats are optional */ }
     }
 
     function applyFilters() {
-        const search = document.getElementById('searchRoute').value.toLowerCase();
-        const status = document.getElementById('filterStatus').value;
+        const searchInput = document.getElementById('searchRoute');
+        const statusSelect = document.getElementById('filterStatus');
+        const body = document.getElementById('routesTableBody');
+        if (!searchInput?.isConnected || !statusSelect?.isConnected || !body?.isConnected) return;
+        const search = searchInput.value.toLowerCase();
+        const status = statusSelect.value;
         let shown = 0;
         document.querySelectorAll('#routesTableBody tr[data-status]').forEach(function (row) {
             const matchText = row.textContent.toLowerCase().includes(search);
@@ -162,21 +179,24 @@
             row.style.display = (matchText && matchStatus) ? '' : 'none';
             if (matchText && matchStatus) shown++;
         });
-        document.getElementById('showingCount').textContent = shown;
+        const count = document.getElementById('showingCount');
+        if (count?.isConnected) count.textContent = String(shown);
     }
 
     function renderRoutesTable(routes) {
         const tbody = document.getElementById('routesTableBody');
+        if (!tbody?.isConnected) return;
         if (!routes.length) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No routes found.</td></tr>';
-            document.getElementById('showingCount').textContent = 0;
+            const count = document.getElementById('showingCount');
+            if (count?.isConnected) count.textContent = '0';
             return;
         }
         tbody.innerHTML = routes.map(function (r) {
             const status = r.status || 'active';
             return `<tr data-status="${esc(status)}">
                 <td><strong>${esc(r.name)}</strong></td>
-                <td>${esc(r.vehicle_reg || '—')}</td>
+                <td>${esc(r.vehicle_registration || r.vehicle_reg || '—')}</td>
                 <td>${esc(r.driver_name || '—')}</td>
                 <td>${r.student_count || 0}</td>
                 <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${esc(status)}</span></td>
@@ -186,7 +206,8 @@
                 </td>
             </tr>`;
         }).join('');
-        document.getElementById('showingCount').textContent = routes.length;
+        const count = document.getElementById('showingCount');
+        if (count?.isConnected) count.textContent = String(routes.length);
     }
 
     window.showAddRouteModal = function () {

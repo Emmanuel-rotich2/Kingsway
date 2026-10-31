@@ -153,7 +153,8 @@ class BoardingController extends BaseController
         if ($denied = $this->guardBoarding('attendance_boarding_view')) return $denied;
         $dormId = $_GET['dormitory_id'] ?? $data['dormitory_id'] ?? null;
         $search = $_GET['search'] ?? $data['search'] ?? '';
-        return $this->handleApiResponse($this->manager->getStudents($dormId, $search));
+        $academicYearId = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        return $this->handleApiResponse($this->manager->getStudents($dormId, $search, $academicYearId));
     }
     public function getRollCall($id = null, $data = [], $segments = [])
     {

@@ -97,6 +97,7 @@ const ClassMarkAttendanceController = {
   },
   render() {
     const body = document.getElementById('classAttendanceBody');
+    if (!body) return;
     body.innerHTML = this.students.length ? this.students.map(s => {
       const status = s.attendance_status || s.stored_status || 'not_marked';
       return `<tr data-id="${Number(s.id)}"><td>${this.esc(s.admission_no)}</td><td><strong>${this.esc([s.first_name, s.last_name].filter(Boolean).join(' '))}</strong></td><td><select class="form-select form-select-sm att-status"><option value="not_marked" ${status === 'not_marked' ? 'selected' : ''}>Not marked</option><option value="present" ${status === 'present' ? 'selected' : ''}>Present</option><option value="absent" ${status === 'absent' ? 'selected' : ''}>Absent</option><option value="late" ${status === 'late' ? 'selected' : ''}>Late</option></select></td><td><input class="form-control form-control-sm att-note" placeholder="Optional note"></td></tr>`;

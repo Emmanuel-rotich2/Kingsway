@@ -90,7 +90,7 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
+    const initializeOperatorCommunications = function () {
         loadMyMessages();
         loadMyClasses();
 
@@ -98,7 +98,12 @@
             new bootstrap.Modal(document.getElementById('composeModal')).show();
         });
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
-    });
+    };
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeOperatorCommunications, { once: true });
+    } else {
+        initializeOperatorCommunications();
+    }
 
     async function loadMyMessages() {
         try {

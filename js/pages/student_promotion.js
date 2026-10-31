@@ -7,7 +7,7 @@ const studentPromotionController = {
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   async loadReferencesComposed() {
     try {
@@ -34,7 +34,8 @@ const studentPromotionController = {
 
   render() {
     const students = this.state.students;
-    const body = document.getElementById('spStudentsBody');
+    const body = document.getElementById('candidatesTableBody');
+    if (!body) return;
     if (!students.length) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No eligible students.</td></tr>'; return; }
     body.innerHTML = students.map(s => `<tr>
       <td class="small">${this.esc(s.admission_number || '—')}</td>

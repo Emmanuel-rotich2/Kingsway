@@ -1,7 +1,6 @@
 <?php
 /**
- * Student Sanctions — PARTIAL
- * Deputy Head Discipline view of active sanctions (detentions, suspensions, expulsions).
+ * Student Discipline — Deputy Head Discipline incident register.
  * JS controller: js/pages/sanctions.js
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
@@ -11,11 +10,11 @@
   <!-- Header -->
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h2 class="mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Student Sanctions</h2>
-      <small class="text-muted">Detentions · Suspensions · Expulsions · Community service</small>
+        <h2 class="mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Student Discipline Cases</h2>
+        <small class="text-muted">Record and resolve learner discipline incidents</small>
     </div>
     <button class="btn btn-danger" onclick="sanctionsController.showLogModal()">
-      <i class="bi bi-plus-circle me-1"></i> Log Sanction
+      <i class="bi bi-plus-circle me-1"></i> Record Case
     </button>
   </div>
 
@@ -24,32 +23,32 @@
     <div class="col-6 col-md-3">
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-warning" id="saStatDetention">—</div>
-          <div class="text-muted small">Active Detentions</div>
+      <div class="fs-2 fw-bold text-primary" id="saStatTotal">—</div>
+          <div class="text-muted small">Total Cases</div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-orange" id="saStatSuspension" style="color:#e67e22;">—</div>
-          <div class="text-muted small">Active Suspensions</div>
+          <div class="fs-2 fw-bold text-warning" id="saStatPending">—</div>
+          <div class="text-muted small">Pending</div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-danger" id="saStatExpulsion">—</div>
-          <div class="text-muted small">Expulsions This Year</div>
+          <div class="fs-2 fw-bold text-success" id="saStatResolved">—</div>
+          <div class="text-muted small">Resolved</div>
         </div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="card border-0 shadow-sm text-center">
         <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-info" id="saStatPending">—</div>
-          <div class="text-muted small">Pending Review</div>
+          <div class="fs-2 fw-bold text-danger" id="saStatEscalated">—</div>
+          <div class="text-muted small">Escalated</div>
         </div>
       </div>
     </div>
@@ -83,12 +82,12 @@
             <tr>
               <th scope="col">Student</th>
               <th scope="col">Class</th>
-              <th scope="col">Sanction Type</th>
-              <th scope="col">Reason</th>
-              <th scope="col">Start Date</th>
-              <th scope="col">End Date</th>
+              <th scope="col">Incident Type</th>
+              <th scope="col">Severity</th>
+              <th scope="col">Description</th>
+              <th scope="col">Incident Date</th>
               <th scope="col">Status</th>
-              <th scope="col">Issued By</th>
+              <th scope="col">Action Taken</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -96,7 +95,7 @@
             <tr>
               <td colspan="9" class="text-center py-4">
                 <div class="spinner-border spinner-border-sm text-primary"></div>
-                <span class="ms-2 text-muted">Loading sanctions…</span>
+                <span class="ms-2 text-muted">Loading discipline cases…</span>
               </td>
             </tr>
           </tbody>
@@ -106,12 +105,12 @@
   </div>
 </div>
 
-<!-- LOG SANCTION MODAL -->
+<!-- RECORD DISCIPLINE CASE MODAL -->
 <div class="modal fade" id="saModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Log Sanction</h5>
+        <h5 class="modal-title">Record Discipline Case</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -123,7 +122,7 @@
             </select>
           </div>
           <div class="col-md-6">
-            <label class="form-label fw-semibold">Sanction Type <span class="text-danger">*</span></label>
+            <label class="form-label fw-semibold">Incident Type <span class="text-danger">*</span></label>
             <select id="saType" class="form-select">
               <option value="">— Select type —</option>
               <option value="Detention">Detention</option>
@@ -134,64 +133,59 @@
             </select>
           </div>
           <div class="col-md-6">
-            <label class="form-label fw-semibold">Status</label>
-            <select id="saStatus" class="form-select">
-              <option value="active">Active</option>
-              <option value="pending_review">Pending Review</option>
+            <label class="form-label fw-semibold">Severity <span class="text-danger">*</span></label>
+            <select id="saSeverity" class="form-select">
+              <option value="">— Select severity —</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
             </select>
           </div>
           <div class="col-12">
-            <label class="form-label fw-semibold">Reason <span class="text-danger">*</span></label>
-            <textarea id="saReason" class="form-control" rows="3" placeholder="Describe the reason for this sanction…"></textarea>
+            <label class="form-label fw-semibold">Description <span class="text-danger">*</span></label>
+            <textarea id="saDescription" class="form-control" rows="3" placeholder="Describe the incident…"></textarea>
           </div>
           <div class="col-md-6">
-            <label class="form-label fw-semibold">Start Date <span class="text-danger">*</span></label>
-            <input type="date" id="saStartDate" class="form-control">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">End Date</label>
-            <input type="date" id="saEndDate" class="form-control">
+            <label class="form-label fw-semibold">Incident Date <span class="text-danger">*</span></label>
+            <input type="date" id="saIncidentDate" class="form-control">
           </div>
           <div class="col-12">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="saParentNotified">
-              <label class="form-check-label" for="saParentNotified">Parent/Guardian has been notified</label>
-            </div>
+            <label class="form-label fw-semibold">Action Taken</label>
+            <textarea id="saActionTaken" class="form-control" rows="2" placeholder="Optional follow-up or action taken"></textarea>
           </div>
         </div>
         <div id="saError" class="alert alert-danger mt-3 d-none"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-danger" onclick="sanctionsController.logSanction()">Log Sanction</button>
+        <button type="button" class="btn btn-danger" onclick="sanctionsController.logSanction()">Record Case</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- LIFT SANCTION MODAL -->
+<!-- RESOLVE DISCIPLINE CASE MODAL -->
 <div class="modal fade" id="saLiftModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Lift Sanction</h5>
+        <h5 class="modal-title">Resolve Discipline Case</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="saLiftId">
         <div class="mb-3">
-          <label class="form-label fw-semibold">Reason for Lifting <span class="text-danger">*</span></label>
-          <textarea id="saLiftReason" class="form-control" rows="3" placeholder="Explain why this sanction is being lifted…"></textarea>
+          <label class="form-label fw-semibold">Resolution / Action Taken <span class="text-danger">*</span></label>
+          <textarea id="saLiftReason" class="form-control" rows="3" placeholder="Record the resolution or action taken…"></textarea>
         </div>
         <div id="saLiftError" class="alert alert-danger d-none"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="sanctionsController.confirmLift()">Confirm Lift</button>
+        <button type="button" class="btn btn-success" onclick="sanctionsController.confirmLift()">Resolve Case</button>
       </div>
     </div>
   </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/sanctions.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => sanctionsController.init());</script>

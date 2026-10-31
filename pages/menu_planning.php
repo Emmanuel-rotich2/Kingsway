@@ -29,14 +29,6 @@
                 <select class="form-select" id="weekSelect"></select>
             </div>
             <div class="col-md-3">
-                <label class="form-label">Term</label>
-                <select class="form-select" id="termSelect">
-                    <option value="1">Term 1</option>
-                    <option value="2">Term 2</option>
-                    <option value="3">Term 3</option>
-                </select>
-            </div>
-            <div class="col-md-3">
                 <label class="form-label">Meal Type</label>
                 <select class="form-select" id="mealTypeFilter">
                     <option value="">All Meals</option>
@@ -227,13 +219,8 @@
                         <input type="text" class="form-control" id="mealDisplay" readonly>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Menu Items*</label>
-                        <textarea class="form-control" id="menuItems" rows="3" required
-                            placeholder="e.g., Ugali, Beef Stew, Cabbage, Fruit"></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Estimated Cost (KES)</label>
-                        <input type="number" class="form-control" id="estimatedCost" step="0.01">
+                        <label class="form-label">Planned servings*</label>
+                        <input type="number" class="form-control" id="plannedServings" min="0" step="1" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Notes</label>
@@ -265,6 +252,7 @@
         font-size: 0.9rem;
     }
 </style>
+<style>@media print { #addMenuBtn, #printMenuBtn, #weekSelect, #mealTypeFilter { display:none !important; } .menu-cell { cursor:default; } }</style>
 
 <?php asset_script($appBase, 'js/pages/menu_planning.js'); ?>
 </script>

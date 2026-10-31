@@ -208,14 +208,17 @@ window.studentsManagementController = window.studentsManagementController || {
     try {
       const response = await window.API.nodeViews.resolve("students", "management-reference-data");
       sources = response?.data?.sources || response?.sources || null;
-      if (!sources || !["importContext", "classes", "studentTypes", "streams", "parents"].every(key => Object.hasOwn(sources, key))) {
+      if (!sources || !["classes", "studentTypes", "streams", "parents"].every(key => Object.hasOwn(sources, key))) {
         throw new Error("Node returned incomplete student management reference data");
       }
     } catch (error) {
       console.warn("Student reference composition unavailable; loading through PHP APIs:", error);
     }
 
-    const importContextResp = sources?.importContext ?? await load("existing-student fee context", () =>
+    // Existing-student financial context is separately permission-gated for
+    // student creation. Keep it out of the shared read-only Node view so one
+    // 403 cannot fail the otherwise viewable class/stream/parent references.
+    const importContextResp = await load("existing-student fee context", () =>
       window.API.students.getImportContext()
     );
     const importContext = importContextResp?.data?.data || importContextResp?.data || importContextResp;

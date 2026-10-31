@@ -50,14 +50,10 @@ const YearHistoryController = (() => {
             ? (perfs.reduce((s, v) => s + v, 0) / perfs.length).toFixed(1) + "%"
             : "--",
         );
-        el(
-          "statGraduation",
-          items.filter(
-            (d) =>
-              (d.status || "").toLowerCase() === "completed" ||
-              d.graduation_count,
-          ).length,
-        );
+        // The year-history endpoint has no graduate-count field. A completed
+        // year is not evidence that any learners graduated, so do not present
+        // the number of completed years as a graduation rate/count.
+        el("statGraduation", "—");
     }
     function renderTable(items) {
         const tbody = document.querySelector('#dataTable tbody');

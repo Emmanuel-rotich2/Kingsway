@@ -94,7 +94,7 @@ class ActivitiesAPI extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT a.id, a.title, a.description, a.start_date AS created_at,
                         ac.name AS type, a.status, a.category_id
-                 FROM " . ReadReplicaService::qualifiedRef("activities") . "
+                 FROM " . ReadReplicaService::masterRef("activities") . " a
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("activity_categories") . " ac ON ac.id = a.category_id
                  WHERE a.status IN ('planned', 'ongoing')
                  ORDER BY a.start_date DESC

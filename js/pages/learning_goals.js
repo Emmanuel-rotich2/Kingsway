@@ -26,6 +26,7 @@ const learningGoalsController = (() => {
   function val(id) { const el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
   function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function formatDate(d) {
     if (!d) return '—';
@@ -50,6 +51,12 @@ const learningGoalsController = (() => {
     } catch (e) {
       hide('lgLoading');
       show('lgEmpty');
+      const empty = document.getElementById('lgEmpty');
+      const message = empty?.querySelector('p');
+      if (message) message.textContent = 'Learning goals could not be loaded. The page cannot confirm that no goals exist.';
+      empty?.querySelectorAll('button').forEach(button => { button.disabled = true; button.hidden = true; });
+      const addButton = document.getElementById('lgAddBtn');
+      if (addButton) addButton.disabled = true;
       console.error('learning_goals load error', e);
     }
   }
@@ -69,29 +76,29 @@ const learningGoalsController = (() => {
     const list = document.getElementById('lgGoalsList');
     if (!list) return;
     list.innerHTML = goals.map(g => {
-      const color = CATEGORY_COLORS[g.category] || 'secondary';
+      const color = Object.hasOwn(CATEGORY_COLORS, g.category) ? CATEGORY_COLORS[g.category] : 'secondary';
       const statusBadge = STATUS_BADGES[g.status] || 'bg-secondary';
-      const statusLabel = (g.status || 'not_started').replace(/_/g, ' ');
+      const statusLabel = esc((g.status || 'not_started').replace(/_/g, ' '));
       const overdue = isOverdue(g.target_date, g.status);
       return `
         <div class="col-md-6 col-lg-4">
           <div class="card border-0 shadow-sm h-100${overdue ? ' border-start border-danger border-3' : ''}">
             <div class="card-body">
               <div class="d-flex justify-content-between align-items-start mb-2">
-                <span class="badge bg-${color}-subtle text-${color} border border-${color}">${g.category || 'General'}</span>
+                <span class="badge bg-${color}-subtle text-${color} border border-${color}">${esc(g.category || 'General')}</span>
                 <span class="badge ${statusBadge} text-capitalize">${statusLabel}</span>
               </div>
-              <p class="mb-2">${g.goal_text || g.goal || g.description || ''}</p>
+              <p class="mb-2">${esc(g.goal_text || g.goal || g.description || '')}</p>
               <small class="text-muted">
                 <i class="bi bi-calendar me-1"></i>Target: ${formatDate(g.target_date)}
                 ${overdue ? '<span class="text-danger ms-1">(Overdue)</span>' : ''}
               </small>
             </div>
             <div class="card-footer bg-transparent border-top-0 d-flex gap-2">
-              <button class="btn btn-outline-primary btn-sm flex-fill" onclick="learningGoalsController.editGoal(${g.id})">
+              <button class="btn btn-outline-primary btn-sm flex-fill" onclick="learningGoalsController.editGoal(${Number(g.id)})">
                 <i class="bi bi-pencil me-1"></i>Edit
               </button>
-              <button class="btn btn-outline-danger btn-sm" onclick="learningGoalsController.deleteGoal(${g.id})">
+              <button class="btn btn-outline-danger btn-sm" onclick="learningGoalsController.deleteGoal(${Number(g.id)})">
                 <i class="bi bi-trash"></i>
               </button>
             </div>
