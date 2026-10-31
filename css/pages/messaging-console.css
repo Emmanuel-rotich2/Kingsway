@@ -1,4 +1,4 @@
-/* Three-pane messaging console — shared by the SMS + WhatsApp pages. */
+/* Messaging console — shared by the SMS + WhatsApp pages. */
 .kw-console {
     --kw-primary: #075638; --kw-primary-dark: #053d28; --kw-accent: #0b7a53;
     --kw-surface: #ffffff; --kw-bg: #f3f6f4; --kw-border: #e2e8e5;
@@ -29,12 +29,14 @@
 .kw-console-actions .btn:hover { background: rgba(255,255,255,.2); color: #fff; }
 .kw-console-actions .kw-btn-primary { background: #fff; color: var(--kw-primary-dark); border-color: #fff; font-weight: 600; }
 
-/* ── Three-pane grid ─────────────────────────────────────── */
+/* ── Folder rail with one list / message workspace ───────── */
 .kw-console-body {
-    display: grid; grid-template-columns: 260px minmax(0,1fr) 360px;
+    display: grid; grid-template-columns: 260px minmax(0,1fr);
     height: min(78vh, 940px); min-height: 520px; flex: 1; min-width: 0;
 }
 .kw-console-rail, .kw-console-list, .kw-console-detail { overflow-y: auto; min-width: 0; }
+.kw-console-list, .kw-console-detail { grid-column: 2; }
+.kw-console-list[hidden], .kw-console-detail[hidden] { display: none; }
 .kw-console-rail { background: var(--kw-surface); border-right: 1px solid var(--kw-border); padding: 14px 12px 24px; }
 .kw-console-detail {
     background: var(--kw-surface); border-left: 1px solid var(--kw-border);
@@ -152,7 +154,10 @@
 .kw-console .btn-outline-primary:hover { background: var(--kw-primary); border-color: var(--kw-primary); }
 
 /* ── Compose offcanvas + modals ──────────────────────────── */
-.kw-compose { width: min(50vw, 100vw); }
+.kw-compose {
+    --bs-offcanvas-width: min(760px, 92vw);
+    width: var(--bs-offcanvas-width);
+}
 .kw-compose .offcanvas-header { background: var(--kw-primary); color: #fff; }
 .kw-compose .btn-close { filter: brightness(0) invert(1); }
 .kw-compose-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
@@ -169,18 +174,14 @@
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1200px) {
     .kw-console-body { grid-template-columns: 250px minmax(0,1fr); }
-    .kw-console-detail {
-        position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 92vw); height: 100%;
-        z-index: 1065; transform: translateX(105%); transition: transform .25s ease;
-        box-shadow: -10px 0 30px rgba(15,30,24,.2); overflow-y: auto;
-    }
-    .kw-console.kw-detail-open .kw-console-detail { transform: none; }
 }
 
 @media (max-width: 900px) {
     .kw-console-body { display: block; height: auto; }
     .kw-console-rail { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--kw-border); }
     .kw-console-list { min-height: 340px; }
+    .kw-console-detail { min-height: 340px; }
+    .kw-compose { --bs-offcanvas-width: 100vw; }
     .kw-compose-grid { grid-template-columns: 1fr; }
     .kw-table .kw-cell-preview { max-width: 180px; }
 }

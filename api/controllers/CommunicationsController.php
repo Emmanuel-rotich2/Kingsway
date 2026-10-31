@@ -423,7 +423,7 @@ class CommunicationsController extends BaseController
     /** POST /api/communications/sms-send */
     public function postSmsSend($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('Message delivery')) return $guard;
+        if ($guard = $this->guardCommunicationDelivery('Message delivery')) return $guard;
         try {
             return $this->success($this->smsService()->send($data), 'Message queued');
         } catch (\InvalidArgumentException $e) {
@@ -1055,7 +1055,7 @@ class CommunicationsController extends BaseController
      */
     public function postSendSmsTemplate($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('SMS delivery')) return $guard;
+        if ($guard = $this->guardCommunicationDelivery('SMS delivery')) return $guard;
         return $this->handleResponse($this->api->postSendSmsTemplate());
     }
 
@@ -1065,13 +1065,13 @@ class CommunicationsController extends BaseController
      */
     public function postSendWhatsapp($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('WhatsApp delivery')) return $guard;
+        if ($guard = $this->guardCommunicationDelivery('WhatsApp delivery')) return $guard;
         return $this->handleResponse($this->api->postSendWhatsapp());
     }
 
     public function postSendWhatsappTemplate($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('WhatsApp template delivery')) return $guard;
+        if ($guard = $this->guardCommunicationDelivery('WhatsApp template delivery')) return $guard;
         return $this->handleResponse($this->api->postSendWhatsappTemplate());
     }
 
@@ -1083,7 +1083,7 @@ class CommunicationsController extends BaseController
     public function getAudienceOptions($id = null, $data = [], $segments = [])
     {
         $roles = $this->getUserRoleIds();
-        $full = !empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]));
+        $full = $this->isTestAccount() || !empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]));
         $teacher = !empty(array_intersect($roles, [7, 8, 9])) && !$full;
         return $this->success(array_merge($this->api->getAudienceOptions(), [
             'allowed_audiences' => $teacher ? ['selected_students', 'selected_class', 'selected_parents', 'custom_selection'] : ['all_parents', 'selected_parents', 'selected_students', 'selected_class', 'student_type', 'school_level', 'all_staff', 'selected_staff', 'selected_vendors', 'all_vendors', 'contact_group', 'custom_selection', 'custom_numbers'],
@@ -1096,7 +1096,7 @@ class CommunicationsController extends BaseController
      */
     public function postSendSms($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('SMS delivery')) return $guard;
+        if ($guard = $this->guardCommunicationDelivery('SMS delivery')) return $guard;
         return $this->handleResponse($this->api->postSendSms());
     }
 
@@ -1174,33 +1174,67 @@ class CommunicationsController extends BaseController
         if ($id !== null) {
             $data['visibility_user_id'] = (int) $this->getUserId();
             $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
+            $data['data_scope'] = DataScopeService::current();
             return $this->handleResponse($this->api->getCommunication($id, $data));
         }
         $data['visibility_user_id'] = (int) $this->getUserId();
         $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
+        $data['data_scope'] = DataScopeService::current();
         return $this->handleResponse($this->api->listCommunications($data));
     }
     public function postCommunication($id = null, $data = [], $segments = [])
     {
-        if (DataScopeService::current() === 'test') {
-            return $this->forbidden('External communication creation is blocked in the test workspace until scoped communication storage is enabled.');
+        $isTestScope = $this->isTestAccount();
+        if (!$isTestScope && !$this->userHasAny(['communications_create', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to create communications');
+        }
+        $data['sender_id'] = (int) ($this->getUserId() ?? 0);
+        $submissionId = trim((string) ($data['client_submission_id'] ?? ''));
+        unset($data['client_submission_id']);
+        if ($submissionId !== '' && preg_match('/^[A-Za-z0-9_-]{12,100}$/', $submissionId)) {
+            $data['channel_meta'] = array_merge(
+                is_array($data['channel_meta'] ?? null) ? $data['channel_meta'] : [],
+                ['client_submission_id' => $submissionId]
+            );
+        }
+        if ($isTestScope) {
+            $data['channel_meta'] = array_merge(
+                is_array($data['channel_meta'] ?? null) ? $data['channel_meta'] : [],
+                ['data_scope' => 'test', 'delivery_mode' => 'provider']
+            );
         }
         $audience = strtolower((string) ($data['recipient_type'] ?? ''));
         $roles = $this->getUserRoleIds();
         $fullAudienceRoles = [2, 3, 4, 5, 6, 10, 63];
         $teacherRoles = [7, 8, 9];
-        if (array_intersect($roles, $teacherRoles) && !array_intersect($roles, $fullAudienceRoles) && !in_array($audience, ['selected_students', 'selected_class', 'selected_parents'], true)) return $this->forbidden('Your role may message only assigned learner and parent audiences.');
-        if (in_array($audience, ['selected_vendors', 'all_vendors'], true) && !array_intersect($roles, [2, 3, 4, 10])) return $this->forbidden('Vendor messaging is restricted to finance and school management roles.');
+        if (!$isTestScope && array_intersect($roles, $teacherRoles) && !array_intersect($roles, $fullAudienceRoles) && !in_array($audience, ['selected_students', 'selected_class', 'selected_parents'], true)) return $this->forbidden('Your role may message only assigned learner and parent audiences.');
+        if (!$isTestScope && in_array($audience, ['selected_vendors', 'all_vendors'], true) && !array_intersect($roles, [2, 3, 4, 10])) return $this->forbidden('Vendor messaging is restricted to finance and school management roles.');
         $data['audit_bcc'] = 1;
         return $this->handleResponse($this->api->createCommunication($data));
     }
     public function postDispatchCommunication($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('Communication dispatch')) return $guard;
+        $isTestAccount = $this->isTestAccount();
+        if (!$isTestAccount && !$this->userHasAny(['communications_create', 'communications_manage'])) {
+            return $this->forbidden('You do not have permission to send communications');
+        }
         if ($id === null || (int) $id < 1) {
             return $this->badRequest('Communication ID required');
         }
+        if (!$isTestAccount && ($guard = $this->guardLiveExternalCommunication('Communication dispatch'))) return $guard;
         return $this->handleResponse($this->api->dispatchCommunication((int) $id));
+    }
+
+    private function guardCommunicationDelivery(string $operation)
+    {
+        if ($this->isTestAccount()) return null;
+        return $this->guardLiveExternalCommunication($operation);
+    }
+
+    private function isTestAccount(): bool
+    {
+        $user = $this->getUser();
+        return (int) ($user['is_test_user'] ?? 0) === 1 || ($user['account_type'] ?? '') === 'test';
     }
     public function putCommunication($id = null, $data = [], $segments = [])
     {
@@ -1234,7 +1268,15 @@ class CommunicationsController extends BaseController
      */
     public function postResend($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardLiveExternalCommunication('Communication resend')) return $guard;
+        if ($this->isTestAccount()) {
+            $communicationId = (int) ($data['id'] ?? $data['communication_id'] ?? 0);
+            $communication = $communicationId > 0 ? $this->api->getCommunication($communicationId, ['data_scope' => 'test']) : null;
+            if (!$communication || !in_array($communication['type'] ?? '', ['sms', 'whatsapp'], true)) {
+                return $this->forbidden('Test accounts can resend SMS or WhatsApp messages only.');
+            }
+        } elseif ($guard = $this->guardLiveExternalCommunication('Communication resend')) {
+            return $guard;
+        }
         return $this->handleResponse($this->api->resendCommunication($data));
     }
 

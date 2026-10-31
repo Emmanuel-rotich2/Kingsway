@@ -1,6 +1,6 @@
 <?php
 /**
- * Manage SMS — three-pane messaging console.
+ * Manage SMS messaging console.
  * HTML fragment loaded into app_layout.php; behaviour lives in
  * js/pages/messaging_console.js (shared engine) via js/pages/manage_sms.js.
  */
@@ -24,8 +24,8 @@
             <button class="btn btn-sm" id="refreshBtn" title="Refresh messages and balance"><i class="bi bi-arrow-clockwise"></i></button>
             <button class="btn btn-sm" id="exportBtn" title="Export CSV"><i class="bi bi-filetype-csv"></i> CSV</button>
             <button class="btn btn-sm" id="printBtn" title="Print / save as PDF"><i class="bi bi-printer"></i></button>
-            <button class="btn btn-sm kw-btn-primary" id="composeBtn" data-permission="sms_send">
-                <i class="bi bi-pencil-square"></i> Compose
+            <button class="btn btn-sm kw-btn-primary" id="composeBtn">
+                <i class="bi bi-pencil-square"></i> New Message
             </button>
         </div>
     </header>
@@ -92,15 +92,6 @@
             </section>
 
             <section class="kw-rail-section" id="gatewaySection">
-                <div class="kw-rail-head">
-                    <h2>Provider</h2>
-                    <span class="kw-rail-tools">
-                        <button type="button" id="refreshGatewayBtn" title="Refresh provider info"><i class="bi bi-arrow-clockwise"></i></button>
-                    </span>
-                </div>
-                <dl class="kw-gateway" id="gatewayInfo">
-                    <dd class="kw-muted">Loading…</dd>
-                </dl>
                 <div class="kw-balance-block">
                     <span class="kw-muted" style="font-size:.72rem;">SMS balance</span>
                     <strong id="railBalance">—</strong>
@@ -122,15 +113,6 @@
                     <button type="button" id="loadProfileBtn">Profile</button>
                 </span>
                 <div id="profilePanel"></div>
-                <details class="kw-details" id="remoteLogDetails">
-                    <summary>Provider message log</summary>
-                    <div style="margin-top:6px;">
-                        <button type="button" class="kw-rail-add" id="refreshRemoteMsgsBtn" style="margin-bottom:6px;">Refresh log</button>
-                        <div id="remoteMessagesList">
-                            <div class="kw-rail-empty">Open to load the provider log.</div>
-                        </div>
-                    </div>
-                </details>
             </section>
         </aside>
 
@@ -212,10 +194,10 @@
         </main>
 
         <!-- RIGHT DETAIL -->
-        <aside class="kw-console-detail" id="detailPane">
+        <aside class="kw-console-detail" id="detailPane" hidden>
             <div class="kw-detail-head">
-                <h2>Message detail</h2>
-                <button type="button" class="kw-icon-btn" id="closeDetailBtn" title="Close detail"><i class="bi bi-x-lg"></i></button>
+                <h2>Message</h2>
+                <button type="button" class="kw-icon-btn" id="closeDetailBtn" title="Back to messages" aria-label="Back to messages"><i class="bi bi-arrow-left"></i></button>
             </div>
             <div class="kw-detail-empty" id="detailEmpty">
                 <i class="bi bi-chat-square-text"></i>
@@ -295,9 +277,9 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" for="recipientType">Recipients</label>
+                        <label class="form-label" for="recipientType">Audience</label>
                         <select class="form-select" id="recipientType" required>
-                            <option value="">Select recipients…</option>
+                            <option value="">Choose an audience…</option>
                             <option value="all_parents">All Parents</option>
                             <option value="all_staff">All Staff</option>
                             <option value="selected_staff">Selected Teachers/Staff</option>
@@ -312,6 +294,7 @@
                             <option value="custom_selection">Custom Selection (mix learners, parents, staff, classes…)</option>
                             <option value="custom_numbers">Custom Numbers</option>
                         </select>
+                        <small class="form-text text-muted">Choose a selected audience to load matching records from the school directory.</small>
                     </div>
                     <div id="recipientPickerDiv" class="mb-3" style="display:none;">
                         <label class="form-label">Select Recipients</label>

@@ -217,6 +217,12 @@
       // the page the user first landed on.
       window.REQUESTED_ROUTE = route;
 
+      // Fragment navigation leaves the shell and its sidebar in place, so the
+      // shell's initial route highlighting does not run again automatically.
+      // Reuse its existing matcher to move the active item and expand the
+      // matching submenu as soon as the new route is committed.
+      window.KingswayShell?.markActiveRoute?.();
+
       // Update browser URL so F5/hard refresh keeps the current page
       if (updateHistory) {
         try {
