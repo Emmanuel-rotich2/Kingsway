@@ -87,6 +87,35 @@ trait SmsProviderTransport
             && !(is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']) || $status === 'error'));
 
         $message = is_array($decoded) ? (string) ($decoded['message'] ?? '') : '';
+        // Some SMS providers return HTTP 200 and a top-level "success" even
+        // when every recipient was rejected. Treat their nested recipient
+        // result as authoritative so invalid sender IDs are not recorded as
+        // successful deliveries.
+        if (is_array($decoded)) {
+            $smsData = $decoded['data']['SMSMessageData'] ?? $decoded['SMSMessageData'] ?? null;
+            if (is_array($smsData)) {
+                $providerMessage = trim((string) ($smsData['Message'] ?? ''));
+                $recipients = $smsData['Recipients'] ?? null;
+                if ($providerMessage !== '') $message = $providerMessage;
+                if (!is_array($recipients) || $recipients === []) {
+                    $ok = false;
+                } else {
+                    foreach ($recipients as $recipientResult) {
+                        if (!is_array($recipientResult)) {
+                            $ok = false;
+                            continue;
+                        }
+                        $recipientStatus = strtolower(trim((string) ($recipientResult['status'] ?? '')));
+                        $statusCode = (int) ($recipientResult['statusCode'] ?? 0);
+                        if ($recipientStatus !== 'success' && $statusCode !== 101) {
+                            $ok = false;
+                            $detail = trim((string) ($recipientResult['status'] ?? $recipientResult['statusCode'] ?? ''));
+                            if ($detail !== '') $message = $detail;
+                        }
+                    }
+                }
+            }
+        }
         if ($message === '' && is_array($decoded) && isset($decoded['error'])) {
             $message = is_array($decoded['error']) ? json_encode($decoded['error']) : (string) $decoded['error'];
         }

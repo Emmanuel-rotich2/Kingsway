@@ -266,7 +266,8 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Group name is required');
         }
         try {
-            return $this->created($this->smsService()->createGroup($name), 'Contact group created');
+            $entityType = strtolower(trim((string) ($data['entity_type'] ?? 'external')));
+            return $this->created($this->smsService()->createGroup($name, $entityType), 'Contact group created');
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         }
@@ -283,7 +284,10 @@ class CommunicationsController extends BaseController
             return $this->badRequest('Group name is required');
         }
         try {
-            return $this->success($this->smsService()->updateGroup((int) $id, $name), 'Contact group updated');
+            $entityType = array_key_exists('entity_type', $data)
+                ? strtolower(trim((string) $data['entity_type']))
+                : null;
+            return $this->success($this->smsService()->updateGroup((int) $id, $name, $entityType), 'Contact group updated');
         } catch (\InvalidArgumentException|\RuntimeException $e) {
             return $this->badRequest($e->getMessage());
         }

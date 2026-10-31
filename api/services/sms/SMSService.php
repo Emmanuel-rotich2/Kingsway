@@ -111,12 +111,13 @@ class SMSService
         ];
     }
 
-    public function createGroup(string $name): array
+    public function createGroup(string $name, string $entityType = 'external'): array
     {
         $name = trim($name);
         if ($name === '') {
             throw new \InvalidArgumentException('Group name is required');
         }
+        $entityType = $this->normalizeGroupAudience($entityType);
         $result = $this->gateway->createGroup($name);
         if (!($result['ok'] ?? false)) {
             throw new \RuntimeException($result['message'] ?: 'Group could not be created at the provider');
@@ -124,18 +125,27 @@ class SMSService
         $providerGroupId = $this->extractUid($result['data'] ?? null);
         $stmt = $this->db->prepare(
             "INSERT INTO communication_groups (name, provider, provider_group_id, entity_type, created_by, sync_status, last_synced_at)
-             VALUES (?, ?, ?, 'external', ?, 'synced', NOW())"
+             VALUES (?, ?, ?, ?, ?, 'synced', NOW())"
         );
-        $stmt->execute([$name, $this->providerName(), $providerGroupId, $this->currentUserId()]);
-        return ['id' => (int) $this->db->lastInsertId(), 'name' => $name, 'provider_group_id' => $providerGroupId];
+        $stmt->execute([$name, $this->providerName(), $providerGroupId, $entityType, $this->currentUserId()]);
+        return ['id' => (int) $this->db->lastInsertId(), 'name' => $name, 'entity_type' => $entityType, 'provider_group_id' => $providerGroupId];
     }
 
-    public function updateGroup(int $id, string $name): array
+    public function updateGroup(int $id, string $name, ?string $entityType = null): array
     {
         $group = $this->findGroup($id);
         $name = trim($name);
         if ($name === '') {
             throw new \InvalidArgumentException('Group name is required');
+        }
+        $currentAudience = (string) (($group['entity_type'] ?? null) ?: 'external');
+        if ($entityType !== null) {
+            $entityType = $this->normalizeGroupAudience($entityType);
+            if ($currentAudience !== 'external' && $entityType !== $currentAudience) {
+                throw new \InvalidArgumentException('A directory-linked group cannot be switched to a different audience. Create a new group for that audience.');
+            }
+        } else {
+            $entityType = $currentAudience;
         }
         if (!empty($group['provider_group_id'])) {
             $result = $this->gateway->updateGroup($group['provider_group_id'], $name);
@@ -143,8 +153,9 @@ class SMSService
                 throw new \RuntimeException($result['message'] ?: 'Group could not be updated at the provider');
             }
         }
-        $this->db->prepare("UPDATE communication_groups SET name = ?, sync_status = 'synced', last_synced_at = NOW() WHERE id = ?")->execute([$name, $id]);
-        return ['id' => $id, 'name' => $name];
+        $this->db->prepare("UPDATE communication_groups SET name = ?, entity_type = ?, sync_status = 'pending', last_error = NULL WHERE id = ?")
+            ->execute([$name, $entityType, $id]);
+        return ['id' => $id, 'name' => $name, 'entity_type' => $entityType];
     }
 
     public function deleteGroup(int $id): array
@@ -238,24 +249,42 @@ class SMSService
 
         $pushed = 0;
         $failed = 0;
-        $stmt = $this->db->prepare("SELECT id FROM communication_groups WHERE provider = ? ORDER BY id");
+        $imported = ['added' => 0, 'updated' => 0, 'removed' => 0];
+        $stmt = $this->db->prepare("SELECT id, entity_type FROM communication_groups WHERE provider = ? ORDER BY id");
         $stmt->execute([$this->providerName()]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $group) {
             try {
+                if (in_array((string) $group['entity_type'], ['parents', 'staff', 'students', 'vendors'], true)) {
+                    $refresh = $this->importAudience((int) $group['id']);
+                    foreach (array_keys($imported) as $key) $imported[$key] += (int) ($refresh[$key] ?? 0);
+                    $this->db->prepare("UPDATE communication_groups SET last_error = NULL WHERE id = ?")->execute([(int) $group['id']]);
+                }
                 $result = $this->syncContacts((int) $group['id']);
                 $pushed += (int) ($result['pushed'] ?? 0);
                 $failed += (int) ($result['failed'] ?? 0);
             } catch (\Throwable $e) {
                 $failed++;
+                $this->db->prepare("UPDATE communication_groups SET sync_status = 'error', last_error = ? WHERE id = ?")
+                    ->execute([substr($e->getMessage(), 0, 500), (int) $group['id']]);
             }
         }
 
         return [
             'groups' => $groups,
             'provisioned' => $provisioned,
+            'directory_contacts' => $imported,
             'contacts_pushed' => $pushed,
             'contacts_failed' => $failed,
         ];
+    }
+
+    private function normalizeGroupAudience(string $entityType): string
+    {
+        $entityType = strtolower(trim($entityType));
+        if (!in_array($entityType, ['external', 'parents', 'staff', 'students', 'vendors'], true)) {
+            throw new \InvalidArgumentException('Choose a valid contact group audience.');
+        }
+        return $entityType;
     }
 
     // ── Contacts ────────────────────────────────────────────────────────────

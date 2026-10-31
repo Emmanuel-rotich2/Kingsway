@@ -165,20 +165,29 @@ class SystemCommsConfigService
     {
         $rows = $this->loadDbValues();
 
-        $senderId = $rows['comms_sms_sender_id']['setting_value'] ?? $this->envValue('SMS_SENDER_ID');
-        if ($senderId === '') {
-            $senderId = $this->envValue('SMS_SHORTCODE');
-        }
+        $read = fn (string $key, string $constant, string $default = ''): string => $this->configuredValue($rows, $key, $constant, $default);
+        // SMS sender identity is controlled by deployment configuration. Do
+        // not let a stale/blank school_settings value replace SMS_SENDER_ID.
+        $senderId = trim($this->envValue('SMS_SENDER_ID'));
 
         return [
-            'provider'  => $rows['comms_sms_provider']['setting_value']  ?? $this->envValue('SMS_PROVIDER') ?: 'talksasa',
-            'api_key'   => $rows['comms_sms_api_key']['setting_value']   ?? $this->envValue('SMS_API_KEY'),
-            'username'  => $rows['comms_sms_username']['setting_value']  ?? $this->envValue('SMS_USERNAME'),
-            'appname'   => $rows['comms_sms_appname']['setting_value']   ?? $this->envValue('SMS_APPNAME'),
-            'api_url'   => $rows['comms_sms_api_url']['setting_value']   ?? $this->envValue('SMS_API_URL') ?: 'https://bulksms.talksasa.com/api/v3/',
+            'provider'  => $read('comms_sms_provider', 'SMS_PROVIDER', 'talksasa'),
+            'api_key'   => $read('comms_sms_api_key', 'SMS_API_KEY'),
+            'username'  => $read('comms_sms_username', 'SMS_USERNAME'),
+            'appname'   => $read('comms_sms_appname', 'SMS_APPNAME'),
+            'api_url'   => $read('comms_sms_api_url', 'SMS_API_URL', 'https://bulksms.talksasa.com/api/v3/'),
             'sender_id' => $senderId,
-            'shortcode' => $rows['comms_sms_shortcode']['setting_value'] ?? $this->envValue('SMS_SHORTCODE'),
+            'shortcode' => $read('comms_sms_shortcode', 'SMS_SHORTCODE'),
         ];
+    }
+
+    private function configuredValue(array $rows, string $key, string $constant, string $default = ''): string
+    {
+        $databaseValue = trim((string) ($rows[$key]['setting_value'] ?? ''));
+        if ($databaseValue !== '') return $databaseValue;
+
+        $environmentValue = trim((string) $this->envValue($constant));
+        return $environmentValue !== '' ? $environmentValue : $default;
     }
 
     /**
