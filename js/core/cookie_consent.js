@@ -6,17 +6,32 @@
     declined: 'declined'
   };
 
+  // This script is included by several standalone entry pages. Keep a single
+  // controller if a shell accidentally includes it more than once.
+  if (window.KingswayCookieConsent) {
+    window.KingswayCookieConsent.init();
+    return;
+  }
+
   function isSecure() {
     return location.protocol === 'https:';
   }
 
   function buildCookieAttributes(days) {
-    const expires = new Date(Date.now() + days * 864e5).toUTCString();
+    const maxAge = Math.max(0, Math.floor(days * 86400));
+    const expires = new Date(Date.now() + maxAge * 1000).toUTCString();
     const attrs = [
       'expires=' + expires,
+      'max-age=' + maxAge,
       'path=/',
       'SameSite=Lax'
     ];
+    // The public and authenticated shells may be reached through www and
+    // apex hosts. Share this preference across those two Kingsway origins.
+    if (location.hostname === 'kingswaypreparatoryschool.sc.ke' ||
+        location.hostname.endsWith('.kingswaypreparatoryschool.sc.ke')) {
+      attrs.push('domain=.kingswaypreparatoryschool.sc.ke');
+    }
     if (isSecure()) {
       attrs.push('Secure');
     }
@@ -24,9 +39,15 @@
   }
 
   function getConsent() {
-    // Prefer cookie; fall back to localStorage when cookies are blocked.
-    const match = document.cookie.match(new RegExp('(^| )' + COOKIE_NAME + '=([^;]+)'));
-    if (match) return match[2];
+    // Parse cookie separators explicitly; browsers expose cookies as a
+    // semicolon-delimited string, with optional whitespace around entries.
+    const cookie = document.cookie.split(';').map(part => part.trim())
+      .find(part => part.startsWith(COOKIE_NAME + '='));
+    if (cookie) {
+      try { return decodeURIComponent(cookie.slice(COOKIE_NAME.length + 1)); }
+      catch { return cookie.slice(COOKIE_NAME.length + 1); }
+    }
+    // localStorage is the fallback for browsers that block cookies.
     try {
       return localStorage.getItem(STORAGE_KEY) || null;
     } catch {
@@ -35,13 +56,16 @@
   }
 
   function setConsent(value, days = 365) {
-    document.cookie =
-      COOKIE_NAME + '=' + encodeURIComponent(value) + '; ' + buildCookieAttributes(days);
     try {
       localStorage.setItem(STORAGE_KEY, value);
     } catch {
-      /* localStorage unavailable; cookie alone is used */
+      /* Cookie remains the persistence path when localStorage is unavailable. */
     }
+    // Remove the older host-only cookie before writing the shared-domain one,
+    // otherwise duplicate cookie names can make the stale value win parsing.
+    document.cookie = COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+    document.cookie =
+      COOKIE_NAME + '=' + encodeURIComponent(value) + '; ' + buildCookieAttributes(days);
   }
 
   function createConsentBanner() {
@@ -105,6 +129,7 @@
     reset: () => {
       document.cookie =
         COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+      document.cookie = COOKIE_NAME + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; domain=.kingswaypreparatoryschool.sc.ke';
       try {
         localStorage.removeItem(STORAGE_KEY);
       } catch {}

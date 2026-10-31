@@ -92,10 +92,10 @@
         this.subscribeRealtime();
         this.applyPermissionGates();
         await Promise.all([this.loadData(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
+        if (this.cfg.channel === "whatsapp") await this.loadWhatsAppDocumentYears();
         this.setupVariableMenu();
-        if (this.cfg.channel === "sms") this.checkBalance();
-        else this.hideBalanceChip();
-        this.loadSmsTopup();
+        if (this.cfg.channel !== "sms") this.hideBalanceChip();
+        this.checkBalance();
       },
 
       hideBalanceChip: function () {
@@ -131,6 +131,26 @@
         if (ex && !canExport) ex.style.display = "none";
         if (pr && !canPrint) pr.style.display = "none";
         if (compose) compose.hidden = !canCompose;
+        if (compose && this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          compose.disabled = true;
+          compose.title = "WhatsApp sending is paused; use SMS or email for now";
+        }
+        const documentSelect = document.getElementById(this.cfg.channel === "sms" ? "smsRecipientDocument" : "generatedDocumentSelect");
+        if (documentSelect) {
+          const canAny = (permissions) => isTestAccount || !window.AuthContext?.hasPermission || permissions.some((permission) => AuthContext.hasPermission(permission));
+          const allowed = {
+            fee_statement: canAny(["finance_view", "finance_manage"]),
+            payslip: canAny(["finance_view", "payroll_view", "payroll_manage"]),
+            report_card: canAny(["academic_manage", "academic_approve"]),
+            student_id_card: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            portfolio: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            certificate: canAny(["students_view", "students_view_all", "academic_view", "academic_manage"]),
+            staff_security_pass: canAny(["staff_view", "staff_manage"]),
+          };
+          Array.from(documentSelect.options).forEach((option) => {
+            if (Object.prototype.hasOwnProperty.call(allowed, option.value)) option.disabled = !allowed[option.value];
+          });
+        }
       },
 
       bindEvents: function () {
@@ -181,7 +201,25 @@
         this.on("messageType", "change", function () { self.suggestTemplate(this.value); });
         this.on("templateSelect", "change", function () { self.applyTemplate(this.value); });
         this.on("messageBody", "input", function () { self.updateCharMetrics(); });
-        this.on("messageChannel", "change", function () { self.toggleChannelOptions(this.value); self.updateCharMetrics(); });
+        const composeRoot = this.getComposeRoot();
+        composeRoot.querySelectorAll("[data-wa-source]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            if (this.disabled) return;
+            const source = this.getAttribute("data-wa-source");
+            composeRoot.querySelectorAll("[data-wa-source]").forEach((item) => item.classList.toggle("active", item === this));
+            composeRoot.querySelectorAll("[data-wa-source-panel]").forEach((panel) => {
+              panel.hidden = panel.getAttribute("data-wa-source-panel") !== source;
+            });
+            self.updateWhatsAppMediaPreview();
+          });
+        });
+        this.on("mediaAttachment", "change", () => self.updateWhatsAppMediaPreview());
+        this.on("mediaPublicUrl", "input", () => self.updateWhatsAppMediaPreview());
+        this.on("generatedDocumentSelect", "change", () => self.updateWhatsAppMediaPreview());
+        this.on("smsRecipientDocument", "change", function () {
+          const period = document.getElementById("smsPayslipPeriod");
+          if (period) period.hidden = this.value !== "payslip";
+        });
 
         this.on("newTemplateBtn", "click", () => self.openTemplateModal());
         this.on("saveTemplateBtn", "click", () => self.saveTemplate());
@@ -235,8 +273,31 @@
 
         this.on("closeDetailBtn", "click", () => this.closeDetail());
         this.on("resendBtn", "click", () => self.resendDetail());
+        this.on("deliveryList", "change", (event) => {
+          if (event.target?.matches?.(".kw-delivery-select")) self.updateResendButton();
+        });
         this.on("copyBtn", "click", () => self.copyDetail());
         this.on("updateScheduleBtn", "click", () => self.updateSchedule());
+      },
+
+      loadWhatsAppDocumentYears: async function () {
+        const select = document.getElementById("waDocumentAcademicYear");
+        if (!select || !window.API?.students?.getAllAcademicYears) return;
+        try {
+          const response = await window.API.students.getAllAcademicYears();
+          const payload = response?.data ?? response;
+          const years = Array.isArray(payload) ? payload : (payload?.academic_years || payload?.years || []);
+          years.forEach((year) => {
+            const id = Number(year.id || year.academic_year_id);
+            if (!Number.isInteger(id) || id < 1) return;
+            const option = document.createElement("option");
+            option.value = String(id);
+            option.textContent = String(year.year_name || year.name || year.year || id);
+            select.append(option);
+          });
+        } catch (error) {
+          console.warn("Unable to load academic years for WhatsApp documents", error);
+        }
       },
 
       subscribeRealtime: function () {
@@ -447,7 +508,24 @@
         this.setText("detailMeta", meta.join("  ·  "));
         const bodyEl = document.getElementById("detailBody");
         if (bodyEl) bodyEl.textContent = body.substring(0, 2000);
-        this.setText("detailAudience", "Recipients: " + recipients + "  ·  Type: " + String(item.recipient_type || "—"));
+        const recipientType = String(item.recipient_type || item.channel_meta?.recipient_type || "").trim();
+        const audienceLabels = {
+          all_parents: "All Parents",
+          all_staff: "All Staff",
+          all_vendors: "All Vendors",
+          selected_parents: "Selected Parents",
+          selected_staff: "Selected Staff",
+          selected_students: "Parents of Selected Learners",
+          selected_class: "Parents in Selected Class",
+          student_type: "Parents by Learner Type",
+          school_level: "Parents by School Level",
+          selected_vendors: "Selected Vendors",
+          contact_group: "Contact Group",
+          custom_numbers: "Direct Phone Numbers",
+          mixed: "Custom Selection",
+        };
+        const audienceLabel = audienceLabels[recipientType] || recipientType.replace(/_/g, " ");
+        this.setText("detailAudience", "Recipients: " + recipients + (audienceLabel ? "  ·  Audience: " + audienceLabel : ""));
         const schedWrap = document.getElementById("scheduleEditWrap");
         const isScheduled = String(item.status || "").toLowerCase() === "scheduled";
         if (schedWrap) schedWrap.hidden = !(isScheduled && window.API?.communications?.updateCommunication);
@@ -485,6 +563,7 @@
           if (!rows.length) {
             listEl.innerHTML = '<div class="kw-rail-empty">No per-recipient delivery records yet.</div>';
             this.setText("deliveryCount", "");
+            this.updateResendButton();
             return;
           }
           const groups = this.groupDelivery(rows);
@@ -492,6 +571,7 @@
           const self = this;
           listEl.innerHTML = groups.map(function (g) {
             return '<div class="kw-delivery-row">' +
+              '<label class="kw-delivery-select-wrap" title="Select this recipient for resend"><input class="kw-delivery-select" type="checkbox" value="' + self.esc(g.recipientRowId) + '" checked aria-label="Select ' + self.esc(g.address || g.name || "recipient") + ' for resend"></label>' +
               '<div class="kw-delivery-main">' +
               '<span class="kw-delivery-addr">' + self.esc(g.address || g.name || "—") + "</span>" +
               '<span class="kw-delivery-sub">' + self.esc(g.channels.filter(Boolean).join(", ") || "—") + (g.at ? "  ·  " + self.esc(g.at) : "") + "</span>" +
@@ -503,6 +583,7 @@
               "</div>" +
               "</div>";
           }).join("");
+          this.updateResendButton();
         } catch (e) {
           if (String(this.selectedId) !== String(id)) return;
           listEl.innerHTML = '<div class="kw-rail-empty kw-danger">Unable to load delivery status.</div>';
@@ -512,9 +593,9 @@
       groupDelivery: function (rows) {
         const byKey = {};
         rows.forEach((r) => {
-          const key = String(r.recipient_id || r.id || "");
+          const key = String(r.id || r.recipient_row_id || r.recipient_id || "");
           if (!byKey[key]) {
-            byKey[key] = { name: r.name || r.recipient_name || "", address: r.address || r.phone || "", channels: [], status: r.endpoint_status || r.status || "", attempts: 0, error: "", at: r.endpoint_delivered_at || r.delivered_at || "" };
+            byKey[key] = { recipientRowId: String(r.id || r.recipient_row_id || ""), name: r.name || r.recipient_name || "", address: r.address || r.phone || "", channels: [], status: r.endpoint_status || r.status || "", attempts: 0, error: "", at: r.endpoint_delivered_at || r.delivered_at || "" };
           }
           const g = byKey[key];
           if (!g.address && (r.address || r.phone)) g.address = r.address || r.phone;
@@ -532,20 +613,32 @@
 
       resendDetail: async function () {
         if (!this.selectedId) return;
-        if (!(await window.confirmAction("Confirm", "Resend this message to its recipients?"))) return;
+        if (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          this.notify("WhatsApp sending is paused. Use SMS or email for now.", "warning");
+          return;
+        }
+        const recipientRowIds = Array.from(document.querySelectorAll("#deliveryList .kw-delivery-select:checked"))
+          .map((input) => Number(input.value)).filter((id) => Number.isInteger(id) && id > 0);
+        if (!recipientRowIds.length) { this.notify("Select at least one recipient to resend", "warning"); return; }
+        if (!(await window.confirmAction("Confirm", `Resend this message to ${recipientRowIds.length} selected recipient${recipientRowIds.length === 1 ? "" : "s"}?`))) return;
         try {
           const btn = document.getElementById("resendBtn");
           if (btn) btn.disabled = true;
-          const result = await window.API.communications.resendCommunication({ id: this.selectedId });
+          const result = await window.API.communications.resendCommunication({ id: this.selectedId, recipient_row_ids: recipientRowIds });
           if (result?.status === "success" || result?.success) this.notify(result.message || "Resent", "success");
           else this.notify(result?.message || "Resend failed", "error");
           await this.loadData();
         } catch (e) {
           this.notify(e.message || "Failed to resend", "error");
         } finally {
-          const btn = document.getElementById("resendBtn");
-          if (btn) btn.disabled = false;
+          this.updateResendButton();
         }
+      },
+
+      updateResendButton: function () {
+        const btn = document.getElementById("resendBtn");
+        if (btn) btn.disabled = (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled)
+          || document.querySelectorAll("#deliveryList .kw-delivery-select:checked").length === 0;
       },
 
       copyDetail: function () {
@@ -1006,27 +1099,6 @@
         }).join("") + (this.optOuts.length > 60 ? '<div class="kw-rail-empty">Showing 60 of ' + this.optOuts.length + "</div>" : "");
       },
 
-      loadSmsTopup: async function () {
-        if (this.cfg.channel !== "sms") return;
-        const set = (id, value, fallback) => {
-          const el = document.getElementById(id);
-          if (el) el.textContent = value || fallback || "—";
-        };
-        try {
-          const res = await window.API.system.getCommunicationConfigs();
-          const data = res?.data && typeof res.data === "object" ? res.data : (res || {});
-          const fields = Array.isArray(data.sms) ? data.sms : [];
-          const byKey = {};
-          fields.forEach((f) => { byKey[f.key] = f.value; });
-          set("smsTopupPaybill", byKey["comms_sms_topup_paybill"]);
-          set("smsTopupAccount", byKey["comms_sms_topup_account"]);
-          set("smsTopupNotes", byKey["comms_sms_topup_notes"], "Units are credited automatically after confirmation.");
-        } catch (e) {
-          set("smsTopupPaybill", null);
-          set("smsTopupAccount", null);
-        }
-      },
-
       loadProfile: async function () {
         const panel = document.getElementById("profilePanel");
         try {
@@ -1043,6 +1115,10 @@
         try {
           const response = await window.API.communications.getSmsBalance();
           const payload = response?.data && typeof response.data === "object" ? response.data : response;
+          const topup = payload?.topup || {};
+          this.setText("smsTopupPaybill", topup.paybill || "—");
+          this.setText("smsTopupAccount", topup.account || "—");
+          this.setText("smsTopupNotes", topup.notes || "Units are credited automatically after confirmation.");
           const available = payload?.available !== false;
           const balance = Number(payload?.balance ?? 0);
           const display = available ? balance : "—";
@@ -1051,19 +1127,12 @@
           const msg = available ? "Balance read from the configured provider." : (payload?.message || "SMS balance unavailable.");
           this.setText("gatewayBalanceMsg", msg);
         } catch (e) {
+          this.setText("smsTopupPaybill", "—");
+          this.setText("smsTopupAccount", "—");
           this.setText("smsBalance", "—");
           this.setText("railBalance", "—");
           this.setText("gatewayBalanceMsg", "Unable to fetch SMS balance.");
         }
-      },
-
-      toggleChannelOptions: function (channel) {
-        const mms = document.getElementById("mediaUrlDiv");
-        const voice = document.getElementById("voiceOptionsDiv");
-        const hashed = document.getElementById("hashedOptionsDiv");
-        if (mms) mms.style.display = channel === "mms" ? "" : "none";
-        if (voice) voice.style.display = channel === "voice" ? "" : "none";
-        if (hashed) hashed.style.display = channel === "hashed" ? "" : "none";
       },
 
       toggleRecipientSection: function (val) {
@@ -1160,11 +1229,16 @@
         this.setText("smsCount", segments);
         this.setText("estimatedCost", (segments * costPerSms).toFixed(2));
         const metrics = document.getElementById("smsMetrics");
-        const channel = this.value("messageChannel") || this.cfg.channel;
+        const channel = this.cfg.channel;
         if (metrics) metrics.style.display = channel === "sms" ? "" : "none";
+        if (channel === "whatsapp") this.updateWhatsAppMessagePreview();
       },
 
       openCompose: function () {
+        if (this.cfg.channel === "whatsapp" && !this.cfg.whatsappEnabled) {
+          this.notify("WhatsApp sending is paused. Use SMS or email for now.", "warning");
+          return;
+        }
         const form = document.getElementById("composeForm");
         if (form) {
           form.reset();
@@ -1177,9 +1251,11 @@
         });
         const sel = document.getElementById("specificRecipients");
         if (sel) sel.innerHTML = "";
-        const sig = document.getElementById("senderSignature");
-        if (sig && !sig.value) sig.value = "Kingsway Preparatory School";
-        this.toggleChannelOptions(this.value("messageChannel") || this.cfg.channel);
+        if (this.cfg.channel === "whatsapp") {
+          this.getComposeRoot().querySelectorAll("[data-wa-source]").forEach((button) => button.classList.toggle("active", button.getAttribute("data-wa-source") === "upload"));
+          this.getComposeRoot().querySelectorAll("[data-wa-source-panel]").forEach((panel) => { panel.hidden = panel.getAttribute("data-wa-source-panel") !== "upload"; });
+          this.updateWhatsAppMediaPreview();
+        }
         this.updateCharMetrics();
         if (this.composeOffcanvas) this.composeOffcanvas.show();
         else document.getElementById("composeOffcanvas")?.classList.add("show");
@@ -1205,8 +1281,6 @@
         const message = this.value("messageBody").trim();
         if (!recipients.length) throw new Error("Select at least one recipient");
         const msgType = this.value("messageType");
-        const signature = this.value("senderSignature").trim();
-        const fullMessage = signature ? message + "\n\n— " + signature : message;
         const scheduleTime = this.value("scheduleTime");
         let reminderAt = null;
         if (document.getElementById("enableReminder")?.checked) {
@@ -1219,17 +1293,33 @@
         }
         const payload = {
           recipients,
-          message: fullMessage,
+          message,
           type: channel,
           subject: msgType ? msgType.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()) : (channel === "whatsapp" ? "WhatsApp Message" : "SMS Broadcast"),
           status: scheduleTime ? "scheduled" : "sent",
           scheduled_at: scheduleTime || null,
           reminder_at: reminderAt,
-          sender_signature: signature,
           recipient_type: payloadRecipientType,
           target_ids: payloadRecipientType === "mixed" ? [] : recipients,
         };
         if (channel === "whatsapp") payload.category = msgType;
+        const mediaSource = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source");
+        const selectedDocument = channel === "whatsapp"
+          ? (mediaSource === "generated" ? this.value("generatedDocumentSelect") : "")
+          : (channel === "sms" ? this.value("smsRecipientDocument") : "");
+        if (selectedDocument) {
+          payload.channel_meta = { recipient_document_strategy: selectedDocument };
+          const academicYearId = Number(this.value("waDocumentAcademicYear"));
+          if (selectedDocument === "fee_statement" && Number.isInteger(academicYearId) && academicYearId > 0) {
+            payload.channel_meta.academic_year_id = academicYearId;
+          }
+          if (selectedDocument === "payslip") {
+            const monthField = channel === "sms" ? "smsPayrollMonth" : "waPayrollMonth";
+            const yearField = channel === "sms" ? "smsPayrollYear" : "waPayrollYear";
+            payload.channel_meta.payroll_month = Number(this.value(monthField));
+            payload.channel_meta.payroll_year = Number(this.value(yearField));
+          }
+        }
         return payload;
       },
 
@@ -1240,8 +1330,9 @@
         // can create a communication for this compose action.
         if (form?.dataset.submitting === "1") return;
         const msg = this.value("messageBody").trim();
-        const channel = this.value("messageChannel") || this.cfg.channel;
-        if (!msg && channel !== "mms") { this.notify("Message is required", "warning"); return; }
+        const channel = this.cfg.channel;
+        const hasWhatsAppMedia = channel === "whatsapp" && this.hasWhatsAppMediaSource();
+        if (!msg && !hasWhatsAppMedia) { this.notify(channel === "whatsapp" ? "Write a message or choose media" : "Message is required", "warning"); return; }
         if (!this.value("recipientType")) { this.notify("Select recipients", "warning"); return; }
         if (form) form.dataset.submitting = "1";
         const sendBtn = document.getElementById("sendBtn");
@@ -1256,15 +1347,26 @@
           } else {
             const data = this.collectFormData(channel);
             if (form) data.client_submission_id = form.dataset.submissionKey || "";
+            const mediaFirst = channel === "whatsapp" && hasWhatsAppMedia;
+            const intendedStatus = data.status;
+            if (mediaFirst) data.status = "draft";
             const created = await window.API.communications.createCommunication(data);
             const commId = created?.id || created?.communication_id || created?.data?.id;
-            if (channel === "whatsapp" && !created?.idempotent_replay) await this.uploadMedia(commId);
-            const result = data.status === "sent" && commId
+            if (channel === "whatsapp" && !created?.idempotent_replay) {
+              await this.uploadMedia(commId);
+              if (mediaFirst) {
+                await window.API.communications.updateCommunication(commId, {
+                  status: intendedStatus === "scheduled" ? "scheduled" : "queued",
+                  scheduled_at: data.scheduled_at || null,
+                });
+              }
+            }
+            const result = intendedStatus === "sent" && commId
               ? await window.API.communications.dispatchCommunication(commId)
               : created;
             const label = channel === "whatsapp" ? "WhatsApp" : "SMS";
             if (result?.status === "failed") this.notify(label + " delivery failed", "error");
-            else this.notify(data.status === "scheduled" ? label + " scheduled" : label + " sent or queued", "success");
+            else this.notify(intendedStatus === "scheduled" ? label + " scheduled" : label + " sent or queued", "success");
             if (this.composeOffcanvas) this.composeOffcanvas.hide();
             await this.loadData();
           }
@@ -1282,13 +1384,101 @@
 
       uploadMedia: async function (communicationId) {
         const input = document.getElementById("mediaAttachment");
-        if (!input || !input.files || !input.files.length || !communicationId) return;
+        const activeSource = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        if (!communicationId || activeSource === "generated") return;
         const formData = new FormData();
         formData.append("communication_id", communicationId);
-        formData.append("file", input.files[0]);
-        formData.append("file_name", input.files[0].name);
         formData.append("channel", "whatsapp");
+        if (activeSource === "upload") {
+          if (!input?.files?.length) return;
+          formData.append("file", input.files[0]);
+          formData.append("file_name", input.files[0].name);
+        } else if (activeSource === "link") {
+          const url = this.value("mediaPublicUrl").trim();
+          if (!url) return;
+          formData.append("source_url", url);
+          formData.append("file_name", url.split("/").pop().split("?")[0] || "linked-media");
+        }
         await window.API.communications.createAttachment(formData);
+      },
+
+      hasWhatsAppMediaSource: function () {
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        if (source === "upload") return Boolean(document.getElementById("mediaAttachment")?.files?.length);
+        if (source === "link") return Boolean(this.value("mediaPublicUrl").trim());
+        return source === "generated" && ["fee_statement", "payslip", "report_card", "student_id_card", "portfolio", "certificate", "staff_security_pass"].includes(this.value("generatedDocumentSelect"));
+      },
+
+      updateWhatsAppMediaPreview: function () {
+        this.updateWhatsAppMessagePreview();
+        const preview = document.getElementById("waMediaPreview");
+        if (!preview) return;
+        preview.replaceChildren();
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        const file = document.getElementById("mediaAttachment")?.files?.[0];
+        if (source === "generated") {
+          const selected = this.value("generatedDocumentSelect");
+          const feePeriod = document.getElementById("waFeeStatementPeriod");
+          const payslipPeriod = document.getElementById("waPayslipPeriod");
+          const help = document.getElementById("generatedDocumentHelp");
+          if (feePeriod) feePeriod.hidden = selected !== "fee_statement";
+          if (payslipPeriod) payslipPeriod.hidden = selected !== "payslip";
+          const descriptions = {
+            fee_statement: "Each parent receives statements for their own active linked learners.",
+            payslip: "Each staff recipient receives only their own approved payslip for the selected period.",
+            report_card: "Only officially released report cards for linked learners are sent.",
+            student_id_card: "A separate student ID card is generated for each linked learner.",
+            portfolio: "A separate portfolio is generated for each linked learner.",
+            certificate: "Previously issued award certificates for linked learners are shared.",
+            staff_security_pass: "An existing security pass is generated separately for each active staff recipient.",
+          };
+          if (help) help.textContent = descriptions[selected] || "Choose the system document to generate separately for each recipient.";
+          preview.hidden = !selected;
+          if (selected) {
+            const label = document.createElement("span");
+            label.className = "small text-success";
+            label.textContent = descriptions[selected] || "A separate document link will be created for each recipient.";
+            preview.append(label);
+          }
+          return;
+        }
+        const url = source === "link" ? this.value("mediaPublicUrl").trim() : (file ? URL.createObjectURL(file) : "");
+        if (!url) { preview.hidden = true; return; }
+        preview.hidden = false;
+        if (file?.type?.startsWith("image/")) {
+          const img = document.createElement("img");
+          img.src = url;
+          img.alt = "WhatsApp image preview";
+          img.className = "img-fluid rounded";
+          img.style.maxHeight = "180px";
+          preview.append(img);
+        } else {
+          const label = document.createElement("span");
+          label.className = "small text-muted";
+          label.textContent = file?.name || url.split("/").pop().split("?")[0] || "Media selected";
+          preview.append(label);
+        }
+      },
+
+      updateWhatsAppMessagePreview: function () {
+        const messagePreview = document.getElementById("waChatMessagePreview");
+        const mediaPreview = document.getElementById("waChatMediaPreview");
+        if (!messagePreview || !mediaPreview) return;
+        const message = this.value("messageBody").trim();
+        messagePreview.textContent = message || "Your message will appear here as parents and staff receive it.";
+        const source = this.getComposeRoot().querySelector("[data-wa-source].active")?.getAttribute("data-wa-source") || "upload";
+        const file = document.getElementById("mediaAttachment")?.files?.[0];
+        let mediaLabel = "";
+        if (source === "generated") {
+          const select = document.getElementById("generatedDocumentSelect");
+          mediaLabel = select?.selectedOptions?.[0]?.textContent?.trim() || "";
+        } else if (source === "link") {
+          mediaLabel = this.value("mediaPublicUrl").trim();
+        } else if (file) {
+          mediaLabel = file.name;
+        }
+        mediaPreview.hidden = !mediaLabel;
+        mediaPreview.textContent = mediaLabel ? `📎 ${mediaLabel}` : "";
       },
 
       sendViaChannel: async function (channel, message) {
@@ -1370,6 +1560,7 @@
       },
 
       esc: function (v) { return String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); },
+      getComposeRoot: function () { return document.getElementById("composeOffcanvas") || this.root || document; },
       value: function (id) { const el = document.getElementById(id); return el ? el.value || "" : ""; },
       text: function (id) { const el = document.getElementById(id); return el ? el.textContent || "" : ""; },
       setText: function (id, v) { const el = document.getElementById(id); if (el) el.textContent = String(v); },

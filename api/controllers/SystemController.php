@@ -799,7 +799,7 @@ class SystemController extends BaseController
 
             if ($format === 'csv') {
                 $stream = fopen('php://temp', 'w+');
-                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive']);
+                fputcsv($stream, ['timestamp', 'level', 'category', 'user_id', 'user', 'ip', 'method', 'route', 'status', 'action/type/event', 'message', 'request_id', 'archive'], ',', '"', '\\');
                 foreach ($entries as $row) {
                     fputcsv($stream, [
                         $row['timestamp'] ?? '', $row['level'] ?? '', $row['_category'] ?? '',
@@ -807,7 +807,7 @@ class SystemController extends BaseController
                         $row['method'] ?? '', $row['route'] ?? '', $row['status'] ?? '',
                         $row['action'] ?? $row['type'] ?? $row['event'] ?? '', $row['message'] ?? '',
                         $row['request_id'] ?? '', !empty($row['_archive']) ? 'yes' : 'no',
-                    ]);
+                    ], ',', '"', '\\');
                 }
                 rewind($stream); $content = stream_get_contents($stream); fclose($stream);
                 $mime = 'text/csv';

@@ -16,7 +16,7 @@ class PayrollChildFeeTransferService
 {
     private $db;
 
-    public function __construct(PDO $db = null)
+    public function __construct(?PDO $db = null)
     {
         $this->db = $db ?: Database::getInstance()->getConnection();
     }

@@ -102,6 +102,9 @@ final class SmsBatchService
         $communicationId = $this->payloadCommunicationId($payload);
         $communication = $this->fetchCommunication($pdo, $communicationId);
         $mode = (string) ($payload['mode'] ?? 'sms');
+        if ($mode === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         $channelMeta = json_decode((string) ($communication['channel_meta'] ?? ''), true);
         $channelMeta = is_array($channelMeta) ? $channelMeta : [];
 
@@ -130,7 +133,7 @@ final class SmsBatchService
             'provider' => [
                 'api_key' => (string) ($providerConfig['api_key'] ?? ''),
                 'api_url' => (string) ($providerConfig['api_url'] ?? ''),
-                'sender_id' => (string) ($providerConfig['sender_id'] ?? ($providerConfig['wa_number'] ?? '')),
+                'sender_id' => (string) ($providerConfig['sender_id'] ?? ''),
             ],
             'recipients' => array_map(static function (array $endpoint): array {
                 return ['endpoint_id' => (int) $endpoint['id'], 'address' => (string) $endpoint['address']];
@@ -373,10 +376,10 @@ final class SmsBatchService
         if ($ok) {
             $pdo->prepare(
                 "UPDATE communication_recipient_endpoints
-                    SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NOW(), last_error = NULL
+                    SET status = 'sent', provider_message_id = ?, provider_status = ?, attempt_count = attempt_count + 1, last_attempt_at = NOW(), delivered_at = NULL, last_error = NULL
                   WHERE id = ?"
             )->execute([$providerId !== '' ? $providerId : null, substr((string) ($row['status'] ?? 'sent'), 0, 100), $endpointId]);
-            $pdo->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NOW(), error_message = NULL WHERE id = ?")
+            $pdo->prepare("UPDATE communication_recipients SET status = 'sent', delivered_at = NULL, error_message = NULL WHERE id = ?")
                 ->execute([(int) $endpoint['communication_recipient_id']]);
         } else {
             $pdo->prepare(

@@ -1067,8 +1067,6 @@ final class UploadService
             IMAGETYPE_BMP => function_exists('imagebmp') ? imagebmp($thumbnail, $destination) : false,
             default => false,
         };
-        imagedestroy($image);
-        imagedestroy($thumbnail);
         return (bool) $written;
     }
 

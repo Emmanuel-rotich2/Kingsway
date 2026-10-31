@@ -107,6 +107,9 @@ class Mailer
         if ($this->channel === 'email') {
             return $this->sendEmail();
         }
+        if (!in_array($this->channel, ['sms', 'whatsapp'], true)) {
+            return ['status' => 'error', 'message' => 'Unsupported communication channel', 'sent_count' => 0, 'failed' => $this->recipients];
+        }
         return $this->sendSms();
     }
 

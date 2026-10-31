@@ -25,7 +25,6 @@ class SystemCommsConfigService
         'comms_sms_api_url'    => ['SMS_API_URL', 'API Base URL', false],
         'comms_sms_sender_id'  => ['SMS_SENDER_ID', 'Sender ID', false],
         'comms_sms_shortcode'  => ['SMS_SHORTCODE', 'Short Code', false],
-        'comms_sms_wa_number'  => ['SMS_WHATSAPP_NUMBER', 'WhatsApp Number', false],
         'comms_sms_topup_paybill' => ['SMS_TOPUP_PAYBILL', 'Top-up Paybill', false],
         'comms_sms_topup_account' => ['SMS_TOPUP_ACCOUNT', 'Top-up Account Number', false],
         'comms_sms_topup_notes'   => ['SMS_TOPUP_NOTES', 'Top-up Instructions', false],
@@ -43,7 +42,6 @@ class SystemCommsConfigService
     private const WA_KEYS = [
         'comms_wa_username' => ['SMS_USERNAME', 'WhatsApp Username', false],
         'comms_wa_api_key'  => ['SMS_API_KEY', 'WhatsApp API Key', true],
-        'comms_wa_number'   => ['SMS_WHATSAPP_NUMBER', 'WhatsApp Number', false],
         'comms_wa_api_url'  => ['SMS_API_URL', 'API Base URL', false],
     ];
 
@@ -180,7 +178,6 @@ class SystemCommsConfigService
             'api_url'   => $rows['comms_sms_api_url']['setting_value']   ?? $this->envValue('SMS_API_URL') ?: 'https://bulksms.talksasa.com/api/v3/',
             'sender_id' => $senderId,
             'shortcode' => $rows['comms_sms_shortcode']['setting_value'] ?? $this->envValue('SMS_SHORTCODE'),
-            'wa_number' => $rows['comms_sms_wa_number']['setting_value'] ?? $this->envValue('SMS_WHATSAPP_NUMBER'),
         ];
     }
 
@@ -192,13 +189,18 @@ class SystemCommsConfigService
         $rows = $this->loadDbValues();
 
         $provider = $rows['comms_sms_provider']['setting_value'] ?? $this->envValue('SMS_PROVIDER');
-        $senderId = $rows['comms_wa_number']['setting_value'] ?? $this->envValue('SMS_WHATSAPP_NUMBER');
+        $senderId = $rows['comms_sms_sender_id']['setting_value'] ?? $this->envValue('SMS_SENDER_ID');
+        if ($senderId === '') {
+            $senderId = $rows['comms_sms_shortcode']['setting_value'] ?? $this->envValue('SMS_SHORTCODE');
+        }
+        if ($senderId === '') {
+            $senderId = $rows['comms_sms_username']['setting_value'] ?? $this->envValue('SMS_USERNAME');
+        }
 
         return [
             'provider'  => $provider !== '' ? $provider : 'talksasa',
             'api_key'   => $rows['comms_wa_api_key']['setting_value']  ?? $this->envValue('SMS_API_KEY'),
             'username'  => $rows['comms_wa_username']['setting_value'] ?? $this->envValue('SMS_USERNAME'),
-            'wa_number' => $senderId,
             'sender_id' => $senderId,
             'api_url'   => $rows['comms_wa_api_url']['setting_value']  ?? $this->envValue('SMS_API_URL') ?: 'https://bulksms.talksasa.com/api/v3/',
         ];
@@ -304,27 +306,45 @@ class SystemCommsConfigService
      */
     public function getSmsBalance(): array
     {
+        $topup = $this->smsTopupDetails();
         $cfg = $this->effectiveSmsConfig();
 
         if (($cfg['api_key'] ?? '') === '') {
-            return ['success' => false, 'balance' => 0, 'message' => 'SMS API key is not configured.'];
+            return ['success' => false, 'balance' => 0, 'message' => 'SMS API key is not configured.', 'topup' => $topup];
         }
 
         try {
             $gateway = new \App\API\Services\sms\SMSGateway($cfg);
             $result = $gateway->balance();
         } catch (\Throwable $e) {
-            return ['success' => false, 'balance' => 0, 'message' => 'Balance check failed: ' . $e->getMessage()];
+            return ['success' => false, 'balance' => 0, 'message' => 'Balance check failed: ' . $e->getMessage(), 'topup' => $topup];
         }
 
         if (!($result['ok'] ?? false)) {
-            return ['success' => false, 'balance' => 0, 'message' => $result['message'] ?: 'SMS balance could not be retrieved.'];
+            return ['success' => false, 'balance' => 0, 'message' => $result['message'] ?: 'SMS balance could not be retrieved.', 'topup' => $topup];
         }
 
         return [
             'success' => true,
             'balance' => $this->extractBalance($result['data'] ?? null),
             'message' => 'Balance retrieved',
+            'topup' => $topup,
+        ];
+    }
+
+    /** Safe, non-secret SMS credit top-up instructions for authenticated users. */
+    public function smsTopupDetails(): array
+    {
+        $rows = $this->loadDbValues();
+        $read = function (string $key, string $constant) use ($rows): string {
+            $dbValue = trim((string) ($rows[$key]['setting_value'] ?? ''));
+            return $dbValue !== '' ? $dbValue : trim($this->envValue($constant));
+        };
+
+        return [
+            'paybill' => $read('comms_sms_topup_paybill', 'SMS_TOPUP_PAYBILL'),
+            'account' => $read('comms_sms_topup_account', 'SMS_TOPUP_ACCOUNT'),
+            'notes' => $read('comms_sms_topup_notes', 'SMS_TOPUP_NOTES'),
         ];
     }
 

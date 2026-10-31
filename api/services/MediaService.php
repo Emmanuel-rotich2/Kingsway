@@ -331,6 +331,25 @@ final class MediaService
         );
     }
 
+    public function getStoredMimeType(int|string $mediaId): ?string
+    {
+        $media = $this->findMedia($mediaId);
+        if ($media === null) {
+            return null;
+        }
+        $path = $this->uploads->mediaAbsolutePath(
+            (string) $media['context'],
+            $media['entity_id'] ?? null,
+            $media['album_id'] ?? null,
+            (string) $media['filename']
+        );
+        if (!is_file($path)) {
+            return null;
+        }
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($path);
+        return is_string($mime) ? $mime : null;
+    }
+
     private function findMedia(int|string $mediaId): ?array
     {
         $statement = $this->db->prepare(

@@ -253,11 +253,6 @@ define(
     $_ENV['SMS_SHORTCODE'] ?? ''
 );
 
-define(
-    'SMS_WHATSAPP_NUMBER',
-    $_ENV['SMS_WHATSAPP_NUMBER'] ?? ''
-);
-
 define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? '');
 define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? '');
 

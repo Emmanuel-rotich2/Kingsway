@@ -767,10 +767,10 @@ final class PrintService
 
         try {
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, array_keys($data[0]));
+            fputcsv($handle, array_keys($data[0]), ',', '"', '\\');
 
             foreach ($data as $row) {
-                fputcsv($handle, $row);
+                fputcsv($handle, $row, ',', '"', '\\');
             }
         } finally {
             fclose($handle);
@@ -3272,7 +3272,6 @@ final class PrintService
         $target = imagecreatetruecolor($targetWidth, $targetHeight);
 
         if ($target === false) {
-            imagedestroy($source);
             return null;
         }
 
@@ -3306,9 +3305,6 @@ final class PrintService
             default => imagepng($target, null, 7),
         };
         $binary = ob_get_clean();
-
-        imagedestroy($target);
-        imagedestroy($source);
 
         if ($encoded === false || !is_string($binary) || $binary === '') {
             return null;

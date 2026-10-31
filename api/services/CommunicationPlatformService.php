@@ -119,6 +119,7 @@ class CommunicationPlatformService
 
     public function queueProviderTemplateForContacts(array $contacts, string $providerTemplateId, array $variables, array $options = []): array
     {
+        \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
         $code = 'whatsapp.provider.' . sha1($providerTemplateId);
         $this->db->prepare("INSERT INTO communication_template_catalog (code, name, purpose, status) VALUES (?, ?, 'provider_template', 'active') ON DUPLICATE KEY UPDATE status = 'active'")
             ->execute([$code, 'WhatsApp provider template ' . $providerTemplateId]);
@@ -154,6 +155,10 @@ class CommunicationPlatformService
 
     private function queueResolvedContacts(array $contacts, string $channel, array $template, array $options): array
     {
+        $channel = strtolower(trim($channel));
+        if ($channel === 'whatsapp') {
+            \App\API\Services\whatsapp\WhatsAppGateway::assertEnabled();
+        }
         $scheduledAt = $options['scheduled_at'] ?? null;
         $status = $scheduledAt ? 'scheduled' : 'queued';
         $communicationId = $this->insertCommunication($channel, $template, $status, $scheduledAt, $options);
@@ -235,8 +240,8 @@ class CommunicationPlatformService
             "INSERT INTO communications
                 (sender_id, subject, body, type, status, priority, template_id, template_channel_id,
                  academic_year_id, academic_year_term_id, scheduled_at, reminder_at,
-                 sender_signature, thread_id, business_event_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                 sender_signature, thread_id, business_event_id, channel_meta)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $options['sender_id'] ?? 1,
@@ -254,6 +259,7 @@ class CommunicationPlatformService
             $options['sender_signature'] ?? null,
             $options['thread_id'] ?? null,
             $options['business_event_id'] ?? null,
+            isset($options['channel_meta']) ? json_encode($options['channel_meta'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null,
         ]);
         return (int) $this->db->lastInsertId();
     }

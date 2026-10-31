@@ -3180,22 +3180,16 @@ return formatResponse(false, null, 'An internal error occurred.');
             (string) $venue
         );
 
-        \App\API\Includes\FileLogger::write('communications', [
-            'type' => 'sms_queue',
-            'message_type' => 'admission_interview',
-            'parent_ids' => (string) $application['parent_id'],
-            'message' => $message,
-            'template_id' => null,
-            'sent_by' => (int) $this->user_id,
-        ]);
-
-        $this->logAction('sms_sent', $application_id, "Interview notification queued for $date at $time");
+        $queued = $this->queueAdmissionParentSms((int) $application['parent_id'], 'Admission interview scheduled', $message);
+        $this->logAction($queued ? 'sms_queued' : 'sms_failed', $application_id, $queued
+            ? "Interview notification queued for $date at $time"
+            : 'Interview notification could not be queued.');
     }
 
     private function sendPlacementOfferNotification($application_id, $fees) {
         $stmt = $this->db->prepare("
             SELECT parent_id, applicant_name
-            FROM " . ReadReplicaService::qualifiedRef("person_directory") . " 
+            FROM admission_applications
             WHERE id = :application_id
             LIMIT 1
         ");
@@ -3203,7 +3197,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         $application = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$application || empty($application['parent_id'])) {
-            $this->logAction('placement_offer_sent', $application_id, "Placement offer logged without SMS. Total fees: $fees");
+            $this->logAction('placement_offer_sms_skipped', $application_id, 'No linked parent was available for the placement offer SMS.');
             return;
         }
 
@@ -3213,16 +3207,49 @@ return formatResponse(false, null, 'An internal error occurred.');
             number_format((float) $fees, 2)
         );
 
-        \App\API\Includes\FileLogger::write('communications', [
-            'type' => 'sms_queue',
-            'message_type' => 'admission_offer',
-            'parent_ids' => (string) $application['parent_id'],
-            'message' => $message,
-            'template_id' => null,
-            'sent_by' => (int) $this->user_id,
-        ]);
+        $queued = $this->queueAdmissionParentSms(
+            (int) $application['parent_id'],
+            'Admission placement offer',
+            $message
+        );
+        $this->logAction($queued ? 'placement_offer_sms_queued' : 'placement_offer_sms_failed', $application_id, $queued
+            ? 'Placement offer notification queued.'
+            : 'Placement offer notification could not be queued.');
+    }
 
-        $this->logAction('placement_offer_sent', $application_id, "Placement offer sent. Total fees: $fees");
+    /** Queue one admission SMS through the canonical per-recipient outbox. */
+    private function queueAdmissionParentSms(int $parentId, string $subject, string $message): bool
+    {
+        if ($parentId < 1) return false;
+        try {
+            $communication = (new \App\API\Modules\communications\CommunicationsManager($this->db))->createCommunication([
+                'sender_id' => (int) ($this->user_id ?? 1),
+                'subject' => $subject,
+                'body' => $message,
+                'type' => 'sms',
+                'status' => 'sent',
+                'priority' => 'high',
+                'recipient_type' => 'selected_parents',
+                'recipients' => [$parentId],
+                'target_ids' => [$parentId],
+            ]);
+            $queued = !empty($communication['id'])
+                && in_array((string) ($communication['status'] ?? ''), ['queued', 'scheduled'], true);
+            if ($queued) {
+                \App\API\Includes\FileLogger::write('communications', [
+                    'type' => 'admission_sms_queued',
+                    'communication_id' => (int) $communication['id'],
+                    'sender_id' => (int) ($this->user_id ?? 1),
+                ]);
+            }
+            return $queued;
+        } catch (\Throwable $error) {
+            \App\API\Includes\FileLogger::write('communications', [
+                'type' => 'admission_sms_queue_failed',
+                'error_class' => get_class($error),
+            ], 'error');
+            return false;
+        }
     }
 
     /**

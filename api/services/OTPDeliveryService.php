@@ -2,7 +2,7 @@
 /**
  * OTP Delivery Service
  *
- * Sends 2FA verification codes via Email (PHPMailer) and SMS (Africa's Talking).
+ * Sends 2FA verification codes via email, SMS and WhatsApp using school messaging settings.
  *
  * @package App\Services
  */
@@ -17,20 +17,36 @@ class OTPDeliveryService
 
     public function __construct()
     {
+        $db = null;
+        $configService = null;
         // Lazy-load services — only instantiate if classes exist
-        if (class_exists(\App\API\Services\MessageService::class)) {
+        if (class_exists(\App\API\Services\MessageService::class)
+            || class_exists(\App\API\Services\sms\SMSGateway::class)
+            || class_exists(\App\API\Services\whatsapp\WhatsAppGateway::class)) {
             try {
                 $db = \App\Database\Database::getInstance()->getConnection();
-                $this->messageService = new \App\API\Services\MessageService($db);
+                $configService = new \App\API\Services\SystemCommsConfigService($db);
             } catch (\Throwable $e) {
-                \App\API\Services\Logger::legacyError("[OTPDelivery] MessageService not available: " . $e->getMessage());
+                \App\API\Services\Logger::legacyError('[OTPDelivery] School messaging settings unavailable.');
             }
         }
+        if ($db instanceof \PDO && class_exists(\App\API\Services\MessageService::class)) {
+            try { $this->messageService = new \App\API\Services\MessageService($db); }
+            catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] MessageService not available.'); }
+        }
         if (class_exists(\App\API\Services\sms\SMSGateway::class)) {
-            $this->smsGateway = new \App\API\Services\sms\SMSGateway();
+            try {
+                $smsConfig = $configService ? $configService->effectiveSmsConfig() : [];
+                $this->smsGateway = new \App\API\Services\sms\SMSGateway($smsConfig);
+            } catch (\Throwable $e) {
+                \App\API\Services\Logger::legacyError('[OTPDelivery] SMS gateway unavailable.');
+            }
         }
         if (class_exists(\App\API\Services\whatsapp\WhatsAppGateway::class)) {
-            try { $this->whatsappGateway = new \App\API\Services\whatsapp\WhatsAppGateway(); } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] WhatsApp not available: ' . $e->getMessage()); }
+            try {
+                $whatsappConfig = $configService ? $configService->effectiveWhatsAppConfig() : [];
+                $this->whatsappGateway = new \App\API\Services\whatsapp\WhatsAppGateway($whatsappConfig);
+            } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[OTPDelivery] WhatsApp gateway unavailable.'); }
         }
     }
 
@@ -67,7 +83,10 @@ class OTPDeliveryService
         if ($this->smsGateway) {
             try {
                 $result = $this->smsGateway->send($phone, $message);
-                return is_bool($result) ? $result : ($result['success'] ?? false);
+                if (is_bool($result)) return $result;
+                $status = strtolower((string) ($result['status'] ?? ''));
+                return in_array($status, ['success', 'sent', 'queued', 'accepted'], true)
+                    || !empty($result['success']);
             } catch (\Throwable $e) {
                 \App\API\Services\Logger::legacyError("[OTPDelivery] SMS failed: " . $e->getMessage());
                 return false;

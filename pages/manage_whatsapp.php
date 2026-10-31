@@ -4,11 +4,15 @@
  * HTML fragment loaded into app_layout.php; behaviour lives in
  * js/pages/messaging_console.js (shared engine) via js/pages/manage_whatsapp.js.
  */
+$whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED', false), FILTER_VALIDATE_BOOLEAN);
 ?>
 
 <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/pages/messaging-console.css?v=<?= asset_version('css/pages/messaging-console.css') ?>">
 
-<div class="kw-console" data-channel="whatsapp" id="kwConsole">
+<div class="kw-console" data-channel="whatsapp" data-whatsapp-enabled="<?= $whatsappSendingEnabled ? 'true' : 'false' ?>" id="kwConsole">
+    <?php if (!$whatsappSendingEnabled): ?>
+        <div class="alert alert-warning m-3 mb-0" role="status"><i class="bi bi-pause-circle me-1"></i>WhatsApp sending is paused while provider configuration is pending. Use SMS or email for now. Existing WhatsApp delivery history remains available.</div>
+    <?php endif; ?>
     <header class="kw-console-top">
         <div class="kw-console-brand">
             <span class="kw-console-icon"><i class="bi bi-whatsapp"></i></span>
@@ -24,8 +28,8 @@
             <button class="btn btn-sm" id="refreshBtn" title="Refresh messages"><i class="bi bi-arrow-clockwise"></i></button>
             <button class="btn btn-sm" id="exportBtn" title="Export CSV"><i class="bi bi-filetype-csv"></i> CSV</button>
             <button class="btn btn-sm" id="printBtn" title="Print / save as PDF"><i class="bi bi-printer"></i></button>
-            <button class="btn btn-sm kw-btn-primary" id="composeBtn">
-                <i class="bi bi-pencil-square"></i> New Message
+            <button class="btn btn-sm kw-btn-primary" id="composeBtn" <?= $whatsappSendingEnabled ? '' : 'disabled title="WhatsApp sending is paused; use SMS or email for now"' ?>>
+                <i class="bi bi-pencil-square"></i> <?= $whatsappSendingEnabled ? 'New Message' : 'WhatsApp paused' ?>
             </button>
         </div>
     </header>
@@ -233,7 +237,7 @@
                     </div>
                 </div>
                 <div class="kw-detail-actions">
-                    <button type="button" class="btn btn-sm btn-primary" id="resendBtn"><i class="bi bi-arrow-repeat"></i> Resend</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="resendBtn" disabled><i class="bi bi-arrow-repeat"></i> Resend selected</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="copyBtn"><i class="bi bi-clipboard"></i> Copy</button>
                 </div>
             </div>
@@ -242,26 +246,15 @@
 </div>
 
 <!-- Compose Offcanvas -->
-<div class="offcanvas offcanvas-end kw-compose" tabindex="-1" id="composeOffcanvas" aria-labelledby="composeTitle">
+<div class="offcanvas offcanvas-end kw-compose kw-compose-whatsapp" tabindex="-1" id="composeOffcanvas" aria-labelledby="composeTitle">
     <div class="offcanvas-header">
         <h2 class="offcanvas-title" id="composeTitle"><i class="bi bi-whatsapp"></i> Compose WhatsApp</h2>
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
         <form id="composeForm">
-            <div class="kw-compose-grid">
-                <div>
-                    <div class="mb-3">
-                        <label class="form-label" for="messageChannel">Channel</label>
-                        <select class="form-select" id="messageChannel">
-                            <option value="sms">SMS</option>
-                            <option value="whatsapp" selected>WhatsApp</option>
-                            <option value="voice">Voice</option>
-                            <option value="mms">MMS</option>
-                            <option value="hashed">Hashed SMS</option>
-                            <option value="campaign">SMS Campaign</option>
-                        </select>
-                    </div>
+            <div class="kw-compose-grid kw-wa-composer-layout">
+                <div class="kw-wa-audience-column">
                     <div class="mb-3">
                         <label class="form-label" for="messageType">Message Type</label>
                         <select class="form-select" id="messageType">
@@ -333,36 +326,10 @@
                             </div>
                         </div>
                     </div>
-                    <div id="mediaUrlDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Media URL <span class="text-danger">*</span></label>
-                        <input type="url" class="form-control" id="mediaUrl" placeholder="https://…">
-                    </div>
-                    <div id="voiceOptionsDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Voice Options</label>
-                        <div class="row g-2">
-                            <div class="col-6">
-                                <select class="form-select form-select-sm" id="voiceLanguage">
-                                    <option value="en">English</option>
-                                    <option value="sw">Swahili</option>
-                                </select>
-                            </div>
-                            <div class="col-6">
-                                <select class="form-select form-select-sm" id="voiceGender">
-                                    <option value="female">Female</option>
-                                    <option value="male">Male</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="hashedOptionsDiv" class="mb-3" style="display:none;">
-                        <label class="form-label">Recipient Format</label>
-                        <select class="form-select form-select-sm" id="recipientFormat">
-                            <option value="hashed">Hashed</option>
-                            <option value="plain">Plain</option>
-                        </select>
-                    </div>
                 </div>
-                <div>
+                <div class="kw-wa-content-column">
+                    <div class="kw-wa-content-grid">
+                    <div class="kw-wa-message-controls">
                     <div class="mb-3">
                         <label class="form-label" for="templateSelect">Template <small class="text-muted">(optional)</small></label>
                         <select class="form-select" id="templateSelect">
@@ -377,22 +344,80 @@
                                 <ul class="dropdown-menu dropdown-menu-end" id="messageVariableMenu"></ul>
                             </div>
                         </div>
-                        <textarea class="form-control" id="messageBody" rows="7" maxlength="1200" required></textarea>
+                        <textarea class="form-control" id="messageBody" rows="7" maxlength="1200" placeholder="Type a WhatsApp message…"></textarea>
                         <small class="kw-compose-hint">
                             <span id="charCount">0</span> characters
                             <span id="smsMetrics"> · <span id="smsCount">0</span> SMS · Est. cost: KES <span id="estimatedCost">0.00</span></span>
                         </small>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Media Attachment <small class="text-muted">(optional)</small></label>
-                        <input type="file" class="form-control form-control-sm" id="mediaAttachment" accept="image/*,application/pdf">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label" for="senderSignature">Sender Signature</label>
-                        <input type="text" class="form-control" id="senderSignature" placeholder="e.g. Kingsway Preparatory School">
-                    </div>
+                    <section class="kw-wa-media" aria-labelledby="waMediaTitle">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <label class="form-label mb-0" id="waMediaTitle">Media message <small class="text-muted">(optional)</small></label>
+                            <span class="small text-muted">One media item per message</span>
+                        </div>
+                        <div class="btn-group w-100 mb-3" role="group" aria-label="Choose media source">
+                            <button type="button" class="btn btn-sm btn-outline-success active" data-wa-source="upload"><i class="bi bi-upload"></i> Device</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" data-wa-source="link"><i class="bi bi-link-45deg"></i> Public link</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" data-wa-source="generated"><i class="bi bi-file-earmark-text"></i> Kingsway document</button>
+                        </div>
+                        <div data-wa-source-panel="upload">
+                            <input type="file" class="form-control form-control-sm" id="mediaAttachment" accept="image/jpeg,image/png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain,application/zip">
+                            <small class="form-text text-muted">Choose an image or document from this device.</small>
+                        </div>
+                        <div data-wa-source-panel="link" hidden>
+                            <input type="url" class="form-control form-control-sm" id="mediaPublicUrl" placeholder="https://example.com/file.pdf" inputmode="url">
+                            <small class="form-text text-muted">The link must be public, use HTTPS, and point directly to the media file.</small>
+                        </div>
+                        <div data-wa-source-panel="generated" hidden>
+                            <label class="form-label form-label-sm" for="generatedDocumentSelect">Document for each recipient</label>
+                            <select class="form-select form-select-sm" id="generatedDocumentSelect">
+                                <option value="">Choose a document…</option>
+                                <option value="fee_statement">Fee statement for each linked learner</option>
+                                <option value="payslip">Payslip for each staff member</option>
+                                <option value="report_card">Latest released report card for each linked learner</option>
+                                <option value="student_id_card">Student ID card for each linked learner</option>
+                                <option value="portfolio">Portfolio for each linked learner</option>
+                                <option value="certificate">Issued award certificates for each linked learner</option>
+                                <option value="staff_security_pass">Existing security pass for each staff recipient</option>
+                            </select>
+                            <div id="waFeeStatementPeriod">
+                            <label class="form-label form-label-sm mt-2" for="waDocumentAcademicYear">Academic year</label>
+                            <select class="form-select form-select-sm" id="waDocumentAcademicYear">
+                                <option value="">Current academic year</option>
+                            </select>
+                            </div>
+                            <div id="waPayslipPeriod" hidden>
+                                <div class="row g-2 mt-1">
+                                    <div class="col-6"><label class="form-label form-label-sm" for="waPayrollMonth">Payroll month</label><select class="form-select form-select-sm" id="waPayrollMonth"><?php for ($m = 1; $m <= 12; $m++): ?><option value="<?= $m ?>" <?= $m === (int)date('n') ? 'selected' : '' ?>><?= date('F', mktime(0, 0, 0, $m, 1)) ?></option><?php endfor; ?></select></div>
+                                    <div class="col-6"><label class="form-label form-label-sm" for="waPayrollYear">Payroll year</label><input type="number" class="form-control form-control-sm" id="waPayrollYear" min="2000" max="<?= (int)date('Y') + 1 ?>" value="<?= (int)date('Y') ?>"></div>
+                                </div>
+                            </div>
+                            <small class="form-text text-muted" id="generatedDocumentHelp">Choose the system document to generate separately for each recipient.</small>
+                        </div>
+                        <div class="mt-2" id="waMediaPreview" hidden></div>
+                    </section>
                     <div class="alert alert-info mb-0 py-2">
                         <small><i class="bi bi-info-circle"></i> WhatsApp messages are sent via the configured provider. Standard rates apply.</small>
+                    </div>
+                    </div>
+                    <aside class="kw-wa-live-preview" aria-label="WhatsApp message preview">
+                        <div class="kw-wa-preview-device">
+                            <div class="kw-wa-preview-topbar">
+                                <span class="kw-wa-preview-avatar"><i class="bi bi-building"></i></span>
+                                <span><strong>Kingsway Preparatory School</strong><small>WhatsApp preview</small></span>
+                            </div>
+                            <div class="kw-wa-preview-thread">
+                                <div class="kw-wa-preview-date">Today</div>
+                                <div class="kw-wa-preview-bubble">
+                                    <div class="kw-wa-preview-media" id="waChatMediaPreview" hidden></div>
+                                    <p id="waChatMessagePreview">Your message will appear here as parents and staff receive it.</p>
+                                    <time>now</time>
+                                </div>
+                            </div>
+                            <div class="kw-wa-preview-compose"><i class="bi bi-emoji-smile"></i><span>Message</span><i class="bi bi-paperclip"></i><i class="bi bi-mic-fill"></i></div>
+                        </div>
+                        <p class="kw-wa-preview-caption">Preview updates as you write. Personal fields are filled separately for each recipient.</p>
+                    </aside>
                     </div>
                 </div>
             </div>
@@ -500,7 +525,7 @@
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Type</label>
                     <select class="form-select" id="templateType">
-                        <option value="whatsapp">WhatsApp</option>
+                        <?php if ($whatsappSendingEnabled): ?><option value="whatsapp">WhatsApp</option><?php endif; ?>
                         <option value="sms">SMS</option>
                         <option value="announcement">Announcement</option>
                     </select>
