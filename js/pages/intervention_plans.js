@@ -49,7 +49,7 @@ const interventionPlansController = {
 
   _loadStudents: async function () {
     try {
-      const r = await callAPI('/students', 'GET');
+      const r = await callAPI('/students/get-all', 'GET');
       this._students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('ipStudentId');
       if (sel) {
@@ -61,12 +61,12 @@ const interventionPlansController = {
 
   _loadStaff: async function () {
     try {
-      const r = await callAPI('/staff', 'GET');
-      this._staff = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/students/counseling-meta', 'GET');
+      this._staff = Array.isArray(r?.data?.staff) ? r.data.staff : [];
       const sel = document.getElementById('ipResponsibleStaff');
       if (sel) {
         sel.innerHTML = '<option value="">— Select staff —</option>' +
-          this._staff.map(s => `<option value="${s.id}">${this._esc((s.first_name||'') + ' ' + (s.last_name||''))}</option>`).join('');
+          this._staff.map(s => `<option value="${s.id}">${this._esc(s.full_name || ((s.first_name||'') + ' ' + (s.last_name||'')))}</option>`).join('');
       }
     } catch (e) { console.warn('Staff failed:', e); }
   },

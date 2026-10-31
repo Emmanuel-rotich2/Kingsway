@@ -1015,6 +1015,54 @@ class StaffAPI extends BaseAPI {
         ];
     }
 
+    /** Return classroom observations for one authenticated staff record. */
+    public function getObservationFeedback(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, observation_date, learning_area_id, subject_id, class_id,
+                   stream_id, observer_id, strengths, areas_for_improvement,
+                   recommendations, feedback, rating, status
+            FROM lesson_observations
+            WHERE teacher_id = ?
+            ORDER BY observation_date DESC, id DESC
+            LIMIT 200
+        ");
+        $stmt->execute([$staffId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Resolve the authenticated staff member's assigned supervisor. */
+    public function getMentorForStaffId(int $staffId): ?array
+    {
+        $staff = $this->db->prepare('SELECT supervisor_id FROM staff WHERE id = ? LIMIT 1');
+        $staff->execute([$staffId]);
+        $supervisorId = (int) ($staff->fetchColumn() ?: 0);
+        if ($supervisorId <= 0) {
+            return null;
+        }
+
+        $directory = ReadReplicaService::qualifiedRef('staff_directory');
+        $mentor = $this->db->prepare(
+            "SELECT staff_id AS id, first_name, middle_name, last_name,
+                    phone, email, position AS title
+             FROM {$directory}
+             WHERE staff_id = ? AND staff_status = 'active'
+             LIMIT 1"
+        );
+        $mentor->execute([$supervisorId]);
+        $row = $mentor->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $row['first_name'] = trim((string) ($row['first_name'] ?? ''));
+        $row['last_name'] = trim(implode(' ', array_filter([
+            $row['middle_name'] ?? null,
+            $row['last_name'] ?? null,
+        ], static fn($part): bool => trim((string) $part) !== '')));
+        unset($row['middle_name']);
+        return $row;
+    }
+
     public function listNonTeaching(array $filters = []): array
     {
         try {

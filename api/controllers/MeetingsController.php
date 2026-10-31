@@ -104,6 +104,13 @@ class MeetingsController extends BaseController
         }
     }
 
+    // Keep the established /meetings/meetings-create route while adapting the
+    // router's plural resource name to the canonical singular handler.
+    public function postMeetingsCreate($id = null, $data = [], $segments = [])
+    {
+        return $this->postMeetingCreate($id, $data, $segments);
+    }
+
     public function putMeetingUpdate($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guard()) return $guard;
@@ -122,6 +129,11 @@ class MeetingsController extends BaseController
         }
     }
 
+    public function putMeetingsUpdate($id = null, $data = [], $segments = [])
+    {
+        return $this->putMeetingUpdate($id, $data, $segments);
+    }
+
     public function deleteMeetingDelete($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guard()) return $guard;
@@ -138,6 +150,11 @@ class MeetingsController extends BaseController
             \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to delete meeting', null, 500);
         }
+    }
+
+    public function deleteMeetingsDelete($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteMeetingDelete($id, $data, $segments);
     }
 
     public function postMeetingRespond($id = null, $data = [], $segments = [])
@@ -163,6 +180,11 @@ class MeetingsController extends BaseController
         }
     }
 
+    public function postMeetingsRespond($id = null, $data = [], $segments = [])
+    {
+        return $this->postMeetingRespond($id, $data, $segments);
+    }
+
     public function postMeetingRemind($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guard()) return $guard;
@@ -179,5 +201,10 @@ class MeetingsController extends BaseController
             \App\API\Services\Logger::legacyError('[MeetingsController] ' . $e->getMessage());
             return $this->error('Failed to send reminder', null, 500);
         }
+    }
+
+    public function postMeetingsRemind($id = null, $data = [], $segments = [])
+    {
+        return $this->postMeetingRemind($id, $data, $segments);
     }
 }

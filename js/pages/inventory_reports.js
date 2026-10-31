@@ -6,7 +6,7 @@ const inventoryReportsController = {
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
   state: { referenceCache: null },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   fmtDateTime(v) {
     if (!v) return '\u2014';

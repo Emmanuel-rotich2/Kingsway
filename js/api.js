@@ -1148,10 +1148,14 @@ const APIState = (() => {
 const APIRealtime = (() => {
   const dependencies = new Set();
   const registered = new Map();
+  const explicitlyRegisteredControllers = new WeakMap();
+  const controllerRoutes = new WeakMap();
   const patches = new Map();
   let refreshTimer = null;
   let refreshRunning = false;
   let refreshAgain = false;
+  const scheduledTargets = new Set();
+  const refreshAgainTargets = new Set();
 
   function normalize(value) {
     return String(value || "")
@@ -1179,19 +1183,56 @@ const APIRealtime = (() => {
 
   function register(name, controller, targets = []) {
     if (!controller || typeof controller !== "object") return () => {};
-    registered.set(name, { controller, targets: new Set(targets.map(normalize)) });
-    return () => registered.delete(name);
+    const entry = {
+      controller,
+      targets: new Set(targets.map(normalize)),
+      route: String(window.REQUESTED_ROUTE || ""),
+    };
+    entry.targets.forEach((target) => dependencies.add(target));
+    registered.set(name, entry);
+    explicitlyRegisteredControllers.set(controller, entry.route);
+    if (!controllerRoutes.has(controller)) controllerRoutes.set(controller, entry.route);
+    return () => {
+      if (registered.get(name) === entry) registered.delete(name);
+    };
+  }
+
+  function attachCurrentRouteControllers() {
+    const route = String(window.REQUESTED_ROUTE || "");
+    if (!route) return 0;
+    let attached = 0;
+    for (const name of Object.getOwnPropertyNames(window)) {
+      if (!/controller$/i.test(name)) continue;
+      let controller;
+      try { controller = window[name]; } catch (_) { continue; }
+      if (!controller || typeof controller !== "object") continue;
+      if (!controllerRoutes.has(controller)) {
+        controllerRoutes.set(controller, route);
+        attached += 1;
+      }
+    }
+    return attached;
   }
 
   function discoverControllers() {
     const found = [];
     const seen = new Set();
+    const activeRoute = String(window.REQUESTED_ROUTE || "");
     for (const name of Object.getOwnPropertyNames(window)) {
       if (!/controller$/i.test(name)) continue;
       let controller;
       try { controller = window[name]; } catch (_) { continue; }
       if (!controller || typeof controller !== "object" || seen.has(controller)) continue;
       seen.add(controller);
+      // Auto-discovery used to call every global page controller on any
+      // matching domain event. Bind fallback controllers to the page route
+      // where they were first loaded so a later SSE refresh cannot render into
+      // another route's DOM.
+      if (controllerRoutes.get(controller) !== activeRoute) continue;
+      // A page that explicitly registered its controller owns its refresh
+      // scope. Do not rediscover it as a route-agnostic fallback after the
+      // user has navigated elsewhere.
+      if (explicitlyRegisteredControllers.has(controller)) continue;
       found.push({ name, controller, targets: new Set() });
     }
     return found;
@@ -1244,17 +1285,25 @@ const APIRealtime = (() => {
   async function runRefresh(targets) {
     if (document.visibilityState !== "visible") {
       refreshAgain = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
       return;
     }
+    const routeAtStart = String(window.REQUESTED_ROUTE || "");
     if (refreshRunning) {
       refreshAgain = true;
+      targets.forEach((target) => refreshAgainTargets.add(normalize(target)));
       return;
     }
     refreshRunning = true;
     try {
-      const entries = [...registered.values(), ...discoverControllers()];
+      const activeRoute = String(window.REQUESTED_ROUTE || "");
+      const entries = [
+        ...[...registered.values()].filter((entry) => entry.route === activeRoute),
+        ...discoverControllers(),
+      ];
       const invoked = new Set();
       for (const entry of entries) {
+        if (String(window.REQUESTED_ROUTE || "") !== routeAtStart) break;
         if (invoked.has(entry.controller) || !targetMatches(targets, entry.targets)) continue;
         const loader = loaderFor(entry.controller);
         if (!loader) continue;
@@ -1266,16 +1315,40 @@ const APIRealtime = (() => {
       refreshRunning = false;
       if (refreshAgain) {
         refreshAgain = false;
-        schedule(targets);
+        const queuedTargets = [...refreshAgainTargets];
+        refreshAgainTargets.clear();
+        schedule(queuedTargets.length ? queuedTargets : [...dependencies]);
       }
     }
   }
 
   function schedule(targets = []) {
-    const normalizedTargets = [...new Set(targets.map(normalize).filter(Boolean))];
+    targets.map(normalize).filter(Boolean).forEach((target) => scheduledTargets.add(target));
     window.clearTimeout(refreshTimer);
-    refreshTimer = window.setTimeout(() => runRefresh(normalizedTargets), 500);
+    refreshTimer = window.setTimeout(() => {
+      const pendingTargets = [...scheduledTargets];
+      scheduledTargets.clear();
+      refreshTimer = null;
+      runRefresh(pendingTargets);
+    }, 500);
   }
+
+  // A soft navigation replaces the page's data dependencies. Keeping old
+  // endpoints and controller registrations made one SSE invalidation refresh
+  // pages the user had already left, often against DOM that no longer existed.
+  window.addEventListener("kingsway:page-will-load", () => {
+    window.clearTimeout(refreshTimer);
+    refreshTimer = null;
+    refreshAgain = false;
+    scheduledTargets.clear();
+    refreshAgainTargets.clear();
+    dependencies.clear();
+  });
+  window.addEventListener("kingsway:page-loaded", attachCurrentRouteControllers);
+
+  // On a full document load the page controller scripts precede api.js, so
+  // capture their route ownership before the first realtime event can arrive.
+  attachCurrentRouteControllers();
 
   /**
    * Register an incremental row updater.
@@ -1333,12 +1406,15 @@ const APIRealtime = (() => {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && refreshAgain) {
       refreshAgain = false;
-      schedule([...dependencies]);
+      const queuedTargets = [...refreshAgainTargets];
+      refreshAgainTargets.clear();
+      schedule(queuedTargets.length ? queuedTargets : [...dependencies]);
     }
   });
 
   return {
     track, trackTargets, register, schedule, registerPatch, applyPatch,
+    attachCurrentRouteControllers,
     dependencies: () => [...dependencies],
   };
 })();
@@ -1753,6 +1829,11 @@ const ENDPOINT_PERMISSIONS = {
   // Academic
   "/academic/index": "academic_view",
   "/academic/classes-list": "academic_view",
+  "/academic/class-students": "academic_view",
+  "/academic/national-exams": {
+    GET: ["academic_view", "assessments_view", "results_view"],
+    POST: ["academic_manage", "academics_manage", "academic_edit", "academics_edit"],
+  },
   "/academic/classes/create": "academic_create",
   "/academic/classes/update": "academic_update",
   "/academic/classes/delete": "academic_delete",
@@ -1767,6 +1848,7 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/subjects": "academic_view",
   "/academic/subjects-list": "academic_view",
   "/academic/learning-areas/list": "academic_view",
+  "/academic/lesson-plans/by-teacher": "academic_view",
   "/academic/learning-areas/get": "academic_view",
   "/academic/learning-areas/create": "academic_create",
   "/academic/learning-areas/update": "academic_update",
@@ -2250,6 +2332,15 @@ const ENDPOINT_PERMISSIONS = {
 
   // Communications
   "/communications/index": "communications_view",
+  "/communications/templates": {
+    GET: "communications_view",
+    POST: "communications_create",
+    PUT: "communications_create",
+    DELETE: "communications_manage",
+  },
+  "/communications/templates/sync": {
+    POST: "communications_manage",
+  },
   "/communications/pta": {
     GET: "students_parents_view",
     POST: "students_parents_view",
@@ -2365,6 +2456,7 @@ const ENDPOINT_PERMISSIONS = {
 
   // Reports
   "/reports/index": "reports_view",
+  "/reports/communication-logs": ["communications_view", "communications_manage", "reports_view"],
   "/reports/academic": "reports_view",
   "/reports/catalogue": "analytics_catalogue_view",
   "/reports/definition": "analytics_catalogue_view",
@@ -4647,6 +4739,12 @@ window.API = {
       ),
     getStudentsWithoutParents: async () =>
       apiCall("/students/without-parents", "GET"),
+    queueAiSupportPlanning: async (data = {}) =>
+      apiCall("/students/ai-support-planning-queue", "POST", data),
+    getAiSupportPlanningReviews: async (scope = "own") =>
+      apiCall(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiSupportPlanning: async (id) =>
+      apiCall(`/students/ai-support-planning-approve/${Number(id)}`, "POST", {}),
   },
 
   // Academic endpoints
@@ -5017,9 +5115,6 @@ window.API = {
     approveAiRubricDraft: async (id) => apiCall(`/academic/ai-rubric-draft-approve/${Number(id)}`, "POST", {}),
     approveAiCoverageReview: async (id) => apiCall(`/academic/ai-coverage-review-approve/${Number(id)}`, "POST", {}),
     approveAiLearningGapReview: async (id) => apiCall(`/academic/ai-learning-gap-review-approve/${Number(id)}`, "POST", {}),
-    queueAiSupportPlanning: async (data = {}) => apiCall("/students/ai-support-planning-queue", "POST", data),
-    getAiSupportPlanningReviews: async (scope = "own") => apiCall(`/students/ai-support-planning-reviews?scope=${encodeURIComponent(scope)}`, "GET"),
-    approveAiSupportPlanning: async (id) => apiCall(`/students/ai-support-planning-approve/${Number(id)}`, "POST", {}),
     getLessonPlanningContext: async (schemeId) =>
       apiCall(`/academic/lesson-planning-context/${schemeId}`, "GET"),
     saveLessonPlanLearnerEvidence: async (lessonPlanId, data) =>
@@ -5058,6 +5153,8 @@ window.API = {
     getYearHistory: async () => apiCall("/academic/year-history", "GET"),
     getLessonPlansByClass: async (params = {}) =>
       apiCall("/academic/lesson-plans/by-class", "GET", null, params),
+    getLessonPlansByTeacher: async (params = {}) =>
+      apiCall("/academic/lesson-plans/by-teacher", "GET", null, params),
     getLessonPlansByClassDetail: async (classId) =>
       apiCall(`/academic/lesson-plans/by-class/${classId}`, "GET"),
 
@@ -5832,6 +5929,46 @@ window.API = {
       apiCall(`/communications/conversations/${id}`, "POST", data),
     searchMessageRecipients: async (q = "") =>
       apiCall("/communications/recipients", "GET", null, { q }),
+
+    // Message template catalog (catalog -> versions -> channel variants)
+    getTemplates: async (params = {}) =>
+      apiCall("/communications/templates", "GET", null, params),
+    getTemplate: async (id) =>
+      apiCall(`/communications/templates/${id}`, "GET"),
+    createTemplate: async (data) =>
+      apiCall("/communications/templates", "POST", data),
+    updateTemplate: async (id, data) =>
+      apiCall(`/communications/templates/${id}`, "PUT", data),
+    deleteTemplate: async (id) =>
+      apiCall(`/communications/templates/${id}`, "DELETE"),
+    createTemplateVersion: async (id, data) =>
+      apiCall(`/communications/templates/${id}/versions`, "POST", data),
+    approveTemplateVersion: async (versionId) =>
+      apiCall(
+        `/communications/templates/versions/${versionId}/approve`,
+        "POST",
+        {},
+      ),
+    updateTemplateChannel: async (channelId, data) =>
+      apiCall(`/communications/templates/channels/${channelId}`, "PUT", data),
+    previewTemplate: async (data) =>
+      apiCall("/communications/templates/preview", "POST", data),
+    validateTemplateVariables: async (data) =>
+      apiCall(
+        "/communications/templates/validate-variables",
+        "POST",
+        data,
+      ),
+    estimateTemplateSmsCost: async (data) =>
+      apiCall("/communications/templates/estimate-sms-cost", "POST", data),
+    // Reconcile the catalog with its legacy JSON seed source and repair the
+    // legacy school brand inside existing channel rows.
+    syncTemplates: async (categories = null) =>
+      apiCall(
+        "/communications/templates/sync",
+        "POST",
+        categories ? { categories } : {},
+      ),
   },
 
   // Finance endpoints
@@ -6996,6 +7133,11 @@ window.API = {
     },
     getDriverManifest: async (params = {}) =>
       apiCall("/transport/driver-manifest", "GET", null, params),
+    verifyBoardingScan: async (data) =>
+      apiCall("/scan/verify", "POST", data, {}, {
+        checkPermission: false,
+        showSuccess: false,
+      }),
     getStudentSummary: async (studentId) =>
       apiCall(`/transport/student-summary?student_id=${studentId}`, "GET"),
     getRouteSummary: async (routeId) =>
@@ -7025,6 +7167,12 @@ window.API = {
         : apiCall("/transport/drivers-get", "GET"),
     assignDriverToRoute: async (data) =>
       apiCall("/transport/drivers-assign", "POST", data),
+    queueAiOperationsSummary: async () =>
+      apiCall("/transport/ai-operations-summary-queue", "POST", {}),
+    getAiOperationsSummaries: async (scope = "own") =>
+      apiCall(`/transport/ai-operations-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
+    approveAiOperationsSummary: async (id) =>
+      apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
   // Boarding/Dormitory endpoints
@@ -7146,12 +7294,6 @@ window.API = {
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
     getOccupancy: async () => apiCall("/boarding/occupancy", "GET"),
-  },
-
-  transport: {
-    queueAiOperationsSummary: async () => apiCall("/transport/ai-operations-summary-queue", "POST", {}),
-    getAiOperationsSummaries: async (scope = "own") => apiCall(`/transport/ai-operations-summaries?scope=${encodeURIComponent(scope)}`, "GET"),
-    approveAiOperationsSummary: async (id) => apiCall(`/transport/ai-operations-summary-approve/${Number(id)}`, "POST", {}),
   },
 
   // Schedules endpoints
@@ -7905,6 +8047,8 @@ window.API = {
     runMigration: async (data) => apiCall("/system/migrations", "POST", data),
     getFeatureFlags: async () => apiCall("/system/feature-flags", "GET"),
     updateFeatureFlags: async (data) => apiCall("/system/feature-flags", "PUT", data),
+    updateFeatureFlag: async (key, data) =>
+      apiCall(`/system/feature-flags/${encodeURIComponent(key)}`, "PUT", data),
     getOperatingMode: async () => apiCall("/system/operating-mode", "GET"),
     updateOperatingMode: async (data) => apiCall("/system/operating-mode", "PUT", data),
     getEnvironmentPhase: async () => apiCall("/system/environment-phase", "GET"),

@@ -3690,7 +3690,8 @@ class FinanceAPI extends BaseAPI
                 throw new Exception('Payroll must be approved by the director before payment can be released');
             }
 
-            $runStmt = $this->db->prepare("SELECT pr_id AS id, pr_month AS month, pr_year AS year, pr_status AS status FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND pr_data_scope='live' AND ps_data_scope='live' LIMIT 1");
+            $runView = ReadReplicaService::masterRef('vw_payroll_runs_payslips');
+            $runStmt = $this->db->prepare("SELECT id, month, year, status FROM {$runView} WHERE payslip_id=? AND data_scope='live' LIMIT 1");
             $runStmt->execute([$payrollId]);
             $run = $runStmt->fetch(PDO::FETCH_ASSOC);
             if (!$run || $run['status'] !== 'approved') {

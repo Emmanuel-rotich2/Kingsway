@@ -14,7 +14,7 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
  */
 ?>
 
-<div>
+<div id="academicYearsPage">
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
@@ -85,7 +85,7 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="ayYearsBody">
                         <tr>
                             <td colspan="6" class="text-center">
                                 <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
@@ -110,8 +110,8 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
             <form id="addAcademicYearForm">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Year Name</label>
-                        <input type="text" class="form-control" name="year_name" required>
+                        <label class="form-label">Academic Year (derived from opening date)</label>
+                        <input type="text" class="form-control" name="year_name" required readonly>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">

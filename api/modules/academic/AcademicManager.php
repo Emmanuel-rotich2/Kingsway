@@ -2121,6 +2121,7 @@ $whereClause = $where ? ' WHERE ' . implode(' AND ', $where) : '';
                        sae.student_id AS student_id,
                        CONCAT(pd.first_name, ' ', pd.last_name) AS student_name,
                        pd.admission_no,
+                       csd.class_id AS class_id,
                        csd.class_name AS class_name,
                        la.name AS subject_name,
                        a.title AS assessment_title,
@@ -2527,10 +2528,10 @@ if ($classId) {
             $params = [];
             $this->addCurriculumScope($conditions, $params, $query, 'at.learning_area_id', 'at.grade_level', 'tool_scope');
             $rows = $this->dbQuery(
-                "SELECT at.id, at.tool_name, at.tool_code, at.description, at.assessment_type_classification_id, at.learning_area_id, at.grade_level,
-                        a_type.name AS assessment_type_name, la.name AS learning_area_name
+                "SELECT at.id, at.tool_name, at.tool_code, at.description,
+                        NULL AS assessment_type_classification_id, at.learning_area_id, at.grade_level,
+                        NULL AS assessment_type_name, la.name AS learning_area_name
                  FROM " . ReadReplicaService::qualifiedRef("assessment_tools") . " at
-                 LEFT JOIN assessment_type_classifications a_type ON a_type.id = at.assessment_type_classification_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = at.learning_area_id
                  WHERE " . implode(' AND ', $conditions) . "
                  ORDER BY at.tool_name",
@@ -2551,6 +2552,9 @@ if ($classId) {
             $areaId = (int) ($data['learning_area_id'] ?? 0);
             if ($name === '' || !$typeId || !$areaId) {
                 return $this->errorResponse('tool_name, assessment_type_classification_id, and learning_area_id are required', 400);
+            }
+            if (!$this->assessmentToolsSupportClassification()) {
+                return $this->errorResponse('Assessment tool types are not available in the current database schema', 409);
             }
 
             $type = $this->dbQuery(
@@ -2590,6 +2594,9 @@ if ($classId) {
     public function putAssessmentTools(int $id, array $data): array
     {
         try {
+            if (array_key_exists('assessment_type_classification_id', $data) && !$this->assessmentToolsSupportClassification()) {
+                return $this->errorResponse('Assessment tool types are not available in the current database schema', 409);
+            }
             $fields = [];
             $params = [':id' => $id];
             foreach (['tool_name', 'tool_code', 'description', 'grade_level', 'competencies_assessed', 'status'] as $field) {
@@ -2618,6 +2625,16 @@ if ($classId) {
             $this->logError($e, 'AcademicManager::putAssessmentTools');
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    private function assessmentToolsSupportClassification(): bool
+    {
+        $stmt = $this->dbQuery(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'assessment_tools'
+               AND COLUMN_NAME = 'assessment_type_classification_id'"
+        );
+        return (int) $stmt->fetchColumn() > 0;
     }
 
     public function deleteAssessmentTools(int $id): array
@@ -2956,13 +2973,19 @@ if ($classId) {
     public function getClassStudents(int $classId): array
     {
         try {
+            $academicYearId = $this->resolveCurrentAcademicYearId();
+            if (!$academicYearId) {
+                return $this->successResponse([]);
+            }
             $rows = $this->dbQuery(
-                "SELECT DISTINCT s.id, p.first_name, p.last_name, s.admission_no,
-                        sae.academic_year_class_stream_id AS stream_id
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
-                 WHERE s.status = 'active'
-                 ORDER BY p.last_name, p.first_name",
-                [':cid' => $classId]
+                "SELECT DISTINCT sd.student_id AS id, sd.first_name, sd.last_name,
+                        sd.admission_no, sd.stream_id
+                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " sd
+                 WHERE sd.class_id = :class_id
+                   AND sd.academic_year_id = :academic_year_id
+                   AND sd.enrollment_status = 'active'
+                 ORDER BY sd.last_name, sd.first_name",
+                [':class_id' => $classId, ':academic_year_id' => $academicYearId]
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -3886,7 +3909,7 @@ if ($classId) {
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $pendingResults = $this->dbQuery(
-                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . "
+                "SELECT COUNT(*) FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  WHERE sae.academic_year_id = ? AND NOT EXISTS (
                      SELECT 1 FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
                      JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.term_id = tss.term_id
@@ -6577,6 +6600,233 @@ la.learning_area_family_id, la.name AS learning_area_family,
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getLessonPlansByClass');
             return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Summarize weekly lesson-plan submission coverage by assigned teacher.
+     * Expected plans are one per active stream/learning-area assignment for
+     * each school week that has started in the selected academic term.
+     */
+    public function getLessonPlansByTeacher(array $query): array
+    {
+        try {
+            $yearId = max(0, (int) ($query['academic_year_id'] ?? 0));
+            $termId = max(0, (int) ($query['term_id'] ?? 0));
+            if ($termId <= 0) {
+                $where = ["ayt.status = 'current'"];
+                $params = [];
+                if ($yearId > 0) {
+                    $where[] = 'ayt.academic_year_id = :year_id';
+                    $params[':year_id'] = $yearId;
+                } else {
+                    $where[] = 'ay.is_current = 1';
+                }
+                $currentTerm = $this->dbQuery(
+                    'SELECT ayt.id, ayt.academic_year_id
+                     FROM ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' ayt
+                     JOIN ' . ReadReplicaService::qualifiedRef('academic_years') . ' ay ON ay.id = ayt.academic_year_id
+                     WHERE ' . implode(' AND ', $where) . '
+                     ORDER BY ayt.id DESC LIMIT 1',
+                    $params
+                )->fetch(PDO::FETCH_ASSOC);
+                if ($currentTerm) {
+                    $termId = (int) $currentTerm['id'];
+                    $yearId = (int) $currentTerm['academic_year_id'];
+                }
+            }
+            if ($termId <= 0) {
+                return $this->successResponse([
+                    'teachers' => [],
+                    'data' => [],
+                    'pagination' => ['page' => 1, 'limit' => 15, 'total' => 0],
+                    'total' => 0,
+                ]);
+            }
+
+            $term = $this->dbQuery(
+                'SELECT ayt.id, ayt.academic_year_id, ayt.status
+                 FROM ' . ReadReplicaService::qualifiedRef('academic_year_terms') . ' ayt
+                 WHERE ayt.id = :term_id LIMIT 1',
+                [':term_id' => $termId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$term) {
+                return $this->errorResponse('The selected academic term was not found.', 404);
+            }
+            $yearId = (int) $term['academic_year_id'];
+
+            $weekDueCondition = strtolower((string) ($term['status'] ?? '')) === 'current'
+                ? 'ac.week_start <= CURRENT_DATE'
+                : '1 = 1';
+            $weeks = (int) $this->dbQuery(
+                'SELECT COUNT(*)
+                 FROM ' . ReadReplicaService::qualifiedRef('academic_year_calendar') . ' ac
+                 WHERE ac.academic_year_term_id = :term_id AND ' . $weekDueCondition,
+                [':term_id' => $termId]
+            )->fetchColumn();
+
+            $assignmentRows = $this->dbQuery(
+                "SELECT ayclat.staff_id,
+                        aycla.id AS assignment_id,
+                        COUNT(DISTINCT aysla.id) AS stream_count
+                 FROM " . ReadReplicaService::qualifiedRef('academic_year_class_learning_area_teachers') . " ayclat
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_learning_areas') . " aycla
+                   ON aycla.id = ayclat.academic_year_class_learning_area_id
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc
+                   ON ayc.id = aycla.academic_year_class_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_stream_learning_areas') . " aysla
+                   ON aysla.academic_year_class_learning_area_id = aycla.id
+                  AND aysla.status <> 'skipped'
+                 WHERE ayclat.academic_year_term_id = :term_id
+                   AND ayclat.role = 'subject_teacher'
+                   AND aycla.status <> 'skipped'
+                   AND ayc.status <> 'inactive'
+                 GROUP BY ayclat.staff_id, aycla.id",
+                [':term_id' => $termId]
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $expectedByTeacher = [];
+            foreach ($assignmentRows as $row) {
+                $staffId = (int) $row['staff_id'];
+                $streamCount = max(1, (int) $row['stream_count']);
+                $expectedByTeacher[$staffId] = ($expectedByTeacher[$staffId] ?? 0) + ($streamCount * $weeks);
+            }
+
+            $planRows = $this->dbQuery(
+                "SELECT lp.teacher_id,
+                        SUM(CASE WHEN lp.status IN ('delivered', 'approved') THEN 1 ELSE 0 END) AS submitted,
+                        SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                        SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS pending
+                 FROM " . ReadReplicaService::qualifiedRef('lesson_plans') . " lp
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar_days') . " day
+                   ON day.id = lp.academic_year_calendar_day_id
+                 JOIN " . ReadReplicaService::qualifiedRef('academic_year_calendar') . " ac
+                   ON ac.id = day.academic_year_calendar_id
+                 WHERE ac.academic_year_term_id = :term_id
+                 GROUP BY lp.teacher_id",
+                [':term_id' => $termId]
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $plansByTeacher = [];
+            foreach ($planRows as $row) {
+                $plansByTeacher[(int) $row['teacher_id']] = $row;
+            }
+
+            // A school can have teaching staff before their class/subject
+            // assignments are entered. Include authenticated Subject Teachers
+            // so the report can show the missing assignment state instead of
+            // silently rendering an empty table.
+            $teachingStaffIds = $this->dbQuery(
+                "SELECT DISTINCT s.id
+                 FROM " . ReadReplicaService::qualifiedRef('staff') . " s
+                 JOIN users u ON u.person_id = s.person_id AND u.status = 'active'
+                 JOIN user_roles ur ON ur.user_id = u.id
+                 JOIN roles r ON r.id = ur.role_id AND r.name = 'Subject Teacher'
+                 WHERE s.status = 'active'"
+            )->fetchAll(PDO::FETCH_COLUMN);
+            $staffIds = array_values(array_unique(array_merge(
+                array_keys($expectedByTeacher),
+                array_keys($plansByTeacher),
+                array_map('intval', $teachingStaffIds)
+            )));
+            if (!$staffIds) {
+                return $this->successResponse([
+                    'teachers' => [],
+                    'data' => [],
+                    'pagination' => ['page' => 1, 'limit' => 15, 'total' => 0],
+                    'total' => 0,
+                ]);
+            }
+            $staffParams = [];
+            $staffSlots = [];
+            foreach ($staffIds as $index => $staffId) {
+                $key = ':staff_' . $index;
+                $staffSlots[] = $key;
+                $staffParams[$key] = (int) $staffId;
+            }
+            $teacherRows = $this->dbQuery(
+                'SELECT s.id AS staff_id, COALESCE(pd.full_name, CONCAT_WS(" ", pd.first_name, pd.last_name), "") AS teacher_name
+                 FROM ' . ReadReplicaService::qualifiedRef('staff') . ' s
+                 LEFT JOIN ' . ReadReplicaService::qualifiedRef('person_directory') . ' pd ON pd.staff_id = s.id
+                 WHERE s.id IN (' . implode(',', $staffSlots) . ')',
+                $staffParams
+            )->fetchAll(PDO::FETCH_ASSOC);
+
+            $departmentRows = $this->dbQuery(
+                'SELECT sda.staff_id, GROUP_CONCAT(DISTINCT d.name ORDER BY d.name SEPARATOR ", ") AS department
+                 FROM ' . ReadReplicaService::qualifiedRef('staff_department_assignments') . ' sda
+                 JOIN ' . ReadReplicaService::qualifiedRef('departments') . ' d ON d.id = sda.department_id
+                 WHERE sda.staff_id IN (' . implode(',', $staffSlots) . ')
+                   AND (sda.effective_from IS NULL OR sda.effective_from <= CURRENT_DATE)
+                   AND (sda.effective_to IS NULL OR sda.effective_to >= CURRENT_DATE)
+                 GROUP BY sda.staff_id',
+                $staffParams
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $departments = [];
+            foreach ($departmentRows as $row) $departments[(int) $row['staff_id']] = (string) $row['department'];
+
+            $teachers = [];
+            foreach ($teacherRows as $row) {
+                $staffId = (int) $row['staff_id'];
+                $plan = $plansByTeacher[$staffId] ?? [];
+                $expected = (int) ($expectedByTeacher[$staffId] ?? 0);
+                $submitted = (int) ($plan['submitted'] ?? 0);
+                $teachers[] = [
+                    'staff_id' => $staffId,
+                    'teacher_name' => (string) $row['teacher_name'],
+                    'department' => $departments[$staffId] ?? '',
+                    'plans_expected' => $expected,
+                    'submitted' => $submitted,
+                    'approved' => (int) ($plan['approved'] ?? 0),
+                    'pending' => (int) ($plan['pending'] ?? 0),
+                    'coverage_percentage' => $expected > 0 ? round(min(100, $submitted * 100 / $expected), 1) : 0,
+                ];
+            }
+
+            $departmentOptions = array_values(array_unique(array_filter(array_map(
+                static fn (array $teacher): string => trim($teacher['department']),
+                $teachers
+            ))));
+            sort($departmentOptions, SORT_NATURAL | SORT_FLAG_CASE);
+            $search = mb_strtolower(trim((string) ($query['search'] ?? '')));
+            $department = trim((string) ($query['department'] ?? ''));
+            $status = strtolower(trim((string) ($query['submission_status'] ?? '')));
+            $teachers = array_values(array_filter($teachers, static function (array $teacher) use ($search, $department): bool {
+                if ($search !== '' && !str_contains(mb_strtolower($teacher['teacher_name']), $search)) return false;
+                if ($department !== '' && strcasecmp($teacher['department'], $department) !== 0) return false;
+                return true;
+            }));
+            $statsTeachers = $teachers;
+            $stats = [
+                'total' => count($statsTeachers),
+                'fully_submitted' => count(array_filter($statsTeachers, static fn (array $teacher): bool => $teacher['plans_expected'] > 0 && $teacher['coverage_percentage'] >= 100)),
+                'partially_submitted' => count(array_filter($statsTeachers, static fn (array $teacher): bool => $teacher['plans_expected'] > 0 && $teacher['coverage_percentage'] > 0 && $teacher['coverage_percentage'] < 100)),
+                'not_submitted' => count(array_filter($statsTeachers, static fn (array $teacher): bool => $teacher['plans_expected'] > 0 && $teacher['submitted'] === 0)),
+            ];
+            $teachers = array_values(array_filter($teachers, static function (array $teacher) use ($status): bool {
+                if ($status === 'fully_submitted' && $teacher['coverage_percentage'] < 100) return false;
+                if ($status === 'partially_submitted' && ($teacher['coverage_percentage'] <= 0 || $teacher['coverage_percentage'] >= 100)) return false;
+                if ($status === 'not_submitted' && ($teacher['plans_expected'] <= 0 || $teacher['submitted'] > 0)) return false;
+                return true;
+            }));
+            usort($teachers, static fn (array $a, array $b): int => strcasecmp($a['teacher_name'], $b['teacher_name']));
+
+            $page = max(1, (int) ($query['page'] ?? 1));
+            $limit = min(1000, max(1, (int) ($query['limit'] ?? 15)));
+            $total = count($teachers);
+            $rows = array_slice($teachers, ($page - 1) * $limit, $limit);
+            return $this->successResponse([
+                'teachers' => $rows,
+                'data' => $rows,
+                'pagination' => ['page' => $page, 'limit' => $limit, 'total' => $total],
+                'total' => $total,
+                'stats' => $stats,
+                'departments' => $departmentOptions,
+                'academic_year_id' => $yearId,
+                'term_id' => $termId,
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'AcademicManager::getLessonPlansByTeacher');
+            return $this->errorResponse('Could not load teacher lesson-plan coverage.', 500);
         }
     }
 

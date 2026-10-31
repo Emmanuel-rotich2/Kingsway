@@ -51,7 +51,7 @@ const ResultsAnalysisController = (() => {
       // stale-while-revalidate) to avoid re-querying the DB on every page load.
       const [classResp, subjectResp, yearResp] = await Promise.all([
         DataStore.fetchPage('classes', {
-          endpoint: '/academic/classes', storeName: 'reference_classes',
+          endpoint: '/academic/classes-list', storeName: 'reference_classes',
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
         }).catch(() => []),
         DataStore.fetchPage('subjects', {
@@ -59,7 +59,7 @@ const ResultsAnalysisController = (() => {
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
         }).catch(() => []),
         DataStore.fetchPage('academic_years', {
-          endpoint: '/academic/years', storeName: 'reference_academic_years',
+          endpoint: '/academic/years/list', storeName: 'reference_academic_years',
           ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
         }).catch(() => []),
       ]);

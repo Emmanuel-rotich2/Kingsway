@@ -28,6 +28,18 @@ class StudentTransportAssignmentManager
         return $stmt->rowCount() > 0;
     }
 
+    /** Withdraw one route assignment without affecting a student's other routes. */
+    public function withdrawAssignmentById(int $assignmentId): bool
+    {
+        $stmt = $this->db->prepare(
+            "UPDATE student_transport_assignments
+             SET status = 'withdrawn'
+             WHERE id = ? AND status = 'active'"
+        );
+        $stmt->execute([$assignmentId]);
+        return $stmt->rowCount() > 0;
+    }
+
     // Get all assignments for a student (with route, driver, vehicle, stops)
     public function getAssignments($studentId)
     {

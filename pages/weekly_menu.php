@@ -13,12 +13,13 @@ if ($appBase === '.') $appBase = '';
     </div>
     <div class="d-flex gap-2 align-items-center">
       <input type="date" class="form-control form-control-sm" id="wmPicker" style="width: 170px;">
-      <button class="btn btn-outline-success btn-sm" onclick="weeklyMenuController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-secondary btn-sm" id="wmPrintBtn" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button>
     </div>
   </div>
 
   <div id="wmDays"></div>
 
 </div>
+<style>@media print { #wmPicker, #wmPrintBtn { display:none !important; } }</style>
 
 <?php asset_script($appBase, 'js/pages/weekly_menu.js'); ?>

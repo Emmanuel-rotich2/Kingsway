@@ -33,24 +33,24 @@ const improvementAreasController = (() => {
   }
 
   async function load() {
-    show('iaLoading'); hide('iaContent'); hide('iaEmpty');
+    show('iaLoading'); hide('iaContent'); hide('iaEmpty'); hide('iaError');
     try {
       const r = await callAPI('/staff/improvement-areas', 'GET');
       const areas = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       hide('iaLoading');
 
-      const resolved = areas.filter(a => (a.status || '').toLowerCase() === 'resolved').length;
-      const pending = areas.filter(a => (a.status || '').toLowerCase() !== 'resolved').length;
+      const recommendations = areas.filter(a => String(a.recommendations || '').trim()).length;
+      const ratings = areas.map(a => Number(a.rating || 0)).filter(n => n > 0);
       setText('iaStatTotal', areas.length);
-      setText('iaStatResolved', resolved);
-      setText('iaStatPending', pending);
+      setText('iaStatResolved', recommendations);
+      setText('iaStatPending', ratings.length ? (ratings.reduce((sum, n) => sum + n, 0) / ratings.length).toFixed(1) : '—');
 
       if (!areas.length) { show('iaEmpty'); return; }
       renderAreas(areas);
       show('iaContent');
     } catch (e) {
       hide('iaLoading');
-      show('iaEmpty');
+      show('iaError');
       console.error('improvement_areas load error', e);
     }
   }
@@ -61,15 +61,21 @@ const improvementAreasController = (() => {
     tbody.innerHTML = areas.map(a => `
       <tr>
         <td>
-          <div class="fw-semibold">${a.area || a.title || a.name || '—'}</div>
-          ${a.description ? `<small class="text-muted">${a.description}</small>` : ''}
+          <div class="fw-semibold">${thisEsc(a.areas_for_improvement)}</div>
+          ${a.strengths ? `<small class="text-muted">Strengths: ${thisEsc(a.strengths)}</small>` : ''}
         </td>
-        <td>${priorityBadge(a.priority)}</td>
-        <td class="text-nowrap small text-muted">${formatDate(a.identified_on || a.created_at || a.date)}</td>
-        <td class="small">${a.action_plan || a.action || '—'}</td>
-        <td>${statusBadge(a.status)}</td>
+        <td class="text-nowrap small text-muted">${thisEsc(formatDate(a.observation_date))}</td>
+        <td>${a.rating ? `${thisEsc(a.rating)}` : '—'}</td>
+        <td class="small">${thisEsc(a.recommendations || '—')}</td>
+        <td>${thisEsc(a.status || '—')}</td>
       </tr>
     `).join('');
+  }
+
+  function thisEsc(value) {
+    const el = document.createElement('span');
+    el.textContent = String(value ?? '');
+    return el.innerHTML;
   }
 
   function init() {

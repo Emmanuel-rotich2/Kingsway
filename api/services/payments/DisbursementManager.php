@@ -55,11 +55,12 @@ class DisbursementManager
         $run = $this->db->prepare("SELECT id,month,year,status FROM payroll_runs WHERE id=? AND data_scope='live' LIMIT 1");
         $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            $run = $this->db->prepare("SELECT pr_id, pr_month, pr_year, pr_status FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND pr_data_scope='live' AND ps_data_scope='live' LIMIT 1");
+            $payslip = $this->db->prepare("SELECT id FROM payslips WHERE id=? AND data_scope='live' LIMIT 1");
+            $payslip->execute([$payrollId]);
+            if (!$payslip->fetchColumn()) throw new Exception('Payroll run not found.');
+            $runView = ReadReplicaService::masterRef('vw_payroll_runs_payslips');
+            $run = $this->db->prepare("SELECT id, month, year, status FROM {$runView} WHERE payslip_id=? AND data_scope='live' LIMIT 1");
             $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
-            if ($period) {
-                $period = ['id' => $period['pr_id'], 'month' => $period['pr_month'], 'year' => $period['pr_year'], 'status' => $period['pr_status']];
-            }
         }
         if (!$period) throw new Exception('Payroll run not found.');
         if (in_array($period['status'], ['processing','completed','cancelled'], true)) throw new Exception('Source accounts cannot be changed after payroll disbursement has started.');
@@ -93,12 +94,13 @@ class DisbursementManager
         $run = $this->db->prepare("SELECT id,month,year,status,data_scope FROM payroll_runs WHERE id=? AND $rScope LIMIT 1");
         $run->execute(array_merge([$payrollId], $rParams)); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            [$prScope, $prParams] = DataScopeService::predicateFor('payroll_runs', 'pr');
-            [$pScope, $pParams] = DataScopeService::predicateFor('payslips', 'ps');
-            $run = $this->db->prepare("SELECT pr_id, pr_month, pr_year, pr_status, pr_data_scope FROM " . ReadReplicaService::qualifiedRef("payroll_runs_payslips") . " WHERE ps_id=? AND $prScope AND $pScope LIMIT 1");
-            $run->execute(array_merge([$payrollId], $prParams, $pParams)); $period = $run->fetch(PDO::FETCH_ASSOC);
-            if ($period) {
-                $period = ['id' => $period['pr_id'], 'month' => $period['pr_month'], 'year' => $period['pr_year'], 'status' => $period['pr_status'], 'data_scope' => $period['pr_data_scope']];
+            $payslip = $this->db->prepare("SELECT id FROM payslips WHERE id=? AND data_scope='live' LIMIT 1");
+            $payslip->execute([$payrollId]);
+            if ($payslip->fetchColumn()) {
+                $runView = ReadReplicaService::masterRef('vw_payroll_runs_payslips');
+                $run = $this->db->prepare("SELECT id, month, year, status, data_scope FROM {$runView} WHERE payslip_id=? AND data_scope='live' LIMIT 1");
+                $run->execute([$payrollId]);
+                $period = $run->fetch(PDO::FETCH_ASSOC);
             }
         }
         if (!$period) throw new Exception('Payroll run not found.');

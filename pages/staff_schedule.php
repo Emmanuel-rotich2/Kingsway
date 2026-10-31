@@ -157,4 +157,3 @@
 </style>
 
 <?php asset_script($appBase, 'js/pages/staff_schedule.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => staffScheduleController.init());</script>

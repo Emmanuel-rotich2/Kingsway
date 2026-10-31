@@ -79,11 +79,13 @@ const toggle = () => {
                 }
             });
             function loadFinancialAccounts() {
-                apiCall('/finance/accounts/available?purpose=fees&channel=bank_transfer', 'GET')
+                apiCall('/finance/financial-accounts', 'GET')
                     .then(response => {
                         const select = document.getElementById('sharedAdmissionPaymentFinAcc');
+                        if (!select) return;
                         select.innerHTML = '<option value="">Select receiving school account</option>';
-                        (response?.data || response?.accounts || []).forEach(acc => {
+                        const accounts = response?.data?.accounts || response?.accounts || [];
+                        accounts.filter(acc => acc.status === 'active' || acc.is_active === true || Number(acc.is_active) === 1).forEach(acc => {
                             const opt = document.createElement('option');
                             opt.value = acc.id;
                             opt.textContent = (acc.account_name || '') + ' - ' + (acc.account_identifier || '');

@@ -97,14 +97,14 @@
             <table class="table table-hover" id="stockMovementsTable">
                 <thead class="table-light">
                     <tr>
-                        <th scope="col">Date/Time</th>
+                        <th scope="col">Date</th>
                         <th scope="col">Transaction Type</th>
                         <th scope="col">Item</th>
                         <th scope="col">Quantity</th>
-                        <th scope="col">From/To</th>
-                        <th scope="col">Performed By</th>
+                        <th scope="col">Unit Cost</th>
                         <th scope="col">Reference</th>
-                        <th scope="col">Actions</th>
+                        <th scope="col">Performed By</th>
+                        <th scope="col">Notes</th>
                     </tr>
                 </thead>
                 <tbody>

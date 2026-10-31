@@ -118,6 +118,7 @@
 
     function renderTable() {
         var tbody = document.getElementById('chargesBody');
+        if (!tbody) return;
         if (!charges.length) {
             tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No extra charges found</td></tr>';
             return;

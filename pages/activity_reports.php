@@ -11,7 +11,7 @@ if ($appBase === '.') $appBase = '';
       <h4 class="fw-bold mb-0"><i class="bi bi-graph-up text-success me-2"></i>Activity Reports</h4>
       <p class="text-muted small mb-0 mt-1">Co-curricular activity analytics.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="activityReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" id="arExportBtn" type="button"><i class="bi bi-download me-1"></i>Export CSV</button><button class="btn btn-outline-secondary btn-sm" id="arPrintBtn" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button></div>
   </div>
 
   <div class="row g-3 mb-4" id="arKpis"></div>
@@ -46,5 +46,6 @@ if ($appBase === '.') $appBase = '';
   </div>
 
 </div>
+<style>@media print { #arExportBtn, #arPrintBtn { display:none !important; } }</style>
 
 <?php asset_script($appBase, 'js/pages/activity_reports.js'); ?>

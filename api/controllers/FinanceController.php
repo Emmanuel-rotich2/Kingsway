@@ -559,6 +559,13 @@ class FinanceController extends BaseController
         return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->sources());
     }
 
+    /** GET /api/finance/student-fund-destinations */
+    public function getStudentFundDestinations($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->destinations());
+    }
+
     /** GET /api/finance/payment-routing-cases */
     public function getPaymentRoutingCases($id = null, $data = [], $segments = [])
     {
@@ -2507,6 +2514,7 @@ return $this->error('An internal error occurred.');
     /** GET /api/finance/exception-reports — list flagged exceptions */
     public function getExceptionReports($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         return $this->success($this->crud->listExceptionReports($data));
     }
 

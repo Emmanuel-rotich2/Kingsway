@@ -483,152 +483,20 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
      * }
      * @return array Response with promotion summary
      */
+    /**
+     * Stage 3 of the transition: surface the promotion board.
+     *
+     * No learner is moved here. Automatic bulk placement used to live in this
+     * method but was removed: stream placement is an administrator decision and
+     * must stay resumable, so a failed half-way run could never leave a cohort
+     * half-placed. assignPromotionStreams() is the only write path.
+     *
+     * @param array<string,mixed> $promotion_config Accepted and ignored, kept so
+     *   the workflow step signature is unchanged for existing callers.
+     */
     public function executePromotions(int $instance_id, array $promotion_config = []): array
     {
-        // Stream placement is an administrator decision and must be resumable;
-        // never auto-place learners into the first or matching stream here.
         return $this->getPromotionCandidates($instance_id);
-
-        try {
-            $instance = $this->getWorkflowInstance($instance_id);
-            if (!$instance) {
-                return formatResponse(false, null, 'Workflow instance not found');
-            }
-
-            $data = json_decode($instance['data_json'], true) ?: [];
-            $fromYear = $this->yearStart($data['from_year'] ?? 0);
-            $toYear = $this->yearStart($data['to_year'] ?? 0);
-            $fromYearId = $this->resolveYearIdFromCode($fromYear);
-            $toYearId = (int) ($data['academic_year_id'] ?? 0);
-            if (!$toYearId) $toYearId = $this->resolveYearIdFromCode($toYear);
-            if (!$fromYearId || !$toYearId) {
-                throw new Exception('Both source and target academic years are required');
-            }
-
-            $this->db->beginTransaction();
-
-            $promotionSummary = [
-                'total_students' => 0,
-                'promoted' => 0,
-                'retained' => 0,
-                'graduated' => 0,
-                'by_grade' => [],
-                'enrollments_created' => 0,
-                'obligations_generated' => 0,
-            ];
-            $rows = $this->db->prepare(
-                "SELECT sae.id AS source_enrollment_id, sae.student_id,
-                        sae.academic_year_class_stream_id AS source_stream_id,
-                        ayc.class_id AS source_class_id, c.name AS source_class_name,
-                        s.student_type_id, st.name AS student_type_name,
-                        srcStream.name AS stream_name
-                 FROM student_academic_enrollments sae
-                 JOIN academic_year_class_streams srcStreamRow ON srcStreamRow.id = sae.academic_year_class_stream_id
-                 JOIN streams srcStream ON srcStream.id = srcStreamRow.stream_id
-                 JOIN academic_year_classes ayc ON ayc.id = srcStreamRow.academic_year_class_id
-                 JOIN classes c ON c.id = ayc.class_id
-                 JOIN students s ON s.id = sae.student_id
-                 LEFT JOIN student_types st ON st.id = s.student_type_id
-                 WHERE sae.academic_year_id = ? AND sae.enrollment_status IN ('pending','active')
-                   AND s.status = 'active'
-                 ORDER BY sae.id"
-            );
-            $rows->execute([$fromYearId]);
-            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $promotionSummary['total_students']++;
-                $targetClassId = $this->resolveNextClassId((int) $row['source_class_id']);
-                if (!$targetClassId) {
-                    $this->db->prepare("UPDATE student_academic_enrollments SET enrollment_status = 'graduated' WHERE id = ?")
-                        ->execute([(int) $row['source_enrollment_id']]);
-                    $promotionSummary['graduated']++;
-                    continue;
-                }
-
-                $targetStream = $this->db->prepare(
-                    "SELECT aycs.id FROM academic_year_class_streams aycs
-                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                     JOIN streams targetStream ON targetStream.id = aycs.stream_id
-                     WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
-                       AND LOWER(targetStream.name) = LOWER(?) LIMIT 1"
-                );
-                $targetStream->execute([$toYearId, $targetClassId, $row['stream_name']]);
-                $targetStreamId = (int) ($targetStream->fetchColumn() ?: 0);
-                if (!$targetStreamId) {
-                    $targetStream = $this->db->prepare(
-                        "SELECT class_stream_id FROM " . ReadReplicaService::qualifiedRef('academic_calendar') . "
-                         WHERE academic_year_id = ? AND class_id = ? ORDER BY class_stream_id LIMIT 1"
-                    );
-                    $targetStream->execute([$toYearId, $targetClassId]);
-                    $targetStreamId = (int) ($targetStream->fetchColumn() ?: 0);
-                }
-                if (!$targetStreamId) throw new Exception('Target class has no configured stream for student ' . $row['student_id']);
-
-                $existing = $this->db->prepare(
-                    "SELECT id FROM student_academic_enrollments WHERE student_id = ? AND academic_year_id = ? LIMIT 1"
-                );
-                $existing->execute([(int) $row['student_id'], $toYearId]);
-                $targetEnrollmentId = (int) ($existing->fetchColumn() ?: 0);
-                if (!$targetEnrollmentId) {
-                    $this->db->prepare(
-                        "INSERT INTO student_academic_enrollments
-                            (student_id, academic_year_id, academic_year_class_stream_id, enrolled_on, enrollment_status)
-                         VALUES (?, ?, ?, CURDATE(), 'active')"
-                    )->execute([(int) $row['student_id'], $toYearId, $targetStreamId]);
-                    $targetEnrollmentId = (int) $this->db->lastInsertId();
-                    $promotionSummary['enrollments_created']++;
-                }
-
-                $this->db->prepare("UPDATE student_academic_enrollments SET enrollment_status = 'completed' WHERE id = ?")
-                    ->execute([(int) $row['source_enrollment_id']]);
-                $transition = $this->db->prepare(
-                    "SELECT id FROM student_transitions WHERE student_id = ? AND academic_year_id = ?
-                     AND from_student_academic_enrollment_id = ? LIMIT 1"
-                );
-                $transition->execute([(int) $row['student_id'], $toYearId, (int) $row['source_enrollment_id']]);
-                if (!$transition->fetchColumn()) {
-                    $this->db->prepare(
-                        "INSERT INTO student_transitions
-                            (student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
-                             academic_year_id, transition_type, reason, decided_by, decided_at, executed_at)
-                         VALUES (?, ?, ?, ?, 'promotion', 'Automatic academic-year rollover', ?, NOW(), NOW())"
-                    )->execute([
-                        (int) $row['student_id'],
-                        (int) $row['source_enrollment_id'], $targetEnrollmentId, $toYearId, $this->user_id
-                    ]);
-                }
-
-                $promotionSummary['promoted']++;
-                $promotionSummary['by_grade'][$row['source_class_name']]['total'] =
-                    ($promotionSummary['by_grade'][$row['source_class_name']]['total'] ?? 0) + 1;
-                $promotionSummary['by_grade'][$row['source_class_name']]['status'] = 'promoted';
-                $promotionSummary['by_grade'][$row['source_class_name']]['student_type'] = $row['student_type_name'];
-
-                // The onboarding procedure is the single billing authority.
-                $out = null;
-                $call = $this->db->prepare("CALL sp_onboard_student_enrollment(?, ?, @rollover_obligations)");
-                $call->execute([$targetEnrollmentId, $this->user_id]);
-                while ($call->nextRowset()) {}
-                $outStmt = $this->db->query("SELECT @rollover_obligations");
-                if ($outStmt) $promotionSummary['obligations_generated'] += (int) ($outStmt->fetchColumn() ?: 0);
-            }
-
-            $data['promotion_summary'] = $promotionSummary;
-
-            $this->advanceStage(
-                $instance_id,
-                'assign_target_streams',
-                "Promoted {$promotionSummary['promoted']} students, {$promotionSummary['graduated']} graduated",
-                $data
-            );
-
-            $this->db->commit();
-
-            return formatResponse(true, $promotionSummary, 'Bulk promotions executed successfully');
-
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            return $this->handleException($e);
-        }
     }
 
     /**

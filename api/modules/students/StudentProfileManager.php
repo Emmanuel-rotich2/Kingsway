@@ -258,6 +258,7 @@ class StudentProfileManager extends BaseAPI
     public function getCounselingCases(array $filters, array $user)
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id']) ? (int) $filters['academic_year_id'] : null;
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $caseType = !empty($filters['case_type']) ? trim($filters['case_type']) : null;
@@ -293,6 +294,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE c.status != 'cancelled'";
 
             $bindings = [];
+
+            if ($academicYearId) {
+                $sql .= " AND ayc_c.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if (($user['role'] ?? '') === 'chaplain' && !empty($user['id'])) {
                 $sql .= " AND c.assigned_to = ?";
@@ -447,6 +453,7 @@ class StudentProfileManager extends BaseAPI
     public function getHealthRecords(array $filters, string $userRole = '')
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id']) ? (int) $filters['academic_year_id'] : null;
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $healthCategory = !empty($filters['health_category']) ? trim($filters['health_category']) : null;
@@ -484,6 +491,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE 1=1";
 
             $bindings = [];
+
+            if ($academicYearId) {
+                $sql .= " AND ayc_h.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if ($classId) {
                 $sql .= " AND ayc_h.class_id = ?";
@@ -875,8 +887,9 @@ class StudentProfileManager extends BaseAPI
         try {
             $studentStmt = $this->db->prepare(
                 "SELECT s.id, s.admission_no, p.first_name, p.last_name, p.gender
-                 FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
-                 WHERE s.id = ?"
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 WHERE s.id = ? LIMIT 1"
             );
             $studentStmt->execute([$studentId]);
             $student = $this->fetch($studentStmt);
@@ -1042,6 +1055,16 @@ class StudentProfileManager extends BaseAPI
     public function getBoardingStudents(array $filters)
     {
         try {
+            $academicYearId = !empty($filters['academic_year_id'])
+                ? (int) $filters['academic_year_id']
+                : 0;
+            if ($academicYearId < 1) {
+                $academicYearId = (int) ($this->db->query(
+                    "SELECT id FROM academic_years
+                     WHERE is_current = 1 OR status = 'active'
+                     ORDER BY is_current DESC, id DESC LIMIT 1"
+                )->fetchColumn() ?: 0);
+            }
             $classId = !empty($filters['class_id']) ? (int) $filters['class_id'] : null;
             $streamId = !empty($filters['stream_id']) ? (int) $filters['stream_id'] : null;
             $gender = !empty($filters['gender']) ? trim($filters['gender']) : null;
@@ -1075,6 +1098,11 @@ class StudentProfileManager extends BaseAPI
                     WHERE da.id IS NOT NULL";
 
             $bindings = [];
+
+            if ($academicYearId > 0) {
+                $sql .= " AND sae.academic_year_id = ?";
+                $bindings[] = $academicYearId;
+            }
 
             if ($classId) {
                 $sql .= " AND ayc.class_id = ?";

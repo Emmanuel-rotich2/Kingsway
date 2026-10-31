@@ -74,6 +74,7 @@ const ExamTimetableDraftsController = {
 
   renderDrafts() {
     const tbody = document.getElementById("examDraftRows");
+    if (!tbody) return;
     tbody.innerHTML = this.state.drafts.map((draft) => {
       const actions = [`<button class="btn btn-sm btn-outline-secondary" onclick="ExamTimetableDraftsController.open(${Number(draft.id)})">${["draft", "changes_requested"].includes(draft.status) ? "Edit" : "View"}</button>`];
       if (draft.status === "draft" || draft.status === "changes_requested") actions.push(this.actionButton(draft.id, "submit", "Submit", "primary"));
@@ -123,6 +124,10 @@ const ExamTimetableDraftsController = {
 
   addRow(entry = {}) {
     const tbody = document.getElementById("examEntryRows");
+    if (!tbody) {
+      console.warn("Exam timetable entry list is unavailable on this page.");
+      return;
+    }
     const row = document.createElement("tr");
     row.innerHTML = `<td><select class="form-select form-select-sm exam-stream">${this.streamOptions(entry.academic_year_class_stream_id)}</select></td>
       <td><select class="form-select form-select-sm exam-area">${this.areaOptions(entry.academic_year_class_stream_id, entry.learning_area_id)}</select></td>

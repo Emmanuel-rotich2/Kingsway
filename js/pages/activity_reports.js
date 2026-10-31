@@ -1,90 +1,53 @@
-/**
- * Activity Reports Controller
- * Shows participation, attendance, and engagement reports for activities.
- * All reads through Node gateway for pooling, caching, aggregation.
- */
+/** Activity report using the canonical activities list, statistics and upcoming routes. */
 const activityReportsController = {
-  state: { activities: [], participants: [], types: [], referenceCache: null },
-
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r?.activities || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "activity-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Activity Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
+  state: { activities: [], upcoming: [], stats: {} },
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]); },
+  data(response) { return response?.data?.data ?? response?.data ?? response ?? []; },
   async load() {
-    const body = document.getElementById('arBody');
-    body.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    const upcomingBody = document.getElementById('arUpcoming');
+    const listBody = document.getElementById('arList');
+    if (upcomingBody) upcomingBody.innerHTML = '<tr><td colspan="5" class="text-center py-4">Loading upcoming activities…</td></tr>';
+    if (listBody) listBody.innerHTML = '<tr><td colspan="5" class="text-center py-4">Loading activities…</td></tr>';
     try {
-      const cache = this.state.referenceCache;
-      const [acts, parts, types] = await Promise.all([
-        cache?.activities !== undefined ? cache.activities : this.API('GET', '/api/activities/list'),
-        cache?.participants !== undefined ? cache.participants : this.API('GET', '/api/activities/participants-list'),
-        cache?.types !== undefined ? cache.types : this.API('GET', '/api/activities/categories-list'),
+      const [activitiesResponse, upcomingResponse, statsResponse] = await Promise.all([
+        window.API.activities.list({ limit: 100 }),
+        window.API.activities.getUpcoming(100),
+        window.API.activities.getSummary(),
       ]);
-      this.state.activities = this.norm(acts);
-      this.state.participants = this.norm(parts);
-      this.state.types = this.norm(types);
+      this.state.activities = Array.isArray(this.data(activitiesResponse)) ? this.data(activitiesResponse) : [];
+      this.state.upcoming = Array.isArray(this.data(upcomingResponse)) ? this.data(upcomingResponse) : [];
+      this.state.stats = this.data(statsResponse) || {};
       this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
-  },
-
-  render() {
-    const acts = this.state.activities;
-    const stats = document.getElementById('arStats');
-    stats.innerHTML = [
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Activities</div><div class="fs-4 fw-bold">${this.esc(this.state.activities.length)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Total Participants</div><div class="fs-4 fw-bold">${this.esc(this.state.participants.length)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Activity Types</div><div class="fs-4 fw-bold">${this.esc(this.state.types.length)}</div></div></div>`,
-      `<div class="col-md-3"><div class="border rounded-3 p-3 bg-white"><div class="text-muted small">Upcoming</div><div class="fs-4 fw-bold text-primary">${this.esc(this.state.activities.filter(a => new Date(a.start_date || a.date) >= new Date()).length)}</div></div></div>`,
-    ].join('');
-
-    const body = document.getElementById('arBody');
-    if (!this.state.activities.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No activities found.</td></tr>'; return; }
-    body.innerHTML = this.state.activities.map(a => `<tr>
-      <td class="small fw-semibold">${this.esc(a.name || `#${a.id}`)}</td>
-      <td class="small text-muted">${this.esc(a.type_name || '—')}</td>
-      <td class="small">${this.esc(a.start_date ? new Date(a.start_date).toLocaleDateString() : '—')}</td>
-      <td class="small">${this.esc(a.end_date ? new Date(a.end_date).toLocaleDateString() : '—')}</td>
-      <td class="small text-center">${this.esc(a.participant_count || 0)}</td>
-      <td class="small"><span class="badge bg-${a.status === 'active' ? 'success' : a.status === 'completed' ? 'secondary' : 'warning'}">${this.esc(a.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="activityReportsController.viewDetails(${a.id})"><i class="bi bi-eye"></i></button></td>
-    </tr>`).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "activity-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
     } catch (error) {
-      console.warn("Activity Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+      const message = this.esc(error?.message || 'Activity reports could not be loaded.');
+      if (upcomingBody) upcomingBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${message}</td></tr>`;
+      if (listBody) listBody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${message}</td></tr>`;
+      const kpis = document.getElementById('arKpis'); if (kpis) kpis.innerHTML = `<div class="col-12"><div class="alert alert-danger mb-0">${message}</div></div>`;
     }
   },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("activity_reports", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["reports", "activities"]);
+  render() {
+    const stats = this.state.stats;
+    const kpis = document.getElementById('arKpis');
+    if (kpis) kpis.innerHTML = [
+      ['Total Activities', stats.total_activities], ['Planned', stats.planned], ['Ongoing', stats.ongoing], ['Completed', stats.completed],
+    ].map(([label, value]) => `<div class="col-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-muted">${label}</div><strong class="fs-4">${Number(value || 0).toLocaleString()}</strong></div></div></div>`).join('');
+    const upcomingBody = document.getElementById('arUpcoming');
+    if (upcomingBody) upcomingBody.innerHTML = this.state.upcoming.length ? this.state.upcoming.map((activity) => `<tr><td>${this.esc(activity.title || 'Activity')}</td><td>${this.esc(activity.category_name || '—')}</td><td>${this.esc(activity.start_date || '—')}</td><td>${Number(activity.days_until_start || 0)}</td><td>${Number(activity.participant_count || 0)}</td></tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-4">No upcoming activities.</td></tr>';
+    const listBody = document.getElementById('arList');
+    if (listBody) listBody.innerHTML = this.state.activities.length ? this.state.activities.map((activity) => `<tr><td>${this.esc(activity.title || 'Activity')}</td><td>${this.esc(activity.category_name || '—')}</td><td>${this.esc(activity.status || '—')}</td><td>${Number(activity.participant_count || 0)}</td><td>${this.esc(activity.start_date || '—')}</td></tr>`).join('') : '<tr><td colspan="5" class="text-center text-muted py-4">No activities found.</td></tr>';
+  },
+  exportCSV() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('activities')) return window.showNotification?.('You do not have permission to export activity data.', 'error');
+    const quote = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [['Title', 'Category', 'Status', 'Participants', 'Start Date'], ...this.state.activities.map((activity) => [activity.title, activity.category_name, activity.status, activity.participant_count, activity.start_date])];
+    window.KingswayFileLifecycle?.exportText?.(rows.map((row) => row.map(quote).join(',')).join('\r\n'), 'activity-reports.csv', 'text/csv;charset=utf-8;');
+  },
+  init() {
+    if (window.AuthContext?.ready) window.AuthContext.ready().then(() => this.load()); else this.load();
+    document.getElementById('arExportBtn')?.addEventListener('click', () => this.exportCSV());
+    document.getElementById('arPrintBtn')?.addEventListener('click', () => { if (!window.AuthContext?.canPrint || window.AuthContext.canPrint('activities')) window.print(); });
+    window.APIRealtime?.register?.('activity_reports', { refresh: () => this.load() }, ['activities', 'reports']);
   },
 };
-
 window.activityReportsController = activityReportsController;
-document.addEventListener('DOMContentLoaded', () => activityReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => activityReportsController.init());

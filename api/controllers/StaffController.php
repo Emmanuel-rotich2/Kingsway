@@ -1569,8 +1569,7 @@ return $this->serverError('An internal error occurred.');
     public function putOnboarding($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
-        if (!$id) \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$id) return $this->badRequest('Onboarding ID is required.');
         return $this->handleResponse($this->onboardingManager->updateOnboarding((int)$id, $data));
     }
 
@@ -1581,9 +1580,160 @@ return $this->error('An internal error occurred.');
     public function putOnboardingTask($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
-        if (!$id) \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$id) return $this->badRequest('Onboarding task ID is required.');
         return $this->handleResponse($this->onboardingManager->updateTaskStatus((int)$id, $data));
+    }
+
+    private function currentDevelopmentStaffId(): int|array
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try {
+            return $this->access->requireActiveStaff();
+        } catch (RuntimeException $e) {
+            return (int) $e->getCode() === 401
+                ? $this->unauthorized($e->getMessage())
+                : $this->forbidden($e->getMessage());
+        }
+    }
+
+    private function developmentManager(): \App\API\Modules\staff\StaffDevelopmentManager
+    {
+        return $this->contract(\App\API\Modules\staff\StaffDevelopmentManager::class, $this->db->getConnection());
+    }
+
+    private function developmentResponse(callable $operation, string $context, string $successMessage = 'Success')
+    {
+        try {
+            return $this->success($operation(), $successMessage);
+        } catch (RuntimeException $e) {
+            $code = (int) $e->getCode();
+            if (in_array($code, [404, 409, 422], true)) return $this->respond(null, $e->getMessage(), $code, false);
+            \App\API\Services\Logger::legacyError('[StaffController] ' . $context . ': ' . $e->getMessage());
+            return $this->serverError('Staff development request could not be completed.');
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[StaffController] ' . $context . ': ' . $e->getMessage());
+            return $this->serverError('Staff development request could not be completed.');
+        }
+    }
+
+    /** GET/POST /api/staff/learning-goals; PUT/DELETE /{id}. */
+    public function getLearningGoals($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => $this->developmentManager()->listLearningGoals($staffId), 'learning goals');
+    }
+
+    public function postLearningGoals($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => ['id' => $this->developmentManager()->createLearningGoal($staffId, $data)], 'create learning goal', 'Learning goal created.');
+    }
+
+    public function putLearningGoals($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        if (!$id) return $this->badRequest('Learning goal ID is required.');
+        return $this->developmentResponse(function () use ($staffId, $id, $data) {
+            $this->developmentManager()->updateLearningGoal($staffId, (int) $id, $data);
+            return ['updated' => true];
+        }, 'update learning goal', 'Learning goal updated.');
+    }
+
+    public function deleteLearningGoals($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        if (!$id) return $this->badRequest('Learning goal ID is required.');
+        return $this->developmentResponse(function () use ($staffId, $id) {
+            $this->developmentManager()->deleteLearningGoal($staffId, (int) $id);
+            return ['deleted' => true];
+        }, 'delete learning goal', 'Learning goal deleted.');
+    }
+
+    /** GET /api/staff/competency-checklist; PUT /{KPI template ID}. */
+    public function getCompetencyChecklist($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        $filters = array_merge($_GET ?? [], is_array($data) ? $data : []);
+        $yearId = max(0, (int) ($filters['academic_year_id'] ?? 0));
+        $termId = max(0, (int) ($filters['academic_year_term_id'] ?? $filters['term_id'] ?? 0));
+        return $this->developmentResponse(fn() => $this->developmentManager()->listCompetencyChecklist($staffId, $yearId, $termId), 'competency checklist');
+    }
+
+    public function putCompetencyChecklist($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        if (!$id) return $this->badRequest('Competency item ID is required.');
+        return $this->developmentResponse(function () use ($staffId, $id, $data) {
+            $this->developmentManager()->saveCompetencyRating($staffId, (int) $id, $data);
+            return ['saved' => true];
+        }, 'save competency rating', 'Competency rating saved.');
+    }
+
+    /** GET /api/staff/development-progress; PUT /{onboarding task ID}. */
+    public function getDevelopmentProgress($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => $this->developmentManager()->listDevelopmentProgress($staffId), 'development progress');
+    }
+
+    public function putDevelopmentProgress($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        if (!$id) return $this->badRequest('Development milestone ID is required.');
+        if (($data['status'] ?? '') !== 'completed') return $this->badRequest('Only completion of an assigned milestone is supported.');
+        return $this->developmentResponse(function () use ($staffId, $id) {
+            $this->developmentManager()->completeDevelopmentMilestone($staffId, (int) $id, (int) ($this->user['id'] ?? $this->user['user_id'] ?? 0));
+            return ['completed' => true];
+        }, 'complete development milestone', 'Development milestone completed.');
+    }
+
+    /** GET/POST /api/staff/reflection-journal. Entries are private to their author. */
+    public function getReflectionJournal($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => $this->developmentManager()->listReflections($staffId), 'reflection journal');
+    }
+
+    public function postReflectionJournal($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => ['id' => $this->developmentManager()->createReflection($staffId, $data)], 'create reflection', 'Reflection saved.');
+    }
+
+    /** GET/POST /api/staff/mentor-meetings; PUT /{id}. */
+    public function getMentorMeetings($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => $this->developmentManager()->listMentorMeetings($staffId), 'mentor meetings');
+    }
+
+    public function postMentorMeetings($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        return $this->developmentResponse(fn() => ['id' => $this->developmentManager()->createMentorMeeting($staffId, $data)], 'create mentor meeting', 'Mentor meeting scheduled.');
+    }
+
+    public function putMentorMeetings($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->currentDevelopmentStaffId();
+        if (is_array($staffId)) return $staffId;
+        if (!$id) return $this->badRequest('Mentor meeting ID is required.');
+        return $this->developmentResponse(function () use ($staffId, $id, $data) {
+            $this->developmentManager()->updateMentorMeeting($staffId, (int) $id, $data);
+            return ['updated' => true];
+        }, 'update mentor meeting', 'Mentor meeting updated.');
     }
 
     /**
@@ -2214,6 +2364,62 @@ return $this->badRequest('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+
+    /** GET /api/staff/performance - Staff performance page compatibility route. */
+    public function getPerformance($id = null, $data = [], $segments = [])
+    {
+        return $this->getPerformanceReviews($id, $data, $segments);
+    }
+
+    /** GET /api/staff/observation-feedback - observations for the signed-in staff member. */
+    public function getObservationFeedback($id = null, $data = [], $segments = [])
+    {
+        try {
+            $staffId = $this->access->requireActiveStaff();
+            return $this->success($this->api->getObservationFeedback($staffId));
+        } catch (RuntimeException $e) {
+            $code = in_array($e->getCode(), [401, 403], true) ? (int) $e->getCode() : 403;
+            return $this->respond(null, $e->getMessage(), $code, false);
+        } catch (Throwable $e) {
+            return $this->serverError('Failed to load observation feedback', 'An internal error occurred.');
+        }
+    }
+
+    /** GET /api/staff/observation-schedule - scheduled and completed observations for self. */
+    public function getObservationSchedule($id = null, $data = [], $segments = [])
+    {
+        return $this->getObservationFeedback($id, $data, $segments);
+    }
+
+    /** GET /api/staff/improvement-areas - feedback findings from own observations. */
+    public function getImprovementAreas($id = null, $data = [], $segments = [])
+    {
+        try {
+            $staffId = $this->access->requireActiveStaff();
+            $rows = $this->api->getObservationFeedback($staffId);
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => trim((string) ($row['areas_for_improvement'] ?? '')) !== ''));
+            return $this->success($rows);
+        } catch (RuntimeException $e) {
+            $code = in_array($e->getCode(), [401, 403], true) ? (int) $e->getCode() : 403;
+            return $this->respond(null, $e->getMessage(), $code, false);
+        } catch (Throwable $e) {
+            return $this->serverError('Failed to load improvement feedback', 'An internal error occurred.');
+        }
+    }
+
+    /** GET /api/staff/my-mentor - assigned supervisor for the current staff member. */
+    public function getMyMentor($id = null, $data = [], $segments = [])
+    {
+        try {
+            $staffId = $this->access->requireActiveStaff();
+            return $this->success($this->api->getMentorForStaffId($staffId));
+        } catch (RuntimeException $e) {
+            $code = in_array($e->getCode(), [401, 403], true) ? (int) $e->getCode() : 403;
+            return $this->respond(null, $e->getMessage(), $code, false);
+        } catch (Throwable $e) {
+            return $this->serverError('Failed to load assigned mentor', 'An internal error occurred.');
+        }
+    }
 
     /** GET /api/staff/performance-reviews */
     public function getPerformanceReviews($id = null, $data = [], $segments = [])

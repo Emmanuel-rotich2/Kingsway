@@ -1,7 +1,7 @@
 <?php
 /**
- * My Mentor — PARTIAL
- * Profile card and meeting history for the intern's assigned mentor.
+ * My Mentor
+ * Profile card for the authenticated staff member's assigned supervisor.
  * JS controller: js/pages/my_mentor.js
  */
 /* PARTIAL — no DOCTYPE/html/head/body */
@@ -12,7 +12,7 @@
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
       <h3 class="mb-0"><i class="bi bi-person-check me-2 text-primary"></i>My Mentor</h3>
-      <small class="text-muted">Your assigned mentor's profile and meeting history</small>
+      <small class="text-muted">Your assigned supervisor's profile and recorded meeting history</small>
     </div>
   </div>
 
@@ -83,8 +83,9 @@
 
   <div id="mmEmpty" style="display:none;" class="text-center py-5">
     <i class="bi bi-person-x fs-1 text-muted"></i>
-    <p class="text-muted mt-2 mb-0">No mentor has been assigned to you yet.</p>
+    <p class="text-muted mt-2 mb-0">No supervisor has been assigned to your staff record.</p>
   </div>
+  <div id="mmError" style="display:none;" class="alert alert-danger">Could not load your supervisor profile. Refresh to try again.</div>
 
 </div>
 <?php asset_script($appBase, 'js/pages/my_mentor.js'); ?>

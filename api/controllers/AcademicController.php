@@ -943,7 +943,7 @@ return $this->serverError('An internal error occurred.');
         if ($id !== null) {
             $result = $this->api->getExamScheduleById($id);
         } else {
-            $result = $this->api->listExamSchedules($data);
+            $result = $this->api->listExamSchedules(array_merge($_GET, is_array($data) ? $data : []));
         }
         return $this->handleResponse($result);
     }
@@ -3606,7 +3606,11 @@ return $this->serverError('An internal error occurred.');
      */
     public function getSchemeOfWorkGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getSchemeOfWork($id ?? ($data['id'] ?? null));
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        if ($id !== null) {
+            $filters['id'] = $id;
+        }
+        $result = $this->api->getSchemeOfWork($filters);
         return $this->handleResponse($result);
     }
 
@@ -3868,7 +3872,11 @@ return $this->serverError('An internal error occurred.');
     public function getResults($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
-        return $this->handleResponse($this->academicManager->getResults($filters, $this->getCurrentStaffId()));
+        $staffId = $this->getCurrentStaffId();
+        if (!empty($filters['subject_teacher_only']) && !$staffId) {
+            return $this->forbidden('A staff teaching assignment is required to view subject-scoped results');
+        }
+        return $this->handleResponse($this->academicManager->getResults($filters, $staffId));
     }
 
     /**
@@ -3878,7 +3886,17 @@ return $this->serverError('An internal error occurred.');
     public function getReports($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, is_array($data) ? $data : []);
-        return $this->handleResponse($this->academicManager->getReports($filters, $this->getCurrentStaffId()));
+        $staffId = $this->getCurrentStaffId();
+        if ((!empty($filters['class_teacher_only']) || !empty($filters['subject_teacher_only'])) && !$staffId) {
+            return $this->forbidden('A staff teaching assignment is required to view teacher-scoped reports');
+        }
+        if (!empty($filters['class_teacher_only']) && !in_array(strtolower((string) ($filters['report_type'] ?? 'performance')), ['performance', 'assessment'], true)) {
+            return $this->badRequest('Class-teacher scoping is available only for performance reports');
+        }
+        if (!empty($filters['subject_teacher_only']) && !in_array(strtolower((string) ($filters['report_type'] ?? 'performance')), ['performance', 'assessment'], true)) {
+            return $this->badRequest('Subject-teacher scoping is available only for performance reports');
+        }
+        return $this->handleResponse($this->academicManager->getReports($filters, $staffId));
     }
 
     /**
@@ -4049,12 +4067,14 @@ return $this->serverError('An internal error occurred.');
      */
     public function getNationalExams($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'results_view'])) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getNationalExams($filters));
     }
 
     public function postNationalExams($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) return $guard;
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         return $this->handleResponse($this->academicManager->postNationalExams(is_array($data) ? $data : [], $userId));
     }
@@ -4099,6 +4119,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getClassStudents($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_view', 'assessments_view', 'academic_manage'])) return $guard;
         $classId = (int) ($id ?: ($data['class_id'] ?? ($_GET['class_id'] ?? 0)));
         if (!$classId) return $this->badRequest('class_id is required');
         return $this->handleResponse($this->academicManager->getClassStudents($classId));
@@ -4970,6 +4991,16 @@ return $this->serverError('An internal error occurred.');
             $query['class_id'] = (int) $id;
         }
         return $this->handleResponse($this->academicManager->getLessonPlansByClass($query));
+    }
+
+    /** GET /api/academic/lesson-plans/by-teacher */
+    public function getLessonPlansByTeacher($id = null, $data = [], $segments = [])
+    {
+        if (!in_array(6, array_map('intval', $this->getUserRoleIds()), true)) {
+            return $this->forbidden('Only the Deputy Head - Academic can view teacher lesson-plan coverage.');
+        }
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getLessonPlansByTeacher($query));
     }
 
     /**

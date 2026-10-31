@@ -121,8 +121,157 @@ class TemplateManager
                 $ver['channels'] = array_values($ver['channels']);
             }
         }
+        unset($cat, $ver);
+
+        $this->attachDeclaredVariables($grouped);
 
         return array_values($grouped);
+    }
+
+    /**
+     * Declared variables for one channel variant, keyed by variable name.
+     *
+     * communication_template_variables is addressed by template_channel_id;
+     * there is no catalog-level or version-level variable store.
+     */
+    public function channelVariables(int $channelId): array
+    {
+        if ($channelId <= 0) {
+            return [];
+        }
+        $stmt = $this->db->prepare(
+            'SELECT variable_name, data_type, is_required, example_value
+             FROM communication_template_variables
+             WHERE template_channel_id = ?
+             ORDER BY id'
+        );
+        $stmt->execute([$channelId]);
+
+        $variables = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $variables[(string) $row['variable_name']] = [
+                'variable_name' => (string) $row['variable_name'],
+                'data_type' => (string) ($row['data_type'] ?? 'string'),
+                'is_required' => (int) $row['is_required'] === 1,
+                'example_value' => $row['example_value'],
+            ];
+        }
+
+        return $variables;
+    }
+
+    /**
+     * Attach declared variables to every channel variant of a grouped catalog
+     * list in one query, so list/get never issues a query per channel.
+     */
+    private function attachDeclaredVariables(array &$grouped): void
+    {
+        $channelIds = [];
+        foreach ($grouped as $cat) {
+            foreach ($cat['versions'] ?? [] as $ver) {
+                foreach ($ver['channels'] ?? [] as $ver['ch']) {
+                    if (!empty($ver['channel_id'])) {
+                        $channelIds[] = (int) $ver['channel_id'];
+                    }
+                }
+            }
+        }
+        $channelIds = array_values(array_unique($channelIds));
+        if (!$channelIds) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($channelIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT template_channel_id, variable_name, data_type, is_required, example_value
+             FROM communication_template_variables
+             WHERE template_channel_id IN ({$placeholders})
+             ORDER BY id"
+        );
+        $stmt->execute($channelIds);
+
+        $byChannel = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $byChannel[(int) $row['template_channel_id']][] = [
+                'variable_name' => (string) $row['variable_name'],
+                'data_type' => (string) ($row['data_type'] ?? 'string'),
+                'is_required' => (int) $row['is_required'] === 1,
+                'example_value' => $row['example_value'],
+            ];
+        }
+
+        foreach ($grouped as &$cat) {
+            foreach ($cat['versions'] as &$ver) {
+                foreach ($ver['channels'] as &$ch) {
+                    $ch['variables'] = array_values($byChannel[(int) $ch['channel_id']] ?? []);
+                }
+            }
+        }
+    }
+
+    /**
+     * Register (or re-register) the declared variables of a channel variant.
+     *
+     * Placeholders already present in the body are always registered so that
+     * validateVariables() can never report a template's own tokens as unknown.
+     */
+    public function saveChannelVariables(int $channelId, array $variables): void
+    {
+        if ($channelId <= 0) {
+            return;
+        }
+
+        // Read only the body: the channel projection also carries header/footer/
+        // body_format/media_json, which exist only once
+        // 20261019_fix_communication_channels_columns.sql has been applied, and
+        // registering variables must not depend on those optional columns.
+        $bodyStmt = $this->db->prepare('SELECT body FROM communication_template_channels WHERE id = ?');
+        $bodyStmt->execute([$channelId]);
+        $body = (string) ($bodyStmt->fetchColumn() ?: '');
+
+        $declared = [];
+        foreach ($variables as $name => $meta) {
+            $name = is_string($name) ? $name : (string) ($meta['variable_name'] ?? '');
+            $name = trim($name);
+            if ($name === '') {
+                continue;
+            }
+            $declared[$name] = [
+                'data_type' => is_array($meta) ? (string) ($meta['data_type'] ?? 'string') : 'string',
+                'is_required' => is_array($meta) ? (int) !empty($meta['is_required']) : 0,
+                'example_value' => is_array($meta) ? ($meta['example_value'] ?? null) : null,
+            ];
+        }
+
+        foreach ($this->renderer->extractPlaceholders($body) as $placeholder) {
+            if (!isset($declared[$placeholder])) {
+                $declared[$placeholder] = ['data_type' => 'string', 'is_required' => 0, 'example_value' => null];
+            }
+        }
+
+        if (!$declared) {
+            return;
+        }
+
+        $stmt = $this->db->prepare(
+            'INSERT INTO communication_template_variables
+                 (template_channel_id, variable_name, data_type, is_required, example_value)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                 data_type = VALUES(data_type),
+                 is_required = VALUES(is_required),
+                 example_value = VALUES(example_value)'
+        );
+        foreach ($declared as $name => $meta) {
+            $stmt->execute([
+                $channelId,
+                $name,
+                in_array($meta['data_type'], ['string', 'integer', 'decimal', 'date', 'datetime', 'url', 'boolean'], true)
+                    ? $meta['data_type'] : 'string',
+                $meta['is_required'],
+                $meta['example_value'] !== null ? (string) $meta['example_value'] : null,
+            ]);
+        }
     }
 
     /**
@@ -183,7 +332,11 @@ class TemplateManager
             // Create channel entries if provided
             if (!empty($data['channels'])) {
                 foreach ($data['channels'] as $channelData) {
-                    $this->createChannel($versionId, $channelData);
+                    $channelId = $this->createChannel($versionId, $channelData);
+                    // Always register: saveChannelVariables() also extracts the
+                    // {{placeholders}} already present in the body, so seeded
+                    // templates are never left with an empty variable registry.
+                    $this->saveChannelVariables($channelId, (array) ($channelData['variables'] ?? []));
                 }
             }
 
@@ -220,7 +373,11 @@ class TemplateManager
             // Create channel entries
             if (!empty($data['channels'])) {
                 foreach ($data['channels'] as $channelData) {
-                    $this->createChannel($versionId, $channelData);
+                    $channelId = $this->createChannel($versionId, $channelData);
+                    // Always register: saveChannelVariables() also extracts the
+                    // {{placeholders}} already present in the body, so seeded
+                    // templates are never left with an empty variable registry.
+                    $this->saveChannelVariables($channelId, (array) ($channelData['variables'] ?? []));
                 }
             }
 
@@ -301,7 +458,15 @@ class TemplateManager
             SET " . implode(', ', $fields) . "
             WHERE id = ?
         ");
-        return $stmt->execute($params);
+        $updated = $stmt->execute($params);
+
+        // Keep the declared-variable registry in step with the edited body so a
+        // body edit can never leave its own placeholders unregistered.
+        if (isset($data['body'])) {
+            $this->saveChannelVariables($channelId, (array) ($data['variables'] ?? []));
+        }
+
+        return $updated;
     }
 
     /**
@@ -340,6 +505,7 @@ class TemplateManager
             return null;
         }
         $row['media_json'] = $row['media_json'] ? json_decode($row['media_json'], true) : null;
+        $row['variables'] = array_values($this->channelVariables($channelId));
         return $row;
     }
 
@@ -486,10 +652,14 @@ class TemplateManager
      */
     public function validateVariables(int $catalogId, array $variables): array
     {
+        // communication_template_variables is keyed by template_channel_id, so
+        // the registered set for a catalog spans every channel of every version.
         $stmt = $this->db->prepare("
-            SELECT variable_name, is_required, data_type
-            FROM communication_template_variables
-            WHERE catalog_id = ?
+            SELECT var.variable_name, var.is_required, var.data_type
+            FROM communication_template_variables var
+            JOIN communication_template_channels ch ON ch.id = var.template_channel_id
+            JOIN communication_template_versions ver ON ver.id = ch.template_version_id
+            WHERE ver.template_id = ?
         ");
         $stmt->execute([$catalogId]);
         $registered = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -512,5 +682,168 @@ class TemplateManager
         }
 
         return ['errors' => $errors, 'warnings' => $warnings];
+    }
+
+    /**
+     * The school's own name, for brand text inside message bodies.
+     */
+    public function schoolBrand(): string
+    {
+        if (defined('SCHOOL_NAME') && trim((string) SCHOOL_NAME) !== '') {
+            return trim((string) SCHOOL_NAME);
+        }
+
+        return 'Kingsway Preparatory School';
+    }
+
+    /**
+     * Legacy brand string that was seeded into the catalog before the school
+     * profile carried the real name. Kept here so the normalizer can find and
+     * repair those rows without touching rows the school has since edited.
+     */
+    private const LEGACY_BRAND = 'Kingsway Academy';
+
+    /**
+     * Rewrite the legacy brand inside catalog channel rows.
+     *
+     * Idempotent: a row that already carries the configured school name is left
+     * untouched, and only rows still containing the legacy string are updated,
+     * so operator edits elsewhere are never clobbered.
+     *
+     * @return array{updated:int,brand:string}
+     */
+    public function normalizeBranding(): array
+    {
+        $brand = $this->schoolBrand();
+        if ($brand === self::LEGACY_BRAND) {
+            return ['updated' => 0, 'brand' => $brand];
+        }
+
+        $stmt = $this->db->prepare(
+            "UPDATE communication_template_channels
+                SET subject = REPLACE(subject, ?, ?),
+                    body = REPLACE(body, ?, ?)
+              WHERE subject LIKE ? OR body LIKE ?"
+        );
+        $stmt->execute([self::LEGACY_BRAND, $brand, self::LEGACY_BRAND, self::LEGACY_BRAND, self::LEGACY_BRAND, self::LEGACY_BRAND]);
+
+        return ['updated' => $stmt->rowCount(), 'brand' => $brand];
+    }
+
+    /**
+     * Bring the canonical catalog back in step with its legacy JSON source.
+     *
+     * The catalog is the single store that resolveTemplate() reads; the JSON
+     * files under api/modules/communications/templates/ remain the seed source.
+     * A code that already exists in the catalog is never overwritten, so a
+     * school's edited wording survives every sync.
+     *
+     * @param list<string> $categories Legacy template categories to import
+     * @return array{branded:int,seeded:list<array{code:string,channel:string}>,skipped:list<string>,failed:list<array{code:string,channel:string,error:string}>}
+     */
+    public function synchronizeCatalog(array $categories = ['results_ready', 'results', 'fees', 'announcement', 'notification', 'parent_event']): array
+    {
+        $loader = new \App\API\Modules\communications\templates\TemplateLoader($this->renderer);
+        $seeded = [];
+        $skipped = [];
+        $failed = [];
+
+        foreach (['sms', 'email', 'whatsapp'] as $channel) {
+            foreach ($categories as $category) {
+                $code = $channel . '.' . $category;
+                if ($this->catalogCodeExists($code)) {
+                    $skipped[] = $code;
+                    continue;
+                }
+
+                $legacy = $loader->getTemplate($channel, $category);
+                if (!$legacy || empty($legacy['template_body'])) {
+                    continue;
+                }
+
+                try {
+                    $this->ensureCatalogTemplate($code, [
+                        'name' => (string) ($legacy['name'] ?? $category),
+                        'purpose' => $category,
+                        'channels' => [[
+                            'channel' => $channel,
+                            'subject' => $legacy['subject'] ?? null,
+                            'body' => (string) $legacy['template_body'],
+                            'body_format' => $channel === 'email' ? 'html' : 'plain',
+                        ]],
+                    ]);
+                } catch (\Throwable $e) {
+                    // A missing optional column or an edit collision must not
+                    // abort the whole reconciliation; report it and continue so
+                    // the remaining templates still get repaired.
+                    $failed[] = ['code' => $code, 'channel' => $channel, 'error' => $e->getMessage()];
+                    continue;
+                }
+                $seeded[] = ['code' => $code, 'channel' => $channel];
+            }
+        }
+
+        $branding = $this->normalizeBranding();
+
+        return [
+            'branded' => $branding['updated'],
+            'seeded' => $seeded,
+            'skipped' => $skipped,
+            'failed' => $failed,
+            'brand' => $branding['brand'],
+        ];
+    }
+
+    private function catalogCodeExists(string $code): bool
+    {
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM communication_template_catalog WHERE code = ?');
+        $stmt->execute([$code]);
+
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
+    /**
+     * Resolve the acting user id for audit columns.
+     *
+     * TemplateManager is a service (not a BaseAPI), so it cannot call the
+     * controller helper getCurrentUserId(). Read the middleware-populated
+     * session context instead, and fall back to 0 for CLI/worker callers
+     * (created_by is nullable and has no foreign key).
+     */
+    private function resolveActorId(): int
+    {
+        $context = $_SERVER['auth_user'] ?? [];
+        if (!is_array($context)) {
+            return 0;
+        }
+        return (int) ($context['id'] ?? $context['user_id'] ?? 0);
+    }
+
+    /**
+     * Create a catalog template (draft version + active channel) if the code is
+     * absent. Returns the catalog id, or 0 when it already existed.
+     */
+    private function ensureCatalogTemplate(string $code, array $definition): int
+    {
+        if ($this->catalogCodeExists($code)) {
+            return 0;
+        }
+
+        $createdBy = $this->resolveActorId();
+        $catalogId = $this->createTemplate([
+            'code' => $code,
+            'name' => (string) ($definition['name'] ?? $code),
+            'purpose' => (string) ($definition['purpose'] ?? 'general'),
+            'channels' => (array) ($definition['channels'] ?? []),
+        ], $createdBy);
+
+        $versionId = (int) $this->db->query(
+            'SELECT id FROM communication_template_versions WHERE template_id = ' . (int) $catalogId . ' ORDER BY version_no LIMIT 1'
+        )->fetchColumn();
+        if ($versionId > 0) {
+            $this->approveVersion($versionId, $createdBy);
+        }
+
+        return $catalogId;
     }
 }

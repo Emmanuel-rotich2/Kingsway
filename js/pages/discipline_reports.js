@@ -1,110 +1,73 @@
-/**
- * Discipline Reports Controller
- * Discipline incidents, offenses, and resolution tracking.
- */
+/** Discipline reports from the authenticated student discipline cases endpoint. */
 const disciplineReportsController = {
-  state: { classes: [], streams: [], terms: [], offenses: [], report: null, referenceCache: null },
-
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "discipline-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Discipline Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
+  state: { rows: [], request: 0 },
+  api(method, endpoint, data, params) { return window.callAPI(endpoint, method, data, params); },
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); },
+  rows(response) {
+    const data = response?.data?.data ?? response?.data ?? response;
+    return Array.isArray(data) ? data : [];
   },
-
   async load() {
+    const request = ++this.state.request;
+    const error = document.getElementById('drError'); if (error) error.classList.add('d-none');
+    const body = document.getElementById('drBody'); if (body) body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</td></tr>';
     try {
-      const cache = this.state.referenceCache;
-      const [cls, strms, terms, offenses] = await Promise.all([
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
-        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
-        cache?.terms !== undefined ? cache.terms : this.API('GET', '/api/academic/terms-list'),
-        cache?.offenses !== undefined ? cache.offenses : this.API('GET', '/api/students/discipline-meta'),
-      ]);
-      this.state.classes = this.norm(cls);
-      this.state.streams = this.norm(strms);
-      this.state.terms = this.norm(terms);
-      const offensesRaw = this.norm(offenses);
-      const offenseList = Array.isArray(offensesRaw) ? offensesRaw : (offensesRaw?.offense_types || []);
-      this.state.offenses = offenseList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
-      this.populateFilters();
-      await this.loadReport();
-    } catch (e) { console.error(e); }
-  },
-
-  populateFilters() {
-    const c = document.getElementById('discClass');
-    const s = document.getElementById('discStream');
-    const t = document.getElementById('discTerm');
-    const o = document.getElementById('discOffense');
-    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
-    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
-    t.innerHTML = '<option value="">All Terms</option>' + this.state.terms.map(x => `<option value="${x.id}">${this.esc(x.name || x.term_name)}</option>`).join('');
-    o.innerHTML = '<option value="">All Offense Types</option>' + this.state.offenses.map(x => `<option value="${x.id}">${this.esc(x.name || x.offense_name)}</option>`).join('');
-  },
-
-  async loadReport() {
-    const params = new URLSearchParams();
-    if (document.getElementById('discClass')?.value) params.set('class_id', document.getElementById('discClass').value);
-    if (document.getElementById('discStream')?.value) params.set('stream_id', document.getElementById('discStream').value);
-    if (document.getElementById('discTerm')?.value) params.set('term_id', document.getElementById('discTerm').value);
-    if (document.getElementById('discOffense')?.value) params.set('offense_id', document.getElementById('discOffense').value);
-
-    try {
-      const response = await this.API('GET', '/api/reports/discipline', null, params);
-      this.state.report = response?.data || response || {};
+      const response = await this.api('GET', '/api/students/discipline-cases');
+      if (request !== this.state.request) return;
+      if (response?.success === false || response?.error) throw new Error(response.message || response.error || 'Could not load discipline cases.');
+      this.state.rows = this.rows(response);
       this.render();
-    } catch (e) { console.error(e); }
-  },
-
-  render() {
-    const r = this.state.report;
-    const body = document.getElementById('discBody');
-    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No discipline data.</td></tr>'; return; }
-    body.innerHTML = r.map(x => `<tr>
-      <td class="small">${this.esc(x.admission_no || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
-      <td class="small">${this.esc(x.class_name || '—')}</td>
-      <td class="small">${this.esc(x.stream_name || '—')}</td>
-      <td class="small">${this.esc(x.offense_name || '—')}</td>
-      <td class="small">${this.esc(x.incident_date || '—')}</td>
-      <td class="small"><span class="badge bg-${x.severity === 'high' ? 'danger' : x.severity === 'medium' ? 'warning' : 'info'}">${this.esc(x.severity || '—')}</span></td>
-      <td class="small">${this.esc(x.action_taken || '—')}</td>
-    </tr>`).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "discipline-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Discipline Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+    } catch (e) {
+      if (request !== this.state.request) return;
+      if (body) body.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Discipline data could not be loaded.</td></tr>';
+      if (error) { error.textContent = e?.message || 'Could not load discipline reports. Refresh to try again.'; error.classList.remove('d-none'); }
+      this.renderSummary([]);
     }
   },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("discipline_reports", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["reports", "discipline"]);
+  render() {
+    const rows = this.state.rows; const body = document.getElementById('drBody');
+    if (body) body.innerHTML = rows.length ? rows.map((row) => {
+      const severity = String(row.severity || '').toLowerCase();
+      const badge = severity === 'high' ? 'danger' : severity === 'medium' ? 'warning' : 'secondary';
+      return `<tr><td>${this.esc(row.full_name || '—')}</td><td>${this.esc(row.admission_no || '—')}</td><td>${this.esc(row.class_name || '—')}</td><td>${this.esc(row.description || 'Disciplinary incident')}</td><td><span class="badge text-bg-${badge}">${this.esc(row.severity || '—')}</span></td><td>${this.date(row.incident_date)}</td><td>${this.esc(row.status || '—')}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No discipline cases are recorded.</td></tr>';
+    this.renderSummary(rows);
+  },
+  renderSummary(rows) {
+    const kpis = document.getElementById('drKpis');
+    if (kpis) {
+      const metrics = [
+        ['Total cases', rows.length],
+        ['Pending', rows.filter((x) => String(x.status).toLowerCase() === 'pending').length],
+        ['Escalated', rows.filter((x) => String(x.status).toLowerCase() === 'escalated').length],
+        ['High severity', rows.filter((x) => String(x.severity).toLowerCase() === 'high').length],
+      ];
+      kpis.innerHTML = metrics.map(([label, value]) => `<div class="col-sm-6 col-xl-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">${label}</small><div class="fs-3 fw-semibold">${value}</div></div></div></div>`).join('');
+    }
+    const statusCounts = new Map(); rows.forEach((x) => { const key = `${x.severity || 'Unspecified'} · ${x.status || 'Unspecified'}`; statusCounts.set(key, (statusCounts.get(key) || 0) + 1); });
+    const byType = document.getElementById('drByType');
+    if (byType) byType.innerHTML = statusCounts.size ? [...statusCounts.entries()].map(([label, count]) => { const [severity, status] = label.split(' · '); return `<tr><td>${this.esc(severity)}</td><td>${this.esc(status)}</td><td>${count}</td></tr>`; }).join('') : '<tr><td colspan="3" class="text-center text-muted py-4">No cases to summarize.</td></tr>';
+    const monthCounts = new Map(); rows.forEach((x) => { if (!x.incident_date) return; const month = String(x.incident_date).slice(0, 7); monthCounts.set(month, (monthCounts.get(month) || 0) + 1); });
+    const max = Math.max(1, ...monthCounts.values()); const trend = document.getElementById('drTrend');
+    if (trend) trend.innerHTML = monthCounts.size ? [...monthCounts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => `<tr><td>${this.esc(month)}</td><td>${count}</td><td><div class="progress" role="progressbar" aria-label="${this.esc(month)} cases"><div class="progress-bar bg-danger" style="width:${Math.round(count / max * 100)}%"></div></div></td></tr>`).join('') : '<tr><td colspan="3" class="text-center text-muted py-4">No dated cases to summarize.</td></tr>';
+  },
+  date(value) { if (!value) return '—'; const d = new Date(String(value).replace(' ', 'T')); return Number.isNaN(d.getTime()) ? this.esc(value) : d.toLocaleDateString(); },
+  exportCSV() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('discipline')) return window.showNotification?.('You do not have permission to export discipline data.', 'error');
+    const columns = ['full_name', 'admission_no', 'class_name', 'description', 'severity', 'incident_date', 'status'];
+    const headers = ['Student', 'Admission No', 'Class', 'Incident Summary', 'Severity', 'Date', 'Status'];
+    const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...this.state.rows.map((row) => columns.map((key) => row[key] ?? ''))].map((line) => line.map(quote).join(',')).join('\r\n');
+    window.KingswayFileLifecycle?.exportText?.(csv, 'discipline-reports.csv', 'text/csv;charset=utf-8');
+  },
+  print() { if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('discipline')) return window.showNotification?.('You do not have permission to print discipline data.', 'error'); window.print(); },
+  init() {
+    document.getElementById('drRefresh')?.addEventListener('click', () => this.load());
+    document.getElementById('drExport')?.addEventListener('click', () => this.exportCSV());
+    document.getElementById('drPrint')?.addEventListener('click', () => this.print());
+    this.load();
+    window.APIRealtime?.register?.('discipline_reports', { refresh: () => this.load() }, ['reports', 'discipline']);
   },
 };
-
 window.disciplineReportsController = disciplineReportsController;
-document.addEventListener('DOMContentLoaded', () => disciplineReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => disciplineReportsController.init());

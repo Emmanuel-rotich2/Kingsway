@@ -30,7 +30,8 @@ class AcademicYearManager
     {
         $stmt = $this->db->query("
             SELECT * FROM academic_years 
-            WHERE is_current = TRUE AND status = 'active'
+            WHERE is_current = TRUE
+            ORDER BY id DESC
             LIMIT 1
         ");
 
@@ -248,7 +249,7 @@ class AcademicYearManager
     /**
      * Archive an academic year
      */
-    public function archiveYear(int $yearId, int $userId, string $notes = null): bool
+    public function archiveYear(int $yearId, int $userId, ?string $notes = null): bool
     {
         $year = $this->getAcademicYear($yearId);
         if (!$year) {
@@ -369,15 +370,23 @@ class AcademicYearManager
      */
     public function getAllYears(array $filters = []): array
     {
-        $sql = "SELECT * FROM academic_years WHERE 1=1";
+        // Return the year and its configured term count together so callers
+        // do not have to infer the relationship from a second response shape.
+        // academic_year_terms is the canonical read projection for year terms.
+        $sql = "SELECT ay.*, (
+                    SELECT COUNT(*)
+                    FROM " . ReadReplicaService::qualifiedRef('academic_year_terms') . " ayt
+                    WHERE ayt.academic_year_id = ay.id
+                ) AS term_count
+                FROM academic_years ay WHERE 1=1";
         $params = [];
 
         if (!empty($filters['status'])) {
-            $sql .= " AND status = ?";
+            $sql .= " AND ay.status = ?";
             $params[] = $filters['status'];
         }
 
-        $sql .= " ORDER BY start_date DESC";
+        $sql .= " ORDER BY ay.start_date DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);

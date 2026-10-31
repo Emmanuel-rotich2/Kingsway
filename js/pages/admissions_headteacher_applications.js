@@ -165,6 +165,7 @@ const headteacherApplicationsController = {
     
     renderApplicationsTable: function() {
         const tbody = document.getElementById('applicationsTableBody');
+        if (!tbody) return;
         
         if (this.filteredApplications.length === 0) {
             tbody.innerHTML = `

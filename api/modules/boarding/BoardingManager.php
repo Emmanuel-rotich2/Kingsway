@@ -267,33 +267,57 @@ class BoardingManager extends BaseAPI
         }
     }
 
-    public function getStudents($dormitoryId = null, $search = '')
+    public function getStudents($dormitoryId = null, $search = '', $academicYearId = null)
     {
         try {
-            $where = ["s.status = 'active'", "da.status = 'active'"];
+            // This page's roster is a multi-table composition. Read it from
+            // the governed projection instead of selecting undefined legacy
+            // aliases from student_directory (the old query had no `s`, `p`,
+            // `c`, `d`, `da`, or `ba` table aliases in its FROM clause).
+            $where = [
+                "bdc.assignment_status = 'active'",
+                "bdc.dormitory_status = 'active'",
+                '(bdc.end_date IS NULL OR bdc.end_date >= CURDATE())',
+            ];
             $params = [];
             if ($dormitoryId) {
-                $where[] = 'da.dormitory_id = ?';
+                $where[] = 'bdc.assignment_dormitory_id = ?';
                 $params[] = (int) $dormitoryId;
             }
+            if ($academicYearId === null) {
+                $yearStmt = $this->db->query(
+                    "SELECT id FROM academic_years
+                     WHERE is_current = 1 OR status = 'active'
+                     ORDER BY is_current DESC, id DESC LIMIT 1"
+                );
+                $academicYearId = (int) ($yearStmt->fetchColumn() ?: 0);
+            }
+            if ((int) $academicYearId > 0) {
+                $where[] = 'bdc.assignment_academic_year_id = ?';
+                $params[] = (int) $academicYearId;
+            }
             if ($search !== '') {
-                $where[] = '(p.first_name LIKE ? OR p.last_name LIKE ? OR s.admission_no LIKE ?)';
-                $params[] = "%$search%";
+                $where[] = '(bdc.student_full_name LIKE ? OR bdc.admission_no LIKE ?)';
                 $params[] = "%$search%";
                 $params[] = "%$search%";
             }
 
-            $sql = "SELECT s.id, s.admission_no,
-                           CONCAT(p.first_name, ' ', p.last_name) AS student_name,
-                           p.gender,
-                           c.name AS class_name,
-                           d.name AS dormitory_name,
-                           da.bed_number,
-                           da.dormitory_id,
-                           COALESCE(ba.status, '—') AS tonight_status
-                    FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+            $sql = "SELECT bdc.student_id AS id,
+                           bdc.admission_no AS admission_number,
+                           bdc.student_full_name AS name,
+                           bdc.student_gender AS gender,
+                           bdc.class_name,
+                           bdc.stream_name,
+                           bdc.dormitory_name AS dormitory,
+                           bdc.bed_number,
+                           bdc.assignment_dormitory_id AS dormitory_id,
+                           bdc.assignment_academic_year_id AS academic_year_id,
+                           bdc.assignment_status AS boarding_status,
+                           bdc.roll_call_status AS tonight_status,
+                           bdc.permission_id
+                    FROM " . ReadReplicaService::qualifiedRef("boarding_dorm_context") . " bdc
                     WHERE " . implode(' AND ', $where) . "
-                    ORDER BY d.name, p.last_name, p.first_name
+                    ORDER BY bdc.dormitory_name, bdc.student_last_name, bdc.student_first_name
                     LIMIT 500";
 
             $stmt = $this->db->prepare($sql);
@@ -357,11 +381,13 @@ class BoardingManager extends BaseAPI
             }
 
             $dormStmt = $this->db->prepare(
-                "SELECT da.dormitory_id
-                 FROM " . ReadReplicaService::qualifiedRef("dormitory_assignments") . "
-                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = da.student_academic_enrollment_id
-                 WHERE sae.student_id = ? AND da.status = 'active'
-                 ORDER BY da.id DESC LIMIT 1"
+                "SELECT bdc.assignment_dormitory_id
+                 FROM " . ReadReplicaService::qualifiedRef("boarding_dorm_context") . " bdc
+                 WHERE bdc.student_id = ?
+                   AND bdc.assignment_status = 'active'
+                   AND bdc.dormitory_status = 'active'
+                   AND (bdc.end_date IS NULL OR bdc.end_date >= CURDATE())
+                 ORDER BY bdc.assignment_id DESC LIMIT 1"
             );
             $ins = $this->db->prepare(
                 "INSERT INTO boarding_attendance

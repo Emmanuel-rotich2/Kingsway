@@ -3,6 +3,7 @@
 namespace App\API\Modules\communications;
 
 use App\API\Includes\BaseAPI;
+use App\API\Middleware\RBACMiddleware;
 use App\API\Services\TemplateManager;
 use App\API\Services\CommunicationTemplateRenderer;
 use App\API\Services\AuthSessionService;
@@ -104,6 +105,56 @@ class TemplatesAPI extends BaseAPI
     }
 
     /**
+     * Confirm an authenticated session and, where given, one of the allowed roles.
+     *
+     * Route-level guards in CommunicationsController already enforce the
+     * permission contract; this is the module-boundary defence that keeps the
+     * API unusable without a session when it is called directly.
+     *
+     * @param string[] $allowedRoles Lower-cased role names; empty = any authenticated user
+     * @return array{id:int,roles:string[]}
+     */
+    protected function requireAuth(array $allowedRoles = []): array
+    {
+        $userId = (int) $this->getCurrentUserId();
+        if ($userId < 1) {
+            throw new \RuntimeException('Authentication required', 401);
+        }
+
+        if ($allowedRoles) {
+            $allowed = array_map('strtolower', $allowedRoles);
+            if (!array_intersect($allowed, $this->currentUserRoleNames())) {
+                throw new \RuntimeException('You do not have permission for this template action', 403);
+            }
+        }
+
+        return ['id' => $userId, 'roles' => $this->currentUserRoleNames()];
+    }
+
+    /**
+     * Require at least one of the supplied permission codes.
+     *
+     * The role-name gate in requireAuth() is unusable here because the real
+     * roles are named "System Administrator" / "School Administrator" /
+     * "Headteacher" etc. — there is no "admin" or "communications_manager"
+     * role, so any role list built from those names can never match.
+     *
+     * @param string[] $permissionCodes
+     * @return array{id:int, roles:array<int,string>}
+     */
+    protected function requireAnyPermission(array $permissionCodes): array
+    {
+        $user = $this->requireAuth();
+        $userId = (int) ($user['id'] ?? 0);
+        foreach ($permissionCodes as $code) {
+            if (RBACMiddleware::hasPermission($userId, $code)) {
+                return $user;
+            }
+        }
+        throw new \RuntimeException('You do not have permission for this template action', 403);
+    }
+
+    /**
      * Create a new template
      * POST /api/communications/templates
      * { code, name, purpose, channels: [{channel, subject, body, header, footer, body_format, media_json}] }
@@ -111,7 +162,7 @@ class TemplatesAPI extends BaseAPI
     public function postTemplate($data): array
     {
         $user = $this->requireAuth();
-        $userId = $user['id'] ?? 1;
+        $userId = (int) ($user['id'] ?? 0);
 
         $code = trim($data['code'] ?? '');
         $name = trim($data['name'] ?? '');
@@ -245,6 +296,7 @@ class TemplatesAPI extends BaseAPI
             'footer' => $data['footer'] ?? null,
             'body_format' => $data['body_format'] ?? null,
             'media_json' => isset($data['media_json']) ? $data['media_json'] : null,
+            'variables' => $data['variables'] ?? [],
         ]);
 
         return [
@@ -259,7 +311,7 @@ class TemplatesAPI extends BaseAPI
      */
     public function postApproveVersion($data): array
     {
-        $this->requireAuth(['admin', 'communications_manager']);
+        $this->requireAnyPermission(['communications_templates_approve']);
         $userId = $this->getCurrentUserId();
 
         $versionId = (int) ($data['version_id'] ?? $data['id'] ?? 0);
@@ -347,7 +399,7 @@ class TemplatesAPI extends BaseAPI
      */
     public function deleteTemplate($data): array
     {
-        $this->requireAuth(['admin']);
+        $this->requireAnyPermission(['communications_templates_delete']);
         $id = (int) ($data['id'] ?? 0);
         if (!$id) {
             return ['success' => false, 'message' => 'Template ID required'];
@@ -379,6 +431,40 @@ class TemplatesAPI extends BaseAPI
             'rendered_body' => $rendered,
             'segments' => $segments,
             'estimated_cost' => $segments['segments'], // 1 unit per segment
+        ];
+    }
+
+    /**
+     * Reconcile the canonical catalog with its legacy JSON seed source and
+     * repair the legacy brand string.
+     *
+     * POST /api/communications/templates/sync
+     * { categories?: [...] }
+     *
+     * Existing catalog codes are never overwritten: only absent codes are
+     * seeded, so a school's edited wording survives every run.
+     */
+    public function postSyncCatalog($data): array
+    {
+        $this->requireAnyPermission(['communications_templates_edit', 'communications_templates_create']);
+
+        $categories = $data['categories'] ?? null;
+        if ($categories !== null && !is_array($categories)) {
+            return ['success' => false, 'message' => 'categories must be a list of legacy template categories'];
+        }
+
+        try {
+            $summary = is_array($categories)
+                ? $this->templateManager->synchronizeCatalog(array_values($categories))
+                : $this->templateManager->synchronizeCatalog();
+        } catch (\Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Template catalog synchronized',
+            'summary' => $summary,
         ];
     }
 }

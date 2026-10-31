@@ -181,4 +181,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/year_rollover.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => yearRolloverController.init());</script>

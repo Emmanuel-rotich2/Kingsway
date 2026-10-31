@@ -63,10 +63,9 @@ if ($navBase === '.') $navBase = '';
                 <button class="btn btn-outline btn-sm" id="exportBtn">
                     📤 Export
                 </button>
-                <button class="btn btn-primary btn-sm" id="createActivityBtn" data-bs-toggle="modal"
-                    data-bs-target="#addActivityModal">
+                <a class="btn btn-primary btn-sm" id="createActivityBtn" href="<?= $navBase ?>/home.php?route=create_activity">
                     ➕ Create
-                </button>
+                </a>
             </div>
         </header>
 
@@ -167,9 +166,6 @@ if ($navBase === '.') $navBase = '';
         </div>
     </main>
 </div>
-
-<!-- Include modals -->
-<?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
 <?php asset_script($appBase, 'js/components/RoleBasedUI.js'); ?>
 <?php asset_script($appBase, 'js/pages/activities.js'); ?>

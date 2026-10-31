@@ -5,8 +5,8 @@ namespace App\API\Services;
 /**
  * Shared file-backed cache.
  *
- * The Kingsway LAMPP stack ships with no APCu/Redis/memcached, yet serves
- * behind a 5-node nginx load balancer in front of a SINGLE MySQL instance.
+ * The stack is system Apache behind a 5-port nginx load balancer in front of a
+ * SINGLE system MariaDB instance, with no APCu/Redis/memcached.
  * Per-request in-memory caches (e.g. AcademicContextService::$cache) do NOT
  * survive across requests and are NOT shared between nodes, so every node
  * re-queries MySQL for the same hot keys on every request. Under a parallel
@@ -61,10 +61,10 @@ class SharedCache
     /**
      * Resolve a writable cache directory.
      *
-     * The web server and CLI can run as different users on shared hosting
-     * (LAMPP/HostAfrica), so a directory created by one is unwritable for the
-     * other. Try the shared location, widen it when we own it, then fall back
-     * to a per-user directory.
+     * The web server (www-data) and CLI can run as different users, so a
+     * directory created by one is unwritable for the other. Try the shared
+     * location, widen it when we own it, then fall back to a per-user
+     * directory.
      */
     private function resolveDirectory(?string $dir): string
     {

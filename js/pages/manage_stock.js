@@ -55,18 +55,35 @@
         },
 
         async loadAll() {
+            let sources = null;
             try {
                 const result = await window.API.nodeViews.resolve("inventory", "stock-register");
-                const sources = result?.data?.sources || result?.sources;
-                if (!sources?.items || !sources?.movements) throw new Error("Node returned incomplete stock data");
+                sources = result?.data?.sources || result?.sources || null;
+            } catch (error) {
+                console.warn("Node stock view unavailable; loading through the PHP API", error);
+            }
+
+            try {
+                if (!sources?.items || !sources?.movements) {
+                    const [itemsResponse, movementsResponse] = await Promise.all([
+                        window.API.inventory.listItems({ limit: 500 }),
+                        window.API.inventory.listMovements({ limit: 500 }),
+                    ]);
+                    sources = {
+                        items: itemsResponse?.data || itemsResponse,
+                        movements: movementsResponse?.data || movementsResponse,
+                    };
+                }
+                const itemRows = Array.isArray(sources.items?.items) ? sources.items.items : (Array.isArray(sources.items) ? sources.items : []);
+                const movementRows = Array.isArray(sources.movements?.items) ? sources.movements.items : (Array.isArray(sources.movements) ? sources.movements : []);
                 const selectedItem = document.getElementById("itemFilter")?.value || "";
-                allItems = (sources.items.items || []).filter(item => !item.status || String(item.status).toLowerCase() === "active").map(item => ({
+                allItems = itemRows.filter(item => !item.status || String(item.status).toLowerCase() === "active").map(item => ({
                     ...item,
                     item_name: item.item_name || item.name || "",
                     quantity: item.quantity ?? item.quantity_on_hand ?? item.current_stock ?? 0,
                     current_stock: item.current_stock ?? item.quantity_on_hand ?? item.quantity ?? 0,
                 }));
-                allMovements = (sources.movements.items || []).map(row => ({
+                allMovements = movementRows.map(row => ({
                     ...row,
                     movement_date: row.transaction_date || row.movement_date || "",
                     movement_type: row.transaction_type || row.movement_type || "",
@@ -82,8 +99,10 @@
                 this.applyFilters();
                 this.renderStats();
             } catch (error) {
-                console.error("Node stock register failed:", error);
-                showToast("Failed to load fresh stock data", "error");
+                console.error("Stock register failed:", error);
+                const tbody = document.querySelector("#stockMovementsTable tbody");
+                if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-4">Could not load stock movements. Refresh to try again.</td></tr>';
+                showToast("Failed to load stock data", "error");
             }
         },
 
@@ -132,7 +151,7 @@
             if (!tbody) return;
 
             if (!filteredMovements.length) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No stock movements found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No stock movements found</td></tr>';
                 this.renderPagination(0);
                 return;
             }
@@ -145,13 +164,12 @@
                     ? "success" : m.movement_type === "out"
                     ? "danger" : "secondary";
                 return `<tr>
-                    <td>${start + idx + 1}</td>
                     <td>${esc(m.movement_date?.split("T")[0] || "--")}</td>
-                    <td>${esc(m.item_name || m.item_code || "--")}</td>
                     <td><span class="badge bg-${typeBadge} text-capitalize">${esc(m.movement_type || "--")}</span></td>
+                    <td>${esc(m.item_name || m.item_code || "--")}</td>
                     <td class="fw-bold">${Number(m.quantity || 0).toLocaleString()} ${esc(m.unit || "")}</td>
                     <td>${currency(m.unit_price || 0)}</td>
-                    <td>${esc(m.reference_no || m.source || "--")}</td>
+                    <td>${esc(m.reference_no || "--")}</td>
                     <td>${esc(m.performed_by || m.created_by || "--")}</td>
                     <td class="text-muted small">${esc(m.notes || "--")}</td>
                 </tr>`;
@@ -277,7 +295,7 @@
                 transaction_date: getVal("stock_out_date") || todayStr(),
                 notes:         getVal("stock_out_notes") || "",
                 adjustment_type: "decrease",
-                reason:        [getVal("stock_out_reason"), getVal("stock_out_destination"), getVal("stock_out_reference"), getVal("stock_out_notes")].filter(Boolean).join(" | "),
+                reason:        [getVal("stock_out_reason"), getVal("stock_out_issued_to"), getVal("stock_out_reference"), getVal("stock_out_notes")].filter(Boolean).join(" | "),
             };
             if (!data.item_id) { showToast("Please select an item", "warning"); return; }
             if (!data.quantity || data.quantity <= 0) { showToast("Quantity must be greater than 0", "warning"); return; }
@@ -324,6 +342,7 @@
             document.getElementById("removeStockBtn")?.addEventListener("click", () => this.openStockOutModal());
             document.getElementById("exportStockBtn")?.addEventListener("click", () => this.exportCSV());
             document.getElementById("saveStockInBtn")?.addEventListener("click", () => this.saveStockIn());
+            document.getElementById("saveStockOutBtn")?.addEventListener("click", () => this.saveStockOut());
             document.getElementById("clearFiltersBtn")?.addEventListener("click",() => this.clearFilters());
             document.getElementById("stock_out_item")?.addEventListener("change",() => this.updateAvailableQty());
 

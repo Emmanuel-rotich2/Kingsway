@@ -1,12 +1,11 @@
 /**
  * Observation Schedule Controller
- * View and schedule classroom observation sessions.
- * API: GET/POST /staff/observation-schedule
+ * View classroom observation sessions for the signed-in staff member.
+ * API: GET /staff/observation-schedule
  * Integrates with AcademicContext for academic year awareness
  */
 const observationScheduleController = {
   _data: [],
-  _modal: null,
   _currentAcademicYear: null,
   _currentTerm: null,
 
@@ -36,9 +35,6 @@ const observationScheduleController = {
       this._currentTerm = window.AcademicContext.getTermId();
     }
     
-    this._modal = new bootstrap.Modal(document.getElementById('osModal'));
-    document.getElementById('osScheduleBtn')?.addEventListener('click', () => this.showModal());
-    document.getElementById('osSaveBtn')?.addEventListener('click', () => this.save());
     await this._load();
   },
 
@@ -51,7 +47,10 @@ const observationScheduleController = {
       this._render();
     } catch (e) {
       this._show('osEmpty');
-      console.warn('Observation schedule failed:', e);
+      const message = document.querySelector('#osEmpty p');
+      if (message) message.textContent = 'Could not load observation records. Refresh to try again.';
+      console.error('Observation schedule failed:', e);
+      window.showNotification?.('Could not load observation records. Refresh to try again.', 'danger');
     }
   },
 
@@ -79,64 +78,14 @@ const observationScheduleController = {
     tbody.innerHTML = this._data.map(o => {
       const status = (o.status || 'scheduled').toLowerCase();
       const date   = o.observation_date || o.date || '—';
-      const isPast = date < new Date().toISOString().split('T')[0];
       return `<tr>
         <td>${this._esc(date)}</td>
-        <td>${this._esc(o.observation_time || o.time || '—')}</td>
-        <td class="fw-semibold">${this._esc(o.class_name || o.class || '—')}</td>
-        <td>${this._esc(o.subject || '—')}</td>
-        <td>${this._esc(o.observer_name || o.observer || '—')}</td>
+        <td>${this._esc(o.learning_area_name || (o.learning_area_id ? `Learning area ${o.learning_area_id}` : '—'))}</td>
+        <td class="fw-semibold">${this._esc(o.class_name || (o.class_id ? `Class ${o.class_id}` : '—'))}</td>
+        <td>${this._esc(o.observer_name || (o.observer_id ? `Staff ${o.observer_id}` : '—'))}</td>
         <td><span class="badge bg-${statusCls[status] || 'secondary'}">${this._esc(o.status || 'scheduled')}</span></td>
-        <td>
-          ${status === 'scheduled' && isPast
-            ? `<button class="btn btn-sm btn-outline-success" onclick="observationScheduleController.markCompleted(${o.id})">Mark Done</button>`
-            : ''}
-        </td>
       </tr>`;
     }).join('');
-  },
-
-  showModal: function () {
-    ['osObsDate', 'osObsTime', 'osClass', 'osSubject', 'osObserver'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = '';
-    });
-    this._modal.show();
-  },
-
-  save: async function () {
-    const date     = document.getElementById('osObsDate')?.value;
-    const time     = document.getElementById('osObsTime')?.value;
-    const cls      = document.getElementById('osClass')?.value.trim();
-    const subject  = document.getElementById('osSubject')?.value.trim();
-    const observer = document.getElementById('osObserver')?.value.trim();
-
-    if (!date || !cls || !subject) {
-      showNotification('Date, class, and subject are required.', 'warning');
-      return;
-    }
-    try {
-      await callAPI('/staff/observation-schedule', 'POST', {
-        observation_date: date, observation_time: time || null,
-        class_name: cls, subject, observer_name: observer || null, status: 'scheduled',
-      });
-      showNotification('Observation scheduled.', 'success');
-      this._modal.hide();
-      await this._load();
-    } catch (e) {
-      showNotification(e.message || 'Failed to schedule.', 'danger');
-    }
-  },
-
-  markCompleted: async function (id) {
-    if (!(await window.confirmAction('Confirm', 'Mark this observation as completed?'))) return;
-    try {
-      await callAPI('/staff/observation-schedule/' + id, 'PUT', { status: 'completed' });
-      showNotification('Marked as completed.', 'success');
-      await this._load();
-    } catch (e) {
-      showNotification(e.message || 'Update failed.', 'danger');
-    }
   },
 
   _show: function (id) {

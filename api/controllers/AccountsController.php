@@ -209,6 +209,14 @@ class AccountsController extends BaseController
         return $this->success($result['data'] ?? ['journal' => []]);
     }
 
+    // ControllerRouter derives the method name from the plural route segment
+    // /bank-transactions/{id}/journal. Preserve that established route while
+    // delegating to the canonical singular handler.
+    public function getBankTransactionsJournal($id = null, $data = [], $segments = [])
+    {
+        return $this->getBankTransactionJournal($id, $data, $segments);
+    }
+
     // PATCH /api/accounts/financial-accounts/{id}/activate - activate financial account
     public function patchActivateFinancialAccount($id = null, $data = [], $segments = [])
     {

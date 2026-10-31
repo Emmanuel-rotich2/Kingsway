@@ -1,104 +1,65 @@
-/**
- * Health Reports Controller
- * Health incidents, clinic visits, and wellness reports.
- */
+/** Health reports from the live summary and sick-bay visit APIs. */
 const healthReportsController = {
-  state: { classes: [], streams: [], categories: [], report: null, referenceCache: null },
-
-  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
-
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
-
-  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "health-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Health Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
-    }
-  },
-
+  state: { visits: [], summary: {}, request: 0 },
+  api(method, endpoint, data, params) { return window.callAPI(endpoint, method, data, params); },
+  esc(value) { return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); },
+  unwrap(response) { return response?.data?.data ?? response?.data ?? response; },
   async load() {
+    const request = ++this.state.request;
+    const body = document.getElementById('hrBody'); const error = document.getElementById('hrError');
+    if (error) error.classList.add('d-none');
+    if (body) body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Loading…</td></tr>';
     try {
-      const cache = this.state.referenceCache;
-      const [cls, strms, cats] = await Promise.all([
-        cache?.classes !== undefined ? cache.classes : this.API('GET', '/api/academic/classes-list'),
-        cache?.streams !== undefined ? cache.streams : this.API('GET', '/api/academic/streams-list'),
-        cache?.categories !== undefined ? cache.categories : this.API('GET', '/api/students/health-meta'),
+      const [summaryResponse, visitsResponse] = await Promise.all([
+        this.api('GET', '/api/health/summary'), this.api('GET', '/api/health/sick-bay'),
       ]);
-      this.state.classes = this.norm(cls);
-      this.state.streams = this.norm(strms);
-      const categoriesRaw = this.norm(cats);
-      const categoryList = Array.isArray(categoriesRaw) ? categoriesRaw : (categoriesRaw?.health_categories || []);
-      this.state.categories = categoryList.map(x => typeof x === 'string' ? { id: x, name: x } : x);
-      this.populateFilters();
-      await this.loadReport();
-    } catch (e) { console.error(e); }
-  },
-
-  populateFilters() {
-    const c = document.getElementById('hrClass');
-    const s = document.getElementById('hrStream');
-    const cat = document.getElementById('hrCategory');
-    c.innerHTML = '<option value="">All Classes</option>' + this.state.classes.map(x => `<option value="${x.id}">${this.esc(x.name || x.class_name)}</option>`).join('');
-    s.innerHTML = '<option value="">All Streams</option>' + this.state.streams.map(x => `<option value="${x.id}">${this.esc(x.name || x.stream_name)}</option>`).join('');
-    cat.innerHTML = '<option value="">All Categories</option>' + this.state.categories.map(x => `<option value="${x.id}">${this.esc(x.name || x.category)}</option>`).join('');
-  },
-
-  async loadReport() {
-    const params = new URLSearchParams();
-    if (document.getElementById('hrClass')?.value) params.set('class_id', document.getElementById('hrClass').value);
-    if (document.getElementById('hrStream')?.value) params.set('stream_id', document.getElementById('hrStream').value);
-    if (document.getElementById('hrCategory')?.value) params.set('category_id', document.getElementById('hrCategory').value);
-
-    try {
-      const response = await this.API('GET', '/api/reports/health', null, params);
-      this.state.report = response?.data || response || {};
+      if (request !== this.state.request) return;
+      this.state.summary = this.unwrap(summaryResponse) || {};
+      const visits = this.unwrap(visitsResponse);
+      this.state.visits = Array.isArray(visits) ? visits : [];
       this.render();
-    } catch (e) { console.error(e); }
-  },
-
-  render() {
-    const r = this.state.report;
-    const body = document.getElementById('hrBody');
-    if (!r || !r.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No health data.</td></tr>'; return; }
-    body.innerHTML = r.map(x => `<tr>
-      <td class="small">${this.esc(x.admission_no || '—')}</td>
-      <td class="small fw-semibold">${this.esc(x.full_name || '—')}</td>
-      <td class="small">${this.esc(x.class_name || '—')}</td>
-      <td class="small">${this.esc(x.category_name || '—')}</td>
-      <td class="small">${this.esc(x.visit_date || '—')}</td>
-      <td class="small"><span class="badge bg-${x.severity === 'high' ? 'danger' : x.severity === 'medium' ? 'warning' : 'info'}">${this.esc(x.severity || '—')}</span></td>
-      <td class="small">${this.esc(x.treatment || '—')}</td>
-    </tr>`).join('');
-  },
-
-  async loadReferencesComposed() {
-    try {
-      const response = await window.API.nodeViews.read("reports", "health-reports-references");
-      this.state.referenceCache = response?.data?.sources || response?.sources || {};
-    } catch (error) {
-      console.warn("Health Reports Node view failed; using direct reads:", error);
-      this.state.referenceCache = null;
+    } catch (e) {
+      if (request !== this.state.request) return;
+      if (body) body.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">Sick-bay visits could not be loaded.</td></tr>';
+      if (error) { error.textContent = e?.message || 'Health report data could not be loaded. Refresh to try again.'; error.classList.remove('d-none'); }
+      this.state.summary = {}; this.renderKpis();
     }
   },
-
-  async init() {
-    if (window.AuthContext?.ready) await window.AuthContext.ready();
-    await this.loadReferencesComposed();
-    await this.load();
-    window.APIRealtime?.register?.("health_reports", {
-      refresh: async () => {
-        this.state.referenceCache = null;
-        await this.loadReferencesComposed();
-        await this.load();
-      }
-    }, ["reports", "health"]);
+  render() {
+    const body = document.getElementById('hrBody'); const visits = this.state.visits;
+    if (body) body.innerHTML = visits.length ? visits.map((row) => `<tr>
+      <td>${this.esc(row.admission_no || '—')}</td>
+      <td>${this.esc([row.first_name, row.last_name].filter(Boolean).join(' ') || row.student_name || '—')}</td>
+      <td>${this.esc(row.class_name || '—')}</td>
+      <td>${this.esc(row.complaint || '—')}</td>
+      <td>${this.date(row.visit_date)} ${this.esc(row.visit_time || '')}</td>
+      <td>${Number(row.referred_to_hospital) === 1 ? 'Yes' : 'No'}</td>
+      <td>${this.esc(row.action_taken || (row.status === 'active' ? 'Under care' : '—'))}</td>
+    </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No sick-bay visits are recorded.</td></tr>';
+    this.renderKpis();
+  },
+  renderKpis() {
+    const target = document.getElementById('hrKpis'); if (!target) return;
+    const s = this.state.summary;
+    const metrics = [['Active sick-bay visits', s.active_sick_bay], ['Visits today', s.visits_today], ['Hospital referrals', s.referred], ['Learners with health records', s.students_with_records], ['Vaccinations due soon', s.vaccinations_due]];
+    target.innerHTML = metrics.map(([label, value]) => `<div class="col-sm-6 col-xl"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">${label}</small><div class="fs-3 fw-semibold">${value == null ? '—' : Number(value).toLocaleString()}</div></div></div></div>`).join('');
+  },
+  date(value) { if (!value) return '—'; const d = new Date(String(value).replace(' ', 'T')); return Number.isNaN(d.getTime()) ? this.esc(value) : d.toLocaleDateString(); },
+  exportCSV() {
+    if (window.AuthContext?.canExport && !window.AuthContext.canExport('health')) return window.showNotification?.('You do not have permission to export health data.', 'error');
+    const headers = ['Admission No', 'Student', 'Class', 'Complaint', 'Visit Date', 'Visit Time', 'Referred', 'Action'];
+    const quote = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...this.state.visits.map((r) => [r.admission_no, [r.first_name, r.last_name].filter(Boolean).join(' '), r.class_name, r.complaint, r.visit_date, r.visit_time, Number(r.referred_to_hospital) === 1 ? 'Yes' : 'No', r.action_taken])].map((row) => row.map(quote).join(',')).join('\r\n');
+    window.KingswayFileLifecycle?.exportText?.(csv, 'health-reports.csv', 'text/csv;charset=utf-8');
+  },
+  print() { if (window.AuthContext?.canPrint && !window.AuthContext.canPrint('health')) return window.showNotification?.('You do not have permission to print health data.', 'error'); window.print(); },
+  init() {
+    document.getElementById('hrRefresh')?.addEventListener('click', () => this.load());
+    document.getElementById('hrExport')?.addEventListener('click', () => this.exportCSV());
+    document.getElementById('hrPrint')?.addEventListener('click', () => this.print());
+    this.load();
+    window.APIRealtime?.register?.('health_reports', { refresh: () => this.load() }, ['reports', 'health']);
   },
 };
-
 window.healthReportsController = healthReportsController;
-document.addEventListener('DOMContentLoaded', () => healthReportsController.init().catch(() => {}));
+document.addEventListener('DOMContentLoaded', () => healthReportsController.init());

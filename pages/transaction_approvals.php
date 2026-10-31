@@ -95,4 +95,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/transaction_approvals.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => transactionApprovalsController.init());</script>

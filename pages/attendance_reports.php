@@ -11,6 +11,9 @@
     <button class="btn btn-outline-success btn-sm" onclick="attendanceReportsController.exportCSV()">
       <i class="bi bi-download me-1"></i>Export CSV
     </button>
+    <button class="btn btn-outline-primary btn-sm" id="printAttendanceReport" type="button">
+      <i class="bi bi-printer me-1"></i>Print
+    </button>
   </div>
 
   <!-- Filters -->

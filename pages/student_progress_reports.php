@@ -23,6 +23,7 @@
                         </div>
                         <p class="mt-2 text-muted">Loading progress reports...</p>
                     </div>
+                    <div id="progressError" class="alert alert-danger d-none" role="alert"></div>
                     <div id="progressContent" style="display: none;">
                         <div class="row mb-3">
                             <div class="col-md-4">
@@ -47,9 +48,6 @@
 
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
-                                <button id="loadReportsBtn" class="btn btn-primary" data-permission="results_view">
-                                    <i class="bi bi-search me-1"></i>Load Reports
-                                </button>
                                 <button id="exportBtn" class="btn btn-outline-success" data-permission="results_export">
                                     <i class="bi bi-download me-1"></i>Export
                                 </button>
@@ -81,7 +79,7 @@
                                 <tbody id="progressTableBody">
                                     <tr>
                                         <td colspan="8" class="text-center text-muted py-4">
-                                            Select filters and click Load Reports
+                                            Loading progress reports…
                                         </td>
                                     </tr>
                                 </tbody>

@@ -13,6 +13,7 @@ const reflectionJournalController = (() => {
   function val(id) { const el = document.getElementById(id); return el ? el.value.trim() : ''; }
   function setVal(id, v) { const el = document.getElementById(id); if (el) el.value = v || ''; }
   function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
 
   function formatDate(d) {
     if (!d) return '—';
@@ -60,6 +61,12 @@ const reflectionJournalController = (() => {
     } catch (e) {
       hide('rjLoading');
       show('rjEmpty');
+      const empty = document.getElementById('rjEmpty');
+      const message = empty?.querySelector('p');
+      if (message) message.textContent = 'Journal entries could not be loaded. The page cannot confirm that no entries exist.';
+      empty?.querySelectorAll('button').forEach(button => { button.disabled = true; button.hidden = true; });
+      const writeButton = document.getElementById('rjWriteBtn');
+      if (writeButton) writeButton.disabled = true;
       console.error('reflection_journal load error', e);
     }
   }
@@ -78,12 +85,12 @@ const reflectionJournalController = (() => {
           <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center py-2">
               <span class="fw-semibold small"><i class="bi bi-calendar me-1 text-muted"></i>${formatDate(date)}</span>
-              <span class="badge bg-primary-subtle text-primary border border-primary small">${lessonClass || 'General'}</span>
+              <span class="badge bg-primary-subtle text-primary border border-primary small">${esc(lessonClass || 'General')}</span>
             </div>
             <div class="card-body small">
-              ${wentWell ? `<p class="mb-1"><span class="text-success fw-semibold"><i class="bi bi-check-circle me-1"></i>Went well:</span> ${truncate(wentWell, 120)}</p>` : ''}
-              ${improve ? `<p class="mb-1"><span class="text-warning fw-semibold"><i class="bi bi-arrow-up-circle me-1"></i>Improve:</span> ${truncate(improve, 120)}</p>` : ''}
-              ${nextSteps ? `<p class="mb-0"><span class="text-primary fw-semibold"><i class="bi bi-arrow-right-circle me-1"></i>Next steps:</span> ${truncate(nextSteps, 100)}</p>` : ''}
+              ${wentWell ? `<p class="mb-1"><span class="text-success fw-semibold"><i class="bi bi-check-circle me-1"></i>Went well:</span> ${esc(truncate(wentWell, 120))}</p>` : ''}
+              ${improve ? `<p class="mb-1"><span class="text-warning fw-semibold"><i class="bi bi-arrow-up-circle me-1"></i>Improve:</span> ${esc(truncate(improve, 120))}</p>` : ''}
+              ${nextSteps ? `<p class="mb-0"><span class="text-primary fw-semibold"><i class="bi bi-arrow-right-circle me-1"></i>Next steps:</span> ${esc(truncate(nextSteps, 100))}</p>` : ''}
             </div>
           </div>
         </div>`;

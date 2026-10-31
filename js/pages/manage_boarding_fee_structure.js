@@ -163,6 +163,7 @@ const manageBoardingFeeStructureController = {
 
   renderRows(terms, stId) {
     const tbody = document.getElementById('mbfRows');
+    if (!tbody) return;
     const grid = terms.map(t => t.code || `T${t.term_number}`);
     tbody.innerHTML = this.state.rows.map((row, idx) => {
       const cells = grid.map(termKey => {

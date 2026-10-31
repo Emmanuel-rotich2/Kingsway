@@ -69,7 +69,6 @@ if ($appBase === '.') $appBase = '';
             <div class="col-md-2"><label class="form-label small fw-semibold mb-1">Student</label>
               <select id="leadStudentFilter" class="form-select form-select-sm"><option value="">All students</option></select></div>
             <div class="col-md-5 d-flex align-items-end justify-content-end">
-              <button class="btn btn-outline-secondary btn-sm me-2" onclick="StudentLeadershipController.loadLeadership()"><i class="fas fa-search me-1"></i>Filter</button>
               <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.resetLeadershipFilters()">Reset</button>
             </div>
           </div>
@@ -129,9 +128,7 @@ if ($appBase === '.') $appBase = '';
           <div class="row g-2 mb-2">
             <div class="col-md-3"><label class="form-label small fw-semibold mb-1">Category</label>
               <select id="awardCatFilter" class="form-select form-select-sm"></select></div>
-            <div class="col-md-9 d-flex align-items-end justify-content-end">
-              <button class="btn btn-outline-secondary btn-sm" onclick="StudentLeadershipController.loadAwards()"><i class="fas fa-search me-1"></i>Filter</button>
-            </div>
+            <div class="col-md-9 d-flex align-items-end justify-content-end"></div>
           </div>
           <div class="table-responsive" style="max-height:460px;overflow:auto;">
             <table class="table table-sm table-hover align-middle">
@@ -289,6 +286,14 @@ if ($appBase === '.') $appBase = '';
             <select id="awardType" class="form-select form-select-sm">
               <option value="">Select type...</option>
             </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Academic Year</label>
+            <select id="awardYear" class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-semibold">Term</label>
+            <select id="awardTerm" class="form-select form-select-sm"><option value="">Whole year / not specified</option></select>
           </div>
           <div class="col-md-6">
             <label class="form-label small fw-semibold">Title</label>

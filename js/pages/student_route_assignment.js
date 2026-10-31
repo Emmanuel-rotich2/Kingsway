@@ -17,7 +17,7 @@ const routeAssignController = {
     setTimeout(() => el.remove(), 3000);
   },
 
-  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"'); },
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); },
 
   fillMonths() {
     const now = new Date();
@@ -74,7 +74,11 @@ const routeAssignController = {
     body.innerHTML = '<tr><td colspan="6" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     if (!routeId) { body.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">Select a route to view its students.</td></tr>'; return; }
     try {
-      const r = await this.API('GET', 'transport/students-by-route', null, { route_id: routeId });
+      const r = await this.API('GET', 'transport/students-by-route', null, {
+        route_id: routeId,
+        month: document.getElementById('assignMonth')?.value || '',
+        year: document.getElementById('assignYear')?.value || '',
+      });
       this.state.assignments = r?.data || [];
       this.renderAssignments();
     } catch (e) {
@@ -91,7 +95,7 @@ const routeAssignController = {
         <td class="fw-semibold small">${this.esc(`${a.first_name || ''} ${a.last_name || ''}`.trim() || '\u2014')}</td>
         <td class="small text-muted">${this.esc(a.stop_name || '\u2014')}</td>
         <td class="small">${this.esc(a.assigned_at || '—')}</td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="routeAssignController.unassign(${a.student_id}, ${a.route_id})"><i class="bi bi-x-lg"></i></button></td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="routeAssignController.unassign(${Number(a.id)})"><i class="bi bi-x-lg"></i></button></td>
       </tr>
     `).join('');
   },
@@ -103,16 +107,22 @@ const routeAssignController = {
     if (!studentId || !routeId || !stopId) return this.notify('Select student, route, and stop', 'warning');
 
     try {
-      await this.API('POST', 'transport/assign-student', { student_id: studentId, route_id: routeId, stop_id: stopId });
+      await this.API('POST', 'transport/assign-student', {
+        student_id: studentId,
+        route_id: routeId,
+        stop_id: stopId,
+        month: document.getElementById('assignMonth')?.value || '',
+        year: document.getElementById('assignYear')?.value || '',
+      });
       this.notify('Student assigned to route', 'success');
       await this.loadRouteStudents();
     } catch (e) { this.notify(e.message || 'Assignment failed', 'danger'); }
   },
 
-  async unassign(studentId, routeId) {
+  async unassign(assignmentId) {
     if (!confirm('Remove this student from the route?')) return;
     try {
-      await this.API('POST', 'transport/unassign-student', { student_id: studentId, route_id: routeId });
+      await this.API('POST', 'transport/unassign-student', { assignment_id: assignmentId });
       this.notify('Student unassigned', 'success');
       await this.loadRouteStudents();
     } catch (e) { this.notify(e.message || 'Unassignment failed', 'danger'); }

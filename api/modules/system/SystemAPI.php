@@ -395,7 +395,7 @@ class SystemAPI extends BaseAPI
 
     private function findMysqldump(): ?string
     {
-        $candidates = ['/usr/bin/mysqldump', '/usr/local/bin/mysqldump', '/opt/lampp/bin/mysqldump'];
+        $candidates = ['/usr/bin/mysqldump', '/usr/local/bin/mysqldump'];
         foreach ($candidates as $c) {
             if (is_executable($c)) {
                 return $c;

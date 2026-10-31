@@ -28,7 +28,7 @@
           </select>
         </div>
         <div class="col-md-2">
-          <button class="btn btn-primary w-100" onclick="studentTimelineController.load()">
+          <button class="btn btn-primary w-100" onclick="studentTimelineController.loadSelected()">
             <i class="bi bi-search me-1"></i> Load
           </button>
         </div>
@@ -263,4 +263,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/student_timeline.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => studentTimelineController.init());</script>

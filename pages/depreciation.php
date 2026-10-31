@@ -100,4 +100,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/depreciation.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => depreciationController.init());</script>

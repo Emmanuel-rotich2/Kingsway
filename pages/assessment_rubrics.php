@@ -15,7 +15,7 @@
     .table-responsive { overflow: visible !important; }
 }
 </style>
-<div class="container-fluid px-3">
+<div class="container-fluid px-3" id="assessmentRubricsPage">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h4 class="mb-1"><i class="bi bi-grid-3x3-gap"></i> Assessment Rubrics</h4>

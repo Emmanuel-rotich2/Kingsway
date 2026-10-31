@@ -921,6 +921,24 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->deleteAnnouncement($id));
     }
 
+    // Plural route aliases used by the announcements management page.
+    public function getAnnouncements($id = null, $data = [], $segments = [])
+    {
+        return $this->getAnnouncement($id, $data, $segments);
+    }
+    public function postAnnouncements($id = null, $data = [], $segments = [])
+    {
+        return $this->postAnnouncement($id, $data, $segments);
+    }
+    public function putAnnouncements($id = null, $data = [], $segments = [])
+    {
+        return $this->putAnnouncement($id, $data, $segments);
+    }
+    public function deleteAnnouncements($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteAnnouncement($id, $data, $segments);
+    }
+
     // --- Internal Comm CRUD ---
     public function getInternalRequest($id = null, $data = [], $segments = [])
     {
@@ -1107,6 +1125,27 @@ class CommunicationsController extends BaseController
     {
         if ($guard = $this->guardLiveExternalCommunication('Fee reminder delivery')) return $guard;
         return $this->handleResponse($this->api->sendFeeReminder($data));
+    }
+
+    /**
+     * POST /api/communications/send-reminder
+     * Queue a fee reminder using the student's current balance and registered
+     * parent contacts. The browser supplies only the student ID; it must not
+     * choose or expose parent contact details.
+     */
+    public function postSendReminder($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardLiveExternalCommunication('Fee reminder delivery')) return $guard;
+        $studentId = filter_var($data['student_id'] ?? null, FILTER_VALIDATE_INT);
+        if (!$studentId || $studentId < 1) return $this->badRequest('A valid student ID is required.');
+
+        try {
+            $feeManager = $this->contract('App\\API\\Modules\\finance\\FeeManager');
+            return $this->handleResponse($feeManager->sendFeeReminder((int) $studentId));
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[CommunicationsController] Fee reminder: ' . $e->getMessage());
+            return $this->serverError('Fee reminder could not be queued.');
+        }
     }
 
     /**
@@ -1394,6 +1433,10 @@ class CommunicationsController extends BaseController
             $catalogResult = $this->templatesApi->getTemplate(['id' => (int) $channel['catalog_id']]);
             $catalog = $catalogResult['template'] ?? [];
             $version = $catalog['versions'][0] ?? [];
+            // Declared placeholders come from communication_template_variables
+            // (keyed by template_channel_id); media_json is unrelated attachment
+            // metadata and must never be reported as the variable list.
+            $declaredVariables = $channel['variables'] ?? [];
 
             return $this->success([
                 'id' => $channel['channel_id'],
@@ -1404,7 +1447,9 @@ class CommunicationsController extends BaseController
                 'header' => $channel['header'] ?? '',
                 'footer' => $channel['footer'] ?? '',
                 'body_format' => $channel['body_format'] ?? 'plain',
-                'variables_json' => $channel['media_json'] ?? null,
+                'variables' => $declaredVariables,
+                'variables_json' => json_encode($declaredVariables),
+                'media_json' => $channel['media_json'] ?? null,
                 'status' => $version['status'] ?? 'draft',
                 'catalog_id' => $catalog['catalog_id'] ?? 0,
                 'version_id' => $version['version_id'] ?? 0,
@@ -1433,7 +1478,9 @@ class CommunicationsController extends BaseController
                         'header' => $channel['header'] ?? '',
                         'footer' => $channel['footer'] ?? '',
                         'body_format' => $channel['body_format'] ?? 'plain',
-                        'variables_json' => $channel['media_json'] ?? null,
+                        'variables' => $channel['variables'] ?? [],
+                        'variables_json' => json_encode($channel['variables'] ?? []),
+                        'media_json' => $channel['media_json'] ?? null,
                         'status' => $version['status'] ?? 'draft',
                         'catalog_id' => $catalog['catalog_id'],
                         'version_id' => $version['version_id'],
@@ -1566,6 +1613,24 @@ class CommunicationsController extends BaseController
     public function postTemplatesEstimateSmsCost($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->templatesApi->postEstimateSmsCost($data));
+    }
+
+    /**
+     * POST /api/communications/templates/sync
+     * Reconcile the canonical catalog with its legacy JSON seed source and
+     * repair the legacy school brand inside existing channel rows.
+     */
+    public function postTemplatesSync($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(
+            ['admin', 'communications_manager'],
+            [1, 4],
+            ['system administrator', 'school administrator']
+        )) {
+            return $this->forbidden('You do not have permission to synchronize message templates');
+        }
+
+        return $this->handleResponse($this->templatesApi->postSyncCatalog($data));
     }
 
     /** GET /api/communications/lists */

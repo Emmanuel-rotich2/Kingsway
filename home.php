@@ -154,6 +154,9 @@ if (!headers_sent()) {
             ) ?>
         };
     </script>
+    <?php if (!isset($_GET['fragment']) || $_GET['fragment'] !== '1'): ?>
+        <?php asset_script($appBase, 'js/core/soft_navigation.js'); ?>
+    <?php endif; ?>
 </head>
 <body>
     <div
@@ -209,7 +212,6 @@ $files = [
     'js/config/ai-features.js',
     'js/components/agent_task_panel.js',
     'js/core/frontend_logger.js',
-    'js/core/soft_navigation.js',
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
@@ -238,6 +240,7 @@ $files = [
     'js/components/UIComponents.js',
     'js/components/PageNavigator.js',
     'js/components/PageShell.js',
+    'js/pages/role_shell_routes.js',
     'js/core/ui_state_manager.js',
     'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',

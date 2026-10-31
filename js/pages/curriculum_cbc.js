@@ -10,10 +10,18 @@ const CurriculumCBCController = (() => {
     let canManage = false;
     let scope = null;
     let isRestricted = false;
+    let initialized = false;
     const allGradeLevels = ['PlayGroup','PP1','PP2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9'];
 
+    function isMounted() {
+        return Boolean(document.getElementById('curriculumCbcPage')?.isConnected);
+    }
+
     async function init() {
+        if (initialized || !isMounted()) return;
+        initialized = true;
         await window.AuthContext?.ready?.();
+        if (!isMounted()) return;
         // All mutations now pass through the reviewed/versioned proposal flow.
         canManage = false;
         document.querySelectorAll('[data-curriculum-manage]').forEach(node => node.classList.toggle('d-none', !canManage));
@@ -36,10 +44,12 @@ const CurriculumCBCController = (() => {
         }
 
         await loadTeacherScope();
+        if (!isMounted()) return;
         attachListeners();
         await loadReferences();
+        if (!isMounted()) return;
         await loadData();
-        window.APIRealtime?.register?.('curriculum_cbc', { refresh: async () => { await loadTeacherScope(); await loadReferences(); await loadData(1); } }, ['academic']);
+        if (isMounted()) window.APIRealtime?.register?.('curriculum_cbc', { refresh: async () => { if (!isMounted()) return; await loadTeacherScope(); if (!isMounted()) return; await loadReferences(); if (isMounted()) await loadData(1); } }, ['academic']);
     }
 
     // Resolve the current user's curriculum assignment scope (server-authoritative).
@@ -92,6 +102,7 @@ const CurriculumCBCController = (() => {
                 composed.learningAreas !== undefined ? composed.learningAreas : window.API.apiCall('/academic/learning-areas', 'GET').catch(() => []),
                 composed.strands !== undefined ? composed.strands : window.API.apiCall('/academic/strands', 'GET').catch(() => []),
             ]);
+            if (!isMounted()) return;
             refs.learningAreas = Array.isArray(las?.data || las) ? (las?.data || las) : [];
             refs.strands = Array.isArray(strands?.data || strands) ? (strands?.data || strands) : [];
             populateGradeFilter();
@@ -145,6 +156,7 @@ const CurriculumCBCController = (() => {
     }
 
     async function loadData(page = 1) {
+        if (!isMounted()) return;
         try {
             pagination.page = page;
             const params = new URLSearchParams({ page, limit: pagination.limit });
@@ -159,6 +171,7 @@ const CurriculumCBCController = (() => {
             if (search) params.append('search', search);
 
             const response = await window.API.apiCall(`/academic/curriculum?${params.toString()}`, 'GET');
+            if (!isMounted()) return;
             // apiCall() normally unwraps the outer {data: ...} envelope, but
             // older cache entries may still contain that envelope. Normalize
             // both shapes before reading pagination metadata.
@@ -175,6 +188,7 @@ const CurriculumCBCController = (() => {
             renderTable(curriculumData);
             renderPagination();
         } catch (e) {
+            if (!isMounted()) return;
             console.error('Load curriculum failed:', e);
             renderTable([]);
         }
@@ -185,10 +199,11 @@ const CurriculumCBCController = (() => {
         const strands = data.filter(d => d.strand).length;
         const subStrands = data.reduce((sum, d) => sum + (Number(d.sub_strand_count) || 0), 0);
 
-        document.getElementById('totalLearningAreas').textContent = summary ? summary.learning_areas : learningAreas;
-        document.getElementById('totalStrands').textContent = summary ? summary.strands : strands;
-        document.getElementById('totalSubStrands').textContent = summary ? summary.sub_strands : subStrands;
-        document.getElementById('totalCompetencies').textContent = summary ? summary.learning_outcomes : 0;
+        const set = (id, value) => { const node = document.getElementById(id); if (node) node.textContent = String(value ?? 0); };
+        set('totalLearningAreas', summary ? summary.learning_areas : learningAreas);
+        set('totalStrands', summary ? summary.strands : strands);
+        set('totalSubStrands', summary ? summary.sub_strands : subStrands);
+        set('totalCompetencies', summary ? summary.learning_outcomes : 0);
     }
 
     function renderTable(items) {

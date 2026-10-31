@@ -83,6 +83,10 @@ const payslipsController = {
 
   load: async function () {
     const tbody = document.getElementById('psTableBody');
+    if (!tbody) {
+      console.error('Payslip history table body is missing from the page.');
+      return;
+    }
     const thead = tbody?.closest('table')?.querySelector('thead');
     if (thead && this._activeTab === 'personal') {
       thead.innerHTML = '<tr><th>Month</th><th class="text-end">Gross Pay</th><th class="text-end">PAYE</th><th class="text-end">SHIF</th><th class="text-end">NSSF</th><th class="text-end">Net Pay</th><th>Status</th><th></th></tr>';

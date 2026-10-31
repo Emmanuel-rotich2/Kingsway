@@ -84,6 +84,23 @@ class StudentFundTransferService
         return ['sources'=>array_merge($fees,$transport)];
     }
 
+    public function destinations(): array
+    {
+        $studentSql = "SELECT s.id,s.admission_no,p.first_name,p.last_name
+            FROM " . ReadReplicaService::qualifiedRef('students') . " s
+            JOIN " . ReadReplicaService::qualifiedRef('persons') . " p ON p.id=s.person_id
+            WHERE s.status='active' ORDER BY p.last_name,p.first_name";
+        $sql = "SELECT e.id AS entitlement_id,e.student_id,CONCAT(COALESCE(ep.label,ep.period_type),' · ',ep.period_start,' to ',ep.period_end) AS reference
+            FROM " . ReadReplicaService::qualifiedRef('student_transport_entitlements') . " e
+            JOIN transport_entitlement_periods ep ON ep.id=e.period_id
+            WHERE e.entitlement_status='active' AND ep.period_end>=CURDATE()
+            ORDER BY e.student_id,ep.period_start,e.id";
+        return [
+            'students' => $this->db->query($studentSql)->fetchAll(PDO::FETCH_ASSOC),
+            'entitlements' => $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC),
+        ];
+    }
+
     public function get(int $id): array
     { $s=$this->db->prepare('SELECT * FROM student_fund_transfers WHERE id=?'); $s->execute([$id]); return $s->fetch(PDO::FETCH_ASSOC) ?: []; }
 

@@ -2635,7 +2635,7 @@ class ParentPortalManager extends BaseAPI
             $transport = $trStmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Uniform balance aggregate.
-            $uniformView = ReadReplicaService::qualifiedRef('student_uniform_balance');
+            $uniformView = ReadReplicaService::masterRef('vw_student_uniform_balance');
             $unStmt = $this->db->prepare(
                 "SELECT total_billed, total_paid, total_balance, last_purchase
                  FROM $uniformView

@@ -130,6 +130,7 @@ const ModerationController = {
         this.state.currentAssessment = a;
         document.getElementById('modalAssessmentTitle').textContent = this.esc(a.title);
         const tbody = document.getElementById('studentResultsBody');
+        if (!tbody) return;
         if (!a.results || !a.results.length) {
             tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No results found.</td></tr>';
         } else {

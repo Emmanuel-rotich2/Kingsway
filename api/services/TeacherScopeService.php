@@ -131,7 +131,7 @@ final class TeacherScopeService
         if ($scope['visible_stream_ids']) {
             $marks = implode(',', array_fill(0, count($scope['visible_stream_ids']), '?'));
             $pair = $this->db->prepare(
-                "SELECT class_stream_id, class_id, stream_id
+                "SELECT class_stream_id AS id, class_id, stream_id
                  FROM " . ReadReplicaService::masterSourceRef('academic_calendar') . "
                  WHERE class_stream_id IN ($marks)"
             );
