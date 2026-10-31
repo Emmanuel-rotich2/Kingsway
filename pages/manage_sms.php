@@ -389,6 +389,17 @@
                     <label class="form-label fw-semibold">Group Name <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="groupName" maxlength="120" required>
                 </div>
+                <div class="mt-3">
+                    <label class="form-label fw-semibold" for="groupAudience">Automatically sync with</label>
+                    <select class="form-select" id="groupAudience">
+                        <option value="external">Custom contacts only</option>
+                        <option value="parents">Active parents / guardians</option>
+                        <option value="staff">Active staff</option>
+                        <option value="students">Active learners</option>
+                        <option value="vendors">Active vendors</option>
+                    </select>
+                    <div class="form-text">Linked audiences refresh from Kingsway and sync to TalkSasa every 15 minutes.</div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
