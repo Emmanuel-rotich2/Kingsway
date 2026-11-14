@@ -15,10 +15,22 @@ final class EnrollmentTrendDetector extends AbstractIntelligenceDetector
 {
     public function detect(PDO $pdo, array $options = []): array
     {
-        $view = $this->masterView('vw_current_enrollments');
+        // The current academic year's roll (one row per learner enrolled in
+        // it). vw_current_enrollments is "status active", which after
+        // promotion is next year's roll, not this year's.
         $stmt = $pdo->prepare(
-            'SELECT class_stream, gender, student_status, enrollment_date
-             FROM ' . $view
+            "SELECT CONCAT(c.name, ' - ', COALESCE(sn.name, '')) AS class_stream,
+                    p.gender, s.status AS student_status, sae.enrolled_on AS enrollment_date
+             FROM " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae
+             JOIN " . ReadReplicaService::qualifiedRef('academic_years') . " ay ON ay.id = sae.academic_year_id
+             JOIN " . ReadReplicaService::qualifiedRef('students') . " s ON s.id = sae.student_id
+             JOIN " . ReadReplicaService::qualifiedRef('persons') . " p ON p.id = s.person_id
+             JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN " . ReadReplicaService::qualifiedRef('classes') . " c ON c.id = ayc.class_id
+             LEFT JOIN " . ReadReplicaService::qualifiedRef('streams') . " sn ON sn.id = aycs.stream_id
+             WHERE ay.is_current = 1
+               AND sae.enrollment_status IN ('active', 'completed', 'graduated')"
         );
         $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

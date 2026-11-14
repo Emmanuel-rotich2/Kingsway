@@ -32,6 +32,7 @@ require __DIR__ . '/_head.php';
             <li class="nav-item"><button class="nav-link" data-pp-tab="competencies" type="button">Competencies</button></li>
             <li class="nav-item"><button class="nav-link" data-pp-tab="charts" type="button">Progress & comparison</button></li>
             <li class="nav-item"><button class="nav-link" data-pp-tab="swot" type="button">SWOT analysis</button></li>
+            <li class="nav-item"><button class="nav-link" data-pp-tab="record" type="button">Academic record</button></li>
           </ul>
           <div id="ppResultsContent"></div>
         </div>

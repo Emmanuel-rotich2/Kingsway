@@ -48,6 +48,24 @@ class ReportsController extends BaseController
         }
     }
 
+    /**
+     * GET /api/reports/year-comparison
+     * Outgoing vs incoming academic year (and term) during a transition,
+     * otherwise previous vs current. Periods follow the school calendar.
+     */
+    public function getYearComparison($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        try {
+            return $this->success(
+                (new \App\API\Modules\reports\YearComparisonService())->compare(),
+                'Year comparison loaded'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
     // --- Governed enterprise analytics ---
     public function getCatalogue($id = null, $data = [], $segments = [])
     {

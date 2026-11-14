@@ -8,18 +8,25 @@
   function renderSummary(data, child) {
     var totalBal = parseFloat(data.total_balance || 0);
     var badge = document.getElementById('ppBalanceBadge');
-    if (badge) badge.innerHTML = '<span class="badge bg-' + (totalBal <= 0 ? 'success' : 'danger') + ' px-3 py-2">' + (totalBal <= 0 ? 'Cleared' : 'KES ' + totalBal.toLocaleString() + ' Due') + '</span>';
+    if (badge) badge.innerHTML = '<span class="badge bg-' + (totalBal <= 0 ? 'success' : 'danger') + ' px-3 py-2">' +
+      (totalBal < 0 ? 'KES ' + Math.abs(totalBal).toLocaleString() + ' in credit' : (totalBal === 0 ? 'Cleared' : 'KES ' + totalBal.toLocaleString() + ' Due')) + '</span>';
     var cards = document.getElementById('ppFeeSummaryCards');
     if (!cards) return;
     var rows = data.per_term || [];
     var cur = rows[0] || {};
+    var bf = data.brought_forward || {};
+    var balanceNote = data.balance_year
+      ? '<div class="col-12 small text-muted">Balance for ' + P.esc(data.balance_year) +
+        (bf.arrears > 0 ? ', including KES ' + Number(bf.arrears).toLocaleString() + ' brought forward from ' + P.esc(bf.from_year || 'the previous year') : '') +
+        (bf.credit > 0 ? ', after KES ' + Number(bf.credit).toLocaleString() + ' credit brought forward from ' + P.esc(bf.from_year || 'the previous year') : '') + '.</div>'
+      : '';
     cards.innerHTML = [
       ['Total Outstanding', 'KES ' + totalBal.toLocaleString(), totalBal > 0 ? 'danger' : 'success'],
       ['Current Term Due', 'KES ' + Number(cur.total_due || 0).toLocaleString(), 'primary'],
       ['Current Term Paid', 'KES ' + Number(cur.total_paid || 0).toLocaleString(), 'info'],
     ].map(function (k) {
       return '<div class="col-md-4"><div class="pp-kpi-card bg-' + k[2] + '-subtle text-' + k[2] + '"><div><div class="small text-muted">' + k[0] + '</div><div class="fw-bold fs-6">' + k[1] + '</div></div></div></div>';
-    }).join('');
+    }).join('') + balanceNote;
   }
 
   function renderFeeHistory(data) {
@@ -32,17 +39,33 @@
       (relief.reason ? 'Reason: ' + P.esc(relief.reason) : '') + '</div>' : '';
     if (!years.length) return reliefHtml + '<div class="alert alert-info">No fee history found.</div>';
     return reliefHtml + years.map(function (yr) {
-      return '<div class="card mb-3 border-0 shadow-sm"><div class="card-header bg-success text-white fw-bold">Academic Year ' + yr.year + '</div><div class="card-body">' +
+      var bf = yr.brought_forward || {};
+      var bfHtml = (bf.arrears > 0 || bf.credit > 0)
+        ? '<div class="alert alert-light border small mb-3"><strong>Brought forward from ' + P.esc(bf.from_year || 'the previous year') + ':</strong> ' +
+          (bf.arrears > 0 ? 'arrears KES ' + Number(bf.arrears).toLocaleString() + ' (added to the first term). ' : '') +
+          (bf.credit > 0 ? 'credit KES ' + Number(bf.credit).toLocaleString() + ' (an overpayment, deducted from the first term). ' : '') + '</div>'
+        : '';
+      var closing = yr.summary ? Number(yr.summary.closing_balance || 0) : null;
+      var closingHtml = closing === null ? '' : '<div class="text-end fw-bold">' +
+        (closing < 0 ? 'In credit: KES ' + Math.abs(closing).toLocaleString() : 'Balance for ' + P.esc(yr.year) + ': KES ' + closing.toLocaleString()) + '</div>';
+      return '<div class="card mb-3 border-0 shadow-sm"><div class="card-header bg-success text-white fw-bold">Academic Year ' + yr.year + '</div><div class="card-body">' + bfHtml +
         (yr.terms || []).map(function (term) {
           var rows = (term.obligations || []).map(function (o) {
             var sc = o.payment_status === 'paid' ? 'success' : (o.payment_status === 'partial' ? 'warning' : 'danger');
             return '<tr><td>' + P.esc(o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_waived || 0).toLocaleString() + '</td><td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td><td><span class="badge bg-' + (o.payment_status === 'waived' ? 'secondary' : sc) + '">' + P.esc(o.payment_status || 'pending') + '</span></td></tr>';
           }).join('');
+          if (term.arrears_brought_forward > 0) {
+            rows = '<tr class="table-warning"><td>Arrears brought forward</td><td>KES ' + Number(term.arrears_brought_forward).toLocaleString() + '</td><td colspan="4"></td></tr>' + rows;
+          }
+          if (term.credit_brought_forward > 0) {
+            rows += '<tr class="table-info"><td>Credit brought forward</td><td colspan="2"></td><td>KES ' + Number(term.credit_brought_forward).toLocaleString() + '</td><td colspan="2"></td></tr>';
+          }
           var payBtn = term.balance > 0 ? '<button class="btn btn-sm btn-success pay-now-btn" data-amount="' + term.balance + '"><i class="bi bi-phone me-1"></i>Pay Now</button>' : '';
           return '<h6 class="text-muted mb-2">' + P.esc(term.term_name || '') + '</h6>' +
             '<div class="table-responsive mb-3"><table class="pp-table table-sm"><thead><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody>' +
-            '<tfoot class="fw-bold"><tr><td>Total</td><td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>KES ' + Number(term.balance || 0).toLocaleString() + '</td><td>' + payBtn + '</td></tr></tfoot></table></div>';
-        }).join('') + '</div></div>';
+            '<tfoot class="fw-bold"><tr><td>Total</td><td>KES ' + (Number(term.total_due || 0) + Number(term.arrears_brought_forward || 0)).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_waived || 0).toLocaleString() + '</td><td>' +
+            (Number(term.balance || 0) < 0 ? 'KES ' + Math.abs(Number(term.balance)).toLocaleString() + ' CR' : 'KES ' + Number(term.balance || 0).toLocaleString()) + '</td><td>' + payBtn + '</td></tr></tfoot></table></div>';
+        }).join('') + closingHtml + '</div></div>';
     }).join('');
   }
 
@@ -54,50 +77,25 @@
     return '<div class="table-responsive"><table class="pp-table table-sm"><thead><tr><th>Date</th><th>Method</th><th>Amount</th><th>Receipt #</th><th>Reference</th><th>Term</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
+  // The statement is the accounts office's PDF (brought-forward arrears or
+  // credit, each term, payments and a closing balance that adds up), not a
+  // page assembled in the browser.
   function renderStatementView(studentId, el) {
-    el.innerHTML = '<div class="text-center py-3"><p class="text-muted">Generate a printable fee statement for this student.</p>' +
-      '<button class="btn btn-success rounded-pill" id="btnGenStmt"><i class="bi bi-file-earmark-pdf me-2"></i>Generate Statement</button></div>';
+    el.innerHTML = '<div class="text-center py-3"><p class="text-muted">Download the official fee statement for this learner.</p>' +
+      '<button class="btn btn-success rounded-pill" id="btnGenStmt"><i class="bi bi-file-earmark-pdf me-2"></i>Download Statement (PDF)</button></div>';
     document.getElementById('btnGenStmt').addEventListener('click', function () {
       var btn = this;
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
-      P.apiFetch('/student-statement/' + studentId, 'GET')
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Generating…';
+      P.apiFetch('/download-statement/' + studentId, 'POST')
         .then(function (resp) {
           var d = resp.data !== undefined ? resp.data : resp;
-          if (window.PrintManager && window.PrintManager.printHtml) {
-            window.PrintManager.printHtml(buildStatementHTML(d), { title: 'Fee Statement' });
-          }
+          if (d.download_url) window.PrintManager?.openDocument(d.download_url, { title: 'Fee statement' });
+          else P.showError(el, d.message || 'Failed to generate statement');
         })
         .catch(function (e) { P.showError(el, 'Failed: ' + e.message); })
-        .finally(function () { btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-earmark-pdf me-2"></i>Generate Statement'; });
+        .finally(function () { btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-earmark-pdf me-2"></i>Download Statement (PDF)'; });
     });
-  }
-
-  function buildStatementHTML(data) {
-    var s = data.student || {};
-    var fees = (data.fees && data.fees.academic_years) || [];
-    var pmts = data.payments || [];
-    var relief = data.financial_relief;
-    var feeRows = fees.map(function (yr) {
-      return '<h5>Academic Year ' + yr.year + '</h5>' +
-        (yr.terms || []).map(function (t) {
-          return '<p><strong>' + P.esc(t.term_name || '') + '</strong></p>' +
-            '<table border="1" cellpadding="4" style="border-collapse:collapse;width:100%"><thead><tr><th>Fee Type</th><th>Amount Due</th><th>Paid</th><th>Balance</th></tr></thead><tbody>' +
-            (t.obligations || []).map(function (o) {
-              return '<tr><td>' + P.esc(o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td>KES ' + Number(o.balance || 0).toLocaleString() + '</td></tr>';
-            }).join('') + '</tbody></table>';
-        }).join('');
-    }).join('');
-    var pmtRows = pmts.map(function (p) {
-      return '<tr><td>' + (p.payment_date || '').substring(0, 10) + '</td><td>' + P.esc(p.payment_method || '') + '</td><td>KES ' + Number(p.amount_paid || 0).toLocaleString() + '</td><td>' + P.esc(p.receipt_no || '') + '</td></tr>';
-    }).join('');
-    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fee Statement</title>' +
-      '<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet"></head>' +
-      '<body class="p-4"><h3 class="text-center">Kingsway Preparatory School</h3><h5 class="text-center text-muted">Fee Statement</h5><hr>' +
-      '<p><strong>Student:</strong> ' + P.esc(s.first_name + ' ' + s.last_name) + ' &nbsp; <strong>Adm No:</strong> ' + P.esc(s.admission_no || '') + ' &nbsp; <strong>Class:</strong> ' + P.esc(s.class_name || '') + '</p>' +
-      '<p><strong>Generated:</strong> ' + P.esc(data.generated_at || '') + '</p>' + (relief ? '<p><strong>Approved financial relief:</strong> ' + (relief.registration_fee_waived ? 'Registration fee waived. ' : '') + (relief.school_fee_waived ? 'School-fee relief approved. ' : '') + (relief.school_fee_waived_amount > 0 ? 'Applied KES ' + Number(relief.school_fee_waived_amount).toLocaleString() + '. ' : '') + P.esc(relief.reason || '') + '</p>' : '') + '<hr>' + feeRows +
-      (pmtRows ? '<h5 class="mt-4">Payment History</h5><table border="1" cellpadding="4" style="border-collapse:collapse;width:100%"><thead><tr><th>Date</th><th>Method</th><th>Amount</th><th>Receipt #</th></tr></thead><tbody>' + pmtRows + '</tbody></table>' : '') +
-      '</body></html>';
   }
 
   var _childId = null;

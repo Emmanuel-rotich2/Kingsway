@@ -363,6 +363,9 @@
     if (tab === 'performance') {
       headers = ['Subject', 'Score', 'Grade']; filename = 'performance.csv';
       rows = (d.scores || []).map(function (s) { return [s.subject_name || '', parseFloat(s.score || s.total_score || 0), s.grade || s.letter_grade || '']; });
+    } else if (tab === 'record' && window.LearnerRecordView) {
+      var recordRows = window.LearnerRecordView.csvRows(d);
+      headers = recordRows[0]; rows = recordRows.slice(1); filename = 'academic-record.csv';
     } else if (tab === 'report-card') {
       headers = ['Subject', 'Formative', 'Summative', 'Overall', 'Grade']; filename = 'report-card-scores.csv';
       rows = (d.scores || []).map(function (sc) { return [sc.subject_name || '', sc.formative_percentage || 0, sc.summative_percentage || 0, parseFloat(sc.overall_percentage || sc.total_score || sc.score || 0), sc.overall_grade || sc.grade || '']; });
@@ -413,6 +416,19 @@
     contentId: 'ppResultsContent',
     defaultTab: 'performance',
     loadTab: function (tab, child, el) {
+      // Every year since the child joined, in the class of each year.
+      if (tab === 'record') {
+        _lastTab = tab;
+        el.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm me-2"></span>Loading academic record…</div>';
+        P.apiFetch('/learner-record/' + child.id, 'GET')
+          .then(function (resp) {
+            var d = resp.data !== undefined ? resp.data : resp;
+            _lastData = d;
+            window.LearnerRecordView.render(el, d, { onPrint: function () { window.print(); } });
+          })
+          .catch(function (e) { P.showError(el, e.message); });
+        return;
+      }
       var endpoint;
       if (tab === 'performance') endpoint = '/student-performance/' + child.id;
       else if (tab === 'report-card') endpoint = '/student-report-card/' + child.id;

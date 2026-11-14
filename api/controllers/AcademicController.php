@@ -4357,6 +4357,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getStudentAssessmentHistory($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getStudentAssessmentHistory($filters));
     }
@@ -4367,8 +4368,50 @@ return $this->serverError('An internal error occurred.');
      */
     public function getStudentGrowthTrend($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
         $filters = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getStudentGrowthTrend($filters));
+    }
+
+    /**
+     * GET /api/academic/learner-record/{studentId}
+     * The learner's academic record from the year they joined to now: each
+     * year in that year's class, every learning area with Terms 1-3, approved
+     * summative results and formative evidence by strand and sub-strand.
+     */
+    public function getLearnerRecord($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireLearnerRecordAccess()) return $guard;
+        $studentId = (int) ($id ?? $data['student_id'] ?? $_GET['student_id'] ?? 0);
+        if ($studentId <= 0) {
+            return $this->badRequest('student_id is required');
+        }
+        try {
+            return $this->success(
+                (new \App\API\Services\LearnerAcademicRecordService($this->getDb()->getConnection()))->forStudent($studentId),
+                'Learner academic record loaded'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] learner record: ' . $e->getMessage());
+            return $this->serverError('Failed to load the learner record', 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Staff access to any learner's academic history. Parents read their own
+     * children's records through the parent portal, which checks the link.
+     */
+    private function requireLearnerRecordAccess(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(['students_view', 'academic_view'])) {
+            return $this->forbidden('Learner academic records are not available for this account');
+        }
+        return null;
     }
 
     // ==================== HELPERS ====================

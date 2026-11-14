@@ -406,6 +406,30 @@ class AcademicActivationService
                 "UPDATE academic_years SET state = 'current', status = 'active', is_current = 1 WHERE id = ?"
             )->execute([$targetId]);
 
+            // Learners who graduated at the end of the outgoing year leave the
+            // school when that year closes. Promotion marks only their
+            // enrollment; until the cutover they are still on the outgoing
+            // year's roll, so their learner record changes here, not earlier.
+            // Only learners with no enrollment in a later year are affected.
+            $graduates = 0;
+            if ($outgoingId > 0 && $outgoingId !== $targetId) {
+                $graduation = $this->db->prepare(
+                    "UPDATE students s
+                        JOIN student_academic_enrollments sae
+                          ON sae.student_id = s.id AND sae.academic_year_id = ? AND sae.enrollment_status = 'graduated'
+                        SET s.status = 'graduated', s.updated_at = NOW()
+                      WHERE s.status = 'active'
+                        AND NOT EXISTS (
+                            SELECT 1 FROM student_academic_enrollments later
+                              JOIN academic_years lay ON lay.id = later.academic_year_id
+                              JOIN academic_years oay ON oay.id = sae.academic_year_id
+                             WHERE later.student_id = s.id AND lay.start_date > oay.start_date)"
+                );
+                $graduation->execute([$outgoingId]);
+                $graduates = $graduation->rowCount();
+            }
+            $plan['learners_graduated'] = $graduates;
+
             if ($prepared['instance_id'] !== null) {
                 $this->db->prepare(
                     "UPDATE workflow_instances
@@ -438,6 +462,7 @@ class AcademicActivationService
                 'outgoing_year_code' => $operational ? (string) $operational['year_code'] : null,
                 'activated_on' => $today,
                 'instance_id' => $prepared['instance_id'],
+                'learners_graduated' => $plan['learners_graduated'] ?? 0,
             ]
         );
 

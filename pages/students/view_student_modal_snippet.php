@@ -17,4 +17,5 @@
                 <button type="button" class="btn btn-primary" id="viewStudentEditButton" onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
+<?php asset_script($appBase, 'js/components/learner_record.js'); ?>
 <?php asset_script($appBase, 'js/pages/manage_students.js'); ?>

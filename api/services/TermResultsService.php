@@ -151,8 +151,13 @@ final class TermResultsService
     private function roster(int $streamId): array
     {
         $stmt = $this->db->prepare(
+            // Every learner who was in this stream in its year. Promotion
+            // marks a finished year's enrollments completed/graduated, and
+            // limiting this to 'active' made a closed year's terms impossible
+            // to recompute ("No active learners are enrolled").
             "SELECT student_id, id FROM student_academic_enrollments
-             WHERE academic_year_class_stream_id = ? AND enrollment_status IN ('pending','active')"
+             WHERE academic_year_class_stream_id = ?
+               AND enrollment_status IN ('pending','active','completed','graduated','transferred','withdrawn')"
         );
         $stmt->execute([$streamId]);
         $result = [];

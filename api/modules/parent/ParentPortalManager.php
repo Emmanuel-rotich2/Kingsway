@@ -925,6 +925,27 @@ class ParentPortalManager extends BaseAPI
     }
 
     /**
+     * The child's academic record, year by year in the class of each year,
+     * from the shared LearnerAcademicRecordService (the same record staff
+     * see). Only approved results are shown.
+     */
+    public function getLearnerRecord(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) {
+            return $access;
+        }
+        try {
+            return $this->successResponse(
+                (new \App\API\Services\LearnerAcademicRecordService($this->db))->forStudent($studentId)
+            );
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('[ParentPortalManager] learner record: ' . $e->getMessage());
+            return $this->errorResponse('Failed to load the academic record', 500);
+        }
+    }
+
+    /**
      * Per-term balance summary + running total.
      *
      * @param int $studentId
@@ -953,19 +974,53 @@ class ParentPortalManager extends BaseAPI
             $stmt->execute([':sid' => $studentId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $totalBalance = array_sum(array_map(function ($r) {
-                return (float)($r['balance'] ?? 0);
-            }, $rows));
+            // What the learner owes now is the closing balance of their
+            // latest academic year: earlier years' balances were brought
+            // forward into it at rollover, so adding every year's balance
+            // counted carried arrears twice.
+            $position = $this->currentFeePosition($studentId);
 
             return $this->successResponse([
                 'per_term' => $rows,
-                'total_balance' => $totalBalance,
+                'total_balance' => $position['closing_balance'],
+                'balance_year' => $position['academic_year'],
+                'brought_forward' => $position['brought_forward'],
                 'financial_relief' => (new \App\API\Services\ExtraChargeService($this->db))->studentFinancialRelief($studentId),
             ]);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('Failed to load balance', 500);
         }
+    }
+
+    /**
+     * Closing balance of the learner's latest billed academic year, which
+     * already includes anything brought forward from earlier years.
+     *
+     * @return array{closing_balance: float, academic_year: ?string, brought_forward: ?array}
+     */
+    private function currentFeePosition(int $studentId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT ay.id
+             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
+             JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
+             WHERE sae.student_id = :sid
+               AND sae.enrollment_status IN ('active','completed','graduated','transferred','withdrawn')
+             ORDER BY ay.start_date DESC, ay.id DESC
+             LIMIT 1"
+        );
+        $stmt->execute([':sid' => $studentId]);
+        $yearId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($yearId < 1) {
+            return ['closing_balance' => 0.0, 'academic_year' => null, 'brought_forward' => null];
+        }
+        $statement = (new \App\API\Services\FeeStatementService($this->db))->forStudent($studentId, $yearId);
+        return [
+            'closing_balance' => (float) $statement['summary']['closing_balance'],
+            'academic_year' => $statement['academic_year']['code'],
+            'brought_forward' => $statement['brought_forward'],
+        ];
     }
 
     /**
@@ -3368,6 +3423,33 @@ class ParentPortalManager extends BaseAPI
             }
             unset($term);
             $yData['terms'] = array_values($yData['terms']);
+        }
+        unset($yData);
+
+        // Brought-forward arrears or credit and the closing balance come
+        // from the shared statement, so the portal matches the printed
+        // statement and the accounts office.
+        $statements = new \App\API\Services\FeeStatementService($this->db);
+        foreach ($grouped as $yearCode => &$yData) {
+            try {
+                $statement = $statements->forStudent($studentId, (string) $yearCode);
+            } catch (\Throwable $e) {
+                continue;
+            }
+            $yData['brought_forward'] = $statement['brought_forward'];
+            $yData['summary'] = $statement['summary'];
+            $byTerm = [];
+            foreach ($statement['terms'] as $term) {
+                $byTerm[(string) $term['term']] = $term;
+            }
+            foreach ($yData['terms'] as &$term) {
+                $match = $byTerm[(string) ($term['term_name'] ?? '')] ?? null;
+                $term['arrears_brought_forward'] = $match['arrears_brought_forward'] ?? 0;
+                $term['credit_brought_forward'] = $match['credit_brought_forward'] ?? 0;
+                $term['credit_notes'] = $match['credit_notes'] ?? 0;
+                $term['status'] = $match['status'] ?? null;
+            }
+            unset($term);
         }
         unset($yData);
 

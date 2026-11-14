@@ -67,6 +67,8 @@ const BalancesByClassController = {
   bindEvents() {
     const exportBtn = document.getElementById('exportReport');
     if (exportBtn) exportBtn.addEventListener('click', () => this.exportCSV());
+    document.getElementById('printClassStatement')?.addEventListener('click', () => this.printClassStatement());
+    document.getElementById('printSchoolStatement')?.addEventListener('click', () => this.printSchoolStatement());
 
     const refreshBtn = document.getElementById('refreshData');
     if (refreshBtn) refreshBtn.addEventListener('click', () => this.loadData());
@@ -455,6 +457,7 @@ function loadStudentHistory(studentId, studentName) {
   if (!nameEl || !contentEl) return;
 
   nameEl.textContent = studentName;
+  BalancesByClassController.state.historyStudentId = studentId;
   contentEl.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
 
   var modalEl = document.getElementById('studentBillingHistoryModal');
@@ -542,69 +545,44 @@ function renderBillingHistoryModal(data) {
   contentEl.innerHTML = html;
 }
 
+// Fee statements are prepared and printed by the server, from the same
+// figures as every fee report: brought-forward arrears or credit, each
+// term's fees, waivers, credits and payments, and a closing balance that
+// equals its own lines. Nothing is recomputed in the browser.
+BalancesByClassController.selectedYearId = function selectedYearId() {
+  return document.getElementById('academicYearSelect')?.value || undefined;
+};
+
 BalancesByClassController.printBillingStatement = async function printBillingStatement() {
-  if (!this.state.selectedStudentBilling || this.state.selectedStudentBilling.length === 0) {
-    await window.infoDialog('Notice', 'No billing data to print');
+  const studentId = this.state.historyStudentId;
+  if (!studentId) {
+    await window.infoDialog('Notice', 'Open a learner\'s billing history first.');
     return;
   }
-
-  const student = this.state.selectedStudentBilling[0];
-  const billingHistory = this.state.selectedStudentBilling;
-
-  // Build fee statement rows
-  const feeRows = [];
-  billingHistory.forEach(term => {
-    (term.obligations || []).forEach(item => {
-      feeRows.push({
-        term: term.term_name || term.academic_year || '—',
-        fee_type: item.fee_type_name || '—',
-        amount_due: item.amount_due || 0,
-        amount_paid: item.amount_paid || 0,
-        amount_waived: item.amount_waived || 0,
-        balance: item.balance || 0,
-        status: item.payment_status || 'pending'
-      });
-    });
+  return window.PrintManager.printFeeStatement({
+    student_id: studentId,
+    academic_year: this.selectedYearId(),
+    download: false,
   });
+};
 
-  const columns = [
-    { key: 'term', label: 'Term' },
-    { key: 'fee_type', label: 'Fee Type' },
-    { key: 'amount_due', label: 'Amount Due' },
-    { key: 'amount_paid', label: 'Amount Paid' },
-    { key: 'amount_waived', label: 'Waived' },
-    { key: 'balance', label: 'Balance' },
-    { key: 'status', label: 'Status' }
-  ];
+BalancesByClassController.printClassStatement = async function printClassStatement() {
+  const classId = this.state.selectedClassId || document.getElementById('classSelect')?.value;
+  if (!classId) {
+    await window.infoDialog('Notice', 'Choose a class first.');
+    return;
+  }
+  return window.PrintManager.printClassFeeStatement({
+    class_id: classId,
+    academic_year: this.selectedYearId(),
+    download: false,
+  });
+};
 
-  // Calculate totals
-  const totalDue = feeRows.reduce((sum, row) => sum + Number(row.amount_due || 0), 0);
-  const totalPaid = feeRows.reduce((sum, row) => sum + Number(row.amount_paid || 0), 0);
-  const totalWaived = feeRows.reduce((sum, row) => sum + Number(row.amount_waived || 0), 0);
-  const totalBalance = feeRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
-
-  window.PrintManager.printTable({
-    title: 'Student Fee Statement',
-    subtitle: `${student.first_name || ''} ${student.last_name || ''} (${student.admission_no || '—'})`,
-    columns: columns,
-    rows: feeRows,
-    summary: {
-      'Student Name': `${student.first_name || ''} ${student.last_name || ''}`,
-      'Admission No': student.admission_no || '—',
-      'Class': student.class_name || '—',
-      'Total Due': `KES ${totalDue.toLocaleString()}`,
-      'Total Paid': `KES ${totalPaid.toLocaleString()}`,
-      'Total Waived': `KES ${totalWaived.toLocaleString()}`,
-      'Outstanding Balance': `KES ${totalBalance.toLocaleString()}`,
-      'Generated Date': new Date().toLocaleDateString()
-    },
-    orientation: 'landscape',
-    paperSize: 'A4',
-    reportCode: 'FEE-' + (student.student_id || student.id || '0'),
-    signatureSection: [
-      { label: 'Accountant' },
-      { label: 'Principal' }
-    ]
+BalancesByClassController.printSchoolStatement = async function printSchoolStatement() {
+  return window.PrintManager.printSchoolFeeStatement({
+    academic_year: this.selectedYearId(),
+    download: false,
   });
 };
 

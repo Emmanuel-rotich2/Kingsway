@@ -7015,8 +7015,11 @@ return errorResponse($e->getMessage(), 400);
     public function listClasses($params = [])
     {
         try {
-            $page = $params['page'] ?? 1;
-            $limit = $params['limit'] ?? 20;
+            // The school has about a dozen classes per year. A small default
+            // page silently dropped classes, so callers that never paginate
+            // (nearly all of them) now get the full list.
+            $page = max(1, (int) ($params['page'] ?? 1));
+            $limit = max(1, min(500, (int) ($params['limit'] ?? 200)));
             $offset = ($page - 1) * $limit;
 
             $where = ['1=1'];
@@ -7027,12 +7030,28 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $params['level_id'];
             }
 
-            if (!empty($params['academic_year_id'])) {
+            // Each row is one class in one academic year, and the row id is
+            // the class id. Without a year scope a class appears once per
+            // year, so pages keyed by class id counted its learners twice
+            // (772 shown for 454 learners). Default to the current year;
+            // all_years=1 is the explicit opt-in to the cross-year list.
+            $yearId = $params['academic_year_id'] ?? $params['year_id'] ?? null;
+            if (!empty($yearId) && ctype_digit((string) $yearId)) {
                 $where[] = 'ayc.academic_year_id = ?';
-                $bindings[] = $params['academic_year_id'];
+                $bindings[] = (int) $yearId;
             } elseif (!empty($params['academic_year'])) {
                 $where[] = 'ay.year_code = ?';
                 $bindings[] = $params['academic_year'];
+            } elseif (empty($params['all_years'])) {
+                $currentYearStmt = $this->db->prepare(
+                    "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY start_date DESC, id DESC LIMIT 1"
+                );
+                $currentYearStmt->execute();
+                $currentYearId = $currentYearStmt->fetchColumn();
+                if ($currentYearId) {
+                    $where[] = 'ayc.academic_year_id = ?';
+                    $bindings[] = (int) $currentYearId;
+                }
             }
 
             if (!empty($params['status'])) {
@@ -7667,11 +7686,15 @@ return errorResponse($e->getMessage(), 400);
     public function getResultsAnalysis($params = [])
     {
         try {
-            $where = ["1=1"];
+            // Only rows that hold a mark. The roll-up also stores empty
+            // placeholder rows (assessment_count 0, no percentage); counting
+            // them reported 411 learners assessed when 3 had been marked.
+            $where = ["tss.overall_percentage IS NOT NULL", "tss.assessment_count > 0"];
             $bindings = [];
 
             if (!empty($params['term_id'])) {
-                $where[] = "tss.term_id = (SELECT term_id FROM academic_year_terms WHERE id = ?)";
+                // term_id here is academic_year_terms.id (one term of one year).
+                $where[] = "tss.academic_year_term_id = ?";
                 $bindings[] = (int) $params['term_id'];
             }
             if (!empty($params['class_id'])) {
@@ -7691,11 +7714,16 @@ return errorResponse($e->getMessage(), 400);
                 ? (int) $params['year_id']
                 : (!empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : $this->resolveCurrentAcademicYearId());
 
+            // Each score row already names its academic-year term and the
+            // stream the learner sat in that term, so scope by those keys.
+            // Matching on the term number crossed years, and requiring an
+            // 'active' enrollment dropped every score once a year was
+            // promoted (enrollments become completed/graduated), so a year
+            // with 3,584 scores reported "No scores".
             $scoreJoins = "
                 JOIN students s ON s.id = tss.student_id
-                JOIN academic_year_terms ayt ON ayt.term_id = tss.term_id AND ayt.academic_year_id = {$currentYearId}
-                JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.academic_year_id = {$currentYearId} AND sae.enrollment_status IN ('pending', 'active')
-                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN academic_year_terms ayt ON ayt.id = tss.academic_year_term_id AND ayt.academic_year_id = {$currentYearId}
+                JOIN academic_year_class_streams aycs ON aycs.id = tss.academic_year_class_stream_id
                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN school_levels sl ON sl.id = c.level_id
@@ -7759,8 +7787,18 @@ return errorResponse($e->getMessage(), 400);
             // Fallback to assessment_results if rollup table has no records.
             if (empty($classMetrics) && empty($subjectMetrics)) {
                 $source = 'assessment_results';
-                $fallbackWhere = ["1=1"];
-                $fallbackBindings = [];
+                // Always scope to the selected academic year; without it a
+                // year with no results showed other years' assessments. Only
+                // approved results count: draft marks on an exam still
+                // pending submission are not results.
+                $fallbackWhere = [
+                    "ayc.academic_year_id = ?",
+                    "a.status = 'approved'",
+                    "ar.is_submitted = 1",
+                    "ar.is_approved = 1",
+                    "ar.deleted_at IS NULL",
+                ];
+                $fallbackBindings = [(int) $currentYearId];
 
                 if (!empty($params['term_id'])) {
                     $fallbackWhere[] = "a.academic_year_term_id = ?";
@@ -8114,11 +8152,9 @@ return errorResponse($e->getMessage(), 400);
                             sae2.academic_year_class_stream_id AS aycs_id,
                             ROUND(AVG(t2.overall_percentage), 2) AS class_average
                         FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " t2
-                        JOIN academic_year_terms ayt2
-                            ON ayt2.term_id = t2.term_id AND ayt2.academic_year_id = {$yearId}
                         JOIN student_academic_enrollments sae2
                             ON sae2.student_id = t2.student_id AND sae2.academic_year_id = {$yearId}
-                        WHERE t2.term_id = (SELECT term_id FROM academic_year_terms WHERE id = ?)
+                        WHERE t2.academic_year_term_id = ?
                         GROUP BY t2.subject_id, sae2.academic_year_class_stream_id
                     ) class_subject_avg
                         ON class_subject_avg.subject_id = tss.subject_id
@@ -8141,12 +8177,11 @@ return errorResponse($e->getMessage(), 400);
                         class_subject_avg.class_average
                     FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = tss.subject_id
-                    JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.term_id = tss.term_id AND ayt.academic_year_id = {$yearId}
                     JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                         ON sae.student_id = tss.student_id AND sae.academic_year_id = {$yearId}
                     {$classAverageJoin}
                     WHERE tss.student_id = ?
-                      AND tss.term_id = (SELECT term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " class_subject_avg WHERE id = ?)
+                      AND tss.academic_year_term_id = ?
                     ORDER BY subject_name ASC
                 ";
                 $scoresStmt = $this->db->prepare($scoresSql);
@@ -8323,9 +8358,7 @@ return errorResponse($e->getMessage(), 400);
                             ROUND(AVG(t2.overall_percentage), 2) AS term_average,
                             MAX(t2.overall_grade) AS term_grade
                         FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " t2
-                        JOIN academic_year_terms ayt2
-                            ON ayt2.term_id = t2.term_id AND ayt2.academic_year_id = {$yearId}
-                        WHERE ayt2.id = ?
+                        WHERE t2.academic_year_term_id = ?
                         GROUP BY t2.student_id
                     ) term_scores ON term_scores.student_id = s.id
                 ";
@@ -8459,7 +8492,9 @@ return errorResponse($e->getMessage(), 400);
                     COALESCE(att.days_absent, 0) AS days_absent
                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-                LEFT JOIN (
+                -- The year's population is the learners enrolled in that
+                -- year; an outer join counted learners never enrolled in it.
+                JOIN (
                     SELECT sae2.*
                     FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae2
                     JOIN (
@@ -8484,6 +8519,12 @@ return errorResponse($e->getMessage(), 400);
                 LIMIT ? OFFSET ?
             ";
 
+            // Class, stream and school totals are aggregated here from the
+            // learner rows, so they must see every learner, not one page.
+            if ($viewMode !== 'students') {
+                $limit = 100000;
+                $offset = 0;
+            }
             $queryBindings = array_merge($attendanceBindings, $termBindings, [$yearValue], $feeBindings, $bindings, [$limit, $offset]);
             $stmt = $this->db->prepare($sql);
             $stmt->execute($queryBindings);

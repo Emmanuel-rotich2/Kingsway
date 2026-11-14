@@ -3356,32 +3356,65 @@ if ($classId) {
 
     // ==================== CBC: STUDENT GROWTH ====================
 
+    /**
+     * Every approved assessment result of a learner, summative and formative,
+     * each with the year, term, class, learning area, strand and sub-strand
+     * it belongs to. Summative results come through the enrollment of their
+     * year; formative scores through the assessment's class stream and term.
+     * Draft marks (assessment not approved, result not approved) are left out.
+     */
     public function getStudentAssessmentHistory(array $data): array
     {
         try {
             $studentId = (int) ($data['student_id'] ?? 0);
             if (!$studentId) return $this->errorResponse('student_id is required', 400);
 
-            $where  = ['fs.student_id=:sid'];
-            $params = [':sid' => $studentId];
-            if (!empty($data['term_id']))    { $where[] = 'a.academic_year_term_id=:tid'; $params[':tid'] = (int) $data['term_id']; }
-            if (!empty($data['subject_id'])) { $where[] = 'a.learning_area_id=:sub';     $params[':sub'] = (int) $data['subject_id']; }
+            $filters = '';
+            $params = [':sid' => $studentId, ':sid2' => $studentId];
+            if (!empty($data['term_id'])) { $filters .= ' AND a.academic_year_term_id = :tid'; $params[':tid'] = (int) $data['term_id']; }
+            if (!empty($data['subject_id'])) { $filters .= ' AND a.learning_area_id = :sub'; $params[':sub'] = (int) $data['subject_id']; }
+            if (!empty($data['academic_year_id'])) { $filters .= ' AND ayt.academic_year_id = :yid'; $params[':yid'] = (int) $data['academic_year_id']; }
+            // The same filters apply to both halves of the union.
+            $filters2 = str_replace([':tid', ':sub', ':yid'], [':tid2', ':sub2', ':yid2'], $filters);
+            foreach ([':tid', ':sub', ':yid'] as $key) {
+                if (isset($params[$key])) $params[$key . '2'] = $params[$key];
+            }
+
+            $context = "
+                JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
+                JOIN terms t ON t.id = ayt.term_id
+                JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs ON aycs.id = a.academic_year_class_stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("classes") . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st ON st.id = aycs.stream_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " sd ON sd.id = a.strand_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = a.sub_strand_id
+                LEFT JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id";
+            $columns = "a.id AS assessment_id, a.title, a.assessment_date, a.is_formative, (a.is_formative = 0) AS is_summative,
+                        atc.name AS type_name, la.name AS subject_name, la.code AS subject_code,
+                        t.name AS term_name, ayt.id AS term_id, ay.year_code, ayt.academic_year_id,
+                        c.name AS class_name, st.name AS stream_name,
+                        sd.name AS strand_name, ss.name AS sub_strand_name";
 
             $rows = $this->dbQuery(
-                "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.max_marks,
-                        fs.score, fs.percentage, fs.cbc_grade,
-                        atc.name AS type_name, a.is_formative, (a.is_formative = 0) AS is_summative,
-                        la.name AS subject_name, la.code AS subject_code,
-                        t.name AS term_name, ayt.id AS term_id, ay.year_code
+                "SELECT {$columns}, a.max_marks, ar.marks_obtained AS score,
+                        ROUND(ar.marks_obtained * 100 / NULLIF(a.max_marks, 0), 1) AS percentage, ar.grade AS cbc_grade
+                 FROM " . ReadReplicaService::qualifiedRef("assessment_results") . " ar
+                 JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = ar.assessment_id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = ar.student_academic_enrollment_id
+                 {$context}
+                 WHERE sae.student_id = :sid AND ar.deleted_at IS NULL
+                   AND a.status = 'approved' AND ar.is_submitted = 1 AND ar.is_approved = 1{$filters}
+                 UNION ALL
+                 SELECT {$columns}, fs.max_score AS max_marks, fs.score,
+                        ROUND(fs.percentage, 1) AS percentage, fs.cbc_grade
                  FROM formative_scores fs
-                 JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a       ON a.id  = fs.assessment_id
-                 JOIN assessment_type_classifications atc ON atc.id = a.assessment_type_classification_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = a.academic_year_term_id
-                 LEFT JOIN terms t  ON t.id  = ayt.term_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = ayt.academic_year_id
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY a.assessment_date ASC, a.id ASC",
+                 JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id
+                 {$context}
+                 WHERE fs.student_id = :sid2 AND a.status = 'approved'{$filters2}
+                 ORDER BY assessment_date ASC, assessment_id ASC",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
@@ -3441,8 +3474,15 @@ if ($classId) {
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
                  LEFT JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id
                       AND sae.academic_year_id = (SELECT id FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE is_current = 1)
-                      AND sae.enrollment_status = 'active'
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.student_id = s.id
+                 -- The current year's class whatever the enrollment status:
+                 -- after promotion it is completed/graduated, not active.
+                 LEFT JOIN (
+                     SELECT aycs_c.id AS aycs_id, c_c.name AS class_name, st_c.name AS stream_name
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs_c
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc_c ON ayc_c.id = aycs_c.academic_year_class_id
+                     JOIN " . ReadReplicaService::qualifiedRef("classes") . " c_c ON c_c.id = ayc_c.class_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st_c ON st_c.id = aycs_c.stream_id
+                 ) lp ON lp.aycs_id = sae.academic_year_class_stream_id
                  LEFT JOIN student_types st ON st.id = s.student_type_id
                  WHERE s.id = ?",
                 [$studentId]
@@ -3463,7 +3503,16 @@ if ($classId) {
                         sae.enrolled_on
                  FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae
                  JOIN " . ReadReplicaService::qualifiedRef("academic_years") . " ay ON ay.id = sae.academic_year_id
-                 LEFT JOIN " . ReadReplicaService::qualifiedRef('learner_placement') . " lp ON lp.enrollment_id = sae.id
+                 -- The class of THAT year, from that year's enrollment. The
+                 -- learner_placement view only lists active enrollments, so
+                 -- every past year showed no class.
+                 LEFT JOIN (
+                     SELECT aycs_p.id AS aycs_id, c_p.name AS class_name, st_p.name AS stream_name
+                     FROM " . ReadReplicaService::qualifiedRef("academic_year_class_streams") . " aycs_p
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_classes") . " ayc_p ON ayc_p.id = aycs_p.academic_year_class_id
+                     JOIN " . ReadReplicaService::qualifiedRef("classes") . " c_p ON c_p.id = ayc_p.class_id
+                     LEFT JOIN " . ReadReplicaService::qualifiedRef("streams") . " st_p ON st_p.id = aycs_p.stream_id
+                 ) lp ON lp.aycs_id = sae.academic_year_class_stream_id
                  LEFT JOIN student_transitions tr ON tr.student_id = sae.student_id
                       AND tr.from_student_academic_enrollment_id = sae.id
                  LEFT JOIN student_academic_enrollments to_sae ON to_sae.id = tr.to_student_academic_enrollment_id
@@ -3471,16 +3520,17 @@ if ($classId) {
                  LEFT JOIN academic_year_classes to_ayc ON to_ayc.id = to_aycs.academic_year_class_id
                  LEFT JOIN classes pc ON pc.id = to_ayc.class_id
                  LEFT JOIN (
+                     -- Each score's own year term places it in its year;
+                     -- only rows with evidence count.
                      SELECT tss.student_id, ayt.academic_year_id, ROUND(AVG(tss.overall_percentage), 2) AS avg_pct
                      FROM " . ReadReplicaService::qualifiedRef("term_subject_scores") . " tss
-                     JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae2 ON sae2.student_id = tss.student_id
-                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.term_id = tss.term_id
-                          AND ayt.academic_year_id = sae2.academic_year_id
+                     JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = tss.academic_year_term_id
+                     WHERE tss.student_id = ? AND tss.assessment_count > 0 AND tss.overall_percentage IS NOT NULL
                      GROUP BY tss.student_id, ayt.academic_year_id
                  ) yav ON yav.student_id = sae.student_id AND yav.academic_year_id = sae.academic_year_id
                  WHERE sae.student_id = ?
                  ORDER BY ay.start_date ASC",
-                [$studentId]
+                [$studentId, $studentId]
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $subjectScores = $this->dbQuery(
