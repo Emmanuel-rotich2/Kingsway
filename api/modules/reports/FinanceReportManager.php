@@ -11,21 +11,25 @@ class FinanceReportManager extends BaseAPI
      */
     public function getFeeSummary($filters = [])
     {
-        $termId = $filters['academic_term_id'] ?? null;
-
-        if (!$termId) {
-            $termRow = $this->db->query(
-                "SELECT term_id FROM academic_year_terms WHERE status = 'current' ORDER BY id DESC LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-            $termId = $termRow['term_id'] ?? null;
+        // Scope to ONE term of ONE academic year (academic_year_terms.id).
+        // fb.term_id is only the term number (1/2/3), which repeats every
+        // year: filtering on it, or on nothing when no term was 'current',
+        // summed both years and reported 841 learners for a school of 454.
+        $termId = $filters['academic_term_id'] ?? $filters['academic_year_term_id'] ?? null;
+        $termId = ($termId !== null && ctype_digit((string) $termId)) ? (int) $termId : null;
+        if ($termId === null) {
+            $termId = (new \App\API\Services\AcademicContextService($this->db))->getReportingTermId();
         }
 
         $where = [];
         $params = [];
         if ($termId) {
-            $where[] = '(fb.term_id = ? OR fb.term_id = (SELECT ayt.term_id FROM academic_year_terms ayt WHERE ayt.id = ?))';
-            $params[] = (int) $termId;
-            $params[] = (int) $termId;
+            $where[] = 'fb.academic_year_term_id = ?';
+            $params[] = $termId;
+        } else {
+            // No term configured at all: report nothing rather than a
+            // cross-year total.
+            $where[] = '1 = 0';
         }
         if (!empty($filters['class_id'])) {
             $where[] = 'ayc.class_id = ?';
@@ -106,8 +110,9 @@ class FinanceReportManager extends BaseAPI
             $params[] = (int) $filters['academic_year_id'];
         }
         if (!empty($filters['academic_term_id'])) {
-            $where[] = '(fb.term_id = ? OR fb.term_id = (SELECT ayt.term_id FROM academic_year_terms ayt WHERE ayt.id = ?))';
-            $params[] = (int) $filters['academic_term_id'];
+            // academic_term_id is academic_year_terms.id: one term of one
+            // year. fb.term_id is only the term number and repeats yearly.
+            $where[] = 'fb.academic_year_term_id = ?';
             $params[] = (int) $filters['academic_term_id'];
         }
         if (!empty($filters['class_id'])) {

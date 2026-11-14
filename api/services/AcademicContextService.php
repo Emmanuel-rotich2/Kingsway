@@ -206,8 +206,46 @@ class AcademicContextService
     }
 
     /**
+     * The academic-year term a report should default to.
+     *
+     * A report must always be scoped to one term of one academic year: the
+     * term number alone (Term 1/2/3) repeats every year, and leaving the term
+     * out sums every year together. Between terms no term is 'current', so:
+     * the term in session today, else the most recent term that has opened,
+     * else the next term to open.
+     *
+     * @return int|null academic_year_terms.id
+     */
+    public function getReportingTermId(): ?int
+    {
+        if (array_key_exists('reporting_term_id', $this->memo)) {
+            return $this->memo['reporting_term_id'];
+        }
+        $sql = "SELECT id FROM academic_year_terms
+                ORDER BY
+                    CASE
+                        WHEN status = 'current' THEN 0
+                        WHEN CURDATE() BETWEEN opening_date AND closing_date THEN 1
+                        WHEN opening_date <= CURDATE() THEN 2
+                        ELSE 3
+                    END,
+                    CASE WHEN opening_date <= CURDATE() THEN opening_date END DESC,
+                    opening_date ASC,
+                    id ASC
+                LIMIT 1";
+        try {
+            $id = $this->db->query($sql)->fetchColumn();
+            $this->memo['reporting_term_id'] = $id ? (int) $id : null;
+        } catch (PDOException $e) {
+            \App\API\Services\Logger::legacyError('Error resolving reporting term: ' . $e->getMessage());
+            $this->memo['reporting_term_id'] = null;
+        }
+        return $this->memo['reporting_term_id'];
+    }
+
+    /**
      * Get current calendar period
-     * 
+     *
      * @return string Current calendar period
      */
     public function getCalendarPeriod()

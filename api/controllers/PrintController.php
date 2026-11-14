@@ -527,6 +527,89 @@ return formatResponse(false, null, 'An internal error occurred.');
     }
 
     /**
+     * Class fee statement PDF: a class summary, then one page per learner.
+     * POST /api/print/class-fee-statement  {class_id, stream_id?, academic_year?}
+     */
+    public function postClassFeeStatement($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $classId = (int) ($data['class_id'] ?? $id ?? 0);
+            if ($classId <= 0) {
+                return formatResponse(false, null, 'class_id is required');
+            }
+            $streamId = !empty($data['stream_id']) ? (int) $data['stream_id'] : null;
+            $statement = $this->prints()->prepareClassFeeStatement($classId, $streamId, $data['academic_year'] ?? null);
+            if (empty($statement['statements'])) {
+                return formatResponse(false, null, 'No learners were enrolled in this class for the selected year.');
+            }
+            $pdfPath = $this->prints()->printFeeStatement($statement, [
+                'title' => 'Class Fee Statement',
+                'filename' => 'fee_statement_class_' . $classId . ($streamId ? '_' . $streamId : '') . '_' . date('Ymd_His'),
+            ]);
+            return $this->pdfResponse($pdfPath, 'Class fee statement PDF generated');
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * School fee statement PDF: one summary row per class, with totals.
+     * POST /api/print/school-fee-statement  {academic_year?}
+     */
+    public function postSchoolFeeStatement($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $statement = $this->prints()->prepareSchoolFeeStatement($data['academic_year'] ?? null);
+            $pdfPath = $this->prints()->printFeeStatement($statement, [
+                'title' => 'School Fee Statement',
+                'filename' => 'fee_statement_school_' . date('Ymd_His'),
+            ]);
+            return $this->pdfResponse($pdfPath, 'School fee statement PDF generated');
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Learner academic record PDF (every year, in each year's class).
+     * POST /api/print/learner-record  {student_id}
+     */
+    public function postLearnerRecord($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        if (!$this->userHasAny(['students_view', 'academic_view'])) {
+            return $this->forbidden('Learner academic records are not available for this account');
+        }
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $studentId = (int) ($data['student_id'] ?? $id ?? 0);
+            if ($studentId <= 0) {
+                return formatResponse(false, null, 'student_id is required');
+            }
+            return $this->pdfResponse($this->prints()->printLearnerRecord($studentId), 'Learner record PDF generated');
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    private function pdfResponse(string $pdfPath, string $message): array
+    {
+        $pdfUrl = $this->getPrintUrl($pdfPath);
+        $file = ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl];
+        return formatResponse(true, [
+            'file' => $file, 'files' => [$file],
+            'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+        ], $message);
+    }
+
+    /**
      * Generate receipt PDF using dedicated receipt template.
      * POST /api/print/receipt-template
      */

@@ -2651,6 +2651,7 @@ const ENDPOINT_PERMISSIONS = {
   "/reports/communication-logs": ["communications_view", "communications_manage", "reports_view"],
   "/reports/academic": "reports_view",
   "/reports/catalogue": "analytics_catalogue_view",
+  "/reports/year-comparison": "analytics_catalogue_view",
   "/reports/definition": "analytics_catalogue_view",
   "/reports/metrics": "analytics_catalogue_view",
   "/reports/execute": "analytics_report_execute",
@@ -7729,6 +7730,9 @@ window.API = {
     // Governed enterprise analytics
     getCatalogue: async (params = {}) =>
       apiCall("/reports/catalogue", "GET", null, params),
+    // Outgoing vs incoming year/term (or previous vs current); no parameters.
+    getYearComparison: async () =>
+      apiCall("/reports/year-comparison", "GET"),
     getDefinition: async (code) =>
       apiCall(`/reports/definition/${encodeURIComponent(code)}`, "GET"),
     getMetrics: async (params = {}) =>

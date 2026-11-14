@@ -4540,171 +4540,110 @@ final class PrintService
     /**
      * Generate a student fee statement PDF.
      */
+    /**
+     * One learner's fee statement for a year (default: the current year),
+     * from FeeStatementService: brought-forward arrears or credit, each
+     * term's fees, waivers, credits and payments, and a closing balance that
+     * equals its own lines. The template renders `statements`.
+     */
     public function prepareStudentFeeStatement(int $studentId, $academicYear = null): array
     {
-        $db = $this->getDb();
-        // An explicit year that does not exist gives an empty statement, never
-        // another year's figures; no year means the current academic year.
-        $year = $this->resolvePrintableAcademicYear($academicYear) ?? [];
-        $yearId = (int) ($year['id'] ?? 0);
-
-        // The student directory holds one row per learner (their latest
-        // enrollment), so it gives identity only. Class and stream come from
-        // the enrollment in the statement's year: short keyed reads.
-        $studentStmt = $db->prepare(
-            "SELECT s.student_id AS id, s.admission_no, s.first_name, s.last_name,
-                    s.student_type_name AS student_type
-             FROM " . ReadReplicaService::qualifiedRef("student_directory") . " s
-             WHERE s.student_id = ? LIMIT 1"
-        );
-        $studentStmt->execute([$studentId]);
-        $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$student) {
-            throw new RuntimeException('Student not found.');
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
         }
-        $student['class_name'] = null;
-        $student['stream_name'] = null;
-        $enrollmentStmt = $db->prepare(
-            "SELECT academic_year_class_id, stream_name
-             FROM " . ReadReplicaService::qualifiedRef("student_academic_enrollments_streams") . "
-             WHERE student_id = ? AND academic_year_id = ?
-             ORDER BY id DESC LIMIT 1"
-        );
-        $enrollmentStmt->execute([$studentId, $yearId]);
-        $enrollment = $enrollmentStmt->fetch(PDO::FETCH_ASSOC);
-        if ($enrollment) {
-            $student['stream_name'] = $enrollment['stream_name'];
-            $classStmt = $db->prepare(
-                "SELECT class_id FROM " . ReadReplicaService::qualifiedRef("academic_year_classes") . " WHERE id = ? LIMIT 1"
-            );
-            $classStmt->execute([(int) $enrollment['academic_year_class_id']]);
-            $classId = (int) ($classStmt->fetchColumn() ?: 0);
-            if ($classId > 0) {
-                $nameStmt = $db->prepare("SELECT name FROM " . ReadReplicaService::qualifiedRef("classes") . " WHERE id = ? LIMIT 1");
-                $nameStmt->execute([$classId]);
-                $student['class_name'] = $nameStmt->fetchColumn() ?: null;
-            }
-        }
-
-        $obligationStmt = $db->prepare(
-            "SELECT sfo.id, sfo.amount_due, sfo.status AS obligation_status,
-                    sfo.due_date, sfo.is_sponsored, sfo.sponsored_waiver_amount,
-                    t.name AS term_name, t.code AS term_code,
-                    COALESCE(v.amount_paid, 0) AS amount_paid,
-                    COALESCE(v.amount_waived, 0) AS amount_waived,
-                    COALESCE(v.balance, sfo.amount_due) AS balance,
-                    COALESCE(v.payment_status, sfo.status) AS payment_status,
-                    COALESCE(fc.name, 'School Fees') AS fee_item
-             FROM " . ReadReplicaService::qualifiedRef("student_fee_obligations") . " sfo
-             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = sfo.student_academic_enrollment_id
-             JOIN " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt ON ayt.id = sfo.academic_year_term_id
-             JOIN terms t ON t.id = ayt.term_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef("academic_year_fee_schedules") . " ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
-             LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
-             LEFT JOIN " . ReadReplicaService::qualifiedRef('student_fee_balances') . " v
-               ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id
-              AND v.academic_year_term_id = sfo.academic_year_term_id
-             WHERE sae.student_id = ? AND sfo.academic_year_id = ?
-             ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED), sfo.id"
-        );
-        $obligationStmt->execute([$studentId, $yearId]);
-        $obligations = $obligationStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $feeLines = [];
-        $termTotals = [];
-        foreach ($obligations as $row) {
-            $status = strtolower((string) ($row['payment_status'] ?? $row['obligation_status'] ?? 'pending'));
-            $status = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
-            $feeLines[] = [
-                'term' => $row['term_name'] ?? $row['term_code'] ?? '',
-                'item' => $row['fee_item'] ?? 'School Fees',
-                'amount_due' => (float) $row['amount_due'],
-                'amount_paid' => (float) $row['amount_paid'],
-                'waived' => (float) $row['amount_waived'],
-                'balance' => (float) $row['balance'],
-                'status' => $status,
-            ];
-            $termKey = (string) ($row['term_name'] ?? $row['term_code'] ?? $row['id']);
-            if (!isset($termTotals[$termKey])) {
-                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
-            }
-            $termTotals[$termKey]['due'] += (float) $row['amount_due'];
-            $termTotals[$termKey]['paid'] = max($termTotals[$termKey]['paid'], (float) $row['amount_paid']);
-            $termTotals[$termKey]['waived'] = max($termTotals[$termKey]['waived'], (float) $row['amount_waived']);
-            $termTotals[$termKey]['balance'] = max($termTotals[$termKey]['balance'], (float) $row['balance']);
-        }
-
-        // Extra charges are intentionally stored separately from tuition
-        // obligations. Include the generated, student-specific occurrences
-        // so class/type/student-bound charges reach the statement as well.
-        $extraStmt = $db->prepare(
-            "SELECT eco.amount_due, eco.amount_paid, eco.status,
-                    eco.academic_year_term_id, t.name AS term_name,
-                    ec.name AS fee_item
-             FROM extra_charge_student_obligations eco
-             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.id = eco.student_academic_enrollment_id
-             JOIN extra_charge_schedules ecs ON ecs.id = eco.schedule_id
-             JOIN " . ReadReplicaService::qualifiedRef("extra_charges") . " ec ON ec.id = ecs.extra_charge_id
-             LEFT JOIN terms t ON t.id = (
-                 SELECT ayt.term_id FROM " . ReadReplicaService::qualifiedRef("academic_year_terms") . " ayt
-                 WHERE ayt.id = eco.academic_year_term_id LIMIT 1
-             )
-             WHERE sae.student_id = ? AND ec.academic_year_id = ?
-               AND eco.status <> 'cancelled'
-             ORDER BY eco.academic_year_term_id, eco.id"
-        );
-        $extraStmt->execute([$studentId, $yearId]);
-        foreach ($extraStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $amountDue = (float) $row['amount_due'];
-            $amountPaid = (float) $row['amount_paid'];
-            $waived = strtolower((string) $row['status']) === 'waived' ? $amountDue : 0.0;
-            $balance = max(0.0, $amountDue - $amountPaid - $waived);
-            $status = strtolower((string) $row['status']);
-            $displayStatus = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
-            $feeLines[] = [
-                'term' => $row['term_name'] ?? 'Other Charges',
-                'item' => $row['fee_item'] ?? 'Additional Charge',
-                'amount_due' => $amountDue,
-                'amount_paid' => $amountPaid,
-                'waived' => $waived,
-                'balance' => $balance,
-                'status' => $displayStatus,
-            ];
-            $termKey = (string) ($row['term_name'] ?? 'Other Charges');
-            if (!isset($termTotals[$termKey])) {
-                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
-            }
-            $termTotals[$termKey]['due'] += $amountDue;
-            $termTotals[$termKey]['paid'] += $amountPaid;
-            $termTotals[$termKey]['waived'] += $waived;
-            $termTotals[$termKey]['balance'] += $balance;
-        }
-
-        $paymentStmt = $db->prepare(
-            "SELECT receipt_no, amount AS amount_paid, payment_date, method AS payment_method,
-                    reference, status
-             FROM " . ReadReplicaService::qualifiedRef("payments") . "
-             WHERE student_id = ? AND payment_date BETWEEN
-                   (SELECT start_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
-                   AND (SELECT end_date FROM " . ReadReplicaService::qualifiedRef("academic_years") . " WHERE id = ?)
-                   AND status IN ('confirmed','completed','success')
-             ORDER BY payment_date DESC, id DESC"
-        );
-        $paymentStmt->execute([$studentId, $yearId, $yearId]);
-        $payments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+        $statement = (new FeeStatementService($this->getDb()))->forStudent($studentId, (int) $year['id']);
 
         return [
-            'student' => $student,
-            'academicYear' => $year['year_code'] ?? (string) $academicYear,
-            'feeLines' => $feeLines,
-            'payments' => $payments,
-            'summary' => [
-                'total_billed' => array_sum(array_column($termTotals, 'due')),
-                'total_paid' => array_sum(array_column($termTotals, 'paid')),
-                'total_waived' => array_sum(array_column($termTotals, 'waived')),
-                'total_balance' => array_sum(array_column($termTotals, 'balance')),
+            'statements' => [$statement],
+            // Identity and year at the top level for callers that log them.
+            'student' => $statement['student'],
+            'academicYear' => $statement['academic_year']['code'],
+            'summary' => $statement['summary'],
+        ];
+    }
+
+    /** Every learner in a class (or one stream): a summary page, then one page each. */
+    public function prepareClassFeeStatement(int $classId, ?int $streamId = null, $academicYear = null): array
+    {
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
+        }
+        $class = (new FeeStatementService($this->getDb()))->forClass($classId, $streamId, (int) $year['id']);
+        $first = $class['statements'][0]['student'] ?? [];
+        $label = trim(($first['class_name'] ?? 'Class') . ($streamId && !empty($first['stream_name']) ? ' ' . $first['stream_name'] : ''));
+
+        return [
+            'statements' => $class['statements'],
+            'summaryTable' => [
+                'title' => 'Class fee statement: ' . $label,
+                'subtitle' => $class['academic_year']['code'] . ' · ' . count($class['statements']) . ' learners',
+                'label' => 'Learner',
+                'rows' => array_map(static fn (array $s) => ['label' => $s['student']['name'] . ' (' . $s['student']['admission_no'] . ')'] + $s['summary'], $class['statements']),
+                'totals' => $class['totals'],
+            ],
+            'summary' => $class['totals'],
+            'signatureSection' => [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
             ],
         ];
+    }
+
+    /** Whole school: one summary row per class, with school totals. */
+    public function prepareSchoolFeeStatement($academicYear = null): array
+    {
+        $year = $this->resolvePrintableAcademicYear($academicYear);
+        if (!$year) {
+            throw new RuntimeException('Academic year not found.');
+        }
+        $school = (new FeeStatementService($this->getDb()))->forSchool((int) $year['id']);
+
+        return [
+            'statements' => [],
+            'summaryTable' => [
+                'title' => 'School fee statement',
+                'subtitle' => $school['academic_year']['code'] . ' · ' . (int) $school['totals']['learners'] . ' learners',
+                'label' => 'Class',
+                'rows' => array_map(static fn (array $c) => ['label' => $c['class_name'] . ' (' . $c['learners'] . ')'] + $c, $school['classes']),
+                'totals' => $school['totals'],
+            ],
+            'summary' => $school['totals'],
+            'signatureSection' => [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
+            ],
+        ];
+    }
+
+    /**
+     * A learner's academic record PDF (all years, in each year's class).
+     */
+    public function printLearnerRecord(int $studentId, array $config = []): string
+    {
+        $record = (new LearnerAcademicRecordService($this->getDb()))->forStudent($studentId);
+        $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Learner Academic Record',
+            'filename' => 'learner_record_' . $studentId . '_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'signatureSection' => [
+                ['label' => 'Class Teacher', 'dateLine' => true],
+                ['label' => 'Head Teacher', 'dateLine' => true],
+            ],
+        ], $config);
+        $templatePath = $this->printTemplatesPath . 'learner_record/learner_record_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Learner record template not found: {$templatePath}");
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, ['record' => $record], $config);
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => true,
+        ]);
     }
 
     public function printFeeStatement(array $data, array $config = []): string

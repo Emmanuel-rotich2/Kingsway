@@ -344,6 +344,28 @@ class FinanceController extends BaseController
     }
 
     /**
+     * POST /api/finance/fee-rollover-sync-worker
+     * Ticker job fee_rollover_sync (schedules.yaml). Moves balances brought
+     * forward into a new academic year to match the year they came from
+     * when that year changes after rollover (late payment, waiver, ...).
+     */
+    public function postFeeRolloverSyncWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            $result = (new \App\API\Services\FeeRolloverSyncService($this->db->getConnection()))->sync((int) ($data['limit'] ?? 500));
+            return $this->success($result, 'Brought-forward balances checked.');
+        } catch (\Throwable $e) {
+            \App\API\Includes\FileLogger::error('finance', ['action' => 'fee_rollover_sync_worker', 'error' => $e->getMessage()]);
+            return $this->serverError('Brought-forward balance check failed.');
+        }
+    }
+
+    /**
      * POST /api/finance/extra-charge-obligations-worker
      * Ticker job extra_charge_obligations (schedules.yaml). Replaces the
      * MariaDB event, which needed event_scheduler=ON.

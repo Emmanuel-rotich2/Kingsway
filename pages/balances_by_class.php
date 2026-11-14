@@ -20,9 +20,17 @@
                     <h4 class="mb-1"><i class="bi bi-layers me-2"></i>Balances by Class</h4>
                     <p class="text-muted mb-0">View fee balances and collections per class</p>
                 </div>
-                <button class="btn btn-outline-primary" id="exportReport">
-                    <i class="bi bi-file-excel me-1"></i> Export Report
-                </button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary" id="printClassStatement" title="Summary of the selected class, then one statement per learner">
+                        <i class="bi bi-printer me-1"></i> Class Statement
+                    </button>
+                    <button class="btn btn-outline-secondary" id="printSchoolStatement" title="One row per class with school totals">
+                        <i class="bi bi-printer me-1"></i> School Statement
+                    </button>
+                    <button class="btn btn-outline-primary" id="exportReport">
+                        <i class="bi bi-file-excel me-1"></i> Export Report
+                    </button>
+                </div>
             </div>
         </div>
     </div>

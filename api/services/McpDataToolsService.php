@@ -198,8 +198,13 @@ final class McpDataToolsService
         $class = $this->singleString($filters, 'class');
         $learningArea = $this->singleString($filters, 'learning_area');
 
-        $where = [];
-        $params = [];
+        // One academic year only (default: the current year). Rows from
+        // different years must never be added together.
+        $year = $this->singleString($filters, 'academic_year');
+        $where = [$year !== null
+            ? 'academic_year = ?'
+            : "academic_year = (SELECT year_code FROM " . $this->view('academic_years') . " WHERE is_current = 1 ORDER BY start_date DESC LIMIT 1)"];
+        $params = $year !== null ? [$year] : [];
         if ($class !== null) {
             $where[] = 'class_name = ?';
             $params[] = $class;
@@ -209,7 +214,7 @@ final class McpDataToolsService
             $params[] = $learningArea;
         }
 
-        $sql = 'SELECT class_name, stream_name, learning_area, term_name,
+        $sql = 'SELECT academic_year, class_name, stream_name, learning_area, term_name,
                        assessments_count, students_assessed, average_percentage,
                        ee_count, me_count, ae_count, be_count
                 FROM ' . $this->view('class_learning_area_performance');
@@ -238,7 +243,7 @@ final class McpDataToolsService
 
         return [
             'granularity' => 'level_learning_area',
-            'scope' => ['class' => $class, 'learning_area' => $learningArea],
+            'scope' => ['academic_year' => $year ?? 'current', 'class' => $class, 'learning_area' => $learningArea],
             'rows' => $rows,
             'totals' => [
                 'students_assessed' => $assessed,
@@ -263,37 +268,70 @@ final class McpDataToolsService
         $class = $this->singleString($filters, 'class');
         $status = $this->singleString($filters, 'status');
 
-        $where = ['is_current = 1'];
+        // The headcount is the roll of the CURRENT academic year: learners
+        // enrolled in that year, in that year's class/stream. The previous
+        // source (vw_current_enrollments, "status active") holds next year's
+        // roll once promotion has run, so this tool answered 0 for the
+        // current year. Completed/graduated learners were on this year's
+        // roll and stay counted for it.
+        $where = [
+            'ay.is_current = 1',
+            "sae.enrollment_status IN ('active', 'completed', 'graduated')",
+        ];
         $params = [];
         if ($class !== null) {
-            $where[] = 'class_stream = ?';
+            $where[] = "CONCAT(c.name, ' - ', sn.name) = ?";
             $params[] = $class;
         }
         if ($status !== null) {
-            $where[] = 'student_status = ?';
+            $where[] = 's.status = ?';
             $params[] = $status;
         }
-
-        $master = ConnectionManager::schemaFor(ConnectionManager::NS_MASTER);
-        $table = $master . '.vw_current_enrollments';
         $whereSql = implode(' AND ', $where);
+        $from = "FROM " . $this->view('student_academic_enrollments') . " sae
+             JOIN " . $this->view('academic_years') . " ay ON ay.id = sae.academic_year_id
+             JOIN " . $this->view('students') . " s ON s.id = sae.student_id
+             JOIN " . $this->view('persons') . " p ON p.id = s.person_id
+             JOIN " . $this->view('academic_year_class_streams') . " aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN " . $this->view('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN " . $this->view('classes') . " c ON c.id = ayc.class_id
+             LEFT JOIN " . $this->view('streams') . " sn ON sn.id = aycs.stream_id";
 
         $stmt = $this->pdo()->prepare(
-            "SELECT class_stream, gender, COUNT(*) AS count
-             FROM {$table} WHERE {$whereSql}
-             GROUP BY class_stream, gender
+            "SELECT CONCAT(c.name, ' - ', COALESCE(sn.name, '')) AS class_stream, p.gender,
+                    COUNT(DISTINCT sae.student_id) AS count
+             {$from} WHERE {$whereSql}
+             GROUP BY class_stream, p.gender
              ORDER BY class_stream ASC LIMIT " . self::MAX_LIMIT
         );
         $stmt->execute($params);
         $byClass = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $stmtTotal = $this->pdo()->prepare("SELECT COUNT(*) AS count FROM {$table} WHERE {$whereSql}");
+        $stmtTotal = $this->pdo()->prepare("SELECT COUNT(DISTINCT sae.student_id) AS count {$from} WHERE {$whereSql}");
         $stmtTotal->execute($params);
         $total = (int) ($stmtTotal->fetchColumn() ?: 0);
+
+        // Every enrollment status for the current year, so an answer can say
+        // e.g. "454 on the roll: 420 promoted, 34 graduated" and never folds
+        // transferred or withdrawn learners into the headcount silently.
+        $statusStmt = $this->pdo()->prepare(
+            "SELECT sae.enrollment_status, COUNT(DISTINCT sae.student_id) AS count
+             FROM " . $this->view('student_academic_enrollments') . " sae
+             JOIN " . $this->view('academic_years') . " ay ON ay.id = sae.academic_year_id
+             WHERE ay.is_current = 1
+             GROUP BY sae.enrollment_status"
+        );
+        $statusStmt->execute();
+        $byStatus = [];
+        foreach ($statusStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $byStatus[(string) $row['enrollment_status']] = (int) $row['count'];
+        }
 
         return [
             'granularity' => 'class_stream_gender',
             'total_active_enrollments' => $total,
+            'counting_rule' => 'Learners on the current academic year roll: enrollment status active, completed (promoted) or graduated. Transferred and withdrawn learners left during the year and pending learners are not yet admitted; they are reported in by_enrollment_status, not in the total.',
+            'by_enrollment_status' => $byStatus,
             'scope' => ['class' => $class, 'status' => $status],
             'by_class_gender' => $byClass,
         ];

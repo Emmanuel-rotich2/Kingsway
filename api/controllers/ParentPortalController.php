@@ -271,6 +271,18 @@ class ParentPortalController extends BaseController
     }
 
     /**
+     * GET /api/parent-portal/learner-record/{id}
+     * The child's academic record from the year they joined to now.
+     */
+    public function getLearnerRecord($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('student_id required');
+        }
+        return $this->handleApiResponse($this->parent->getLearnerRecord((int)$id));
+    }
+
+    /**
      * GET /api/parent-portal/fee-balance/{id}
      */
     public function getFeeBalance($id = null, $data = [], $segments = [])

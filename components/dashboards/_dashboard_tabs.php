@@ -15,8 +15,11 @@
  * data-export-module (the permission module, for AuthContext.canExport /
  * canPrint). js/components/dashboard_tabs.js lists them in the Export tab.
  *
- * Report rows are links to existing pages. The script hides any the signed-in
- * user cannot open, so the list never offers a page that would be refused.
+ * The Reports and Export panes are dashboards in their own right: they run
+ * the governed reports the server authorizes for the signed-in user
+ * (GET /reports/catalogue, POST /reports/execute) for one academic year and
+ * term, render them in place, and download or print them in place. Nothing
+ * navigates away. $reports is accepted for compatibility and no longer used.
  */
 
 if (!function_exists('kw_dashboard_tabs_open')) {
@@ -69,23 +72,14 @@ if (!function_exists('kw_dashboard_tabs_open')) {
         <div class="kw-pane">
             <div class="kw-pane-intro">
                 <h2 class="kw-pane-title">Reports</h2>
-                <p class="kw-pane-lede">Open a report to filter it, then download or print it from there.</p>
+                <p class="kw-pane-lede" data-kw-compare-lede>How the school compares between academic years and terms.</p>
             </div>
-            <ul class="kw-report-list" data-kw-report-list>
-                <?php foreach ($reports as $report): ?>
-                    <li data-kw-report-route="<?= htmlspecialchars($report['route']) ?>">
-                        <a class="kw-report" href="<?= htmlspecialchars($base) ?>/home.php?route=<?= rawurlencode($report['route']) ?>">
-                            <i class="bi <?= htmlspecialchars($report['icon']) ?> kw-report-icon" aria-hidden="true"></i>
-                            <span class="kw-report-body">
-                                <span class="kw-report-name"><?= htmlspecialchars($report['label']) ?></span>
-                                <span class="kw-report-about"><?= htmlspecialchars($report['about']) ?></span>
-                            </span>
-                            <i class="bi bi-chevron-right kw-report-go" aria-hidden="true"></i>
-                        </a>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
-            <p class="kw-pane-empty" data-kw-report-empty hidden>Your account has no report pages yet. Ask the system administrator to grant report access.</p>
+            <div class="kw-compare" data-kw-compare aria-live="polite">
+                <div class="kw-rcard-state">Loading the comparison…</div>
+            </div>
+            <h3 class="kw-export-heading kw-reports-heading">All reports <span class="kw-reports-scope" data-kw-report-scope></span></h3>
+            <div class="kw-report-grid" data-kw-report-grid aria-live="polite"></div>
+            <p class="kw-pane-empty" data-kw-report-empty hidden>Your account has no reports yet. Ask the system administrator to grant report access.</p>
         </div>
     </div>
 
@@ -93,8 +87,12 @@ if (!function_exists('kw_dashboard_tabs_open')) {
         <div class="kw-pane">
             <div class="kw-pane-intro">
                 <h2 class="kw-pane-title">Export and print</h2>
-                <p class="kw-pane-lede">Each table is exported as it appears on the overview, including any search you have applied.</p>
+                <p class="kw-pane-lede">Download or print straight from here. School reports cover the current academic year and its latest term.</p>
             </div>
+            <h3 class="kw-export-heading">School reports</h3>
+            <ul class="kw-export-list" data-kw-dataset-list></ul>
+            <h3 class="kw-export-heading">Tables on this dashboard</h3>
+            <p class="kw-pane-lede">Each table is exported as it appears on the overview, including any search you have applied.</p>
             <ul class="kw-export-list" data-kw-export-list></ul>
             <div class="kw-export-all">
                 <button type="button" class="btn btn-outline-secondary" data-kw-print-dashboard>

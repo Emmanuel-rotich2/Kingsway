@@ -678,4 +678,5 @@
 
 <!-- Link Controller Script -->
 <?php asset_script($appBase, 'public/vendor/sheetjs/xlsx.full.min.js'); ?>
+<?php asset_script($appBase, 'js/components/learner_record.js'); ?>
 <?php asset_script($appBase, 'js/pages/manage_students.js'); ?>

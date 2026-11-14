@@ -96,6 +96,7 @@ class CsrfMiddleware
             'attendance/process-register-reminders',
             'finance/kcb-reconciliation-worker',
             'finance/extra-charge-obligations-worker',
+            'finance/fee-rollover-sync-worker',
             // Internal cron callback authenticates with PAYMENT_SWEEP_WORKER_SECRET.
             'payments/stk-sweep-worker',
             // Date-driven academic year/term activation; authenticated by its

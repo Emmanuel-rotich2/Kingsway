@@ -162,6 +162,9 @@ const PrintManager = (() => {
       p9Form: "/api/print/p9-form",
       payslip: "/api/print/payslip",
       feeStatement: "/api/print/fee-statement",
+      classFeeStatement: "/api/print/class-fee-statement",
+      schoolFeeStatement: "/api/print/school-fee-statement",
+      learnerRecord: "/api/print/learner-record",
       invoice: "/api/print/invoice",
       timetable: "/api/print/timetable",
       fileDownload: "/api/print/download",
@@ -1795,6 +1798,42 @@ const PrintManager = (() => {
     }
   }
 
+  /** Class statement: a class summary, then one page per learner. */
+  async function printClassFeeStatement(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.classFeeStatement, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the class fee statement.");
+      throw error;
+    }
+  }
+
+  /** School statement: one summary row per class, with totals. */
+  async function printSchoolFeeStatement(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.schoolFeeStatement, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the school fee statement.");
+      throw error;
+    }
+  }
+
+  /** A learner's academic record across all years. */
+  async function printLearnerRecord(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.learnerRecord, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the academic record.");
+      throw error;
+    }
+  }
+
   async function printDedicatedReceipt(options = {}) {
     const config = normalizeConfig(options);
     try {
@@ -1950,6 +1989,9 @@ const PrintManager = (() => {
     printP9Form,
     printDedicatedPayslip,
     printFeeStatement,
+    printClassFeeStatement,
+    printSchoolFeeStatement,
+    printLearnerRecord,
     printInvoice,
     printTimetable,
     printMasterTimetable,

@@ -15,33 +15,62 @@ class StudentReportManager extends BaseAPI
         // Count students by class with gender breakdown
         // vw_current_enrollments joins enrollments -> students -> persons and the
         // class stream, exposing gender/class_name/stream_name (normalized schema).
-        $where = [];
-        $params = [];
+        // The roll is the learners enrolled in ONE academic year, each in the
+        // class/stream of that year. vw_current_enrollments means "status
+        // active", which after year-end promotion is next year's roll (420
+        // learners) while the current year still has 454. Default to the
+        // current academic year; completed/graduated learners were on that
+        // year's roll and stay counted for it.
+        $yearId = $filters['academic_year_id'] ?? null;
+        if (empty($yearId) && !empty($filters['year']) && ctype_digit((string) $filters['year'])) {
+            $yearStmt = $this->db->prepare(
+                "SELECT id FROM academic_years WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1"
+            );
+            $mid = sprintf('%04d-06-30', (int) $filters['year']);
+            $yearStmt->execute([$mid, $mid]);
+            $yearId = $yearStmt->fetchColumn() ?: null;
+        }
+        if (empty($yearId)) {
+            $yearId = $this->db->query(
+                "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY start_date DESC, id DESC LIMIT 1"
+            )->fetchColumn() ?: null;
+        }
+        if (empty($yearId)) {
+            return [];
+        }
+
+        $where = [
+            'sae.academic_year_id = ?',
+            "sae.enrollment_status IN ('active', 'completed', 'graduated')",
+        ];
+        $params = [(int) $yearId];
         if (!empty($filters['class_id'])) {
-            $where[] = 'class_id = ?';
-            $params[] = $filters['class_id'];
+            $where[] = 'c.id = ?';
+            $params[] = (int) $filters['class_id'];
         }
         if (!empty($filters['stream_id'])) {
-            $where[] = 'stream_id = ?';
-            $params[] = $filters['stream_id'];
+            $where[] = 'sn.id = ?';
+            $params[] = (int) $filters['stream_id'];
         }
-        if (!empty($filters['year'])) {
-            $where[] = 'YEAR(enrollment_date) = ?';
-            $params[] = $filters['year'];
-        }
-        $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+        $whereSql = 'WHERE ' . implode(' AND ', $where);
         $sql = "SELECT
-                    class_id,
-                    class_name,
-                    stream_id,
-                    stream_name,
-                    COUNT(CASE WHEN gender = 'male' THEN 1 END) AS boys,
-                    COUNT(CASE WHEN gender = 'female' THEN 1 END) AS girls,
-                    COUNT(*) AS total
-                FROM vw_current_enrollments
+                    c.id AS class_id,
+                    c.name AS class_name,
+                    sn.id AS stream_id,
+                    sn.name AS stream_name,
+                    COUNT(DISTINCT CASE WHEN p.gender = 'male' THEN sae.student_id END) AS boys,
+                    COUNT(DISTINCT CASE WHEN p.gender = 'female' THEN sae.student_id END) AS girls,
+                    COUNT(DISTINCT sae.student_id) AS total
+                FROM " . ReadReplicaService::qualifiedRef('student_academic_enrollments') . " sae
+                JOIN " . ReadReplicaService::qualifiedRef('students') . " s ON s.id = sae.student_id
+                JOIN " . ReadReplicaService::qualifiedRef('persons') . " p ON p.id = s.person_id
+                JOIN " . ReadReplicaService::qualifiedRef('academic_year_class_streams') . " aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN " . ReadReplicaService::qualifiedRef('academic_year_classes') . " ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN " . ReadReplicaService::qualifiedRef('classes') . " c ON c.id = ayc.class_id
+                LEFT JOIN " . ReadReplicaService::qualifiedRef('streams') . " sn ON sn.id = aycs.stream_id
                 {$whereSql}
-                GROUP BY class_id, class_name, stream_id, stream_name
-                ORDER BY class_name, stream_name";
+                GROUP BY c.id, c.name, c.grade_level, sn.id, sn.name
+                ORDER BY FIELD(c.grade_level, 'Playgroup', 'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'), c.name, sn.name";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -49,10 +78,13 @@ class StudentReportManager extends BaseAPI
     public function getEnrollmentTrends($filters = [])
     {
         // Enrollment trends by month/year (students.admission_date still live)
-        $where = ["status = 'active'"];
+        // student_directory has one row per enrollment (a learner appears
+        // once per academic year), so count distinct learners; its status
+        // column is student_status (the old `status` crashed this report).
+        $where = ["student_status = 'active'", 'admission_date IS NOT NULL'];
         $params = [];
         if (!empty($filters['year'])) { $where[] = 'YEAR(admission_date) = ?'; $params[] = (int) $filters['year']; }
-        $sql = "SELECT YEAR(admission_date) as year, MONTH(admission_date) as month, COUNT(*) as total
+        $sql = "SELECT YEAR(admission_date) as year, MONTH(admission_date) as month, COUNT(DISTINCT student_id) as total
                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . "  
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY year, month

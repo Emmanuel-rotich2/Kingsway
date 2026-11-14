@@ -241,10 +241,3 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/mpesa_settlements.js'); ?>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof MpesaSettlementsController !== 'undefined') {
-            MpesaSettlementsController.init();
-        }
-    });
-</script>

@@ -822,6 +822,17 @@ jobs:
   secret_env: [COMMUNICATION_WORKER_SECRET]
   payload: {}
   interval: 3600
+- name: fee_rollover_sync
+  kind: http
+  endpoint: /api/finance/fee-rollover-sync-worker
+  # Keeps balances brought forward into a new academic year equal to the
+  # outgoing year's balance when that year changes after rollover (a late
+  # payment, waiver or correction), so nobody is billed twice. Idempotent:
+  # learners whose balance has not changed are not touched.
+  secret_env: [COMMUNICATION_WORKER_SECRET]
+  payload:
+    limit: 500
+  interval: 120
 - name: realtime_cleanup
   kind: http
   endpoint: /api/realtime/cleanup

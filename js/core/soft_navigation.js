@@ -84,15 +84,20 @@
   }
 
   /**
-   * Execute an inline script string in the global scope.
-   * Kept for potential future use; currently disabled to avoid redeclaration
-   * errors on soft navigation.
+   * Execute a fragment's inline script. The code is wrapped in a block so
+   * its top-level const/let/class bindings stay local to that block. A
+   * failure in one block is reported and does not stop the navigation.
    */
-  function executeInlineScript(code) {
+  function executeInlineScript(code, host) {
     const s = document.createElement('script');
-    s.textContent = code;
-    document.head.appendChild(s);
-    s.remove();
+    s.textContent = `{\n${code}\n}`;
+    try {
+      (host || document.head).appendChild(s);
+    } catch (error) {
+      console.warn('Soft nav inline script failed:', error?.message || error);
+    } finally {
+      s.remove();
+    }
   }
 
   /**
@@ -188,7 +193,11 @@
       const inlineScripts = [];
       temp.querySelectorAll('script:not([src])').forEach((s) => {
         const code = s.textContent || s.innerHTML || '';
-        if (code.trim()) inlineScripts.push(code);
+        // Only classic scripts run; data blocks (application/json, templates)
+        // and modules (which cannot be block-wrapped) are left out.
+        const type = (s.getAttribute('type') || '').trim().toLowerCase();
+        const isClassic = type === '' || type === 'text/javascript' || type === 'application/javascript';
+        if (isClassic && code.trim()) inlineScripts.push(code);
         s.remove();
       });
 
@@ -235,11 +244,19 @@
         }
       }
 
-      // --- Do NOT re-execute inline scripts from fragments ---
-      // Inline <script> blocks use const/let at top level and would cause
-      // "redeclaration" errors on every soft-nav. Page controllers self-init
-      // via the kingsway:page-loaded event + synthetic DOMContentLoaded below,
-      // with `if (this.initialized) return;` guards to prevent double-init.
+      // --- Run the fragment's inline scripts ---
+      // Many pages start their controller only from an inline block
+      // (`document.addEventListener('DOMContentLoaded', () => x.init())`), and
+      // some keep all their logic inline. Skipping them left those pages inert
+      // on soft navigation (e.g. a spinner that never resolved). Each block
+      // runs in its own block scope, so top-level const/let from different
+      // pages cannot collide; a revisited route already takes the full-reload
+      // path above, so a page's own blocks never run twice in one document.
+      // Appending inside the content segment lets the DOMContentLoaded
+      // wrapper bind each listener to this route.
+      for (const code of inlineScripts) {
+        executeInlineScript(code, container);
+      }
 
       // --- Persist route for reload recovery ---
       window.UIStateManager?.saveRoute?.(route);

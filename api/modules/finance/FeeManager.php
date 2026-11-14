@@ -1404,23 +1404,50 @@ class FeeManager
             $stmt->execute([$studentId, $academicYearId]);
             $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $totalDue = array_sum(array_map(static fn($row) => (float) ($row['amount_due'] ?? 0), $obligations));
-            $totalPaid = array_sum(array_map(static fn($row) => (float) ($row['amount_paid'] ?? 0), $obligations));
-            $totalWaived = array_sum(array_map(static fn($row) => (float) ($row['amount_waived'] ?? 0), $obligations));
-            $totalBalance = array_sum(array_map(static fn($row) => (float) ($row['balance'] ?? 0), $obligations));
+            // Totals, brought-forward amounts, payments and the learner's
+            // class for THIS year come from the shared statement, so this
+            // view, the printed statement and every fee report agree. Summing
+            // the obligation rows double-counted a term's balance whenever a
+            // term had more than one fee item, ignored arrears or credit
+            // brought forward, and the class came from any active enrollment.
+            $statement = (new \App\API\Services\FeeStatementService($this->db))->forStudent((int) $studentId, (int) $academicYearId);
+            $summary = $statement['summary'];
+            $student['class_name'] = $statement['student']['class_name'];
+            $student['stream_name'] = $statement['student']['stream_name'];
+            $student['enrollment_status'] = $statement['student']['enrollment_status'];
+            $payments = array_map(static fn (array $p) => [
+                'receipt_no' => $p['receipt_no'],
+                'amount_paid' => $p['amount'],
+                'payment_date' => $p['payment_date'],
+                'payment_method' => $p['method'],
+                'reference' => $p['reference'],
+                'status' => 'confirmed',
+                'payment_status' => 'confirmed',
+                'academic_year' => $statement['academic_year']['code'],
+            ], $statement['payments']);
+            $totalDue = round($summary['arrears_brought_forward'] + $summary['fees_billed'], 2);
 
             return formatResponse(true, [
                 'student' => $student,
                 'summary' => [
                     'total_due' => $totalDue,
-                    'total_paid' => $totalPaid,
-                    'total_waived' => $totalWaived,
-                    'balance' => $totalBalance,
+                    'fees_billed' => $summary['fees_billed'],
+                    'arrears_brought_forward' => $summary['arrears_brought_forward'],
+                    'credit_brought_forward' => $summary['credit_brought_forward'],
+                    'total_paid' => $summary['payments_received'],
+                    'total_waived' => $summary['waived'],
+                    'credit_notes' => $summary['credit_notes'],
+                    'balance' => $summary['closing_balance'],
+                    'status' => $summary['status'],
                 ],
+                'brought_forward' => $statement['brought_forward'],
+                'terms' => $statement['terms'],
                 'obligations' => $obligations,
                 'payments' => $payments,
+                'money_in' => $statement['money_in'],
+                'reconciliation' => $statement['reconciliation'],
                 'balance' => [
-                    'balance' => $totalBalance
+                    'balance' => $summary['closing_balance']
                 ],
                 'academic_year' => $academicYear
             ]);

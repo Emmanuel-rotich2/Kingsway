@@ -224,6 +224,7 @@ if ($parentRealtimeBase !== '') {
 }
 ?>
 <?php asset_script($appBase, 'js/core/parent_common.js'); ?>
+<?php asset_script($appBase, 'js/components/learner_record.js'); ?>
 <?php asset_script($appBase, 'js/pages/' . ltrim($parentPageScript, '/') . '.js'); ?>
 <script>
   window.AppLogger?.init?.();

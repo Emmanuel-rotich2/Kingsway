@@ -884,7 +884,18 @@ const StudentFeesController = {
         summary.balance ?? balance.balance ?? 0,
       );
 
-      this.ui.feeBreakdownBody.innerHTML = obligations
+      // Balance brought forward from the previous academic year (arrears
+      // or an overpayment credit) is part of this year's balance.
+      const broughtForward = payload?.brought_forward || {};
+      const bfRows = [];
+      if (Number(broughtForward.arrears) > 0) {
+        bfRows.push(`<tr class="table-warning"><td>Arrears brought forward from ${this.escapeHtml ? this.escapeHtml(broughtForward.from_year || "previous year") : (broughtForward.from_year || "previous year")}</td><td>${this.formatCurrency(broughtForward.arrears)}</td><td></td></tr>`);
+      }
+      if (Number(broughtForward.credit) > 0) {
+        bfRows.push(`<tr class="table-info"><td>Credit brought forward from ${this.escapeHtml ? this.escapeHtml(broughtForward.from_year || "previous year") : (broughtForward.from_year || "previous year")}</td><td>−${this.formatCurrency(broughtForward.credit)}</td><td></td></tr>`);
+      }
+
+      this.ui.feeBreakdownBody.innerHTML = bfRows.join("") + obligations
         .map((item) => {
           const status = this.formatPaymentStatus(
             item.payment_status || "pending",
