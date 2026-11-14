@@ -728,17 +728,43 @@ class WebsiteController extends BaseController
      * GET /api/website/calendar-download?year=…
      * Public academic calendar PDF (streams the attachment and exits).
      */
+    /**
+     * GET /api/website/calendar-download?year=<id|code>
+     *
+     * Direct PDF download of one academic year's calendar (the Events page
+     * button and older shared links). Only the years the public Downloads page
+     * offers can be chosen; no year means the current one, as there.
+     */
     public function getCalendarDownload($id = null, $data = [], $segments = [])
     {
-        $yearId = !empty($data['year']) ? (int)$data['year'] : null;
-        $pdfPath = ($this->contract(\App\API\Services\PrintService::class))->printAcademicCalendar($yearId ? ['academicYear' => $yearId] : []);
-        $yearLabel = 'calendar';
-        if ($yearId) {
-            $code = $this->contract(\App\API\Services\AcademicContextService::class)->yearCode($yearId);
-            if ($code) $yearLabel = $code;
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+
+        $years = array_map(static function (array $year): array {
+            return [
+                'id' => (int) ($year['id'] ?? 0),
+                'year_code' => (string) ($year['year_code'] ?? ''),
+                'year_name' => (string) ($year['year_name'] ?? ''),
+                'status' => (string) ($year['status'] ?? ''),
+                'is_current' => (int) ($year['is_current'] ?? 0),
+            ];
+        }, $this->contract(\App\API\Services\AcademicContextService::class)->yearsNewestFirst() ?: []);
+
+        $input = trim((string) ($data['year'] ?? $data['academic_year'] ?? ''));
+        $year = $this->resolvePrintableYear($years, $input);
+        if (!$year) {
+            return $this->notFound('That academic calendar is not available.');
         }
+
+        try {
+            $pdfPath = ($this->contract(\App\API\Services\PrintService::class))
+                ->printAcademicCalendar(['academicYear' => (int) $year['id']]);
+        } catch (\Throwable $e) {
+            return $this->serverError('The academic calendar could not be generated right now.');
+        }
+
+        $label = preg_replace('/[^A-Za-z0-9_-]+/', '-', $year['year_code'] ?: $year['year_name']) ?: 'calendar';
         ($this->contract(\App\API\Services\DownloadService::class))->streamAbsolutePath(
-            $pdfPath, 'Kingsway_Academic_Calendar_' . $yearLabel . '.pdf', 'application/pdf', 'attachment'
+            $pdfPath, 'Kingsway_Academic_Calendar_' . trim($label, '-') . '.pdf', 'application/pdf', 'attachment'
         );
         exit; // streamAbsolutePath terminates; dead-code guard
     }

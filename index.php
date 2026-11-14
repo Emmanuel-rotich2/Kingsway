@@ -35,12 +35,11 @@ if ($route !== '' && $route !== 'home') {
     $facadeRoutes = require __DIR__ . '/public/layout/facade_routes.php';
     $routeTarget  = $facadeRoutes['public'][$route] ?? null;
     if ($routeTarget === null && strpos($route, 'r') === 0) {
-        foreach ($facadeRoutes['public'] as $routeKey => $targetFile) {
-            if (public_route_token($routeKey) === $route) {
-                $routeTarget = $targetFile;
-                break;
-            }
+        $routeKey = public_route_key_for_token($route);
+        if ($routeKey !== null) {
+            $routeTarget = $facadeRoutes['public'][$routeKey] ?? null;
         }
+        unset($routeKey);
     }
     unset($facadeRoutes);
     if ($routeTarget !== null) {

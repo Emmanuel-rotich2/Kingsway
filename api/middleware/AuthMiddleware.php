@@ -113,6 +113,9 @@ class AuthMiddleware
             // demand and return short-lived encrypted download URLs.
             'website/printable-downloads',
             'website/printable-download',
+            // Events page "Download Academic Calendar (PDF)"; the controller
+            // limits it to the years the Downloads page offers.
+            'website/calendar-download',
             'website/jobs',
             'website/settings',
             'website/content',

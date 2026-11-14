@@ -23,12 +23,6 @@
     Cultural: ['#e0f2f1', '#00695c'],
   };
 
-  const FALLBACK_TERMS = [
-    ['Term 1', 'Jan 20', 'Apr 4'],
-    ['Term 2', 'May 5', 'Aug 15'],
-    ['Term 3', 'Sep 1', 'Nov 28'],
-  ];
-
   function typeColor(type) {
     return TYPE_COLORS[type] || ['#f5f5f5', '#333'];
   }
@@ -62,6 +56,7 @@
         this.renderEvents(events);
         this.renderTerms(terms);
         this.renderCategories();
+        this.initCalendarDownload();
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[events] render failed:', err);
         const el = document.getElementById('events-list');
@@ -163,6 +158,45 @@
       }
     },
 
+    /**
+     * Year picker for the calendar PDF. It lists the same years as the
+     * Downloads page (current and upcoming), defaults to the current one and
+     * points the download link at /api/website/calendar-download?year=<code>
+     * through the existing public route, so no button press is needed.
+     */
+    async initCalendarDownload() {
+      const link = document.getElementById('events-calendar-download');
+      const wrap = document.getElementById('events-calendar-year-wrap');
+      const select = document.getElementById('eventsCalendarYear');
+      const label = document.getElementById('events-calendar-download-label');
+      if (!link || !wrap || !select) return;
+      const baseHref = link.getAttribute('href') || '';
+      let data;
+      try {
+        data = await PS.get('printable-downloads', {}, { tier: 'dynamic' });
+      } catch (err) {
+        if (window.KINGSWAY_DEBUG) console.warn('[events] calendar years unavailable:', err);
+        return; // the link keeps downloading the current year
+      }
+      const years = Array.isArray(data?.academic_years) ? data.academic_years : [];
+      if (!years.length) return;
+      const current = String(data.selected_academic_year || '');
+      select.innerHTML = years.map((year) => {
+        const value = String(year.year_code || year.id);
+        const text = year.is_current ? value + ' (current)' : value;
+        return '<option value="' + S(value) + '"' + (value === current ? ' selected' : '') + '>' + S(text) + '</option>';
+      }).join('');
+      const apply = () => {
+        const value = select.value;
+        const sep = baseHref.indexOf('?') === -1 ? '?' : '&';
+        link.setAttribute('href', baseHref + sep + 'year=' + encodeURIComponent(value));
+        if (label) label.textContent = 'Download ' + value + ' Calendar (PDF)';
+      };
+      select.onchange = apply;
+      apply();
+      wrap.style.display = years.length > 1 ? '' : 'none';
+    },
+
     renderTerms(data) {
       const el = document.getElementById('events-terms');
       if (!el) return;
@@ -183,12 +217,7 @@
         }).join('');
         return;
       }
-      el.innerHTML = FALLBACK_TERMS.map((t) =>
-        '<div class="mb-3 pb-3 border-bottom">' +
-        '<div class="fw-semibold small">' + t[0] + ' ' + new Date().getFullYear() + '</div>' +
-        '<div class="text-muted" style="font-size:.8rem">' + t[1] + ' — ' + t[2] + ' ' + new Date().getFullYear() + '</div>' +
-        '</div>'
-      ).join('');
+      el.innerHTML = '<div class="text-muted small mb-2">Term dates will be published here soon.</div>';
     },
 
     renderCategories() {
