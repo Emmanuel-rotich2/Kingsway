@@ -3546,40 +3546,48 @@ final class PrintService
         $evtStmt->execute([$rangeEnd, $rangeStart]);
         $allEvents = $evtStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        /* ── Deduplicate events ──────────────────────────────────────
-         * Same title → collapse into single row with date range.
-         * Skip test/dummy entries. */
+        /* ── Merge per-day rows into runs ────────────────────────────
+         * The calendar stores a break as one row per day, so consecutive rows
+         * with the same title become one dated range. Only consecutive days
+         * merge (a gap of up to 3 days bridges a weekend): the term-1 and
+         * term-2 "Half Term Break" stay two rows instead of one row from
+         * February to June. Skip test/dummy entries. */
         $deduped = [];
+        $openRun = []; // lower-cased title => index of its latest run
         foreach ($allEvents as $evt) {
             $title = trim($evt['title'] ?? '');
             if ($title === '' || str_starts_with($title, '__')) {
                 continue;
             }
             $key = mb_strtolower($title);
-            if (!isset($deduped[$key])) {
-                $deduped[$key] = [
-                    'title'      => $title,
-                    'type'       => $evt['type'],
-                    'start_date' => $evt['start_date'],
-                    'end_date'   => $evt['end_date'] ?? $evt['start_date'],
-                    'location'   => $evt['location'] ?? '',
-                    'start_time' => $evt['start_time'] ?? '00:00:00',
-                    'end_time'   => $evt['end_time'] ?? '23:59:00',
-                ];
-            } else {
-                if ($evt['start_date'] < $deduped[$key]['start_date']) {
-                    $deduped[$key]['start_date'] = $evt['start_date'];
-                    $deduped[$key]['start_time'] = $evt['start_time'] ?? '00:00:00';
+            $evtStart = $evt['start_date'];
+            $evtEnd = $evt['end_date'] ?? $evt['start_date'];
+            if (isset($openRun[$key])) {
+                $run = &$deduped[$openRun[$key]];
+                $bridge = date('Y-m-d', strtotime($run['end_date'] . ' +3 days'));
+                if ($evtStart <= $bridge) {
+                    if ($evtEnd > $run['end_date']) {
+                        $run['end_date'] = $evtEnd;
+                        $run['end_time'] = $evt['end_time'] ?? '23:59:00';
+                    }
+                    if (empty($run['location']) && !empty($evt['location'])) {
+                        $run['location'] = $evt['location'];
+                    }
+                    unset($run);
+                    continue;
                 }
-                $end = $evt['end_date'] ?? $evt['start_date'];
-                if ($end > $deduped[$key]['end_date']) {
-                    $deduped[$key]['end_date'] = $end;
-                    $deduped[$key]['end_time'] = $evt['end_time'] ?? '23:59:00';
-                }
-                if (empty($deduped[$key]['location']) && !empty($evt['location'])) {
-                    $deduped[$key]['location'] = $evt['location'];
-                }
+                unset($run);
             }
+            $deduped[] = [
+                'title'      => $title,
+                'type'       => $evt['type'],
+                'start_date' => $evtStart,
+                'end_date'   => $evtEnd,
+                'location'   => $evt['location'] ?? '',
+                'start_time' => $evt['start_time'] ?? '00:00:00',
+                'end_time'   => $evt['end_time'] ?? '23:59:00',
+            ];
+            $openRun[$key] = array_key_last($deduped);
         }
 
         /* ── Classify each deduplicated event into a term or gap ──── */
@@ -3593,6 +3601,8 @@ final class PrintService
             $boundaries[$i] = [
                 'start' => $tr['opening_date'],
                 'end'   => $tr['closing_date'],
+                'half_term_start' => $tr['half_term_start'] ?? null,
+                'half_term_end'   => ($tr['half_term_end'] ?? null) ?: ($tr['half_term_start'] ?? null),
             ];
             $termEvents[$i] = [];
         }
@@ -3616,7 +3626,15 @@ final class PrintService
             foreach ($boundaries as $i => $b) {
                 // Event overlaps this term?
                 if ($start <= $b['end'] && $end >= $b['start']) {
-                    $termEvents[$i][] = $this->formatCalendarEvent($evt, $b);
+                    // The term's own "Half-Term Break" row already shows the
+                    // school holiday that falls inside the half-term dates.
+                    $insideHalfTerm = $type === 'school_holiday'
+                        && !empty($b['half_term_start'])
+                        && $start <= $b['half_term_end']
+                        && $end >= $b['half_term_start'];
+                    if (!$insideHalfTerm) {
+                        $termEvents[$i][] = $this->formatCalendarEvent($evt, $b);
+                    }
                     $placed = true;
                     break;
                 }
