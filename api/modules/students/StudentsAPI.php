@@ -842,7 +842,7 @@ class StudentsAPI extends BaseAPI
         }
 
         $sql = "SELECT DISTINCT p.id
-                FROM " . ReadReplicaService::qualifiedRef("student_parents") . "
+                FROM " . ReadReplicaService::qualifiedRef("parents") . " p
                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " pp ON pp.id = p.person_id
                 WHERE " . implode(' OR ', array_map(static fn($condition) => "({$condition})", $conditions));
 

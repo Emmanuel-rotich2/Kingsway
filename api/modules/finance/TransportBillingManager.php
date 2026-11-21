@@ -206,10 +206,11 @@ class TransportBillingManager
                    COALESCE(SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)), 0) AS total_outstanding,
                    COALESCE(SUM(CASE WHEN tmb.payment_status='paid' THEN 1 ELSE 0 END), 0) AS paid_count,
                    COALESCE(SUM(CASE WHEN tmb.payment_status='pending' THEN 1 ELSE 0 END), 0) AS pending_count
-            FROM transport_monthly_bills tmb
+            FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " tmb
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid
-                FROM " . ReadReplicaService::qualifiedRef("transport_monthly_bills") . " BY bill_id
+                FROM transport_bill_payments
+                GROUP BY bill_id
             ) tbp_sum ON tbp_sum.bill_id = tmb.id
             WHERE tmb.billing_month = :bm
         ");

@@ -833,7 +833,8 @@ class StudentInsightsService
                     COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as days_absent,
                     COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as days_late,
                     ROUND((COUNT(CASE WHEN sa.status = 'present' OR sa.status = 'late' THEN 1 END) / COUNT(*)) * 100, 2) as attendance_rate
-             FROM " . ReadReplicaService::qualifiedRef("student_attendance_enrollment") . " 
+             FROM " . ReadReplicaService::qualifiedRef("student_attendance") . " sa
+             JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " ae ON ae.id = sa.student_academic_enrollment_id
              WHERE " . implode(' AND ', $conditions),
             $bindings
         ) ?: ['days_present' => 0, 'days_absent' => 0, 'days_late' => 0, 'attendance_rate' => 100.00];

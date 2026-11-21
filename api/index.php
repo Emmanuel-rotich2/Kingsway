@@ -259,8 +259,10 @@ if (is_array($response) && !empty($response['ipn_raw'])) {
     $idempotencySettled = true;
     return;
 }
-$response = \App\API\Includes\ApiResponse::normalize(
-    is_array($response) ? $response : ['data' => $response]
+$response = \App\API\Includes\ApiResponse::redactInternalErrors(
+    \App\API\Includes\ApiResponse::normalize(
+        is_array($response) ? $response : ['data' => $response]
+    )
 );
 if (!headers_sent() && !$response['success']) {
     http_response_code((int) ($response['code'] ?? 500));

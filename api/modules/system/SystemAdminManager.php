@@ -2162,7 +2162,11 @@ class SystemAdminManager extends BaseAPI
             return [];
         }
 
-        $safeColumns = preg_replace('/[^a-zA-Z0-9_ ,\.\(\)]/', '', $columns);
+        // '*' must survive the sanitiser: stripping it produced "SELECT  FROM".
+        $safeColumns = trim($columns) === '*' ? '*' : preg_replace('/[^a-zA-Z0-9_ ,\.\(\)]/', '', $columns);
+        if (trim((string) $safeColumns) === '') {
+            $safeColumns = '*';
+        }
         $safeOrderBy = preg_replace('/[^a-zA-Z0-9_ ,\.]/', '', $orderBy);
         $limit = max(1, min($limit, 1000));
 

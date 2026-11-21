@@ -2150,7 +2150,8 @@ if ($canViewPayment || $canRecordPayment) {
 
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
-                     FROM " . ReadReplicaService::qualifiedRef("admission_application_workflow") . " 
+                     FROM admission_applications aa
+                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                      WHERE ({$interviewStageSql})
                        AND aa.status NOT IN ('cancelled', 'enrolled'){$scopeFilter}"
                 );
