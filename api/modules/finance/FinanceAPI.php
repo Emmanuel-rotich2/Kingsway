@@ -910,7 +910,7 @@ class FinanceAPI extends BaseAPI
                     COALESCE(SUM(ps.net_salary), 0) AS total_net,
                     pr.status,
                     pr.created_at
-                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE $prScope
                 GROUP BY pr.id, pr.month, pr.year, pr.status, pr.created_at
@@ -1651,7 +1651,7 @@ class FinanceAPI extends BaseAPI
                     COALESCE(SUM(ps.gross_salary - ps.net_salary), 0) AS total_deductions,
                     COALESCE(SUM(ps.net_salary), 0) AS total_net,
                     pr.created_at
-                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . "
+                FROM " . ReadReplicaService::qualifiedRef("payroll_runs") . " pr
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("payslips") . " ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope = pr.data_scope
                 WHERE $scopeSql";
 

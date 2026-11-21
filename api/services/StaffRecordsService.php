@@ -636,7 +636,7 @@ final class StaffRecordsService
                     s.staff_no,
                     CONCAT(pp.first_name, ' ', pp.last_name) AS processed_by_name,
                     CONCAT(cp.first_name, ' ', cp.last_name) AS created_by_name
-             FROM " . ReadReplicaService::qualifiedRef("staff_offboarding") . "
+             FROM " . ReadReplicaService::qualifiedRef("staff_offboarding") . " so
              JOIN " . ReadReplicaService::qualifiedRef("staff") . " s ON s.id = so.staff_id
              JOIN " . ReadReplicaService::qualifiedRef("person_directory") . " sp ON sp.person_id = s.person_id
              LEFT JOIN " . ReadReplicaService::qualifiedRef("staff") . " p ON p.id = so.processed_by

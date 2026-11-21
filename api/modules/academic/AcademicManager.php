@@ -2539,20 +2539,20 @@ if ($classId) {
                         COUNT(fs.id) AS assessment_count,
                         ROUND(AVG(fs.percentage),2) AS formative_avg_pct, $gradeCase";
                 $group  = 's.id, st.id, ss.id';
-                $order  = 's.last_name, la.name, st.sort_order, ss.sort_order';
+                $order  = 'p.last_name, la.name, st.sort_order, ss.sort_order';
             } elseif ($mode === 'strand') {
                 $select = "la.id AS learning_area_id, la.name AS learning_area_name,
                         st.id AS strand_id, st.name AS strand_name,
                         COUNT(fs.id) AS assessment_count,
                         ROUND(AVG(fs.percentage),2) AS formative_avg_pct, $gradeCase";
                 $group  = 's.id, st.id';
-                $order  = 's.last_name, la.name, st.sort_order';
+                $order  = 'p.last_name, la.name, st.sort_order';
             } else {
                 $select = "la.id AS learning_area_id, la.name AS learning_area_name,
                         COUNT(fs.id) AS assessment_count,
                         ROUND(AVG(fs.percentage),2) AS formative_avg_pct, $gradeCase";
                 $group  = 's.id, la.id';
-                $order  = 's.last_name, la.name';
+                $order  = 'p.last_name, la.name';
             }
 
             $rows = $this->dbQuery(
@@ -2561,7 +2561,16 @@ if ($classId) {
                     CONCAT(p.first_name,' ',p.last_name) AS student_name,
                     s.admission_no,
                     $select
-                 FROM " . ReadReplicaService::qualifiedRef("student_directory") . " 
+                 FROM " . ReadReplicaService::qualifiedRef("students") . " s
+                 JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
+                 JOIN " . ReadReplicaService::qualifiedRef("student_academic_enrollments") . " sae ON sae.student_id = s.id
+                      AND sae.academic_year_class_stream_id = :cid
+                      AND sae.enrollment_status = 'active'
+                 JOIN formative_scores fs ON fs.student_id = s.id
+                 JOIN " . ReadReplicaService::qualifiedRef("assessments") . " a ON a.id = fs.assessment_id AND a.academic_year_term_id = :tid AND a.is_formative = 1
+                 JOIN " . ReadReplicaService::qualifiedRef("learning_areas") . " la ON la.id = a.learning_area_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("sub_strands") . " ss ON ss.id = a.sub_strand_id
+                 LEFT JOIN " . ReadReplicaService::qualifiedRef("strands") . " st ON st.id = a.strand_id
                  WHERE (:sid1 = 0 OR la.id = :sid2)
                    AND s.status = 'active'
                    $filters

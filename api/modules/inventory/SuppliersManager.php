@@ -43,7 +43,7 @@ class SuppliersManager extends BaseAPI
                     s.*,
                     COUNT(DISTINCT po.id) as total_orders,
                     SUM(po.total_amount) as total_purchase_value
-                FROM " . ReadReplicaService::qualifiedRef("suppliers") . "
+                FROM " . ReadReplicaService::qualifiedRef("suppliers") . " s
                 LEFT JOIN " . ReadReplicaService::qualifiedRef("purchase_orders") . " po ON s.id = po.supplier_id
                 $where
                 GROUP BY s.id

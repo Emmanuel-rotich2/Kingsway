@@ -43,7 +43,7 @@ class InventoryReportManager extends BaseAPI
                                 WHEN i.current_quantity <= GREATEST(i.minimum_quantity, i.reorder_level) THEN 'low_stock'
                                 ELSE 'adequate' END AS stock_status,
                            i.unit, c.name AS category
-                    FROM " . ReadReplicaService::qualifiedRef("inventory_items") . "
+                    FROM " . ReadReplicaService::qualifiedRef("inventory_items") . " i
                     LEFT JOIN " . ReadReplicaService::qualifiedRef("inventory_categories") . " c ON i.category_id = c.id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY i.name";
