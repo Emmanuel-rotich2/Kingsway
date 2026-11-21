@@ -22,6 +22,18 @@ try {
     $realtimeConnectOrigin = '';
 }
 
+// Loopback connect-src is a local-development convenience only; a public
+// host must never let page scripts talk to arbitrary localhost ports.
+$devConnectSrc = '';
+try {
+    \App\Config\Config::init();
+    if (!\App\Config\Config::isProduction()) {
+        $devConnectSrc = ' http://localhost:*';
+    }
+} catch (\Throwable $cspEnvError) {
+    $devConnectSrc = '';
+}
+
 if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
@@ -32,7 +44,7 @@ if (!headers_sent()) {
         . "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
         . "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
         . "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; "
-        . "connect-src 'self' http://localhost:*" . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
-        . "frame-ancestors 'none'; form-action 'self'"
+        . "connect-src 'self'" . $devConnectSrc . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
+        . "frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
     );
 }

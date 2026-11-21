@@ -50,28 +50,41 @@ final class IpAccessControlService
             return $remoteAddress;
         }
 
-        $candidates = [];
-        if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-            $candidates[] = trim(
-                (string) $_SERVER['HTTP_CF_CONNECTING_IP']
-            );
+        // Only values a trusted proxy wrote count. The LEFT end of
+        // X-Forwarded-For (and any CF-Connecting-IP header) is whatever the
+        // client sent, so reading it first let a visitor pick the address
+        // the IP allow/block rules judged. Walk X-Forwarded-For from the
+        // right, skipping our own proxies; the first other hop is the
+        // client. X-Real-IP is used only when the chain gives nothing.
+        // CF-Connecting-IP is honoured only when TRUST_CF_CONNECTING_IP is
+        // set (i.e. the site is really behind Cloudflare).
+        $trustCloudflare = filter_var(
+            $_ENV['TRUST_CF_CONNECTING_IP'] ?? getenv('TRUST_CF_CONNECTING_IP') ?: 'false',
+            FILTER_VALIDATE_BOOLEAN
+        );
+        if ($trustCloudflare && !empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $cf = trim((string) $_SERVER['HTTP_CF_CONNECTING_IP']);
+            if (self::isValidIp($cf)) {
+                return $cf;
+            }
         }
         if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            foreach (
+            $hops = array_reverse(array_map(
+                'trim',
                 explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR'])
-                as $candidate
-            ) {
-                $candidates[] = trim($candidate);
+            ));
+            foreach ($hops as $hop) {
+                if (!self::isValidIp($hop)) {
+                    break;
+                }
+                if (!self::isTrustedProxy($hop)) {
+                    return $hop;
+                }
             }
         }
-        if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-            $candidates[] = trim((string) $_SERVER['HTTP_X_REAL_IP']);
-        }
-
-        foreach ($candidates as $candidate) {
-            if (self::isValidIp($candidate)) {
-                return $candidate;
-            }
+        $realIp = trim((string) ($_SERVER['HTTP_X_REAL_IP'] ?? ''));
+        if (self::isValidIp($realIp)) {
+            return $realIp;
         }
 
         return $remoteAddress;

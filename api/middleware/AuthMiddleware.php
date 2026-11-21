@@ -19,7 +19,9 @@ class AuthMiddleware
      */
     public static function handle()
     {
-        $path = strtolower($_SERVER['REQUEST_URI']);
+        // Public endpoints are matched against the URL path only, never the
+        // query string.
+        $path = strtolower((string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? ''));
 
         // Public endpoints that don't require JWT
         $publicEndpoints = [

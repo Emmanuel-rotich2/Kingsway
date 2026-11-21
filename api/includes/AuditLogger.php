@@ -380,15 +380,12 @@ class AuditLogger
      */
     private function getClientIP(): string
     {
-        $ipKeys = ['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 
-                   'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR'];
-        
-        foreach ($ipKeys as $key) {
-            if (isset($_SERVER[$key]) && filter_var($_SERVER[$key], FILTER_VALIDATE_IP)) {
-                return $_SERVER[$key];
-            }
+        // Trusted-proxy aware; never the client-supplied Client-IP/X-Forwarded-For.
+        $ip = \App\API\Services\IpAccessControlService::resolveClientIp();
+        if ($ip !== '') {
+            return $ip;
         }
-        
+
         return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     }
 
