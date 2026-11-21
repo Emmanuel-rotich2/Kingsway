@@ -104,15 +104,11 @@ final class Logger
 
     private static function clientIp(): ?string
     {
-        foreach (['HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $key) {
-            if (!empty($_SERVER[$key])) {
-                $ip = trim(explode(',', (string) $_SERVER[$key])[0]);
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
-                }
-            }
-        }
-        return $_SERVER['REMOTE_ADDR'] ?? null;
+        // Same trusted-proxy rules as IP access control: Client-IP and the
+        // left end of X-Forwarded-For are client-chosen and must not be what
+        // the security journal records.
+        $ip = IpAccessControlService::resolveClientIp();
+        return $ip !== '' ? $ip : ($_SERVER['REMOTE_ADDR'] ?? null);
     }
 
     /**

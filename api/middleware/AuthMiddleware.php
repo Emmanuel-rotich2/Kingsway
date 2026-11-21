@@ -19,7 +19,10 @@ class AuthMiddleware
      */
     public static function handle()
     {
-        $path = strtolower($_SERVER['REQUEST_URI']);
+        // Match public endpoints against the URL PATH only. REQUEST_URI also
+        // carries the query string, so a substring test on it let any route
+        // skip the JWT gate by appending e.g. ?x=website/news.
+        $path = strtolower((string) (parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? ''));
 
         // Public endpoints that don't require JWT
         $publicEndpoints = [

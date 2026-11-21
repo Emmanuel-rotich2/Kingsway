@@ -164,6 +164,12 @@ class WebsiteController extends BaseController
     public function getNews($id = null, $data = [], $segments = [])
     {
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        // Visitors see published articles only: no ?status=draft listing and
+        // no reading an unpublished article by guessing its id.
+        if (!$this->user) {
+            $data['status'] = 'published';
+            $data['published_only'] = true;
+        }
         return $this->handleResponse($this->manager->getNews($id, $data));
     }
 
@@ -498,6 +504,9 @@ class WebsiteController extends BaseController
     public function getJobs($id = null, $data = [], $segments = [])
     {
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        if (!$this->user) {
+            $data['status'] = 'open';
+        }
         return $this->handleResponse($this->manager->getJobs($id, $data));
     }
 
