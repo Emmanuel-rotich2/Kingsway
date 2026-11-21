@@ -169,7 +169,8 @@ class StudentProfileManager extends BaseAPI
         }
 
         $sql = "SELECT DISTINCT p.id
-                FROM " . ReadReplicaService::qualifiedRef("person_directory") . "
+                FROM " . ReadReplicaService::qualifiedRef("parents") . " p
+                INNER JOIN " . ReadReplicaService::qualifiedRef("persons") . " pg ON pg.id = p.person_id
                 WHERE " . implode(' OR ', array_map(static fn($condition) => "({$condition})", $conditions)) . "
                 ORDER BY p.id ASC";
 

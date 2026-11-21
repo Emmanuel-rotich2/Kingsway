@@ -258,11 +258,21 @@ class ControllerRouter
                 'code' => 200,
             ];
 
+        } catch (\PDOException | \mysqli_sql_exception $e) {
+            // Database errors extend RuntimeException; without this branch the
+            // raw SQLSTATE text (query fragments, table names) reached the user.
+            // Log the detail, return a generic message.
+            \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->abort(500, 'An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(400, $e->getMessage());
         } catch (\RuntimeException $e) {
             \App\API\Services\Logger::legacyError('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if (stripos($e->getMessage(), 'SQLSTATE') !== false) {
+                // A wrapped database error: same rule, never echo it.
+                return $this->abort(500, 'An internal error occurred.');
+            }
             $code = (int) $e->getCode();
             if ($code === 404) {
                 return $this->abort(404, $e->getMessage());

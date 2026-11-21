@@ -889,7 +889,7 @@ class InventoryAPI extends BaseAPI
             }
             $stmt = $this->db->prepare(
                 "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
-                 FROM " . ReadReplicaService::qualifiedRef("fixed_assets") . "
+                 FROM " . ReadReplicaService::qualifiedRef("fixed_assets") . " fa
                  LEFT JOIN asset_categories ac ON ac.id = fa.category_id
                  WHERE " . implode(' AND ', $where) . " ORDER BY ac.name, fa.name"
             );

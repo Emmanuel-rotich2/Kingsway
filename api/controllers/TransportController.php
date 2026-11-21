@@ -891,7 +891,7 @@ return $this->serverError('An internal error occurred.');
     {
         if ($guard = $this->guardTransport()) return $guard;
         $filters = [
-            'billing_month'  => $_GET['billing_month']  ?? $data['billing_month']  ?? null,
+            'billing_month'  => $this->billingMonthParam($data),
             'student_id'     => $_GET['student_id']     ?? $data['student_id']     ?? null,
             'route_id'       => $_GET['route_id']       ?? $data['route_id']       ?? null,
             'payment_status' => $_GET['payment_status'] ?? $data['payment_status'] ?? null,
@@ -905,8 +905,20 @@ return $this->serverError('An internal error occurred.');
     public function getBillsSummary($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
-        $billingMonth = $_GET['billing_month'] ?? $data['billing_month'] ?? date('Y-m-01');
+        $billingMonth = $this->billingMonthParam($data) ?? date('Y-m-01');
         return $this->success($this->billing->getMonthlyBillingSummary($billingMonth));
+    }
+
+    /**
+     * Billing month from `billing_month` or `month` (the transport page sends
+     * `month=YYYY-MM`). Normalised to the stored YYYY-MM-01; null when absent.
+     */
+    private function billingMonthParam(array $data): ?string
+    {
+        $raw = trim((string) ($_GET['billing_month'] ?? $data['billing_month'] ?? $_GET['month'] ?? $data['month'] ?? ''));
+        if ($raw === '') return null;
+        if (preg_match('/^(\d{4})-(\d{2})(?:-\d{2})?$/', $raw, $m) !== 1) return null;
+        return $m[1] . '-' . $m[2] . '-01';
     }
 
     /** POST /api/transport/bills-record-payment/{id} */

@@ -232,7 +232,7 @@ class ChaplaincyAPI extends BaseAPI
                     v.police_clearance_verified, v.notes, v.is_active,
                     r.name AS role_name,
                     v.linked_student_id
-             FROM " . ReadReplicaService::qualifiedRef("chaplaincy_volunteers") . "
+             FROM " . ReadReplicaService::qualifiedRef("chaplaincy_volunteers") . " v
              LEFT JOIN chaplaincy_team_roles r ON r.id = v.role_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY v.full_name"
