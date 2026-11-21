@@ -156,10 +156,10 @@
                 <p class="mb-0 text-muted">Complete admissions management workspace</p>
             </div>
             <div class="d-flex gap-2">
-                <button class="btn btn-light" onclick="admissionsWorkspaceController.refreshAll()">
+                <button class="btn btn-light" data-kw-onclick="admissionsWorkspaceController.refreshAll()">
                     <i class="bi bi-arrow-clockwise me-2"></i>Refresh
                 </button>
-                <button class="btn btn-light" onclick="admissionsWorkspaceController.newApplication()">
+                <button class="btn btn-light" data-kw-onclick="admissionsWorkspaceController.newApplication()">
                     <i class="bi bi-plus-circle me-2"></i>New Application
                 </button>
             </div>
@@ -170,48 +170,48 @@
         <!-- Tab Navigation -->
         <ul class="nav nav-tabs admissions-tabs" id="admissionsTabs">
             <li class="nav-item">
-                <button class="nav-link active" data-tab="applications" onclick="admissionsWorkspaceController.switchTab('applications')">
+                <button class="nav-link active" data-tab="applications" data-kw-onclick="admissionsWorkspaceController.switchTab('applications')">
                     <i class="bi bi-file-earmark-text me-2"></i>Applications
                     <span class="badge bg-secondary" id="tabBadgeApplications">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="documents" onclick="admissionsWorkspaceController.switchTab('documents')">
+                <button class="nav-link" data-tab="documents" data-kw-onclick="admissionsWorkspaceController.switchTab('documents')">
                     <i class="bi bi-file-earmark-check me-2"></i>Application Intake
                     <span class="badge bg-warning" id="tabBadgeDocuments">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="interviews" onclick="admissionsWorkspaceController.switchTab('interviews')">
+                <button class="nav-link" data-tab="interviews" data-kw-onclick="admissionsWorkspaceController.switchTab('interviews')">
                     <i class="bi bi-calendar-check me-2"></i>Interviews
                     <span class="badge bg-info" id="tabBadgeInterviews">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="decisions" onclick="admissionsWorkspaceController.switchTab('decisions')">
+                <button class="nav-link" data-tab="decisions" data-kw-onclick="admissionsWorkspaceController.switchTab('decisions')">
                     <i class="bi bi-person-badge me-2"></i>Admission Numbers
                     <span class="badge bg-primary" id="tabBadgeDecisions">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="placements" onclick="admissionsWorkspaceController.switchTab('placements')">
+                <button class="nav-link" data-tab="placements" data-kw-onclick="admissionsWorkspaceController.switchTab('placements')">
                     <i class="bi bi-award me-2"></i>Placement &amp; Payments
                     <span class="badge bg-success" id="tabBadgePlacements">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="enrollment" onclick="admissionsWorkspaceController.switchTab('enrollment')">
+                <button class="nav-link" data-tab="enrollment" data-kw-onclick="admissionsWorkspaceController.switchTab('enrollment')">
                     <i class="bi bi-person-check me-2"></i>Final Enrollment
                     <span class="badge bg-danger" id="tabBadgeEnrollment">0</span>
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="windows" onclick="admissionsWorkspaceController.switchTab('windows')">
+                <button class="nav-link" data-tab="windows" data-kw-onclick="admissionsWorkspaceController.switchTab('windows')">
                     <i class="bi bi-door-open me-2"></i>Intake Windows
                 </button>
             </li>
             <li class="nav-item" id="admissionRequirementsTabNav">
-                <button class="nav-link" data-tab="requirements" onclick="admissionsWorkspaceController.switchTab('requirements')">
+                <button class="nav-link" data-tab="requirements" data-kw-onclick="admissionsWorkspaceController.switchTab('requirements')">
                     <i class="bi bi-list-check me-2"></i>Requirements
                 </button>
             </li>
@@ -397,7 +397,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 

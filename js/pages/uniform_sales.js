@@ -261,16 +261,16 @@ const UniformSalesController = {
 
                             <div class="d-flex gap-2">
                                 <button class="btn btn-outline-primary btn-sm flex-fill" 
-                                        onclick="UniformSalesController.viewSizes(${item.id})">
+                                        data-kw-onclick="UniformSalesController.viewSizes(${item.id})">
                                     <i class="bi bi-eye me-1"></i>View Sizes
                                 </button>
                                 <button class="btn btn-success btn-sm" 
-                                        onclick="UniformSalesController.showRestockModal(${item.id})"
+                                        data-kw-onclick="UniformSalesController.showRestockModal(${item.id})"
                                         title="Restock">
                                     <i class="bi bi-plus"></i>
                                 </button>
                                 <button class="btn btn-primary btn-sm" 
-                                        onclick="UniformSalesController.showNewSaleModal(${item.id})"
+                                        data-kw-onclick="UniformSalesController.showNewSaleModal(${item.id})"
                                         title="Quick Sale">
                                     <i class="bi bi-cart"></i>
                                 </button>
@@ -332,7 +332,7 @@ const UniformSalesController = {
                                             <td>${size.last_restocked ? new Date(size.last_restocked).toLocaleDateString() : 'Never'}</td>
                                             <td>
                                                 <button class="btn btn-success btn-sm" 
-                                                        onclick="UniformSalesController.showRestockModal(${itemId}, '${size.size}')">
+                                                        data-kw-onclick="UniformSalesController.showRestockModal(${itemId}, '${size.size}')">
                                                     <i class="bi bi-plus"></i>
                                                 </button>
                                             </td>
@@ -695,12 +695,12 @@ const UniformSalesController = {
                         <div class="btn-group btn-group-sm">
                             ${sale.payment_status !== 'paid' ? `
                                 <button class="btn btn-outline-success" title="Record Payment"
-                                        onclick="UniformSalesController.openUniformPayment(${sale.id}, '${(sale.student_name || '').replace(/'/g, "\\'")}', ${sale.total_amount || 0})">
+                                        data-kw-onclick="UniformSalesController.openUniformPayment(${sale.id}, '${(sale.student_name || '').replace(/'/g, "\\'")}', ${sale.total_amount || 0})">
                                     <i class="bi bi-cash-coin"></i>
                                 </button>
                             ` : ''}
                             <button class="btn btn-outline-danger" title="Delete"
-                                    onclick="UniformSalesController.deleteSale(${sale.id})">
+                                    data-kw-onclick="UniformSalesController.deleteSale(${sale.id})">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -726,17 +726,17 @@ const UniformSalesController = {
         let html = '';
 
         html += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="UniformSalesController.goToSalesPage(${currentPage - 1}); return false;">&laquo;</a>
+            <a class="page-link" href="#" data-kw-onclick="UniformSalesController.goToSalesPage(${currentPage - 1}); return false;">&laquo;</a>
         </li>`;
 
         for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
             html += `<li class="page-item ${i === currentPage ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="UniformSalesController.goToSalesPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-kw-onclick="UniformSalesController.goToSalesPage(${i}); return false;">${i}</a>
             </li>`;
         }
 
         html += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-            <a class="page-link" href="#" onclick="UniformSalesController.goToSalesPage(${currentPage + 1}); return false;">&raquo;</a>
+            <a class="page-link" href="#" data-kw-onclick="UniformSalesController.goToSalesPage(${currentPage + 1}); return false;">&raquo;</a>
         </li>`;
 
         container.innerHTML = html;
@@ -913,7 +913,7 @@ const UniformSalesController = {
                             <td>${statusBadge[item.stock_status] || item.stock_status}</td>
                             <td>
                                 <button class="btn btn-success btn-sm"
-                                        onclick="UniformSalesController.showRestockModal(${item.item_id}, '${item.size}')">
+                                        data-kw-onclick="UniformSalesController.showRestockModal(${item.item_id}, '${item.size}')">
                                     <i class="bi bi-plus me-1"></i>Restock
                                 </button>
                             </td>

@@ -263,7 +263,7 @@ $roleCategory = 'viewer';
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         console.log('Viewer Boarding Dashboard loaded');
         if (typeof boardingController !== 'undefined') {

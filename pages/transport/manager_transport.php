@@ -51,7 +51,7 @@
                 <input type="text" class="form-control" id="searchRoute" placeholder="🔍 Search routes...">
             </div>
             <div class="col-md-4 text-end">
-                <button class="btn btn-primary" onclick="showAddRouteModal()" data-year-write>
+                <button class="btn btn-primary" data-kw-onclick="showAddRouteModal()" data-year-write>
                     <i class="bi bi-plus-lg me-1"></i> Add Route
                 </button>
             </div>
@@ -119,7 +119,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 (function () {
     const initializeManagerTransport = function () {
         loadRoutes();
@@ -201,8 +201,8 @@
                 <td>${r.student_count || 0}</td>
                 <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${esc(status)}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="viewRoute(${r.id})"><i class="bi bi-eye"></i></button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="editRoute(${r.id})" data-year-write><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="viewRoute(${r.id})"><i class="bi bi-eye"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="editRoute(${r.id})" data-year-write><i class="bi bi-pencil"></i></button>
                 </td>
             </tr>`;
         }).join('');

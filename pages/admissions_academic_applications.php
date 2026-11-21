@@ -87,7 +87,7 @@
                 <h4 class="mb-1">Academic Applications</h4>
                 <p class="mb-0 text-muted">Monitor every application and its current workflow stage; authorized staff can continue placement work.</p>
             </div>
-            <button class="btn btn-light btn-lg" onclick="academicApplicationsController.refreshData()">
+            <button class="btn btn-light btn-lg" data-kw-onclick="academicApplicationsController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-2"></i>Refresh
             </button>
         </div>
@@ -230,7 +230,7 @@
 <?php asset_script($appBase, 'js/pages/admissions_academic_applications.js'); ?>
 <?php asset_script($appBase, 'js/utils/detail_modal.js'); ?>
 <?php asset_script($appBase, 'js/utils/document_preview.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {
         if (typeof academicApplicationsController !== 'undefined' && academicApplicationsController.init) {

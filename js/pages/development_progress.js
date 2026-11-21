@@ -83,7 +83,7 @@ const developmentProgressController = (() => {
         <td>${statusBadge(m.status)}</td>
         <td>
           ${m.status !== 'completed'
-            ? `<button class="btn btn-outline-success btn-sm" onclick="developmentProgressController.markComplete(${Number(m.id)})">
+            ? `<button class="btn btn-outline-success btn-sm" data-kw-onclick="developmentProgressController.markComplete(${Number(m.id)})">
                 <i class="bi bi-check-circle me-1"></i>Complete
                </button>`
             : `<span class="text-muted small"><i class="bi bi-check-circle-fill text-success me-1"></i>${formatDate(m.completed_at)}</span>`

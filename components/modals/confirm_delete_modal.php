@@ -20,7 +20,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function showConfirmDelete(itemId, message = null, formAction = null) {
     // Get the modal element
     const modal = document.getElementById('confirmDeleteModal');

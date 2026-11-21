@@ -33,7 +33,7 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <p class="text-muted small mb-0">Upload fees structures, admission letters and other school documents here.</p>
-    <button class="btn btn-success btn-sm rounded-pill px-3" onclick="downloadsOpenModal()">
+    <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="downloadsOpenModal()">
       <i class="bi bi-plus-lg me-1"></i>Add File
     </button>
   </div>
@@ -82,7 +82,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="downloadsSave()"><i class="bi bi-cloud-download me-1"></i>Save</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="downloadsSave()"><i class="bi bi-cloud-download me-1"></i>Save</button>
     </div>
   </div></div>
 </div>

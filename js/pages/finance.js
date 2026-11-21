@@ -116,13 +116,13 @@ const financeController = {
                     <td>${statusBadge}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-info" onclick="financeController.viewPayment(${payment.id})" title="View Details">
+                            <button class="btn btn-info" data-kw-onclick="financeController.viewPayment(${payment.id})" title="View Details">
                                 <i class="bi bi-eye"></i>
                             </button>
-                            <button class="btn btn-success" onclick="financeController.generateReceipt(${payment.id})" title="Generate Receipt">
+                            <button class="btn btn-success" data-kw-onclick="financeController.generateReceipt(${payment.id})" title="Generate Receipt">
                                 <i class="bi bi-printer"></i>
                             </button>
-                            <button class="btn btn-warning" onclick="financeController.sendNotification(${payment.id})" title="Send Notification" data-permission="finance_notify">
+                            <button class="btn btn-warning" data-kw-onclick="financeController.sendNotification(${payment.id})" title="Send Notification" data-permission="finance_notify">
                                 <i class="bi bi-bell"></i>
                             </button>
                         </div>
@@ -908,7 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <tr>
                         <td>
                             <input type="checkbox" class="row-checkbox" data-key="${key}"
-                                   onchange="FinanceController.toggleSelection('${t.source}', ${t.id}, this.checked)">
+                                   data-kw-onchange="FinanceController.toggleSelection('${t.source}', ${t.id}, this.checked)">
                         </td>
                         <td>${date}</td>
                         <td>${typeBadge}</td>
@@ -952,12 +952,12 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         renderActions: function (t) {
-            const viewBtn = `<button class="btn btn-sm btn-outline-primary me-1" onclick="FinanceController.viewTransaction('${t.source}', ${t.id})">View</button>`;
+            const viewBtn = `<button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="FinanceController.viewTransaction('${t.source}', ${t.id})">View</button>`;
             const approveBtn = (this.view === "admin" && t.source === "expense" && t.status === "pending")
-                ? `<button class="btn btn-sm btn-success me-1" onclick="FinanceController.approveExpense(${t.id})">Approve</button>`
+                ? `<button class="btn btn-sm btn-success me-1" data-kw-onclick="FinanceController.approveExpense(${t.id})">Approve</button>`
                 : "";
             const rejectBtn = (this.view === "admin" && t.source === "expense" && t.status === "pending")
-                ? `<button class="btn btn-sm btn-outline-danger" onclick="FinanceController.rejectExpense(${t.id})">Reject</button>`
+                ? `<button class="btn btn-sm btn-outline-danger" data-kw-onclick="FinanceController.rejectExpense(${t.id})">Reject</button>`
                 : "";
             return `${viewBtn}${approveBtn}${rejectBtn}`;
         },
@@ -976,7 +976,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let html = "";
 
             for (let i = 1; i <= pages; i++) {
-                html += `<button class="btn btn-sm ${i === this.currentPage ? 'btn-primary' : 'btn-outline'}" onclick="FinanceController.goToPage(${i})">${i}</button>`;
+                html += `<button class="btn btn-sm ${i === this.currentPage ? 'btn-primary' : 'btn-outline'}" data-kw-onclick="FinanceController.goToPage(${i})">${i}</button>`;
             }
             paginationControls.innerHTML = html;
         },
@@ -1192,8 +1192,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="text-muted small">KES ${this.formatCurrency(e.amount)} • ${this.escapeHtml(e.expense_category || "Expense")}</div>
                     </div>
                     <div>
-                        <button class="btn btn-sm btn-success me-2" onclick="FinanceController.approveExpense(${e.id})">Approve</button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="FinanceController.rejectExpense(${e.id})">Reject</button>
+                        <button class="btn btn-sm btn-success me-2" data-kw-onclick="FinanceController.approveExpense(${e.id})">Approve</button>
+                        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="FinanceController.rejectExpense(${e.id})">Reject</button>
                     </div>
                 </div>
             `).join("");

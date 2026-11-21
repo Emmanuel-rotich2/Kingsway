@@ -64,10 +64,10 @@ const feeApprovalsController = {
         <td class="small text-muted">${this.esc((b.submitted_at || '').substring(0, 10) || '\u2014')}</td>
         <td>${this.badgeStatus(b.status)}</td>
         <td class="text-end" style="white-space:nowrap">
-          <button class="btn btn-sm btn-outline-primary rounded-pill px-2 me-1" onclick="feeApprovalsView('${this.esc(b.key)}')"><i class="bi bi-eye"></i> View matrix</button>
+          <button class="btn btn-sm btn-outline-primary rounded-pill px-2 me-1" data-kw-onclick="feeApprovalsView('${this.esc(b.key)}')"><i class="bi bi-eye"></i> View matrix</button>
           ${b.status === 'submitted' ? `
-            <button class="btn btn-sm btn-success rounded-pill px-2 me-1" onclick="feeApprovalsApprove('${this.esc(b.key)}')"><i class="bi bi-check-lg"></i> Approve</button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="feeApprovalsReject('${this.esc(b.key)}')"><i class="bi bi-x-lg"></i> Reject</button>
+            <button class="btn btn-sm btn-success rounded-pill px-2 me-1" data-kw-onclick="feeApprovalsApprove('${this.esc(b.key)}')"><i class="bi bi-check-lg"></i> Approve</button>
+            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="feeApprovalsReject('${this.esc(b.key)}')"><i class="bi bi-x-lg"></i> Reject</button>
           ` : '<span class="text-muted small">\u2014</span>'}
         </td>
       </tr>`).join('');

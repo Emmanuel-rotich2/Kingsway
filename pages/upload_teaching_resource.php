@@ -40,7 +40,7 @@
             <input type="file" id="utrFile" class="d-none"
                    accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.mp4,.mov,.avi,.png,.jpg,.jpeg,.zip">
             <button type="button" class="btn btn-outline-primary btn-sm"
-                    onclick="document.getElementById('utrFile').click()">
+                    data-kw-onclick="document.getElementById('utrFile').click()">
               <i class="bi bi-folder2-open me-1"></i> Browse File
             </button>
           </div>
@@ -53,7 +53,7 @@
                 <div class="fw-semibold text-truncate" id="utrFileName">—</div>
                 <div class="text-muted small" id="utrFileSize">—</div>
               </div>
-              <button class="btn btn-sm btn-outline-danger" onclick="uploadResourceController.clearFile()">
+              <button class="btn btn-sm btn-outline-danger" data-kw-onclick="uploadResourceController.clearFile()">
                 <i class="bi bi-x-lg"></i>
               </button>
             </div>
@@ -127,7 +127,7 @@
 
           <div class="d-grid mt-4">
             <button class="btn btn-primary btn-lg" id="utrUploadBtn"
-                    onclick="uploadResourceController.upload()" data-year-write>
+                    data-kw-onclick="uploadResourceController.upload()" data-year-write>
               <i class="bi bi-cloud-upload me-2"></i> Upload Resource
             </button>
           </div>

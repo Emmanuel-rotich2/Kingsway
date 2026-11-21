@@ -254,10 +254,10 @@ const academicApplicationsController = {
                     <td>${this.escapeHtml(recommendedClass || '—')}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="academicApplicationsController.viewApplication(${app.id})" title="View">
+                            <button class="btn btn-outline-primary" data-kw-onclick="academicApplicationsController.viewApplication(${app.id})" title="View">
                                 <i class="bi bi-eye"></i>
                             </button>
-                            ${canOpenPlacement ? `<button class="btn btn-outline-warning" onclick="academicApplicationsController.openPlacementWorkspace()" title="Open class placement workspace"><i class="bi bi-award"></i></button>` : ''}
+                            ${canOpenPlacement ? `<button class="btn btn-outline-warning" data-kw-onclick="academicApplicationsController.openPlacementWorkspace()" title="Open class placement workspace"><i class="bi bi-award"></i></button>` : ''}
                         </div>
                     </td>
                 </tr>

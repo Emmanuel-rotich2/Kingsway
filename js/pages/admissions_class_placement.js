@@ -357,7 +357,7 @@ const classPlacementController = {
                     <td>
                         <div class="btn-group btn-group-sm">
                             ${app._placementQueue === 'placement_pending' ? `
-                                <button class="btn btn-outline-info" onclick="classPlacementController.editPlacement(${app.id})" title="Assign class stream">
+                                <button class="btn btn-outline-info" data-kw-onclick="classPlacementController.editPlacement(${app.id})" title="Assign class stream">
                                     <i class="bi bi-pencil"></i> Assign stream
                                 </button>
                             ` : `

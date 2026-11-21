@@ -167,12 +167,12 @@
                     '<td class="text-center">' + reconciledBadge + '</td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
-                            '<button class="btn btn-outline-primary" onclick="BankTransactionsController.viewTransaction(' + txn.id + ')" title="View"><i class="fas fa-eye"></i></button>' +
-                            '<button class="btn btn-outline-info" onclick="BankTransactionsController.viewJournal(' + txn.id + ')" title="View Journal"><i class="fas fa-book"></i></button>' +
+                            '<button class="btn btn-outline-primary" data-kw-onclick="BankTransactionsController.viewTransaction(' + txn.id + ')" title="View"><i class="fas fa-eye"></i></button>' +
+                            '<button class="btn btn-outline-info" data-kw-onclick="BankTransactionsController.viewJournal(' + txn.id + ')" title="View Journal"><i class="fas fa-book"></i></button>' +
                             (!isReconciled ?
-                                '<button class="btn btn-outline-success" onclick="BankTransactionsController.reconcile(' + txn.id + ')" title="Reconcile"><i class="fas fa-check-double"></i></button>'
+                                '<button class="btn btn-outline-success" data-kw-onclick="BankTransactionsController.reconcile(' + txn.id + ')" title="Reconcile"><i class="fas fa-check-double"></i></button>'
                                 : '') +
-                            '<button class="btn btn-outline-danger" onclick="BankTransactionsController.deleteTransaction(' + txn.id + ')" title="Delete" data-year-write><i class="fas fa-trash"></i></button>' +
+                            '<button class="btn btn-outline-danger" data-kw-onclick="BankTransactionsController.deleteTransaction(' + txn.id + ')" title="Delete" data-year-write><i class="fas fa-trash"></i></button>' +
                         '</div>' +
                     '</td>' +
                     '</tr>';
@@ -413,19 +413,19 @@
 
             var html = "";
             html += '<li class="page-item ' + (this.currentPage === 1 ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="BankTransactionsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="BankTransactionsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
 
             for (var i = 1; i <= totalPages; i++) {
                 if (i === 1 || i === totalPages || (i >= this.currentPage - 2 && i <= this.currentPage + 2)) {
                     html += '<li class="page-item ' + (i === this.currentPage ? "active" : "") + '">' +
-                        '<a class="page-link" href="#" onclick="BankTransactionsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
+                        '<a class="page-link" href="#" data-kw-onclick="BankTransactionsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
                 } else if (i === this.currentPage - 3 || i === this.currentPage + 3) {
                     html += '<li class="page-item disabled"><a class="page-link">...</a></li>';
                 }
             }
 
             html += '<li class="page-item ' + (this.currentPage === totalPages ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="BankTransactionsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="BankTransactionsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
 
             pagination.innerHTML = html;
         },

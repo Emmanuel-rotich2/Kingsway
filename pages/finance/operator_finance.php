@@ -61,7 +61,7 @@
         <h2>💼 Request Resources</h2>
     </div>
     <p class="text-muted">Need materials or resources? Submit a request to the Accountant.</p>
-    <button class="btn btn-primary" onclick="showRequestModal()">📝 Submit Resource Request</button>
+    <button class="btn btn-primary" data-kw-onclick="showRequestModal()">📝 Submit Resource Request</button>
 </div>
 
 <!-- Resource Request Modal -->
@@ -70,7 +70,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Resource Request</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('requestModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('requestModal')">×</button>
             </div>
             <div class="modal-body">
                 <form id="requestForm">
@@ -99,15 +99,15 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('requestModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="submitRequest()" data-year-write>Submit Request</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('requestModal')">Cancel</button>
+                <button class="btn btn-primary" data-kw-onclick="submitRequest()" data-year-write>Submit Request</button>
             </div>
         </div>
     </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'operator' });

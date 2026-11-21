@@ -12,7 +12,7 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
       <input type="date" class="form-control form-control-sm" id="ercDate" value="<?= date('Y-m-d') ?>">
-      <button class="btn btn-outline-info btn-sm" onclick="eveningRollCallController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-info btn-sm" data-kw-onclick="eveningRollCallController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

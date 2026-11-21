@@ -182,7 +182,7 @@
 
       if (mainEl) {
         mainEl.innerHTML = '<img src="' + S(images[0]) + '" alt="' + S(this.product.title) +
-          '" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">';
+          '" style="width:100%;height:100%;object-fit:cover" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">';
       }
 
       if (thumbsEl) thumbsEl.innerHTML='';
@@ -197,7 +197,7 @@
           var idx = parseInt(thumb.dataset.idx, 10);
           if (mainEl) {
             mainEl.innerHTML = '<img src="' + S(images[idx]) + '" alt="' + S(page.product.title) +
-              '" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">';
+              '" style="width:100%;height:100%;object-fit:cover" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">';
           }
           thumbsEl.querySelectorAll('.pd-thumb').forEach(function (t) { t.classList.remove('active'); });
           thumb.classList.add('active');

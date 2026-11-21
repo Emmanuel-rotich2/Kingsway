@@ -48,6 +48,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <?= csp_bootstrap_script($appBase) ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -57,7 +58,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/parent-cpanel.css?v=<?= asset_version('css/parent-cpanel.css') ?>">
-  <script>
+  <script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = <?= json_encode($appBase) ?>;
     window.KINGSWAY_PUBLIC_PAGE = true;
     window.FAMILY_STAFF_MODE = <?= $familyStaffMode ? 'true' : 'false' ?>;
@@ -69,7 +70,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   <div class="card border-0 rounded-4 shadow-lg">
     <div class="card-body p-0">
       <div class="kw-auth-header">
-        <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="kw-auth-logo mb-2" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+        <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="kw-auth-logo mb-2" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
         <div class="h5 mb-0"><a class="kw-auth-name" href="<?= htmlspecialchars($appBase) ?>/index.php">KINGSWAY PREPARATORY SCHOOL</a></div>
         <div class="kw-auth-motto">"In God We Soar"</div>
         <div class="text-white-50 small mt-2">Parent Portal</div>
@@ -147,6 +148,6 @@ require_once __DIR__ . '/public/layout/public_data.php';
 <?php asset_script($appBase, 'js/core/frontend_logger.js'); ?>
 <?php asset_script($appBase, 'js/core/parent_common.js'); ?>
 <?php asset_script($appBase, 'js/pages/parents/login.js'); ?>
-<script>window.AppLogger?.init?.();</script>
+<script nonce="<?= csp_nonce() ?>">window.AppLogger?.init?.();</script>
 </body>
 </html>

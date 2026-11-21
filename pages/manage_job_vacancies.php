@@ -34,7 +34,7 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <p class="text-muted small mb-0">Closing a vacancy removes it from the public site.</p>
-    <button class="btn btn-success btn-sm rounded-pill px-3" onclick="vacanciesOpenModal()">
+    <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="vacanciesOpenModal()">
       <i class="bi bi-plus-lg me-1"></i>Post Vacancy
     </button>
   </div>
@@ -79,7 +79,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="vacanciesSave()"><i class="bi bi-briefcase me-1"></i>Post Vacancy</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="vacanciesSave()"><i class="bi bi-briefcase me-1"></i>Post Vacancy</button>
     </div>
   </div></div>
 </div>

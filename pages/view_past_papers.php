@@ -16,7 +16,7 @@
                 <i class="bi bi-files"></i> Past Papers
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="ViewPastPapersController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="ViewPastPapersController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
@@ -85,7 +85,7 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <button class="btn btn-primary w-100" onclick="ViewPastPapersController.filter()">
+                <button class="btn btn-primary w-100" data-kw-onclick="ViewPastPapersController.filter()">
                     <i class="bi bi-search"></i> Search
                 </button>
             </div>

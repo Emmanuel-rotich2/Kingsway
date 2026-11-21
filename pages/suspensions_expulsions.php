@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-person-x text-danger me-2"></i>Suspensions & Expulsions</h4>
       <p class="text-muted small mb-0 mt-1">Serious disciplinary cases — suspensions and expulsions.</p>
     </div>
-    <button class="btn btn-outline-danger btn-sm" onclick="suspensionsExpulsionsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-danger btn-sm" data-kw-onclick="suspensionsExpulsionsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">

@@ -187,6 +187,40 @@ public function postSubscribers($id = null, $data = [], $segments = [])
      * existing contact_inquiries table and emailed to admissions; no external
      * messaging provider is involved because Buni/Daraja are payment gateways.
      */
+    /**
+     * Browser Content-Security-Policy violation reports (report-uri in
+     * config/csp_helpers.php). Anonymous and write-only: a bounded summary
+     * goes to the security journal so a blocked script or handler that the
+     * strict policy stopped can be found and fixed. Nothing is stored in the
+     * database and nothing is echoed back.
+     */
+    public function postCspReport($id = null, $data = [], $segments = [])
+    {
+        $raw = (string) file_get_contents('php://input', false, null, 0, 8192);
+        $decoded = json_decode($raw, true);
+        $report = is_array($decoded) ? ($decoded['csp-report'] ?? ($decoded[0]['body'] ?? $decoded)) : [];
+        if (!is_array($report)) {
+            $report = [];
+        }
+        $clip = static fn ($value, int $max = 300): string => mb_substr(trim((string) ($value ?? '')), 0, $max);
+        $stripQuery = static function ($url): string {
+            $url = (string) ($url ?? '');
+            $cut = strcspn($url, '?#');
+            return mb_substr(substr($url, 0, $cut), 0, 300);
+        };
+        \App\API\Includes\FileLogger::write('security', [
+            'type' => 'csp_violation',
+            'directive' => $clip($report['effective-directive'] ?? $report['effectiveDirective'] ?? $report['violated-directive'] ?? '', 80),
+            'blocked' => $stripQuery($report['blocked-uri'] ?? $report['blockedURL'] ?? ''),
+            'document' => $stripQuery($report['document-uri'] ?? $report['documentURL'] ?? ''),
+            'source' => $stripQuery($report['source-file'] ?? $report['sourceFile'] ?? ''),
+            'line' => (int) ($report['line-number'] ?? $report['lineNumber'] ?? 0),
+            'sample' => $clip($report['script-sample'] ?? $report['sample'] ?? '', 120),
+            'disposition' => $clip($report['disposition'] ?? '', 20),
+        ], 'warning');
+        return ['success' => true, 'status' => 'success', 'data' => null, 'message' => 'OK', 'code' => 200];
+    }
+
     public function postLeads($id = null, $data = [], $segments = [])
     {
         $name = trim((string) ($data['name'] ?? ''));

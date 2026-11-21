@@ -62,7 +62,7 @@
                 <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All Types</option></select></div>
                 <div class="col-md-2"><select class="form-select" id="termFilter" aria-label="Term or holiday"><option value="">All terms and holidays</option></select></div>
                 <div class="col-md-2"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="YearCalendarController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="YearCalendarController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -71,9 +71,9 @@
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Year Calendar</h6>
             <div class="d-flex gap-2 no-print">
-                <button class="btn btn-sm btn-outline-success" onclick="YearCalendarController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export CSV</button>
-                <button class="btn btn-sm btn-outline-secondary" onclick="YearCalendarController.print()"><i class="bi bi-printer me-1"></i> Print</button>
-                <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.downloadPdf()" title="The official academic calendar for the selected year"><i class="bi bi-file-earmark-pdf me-1"></i> Calendar PDF</button>
+                <button class="btn btn-sm btn-outline-success" data-kw-onclick="YearCalendarController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export CSV</button>
+                <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="YearCalendarController.print()"><i class="bi bi-printer me-1"></i> Print</button>
+                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="YearCalendarController.downloadPdf()" title="The official academic calendar for the selected year"><i class="bi bi-file-earmark-pdf me-1"></i> Calendar PDF</button>
             </div>
         </div>
         <div class="card-body p-0">
@@ -131,14 +131,14 @@
                 <div class="col-6"><input type="time" class="form-control" id="eventStartTime"></div>
                 <div class="col-6"><input type="time" class="form-control" id="eventEndTime"></div>
                 <div class="col-6"><input type="date" class="form-control" id="eventEndDate" title="End date (blank = same day; use for multi-day events like exams)"></div>
-                <div class="col-12"><button class="btn btn-outline-primary w-100" onclick="YearCalendarController.addEvent()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Event</button></div>
+                <div class="col-12"><button class="btn btn-outline-primary w-100" data-kw-onclick="YearCalendarController.addEvent()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Event</button></div>
             </div>
         </div>
     </div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-danger" onclick="YearCalendarController.markExamWeek()" data-year-write><i class="bi bi-pencil-square me-1"></i> Mark Whole Week as Exam Week</button>
+        <button type="button" class="btn btn-danger" data-kw-onclick="YearCalendarController.markExamWeek()" data-year-write><i class="bi bi-pencil-square me-1"></i> Mark Whole Week as Exam Week</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="YearCalendarController.saveDay()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="YearCalendarController.saveDay()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
     </div>
 </div></div></div>
 

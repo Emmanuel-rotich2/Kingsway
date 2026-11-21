@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-award text-success me-2"></i>Rewards & Recognition</h4>
       <p class="text-muted small mb-0 mt-1">Student commendations and rewards from discipline records.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="rewardsRecognitionController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="rewardsRecognitionController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

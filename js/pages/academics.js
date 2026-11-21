@@ -425,12 +425,12 @@ const academicsController = {
                 <td>
                     <div class="btn-group btn-group-sm" role="group">
                         <button type="button" class="btn btn-outline-info" 
-                                onclick="academicsController.editClass(${cls.id})" 
+                                data-kw-onclick="academicsController.editClass(${cls.id})" 
                                 title="Edit">
                             <i class="bi bi-pencil"></i>
                         </button>
                         <button type="button" class="btn btn-outline-danger" 
-                                onclick="academicsController.deleteClass(${cls.id})" 
+                                data-kw-onclick="academicsController.deleteClass(${cls.id})" 
                                 title="Delete">
                             <i class="bi bi-trash"></i>
                         </button>
@@ -921,8 +921,8 @@ const academicsController = {
                 <td>${s.class_count ?? 0}</td>
                 <td><span class="badge bg-${(s.status || 'active') === 'active' ? 'success' : 'secondary'}">${s.status || 'active'}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="academicsController.showSubjectModal(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="academicsController._deleteSubject(${s.id},'${this._escH(s.name || s.subject_name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+                    <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="academicsController.showSubjectModal(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsController._deleteSubject(${s.id},'${this._escH(s.name || s.subject_name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
                 </td>
             </tr>`).join('');
         this._renderSubjectPagination();
@@ -935,7 +935,7 @@ const academicsController = {
         if (pages <= 1) { el.innerHTML = ''; return; }
         el.innerHTML = Array.from({ length: pages }, (_, i) => `
             <li class="page-item ${i + 1 === this._subjPage ? 'active' : ''}">
-                <button class="page-link" onclick="academicsController._goSubjectPage(${i + 1})">${i + 1}</button>
+                <button class="page-link" data-kw-onclick="academicsController._goSubjectPage(${i + 1})">${i + 1}</button>
             </li>`).join('');
     },
 

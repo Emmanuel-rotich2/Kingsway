@@ -238,7 +238,7 @@ const StaffController = (() => {
 
         if (view === "admin") {
           return `<tr>
-            <td><input type="checkbox" class="row-checkbox" value="${s.id}" onchange="updateBulkActions()"></td>
+            <td><input type="checkbox" class="row-checkbox" value="${s.id}" data-kw-onchange="updateBulkActions()"></td>
             <td><img src="${esc(photo)}" alt="${esc(name)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;"></td>
             <td>${esc(s.staff_no || "—")}</td>
             <td>${esc(name)}</td>
@@ -248,9 +248,9 @@ const StaffController = (() => {
             <td>${esc(s.email || "—")}</td>
             <td>${statusBadge}</td>
             <td>
-              <button class="btn btn-sm btn-info" onclick="StaffController.viewDetail(${s.id})" title="View"><i class="fas fa-eye"></i></button>
-              <button class="btn btn-sm btn-warning" onclick="StaffController.editStaff(${s.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
-              <button class="btn btn-sm btn-danger" onclick="StaffController.removeStaff(${s.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
+              <button class="btn btn-sm btn-info" data-kw-onclick="StaffController.viewDetail(${s.id})" title="View"><i class="fas fa-eye"></i></button>
+              <button class="btn btn-sm btn-warning" data-kw-onclick="StaffController.editStaff(${s.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+              <button class="btn btn-sm btn-danger" data-kw-onclick="StaffController.removeStaff(${s.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
             </td>
           </tr>`;
         }
@@ -265,7 +265,7 @@ const StaffController = (() => {
             <td>${esc(s.phone || "—")}</td>
             <td>${statusBadge}</td>
             <td>
-              <button class="btn btn-sm btn-info" onclick="StaffController.viewDetail(${s.id})" title="View"><i class="fas fa-eye"></i></button>
+              <button class="btn btn-sm btn-info" data-kw-onclick="StaffController.viewDetail(${s.id})" title="View"><i class="fas fa-eye"></i></button>
             </td>
           </tr>`;
         }
@@ -303,7 +303,7 @@ const StaffController = (() => {
     let html = "";
     for (let i = 1; i <= totalPages; i++) {
       html += `<button class="btn btn-sm ${i === currentPage ? "btn-primary" : "btn-outline-primary"} me-1"
-                 onclick="StaffController.loadPage(${i})">${i}</button>`;
+                 data-kw-onclick="StaffController.loadPage(${i})">${i}</button>`;
     }
     container.innerHTML = html;
   }

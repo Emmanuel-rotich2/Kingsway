@@ -76,14 +76,14 @@ const VendorsController = (() => {
       <td class="fw-bold text-end">KES ${parseFloat(v.balance || 0).toLocaleString('en-KE', { minimumFractionDigits: 0 })}</td>
       <td><span class="badge bg-${v.status === 'active' ? 'success' : 'secondary'}">${_esc(v.status)}</span></td>
       <td>
-        <button class="btn btn-sm btn-outline-primary me-1" onclick="VendorsController.editVendor('${v.id}')" title="Edit" data-year-write>
+        <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="VendorsController.editVendor('${v.id}')" title="Edit" data-year-write>
           <i class="bi bi-pencil"></i>
         </button>
-        <button class="btn btn-sm btn-outline-secondary me-1" onclick="VendorsController.viewPOs('${v.id}', '${_esc(v.name)}')" title="Purchase Orders">
+        <button class="btn btn-sm btn-outline-secondary me-1" data-kw-onclick="VendorsController.viewPOs('${v.id}', '${_esc(v.name)}')" title="Purchase Orders">
           <i class="bi bi-receipt"></i>
         </button>
-        <button class="btn btn-sm btn-outline-success me-1" onclick="VendorsController.manageAccounts('${v.id}', '${_esc(v.name)}')" title="Payment accounts"><i class="bi bi-credit-card"></i></button>
-        <button class="btn btn-sm btn-outline-danger" onclick="VendorsController.deleteVendor('${v.id}', '${_esc(v.name)}')" title="Deactivate" data-year-write>
+        <button class="btn btn-sm btn-outline-success me-1" data-kw-onclick="VendorsController.manageAccounts('${v.id}', '${_esc(v.name)}')" title="Payment accounts"><i class="bi bi-credit-card"></i></button>
+        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="VendorsController.deleteVendor('${v.id}', '${_esc(v.name)}')" title="Deactivate" data-year-write>
           <i class="bi bi-slash-circle"></i>
         </button>
       </td>
@@ -240,7 +240,7 @@ const VendorsController = (() => {
   function renderAccounts(id, accounts, kind) {
     const table = document.getElementById(id);
     if (!accounts.length) { table.innerHTML = '<tbody><tr><td class="text-muted">No accounts configured.</td></tr></tbody>'; return; }
-    table.innerHTML = `<tbody>${accounts.map(a => `<tr><td>${kind === 'bank' ? _esc(a.bank_name) + ' · ' + _esc(a.account_number) : 'M-Pesa · ' + _esc(a.phone_number)}<div class="small text-muted">${_esc(a.account_name)}</div></td><td><span class="badge bg-${a.verification_status === 'verified' ? 'success' : a.verification_status === 'rejected' ? 'danger' : 'warning'}">${_esc(a.verification_status)}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {verification_status:'verified'})" data-year-write>Verify</button><button class="btn btn-sm btn-outline-secondary" onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {is_primary:1})" data-year-write>Primary</button></td></tr>`).join('')}</tbody>`;
+    table.innerHTML = `<tbody>${accounts.map(a => `<tr><td>${kind === 'bank' ? _esc(a.bank_name) + ' · ' + _esc(a.account_number) : 'M-Pesa · ' + _esc(a.phone_number)}<div class="small text-muted">${_esc(a.account_name)}</div></td><td><span class="badge bg-${a.verification_status === 'verified' ? 'success' : a.verification_status === 'rejected' ? 'danger' : 'warning'}">${_esc(a.verification_status)}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" data-kw-onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {verification_status:'verified'})" data-year-write>Verify</button><button class="btn btn-sm btn-outline-secondary" data-kw-onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {is_primary:1})" data-year-write>Primary</button></td></tr>`).join('')}</tbody>`;
   }
 
   async function saveAccount(kind) {

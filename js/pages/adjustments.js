@@ -103,10 +103,10 @@ const adjustmentsController = {
         <td class="text-center">
           ${st === 'pending' && canApprove ? `
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-success" onclick="adjustmentsController.showApproveModal(${a.id},'${this._esc(a.reference||a.id)}','approve')" data-year-write>
+              <button class="btn btn-success" data-kw-onclick="adjustmentsController.showApproveModal(${a.id},'${this._esc(a.reference||a.id)}','approve')" data-year-write>
                 <i class="bi bi-check2"></i>
               </button>
-              <button class="btn btn-danger" onclick="adjustmentsController.showApproveModal(${a.id},'${this._esc(a.reference||a.id)}','reject')" data-year-write>
+              <button class="btn btn-danger" data-kw-onclick="adjustmentsController.showApproveModal(${a.id},'${this._esc(a.reference||a.id)}','reject')" data-year-write>
                 <i class="bi bi-x-lg"></i>
               </button>
             </div>` : '—'}

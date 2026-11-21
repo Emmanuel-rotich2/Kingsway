@@ -165,13 +165,13 @@ const myCatsCtrl = (() => {
                     <td>${Number(cat.student_count) || 0}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="myCatsCtrl.editCat(${cat.id})" data-year-write>
+                            <button class="btn btn-outline-primary" data-kw-onclick="myCatsCtrl.editCat(${cat.id})" data-year-write>
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-outline-success" onclick="myCatsCtrl.enterMarks(${cat.id})">
+                            <button class="btn btn-outline-success" data-kw-onclick="myCatsCtrl.enterMarks(${cat.id})">
                                 <i class="bi bi-check-circle"></i>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="myCatsCtrl.deleteCat(${cat.id})" data-year-write>
+                            <button class="btn btn-outline-danger" data-kw-onclick="myCatsCtrl.deleteCat(${cat.id})" data-year-write>
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>

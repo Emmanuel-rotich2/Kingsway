@@ -54,8 +54,8 @@ const inquiriesController = {
         <td>${this.badgeStatus(q.status)}</td>
         <td class="small text-muted">${this.fmtDate(q.created_at)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-primary me-1" onclick="inquiriesReply(${q.id})" ${q.email ? '' : 'disabled'} title="Reply by email"><i class="bi bi-reply"></i></button>
-          <select class="form-select form-select-sm" style="width:100px;display:inline-block" onchange="inquiriesSetStatus(${q.id},this.value)">
+          <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="inquiriesReply(${q.id})" ${q.email ? '' : 'disabled'} title="Reply by email"><i class="bi bi-reply"></i></button>
+          <select class="form-select form-select-sm" style="width:100px;display:inline-block" data-kw-onchange="inquiriesSetStatus(${q.id},this.value)">
             ${['new', 'read', 'replied'].map(s => `<option value="${s}" ${q.status === s ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
         </td>

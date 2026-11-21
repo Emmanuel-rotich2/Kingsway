@@ -23,9 +23,9 @@
         <p class="text-muted mb-0">Manage fee structures and track revenue projections</p>
     </div>
     <div>
-        <button class="btn btn-outline-secondary btn-sm" onclick="exportToExcel()"><i class="bi bi-download"></i> Export
+        <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="exportToExcel()"><i class="bi bi-download"></i> Export
             to Excel</button>
-        <button class="btn btn-success btn-sm" onclick="showDuplicateForNewYear()" data-year-write><i class="bi bi-files"></i> Duplicate
+        <button class="btn btn-success btn-sm" data-kw-onclick="showDuplicateForNewYear()" data-year-write><i class="bi bi-files"></i> Duplicate
             for New Year</button>
     </div>
 </div>
@@ -123,7 +123,7 @@
                 <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search...">
             </div>
             <div class="col-md-1">
-                <button class="btn btn-outline-secondary btn-sm w-100" onclick="clearFilters()">Clear</button>
+                <button class="btn btn-outline-secondary btn-sm w-100" data-kw-onclick="clearFilters()">Clear</button>
             </div>
         </div>
     </div>
@@ -131,13 +131,13 @@
 
 <!-- Quick Actions -->
 <div class="d-flex gap-2 mb-3">
-    <button class="btn btn-outline-primary btn-sm" onclick="reconcileFees()"><i class="bi bi-arrow-repeat"></i>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="reconcileFees()"><i class="bi bi-arrow-repeat"></i>
         Reconcile Fees</button>
-    <button class="btn btn-outline-warning btn-sm" onclick="viewDefaulters()"><i class="bi bi-exclamation-triangle"></i>
+    <button class="btn btn-outline-warning btn-sm" data-kw-onclick="viewDefaulters()"><i class="bi bi-exclamation-triangle"></i>
         View Defaulters</button>
-    <button class="btn btn-outline-info btn-sm" onclick="generateInvoices()" data-year-write><i class="bi bi-receipt"></i> Generate
+    <button class="btn btn-outline-info btn-sm" data-kw-onclick="generateInvoices()" data-year-write><i class="bi bi-receipt"></i> Generate
         Invoices</button>
-    <button class="btn btn-outline-secondary btn-sm" onclick="sendReminders()"><i class="bi bi-bell"></i> Send
+    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="sendReminders()"><i class="bi bi-bell"></i> Send
         Reminders</button>
 </div>
 
@@ -183,13 +183,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Details content -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('viewFeeStructureModal')">Close</button>
             </div>
         </div>
     </div>
@@ -201,7 +201,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('duplicateModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('duplicateModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -217,8 +217,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('duplicateModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmDuplicate()" data-year-write><i class="bi bi-files"></i>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('duplicateModal')">Cancel</button>
+                <button class="btn btn-primary" data-kw-onclick="confirmDuplicate()" data-year-write><i class="bi bi-files"></i>
                     Duplicate</button>
             </div>
         </div>
@@ -231,14 +231,14 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Reconciliation</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('reconciliationModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('reconciliationModal')">×</button>
             </div>
             <div class="modal-body" id="reconciliationBody">
                 <!-- Reconciliation data -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('reconciliationModal')">Close</button>
-                <button class="btn btn-success" onclick="exportReconciliation()"><i class="bi bi-download"></i> Export
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('reconciliationModal')">Close</button>
+                <button class="btn btn-success" data-kw-onclick="exportReconciliation()"><i class="bi bi-download"></i> Export
                     Report</button>
             </div>
         </div>
@@ -251,17 +251,17 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h3 class="modal-title">Fee Structure Breakdown</h3>
-                <button class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="closeModal('detailedFeeStructureModal')">×</button>
+                <button class="btn-close btn-close-white" data-bs-dismiss="modal" data-kw-onclick="closeModal('detailedFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="detailedFeeBody" style="padding: 30px;">
                 <!-- Will be populated dynamically -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('detailedFeeStructureModal')">Close</button>
-                <button class="btn btn-warning" onclick="window.accountantController.editDetailedStructure()" data-year-write>
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('detailedFeeStructureModal')">Close</button>
+                <button class="btn btn-warning" data-kw-onclick="window.accountantController.editDetailedStructure()" data-year-write>
                     <i class="bi bi-pencil"></i> Edit
                 </button>
-                <button class="btn btn-success" onclick="window.accountantController.exportToPDF()">
+                <button class="btn btn-success" data-kw-onclick="window.accountantController.exportToPDF()">
                     <i class="bi bi-file-pdf"></i> Export PDF
                 </button>
             </div>

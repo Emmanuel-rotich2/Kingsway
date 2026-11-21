@@ -178,11 +178,11 @@
             if (selectedParents.length) targetStr += '<br><small class="text-muted">Selected parents: ' + selectedParents.map(escHtml).join(', ') + '</small>';
 
             var actions = '';
-            if (canEdit) actions += '<button class="btn btn-outline-primary btn-sm me-1" onclick="window.extraCharges.edit(' + c.id + ')" title="Edit"><i class="bi bi-pencil"></i></button>';
-            if (canSubmit) actions += '<button class="btn btn-outline-info btn-sm me-1" onclick="window.extraCharges.submit(' + c.id + ')" title="Submit for Review"><i class="bi bi-send"></i></button>';
-            if (canApprove) actions += '<button class="btn btn-outline-success btn-sm me-1" onclick="window.extraCharges.approve(' + c.id + ')" title="Approve"><i class="bi bi-check-lg"></i></button>';
-            if (canApprove) actions += '<button class="btn btn-outline-warning btn-sm me-1" onclick="window.extraCharges.reject(' + c.id + ')" title="Reject"><i class="bi bi-x-lg"></i></button>';
-            if (canDelete) actions += '<button class="btn btn-outline-danger btn-sm" onclick="window.extraCharges.remove(' + c.id + ')" title="Delete"><i class="bi bi-trash"></i></button>';
+            if (canEdit) actions += '<button class="btn btn-outline-primary btn-sm me-1" data-kw-onclick="window.extraCharges.edit(' + c.id + ')" title="Edit"><i class="bi bi-pencil"></i></button>';
+            if (canSubmit) actions += '<button class="btn btn-outline-info btn-sm me-1" data-kw-onclick="window.extraCharges.submit(' + c.id + ')" title="Submit for Review"><i class="bi bi-send"></i></button>';
+            if (canApprove) actions += '<button class="btn btn-outline-success btn-sm me-1" data-kw-onclick="window.extraCharges.approve(' + c.id + ')" title="Approve"><i class="bi bi-check-lg"></i></button>';
+            if (canApprove) actions += '<button class="btn btn-outline-warning btn-sm me-1" data-kw-onclick="window.extraCharges.reject(' + c.id + ')" title="Reject"><i class="bi bi-x-lg"></i></button>';
+            if (canDelete) actions += '<button class="btn btn-outline-danger btn-sm" data-kw-onclick="window.extraCharges.remove(' + c.id + ')" title="Delete"><i class="bi bi-trash"></i></button>';
 
             return '<tr>'
                 + '<td>' + (i + 1) + '</td>'

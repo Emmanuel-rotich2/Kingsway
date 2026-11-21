@@ -20,10 +20,10 @@
             <p class="text-muted mb-0">Record, track and reconcile bank transactions</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="BankTransactionsController.exportCSV()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="BankTransactionsController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-info text-white" onclick="BankTransactionsController.showCreateModal()" data-year-write>
+            <button class="btn btn-info text-white" data-kw-onclick="BankTransactionsController.showCreateModal()" data-year-write>
                 <i class="bi bi-plus-lg me-1"></i> Add Transaction
             </button>
         </div>
@@ -99,17 +99,17 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Search</label>
-                    <input type="text" class="form-control" id="btSearch" placeholder="Search reference, description..." oninput="BankTransactionsController.filterData()">
+                    <input type="text" class="form-control" id="btSearch" placeholder="Search reference, description..." data-kw-oninput="BankTransactionsController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Account</label>
-                    <select class="form-select" id="btAccountFilter" onchange="BankTransactionsController.filterData()">
+                    <select class="form-select" id="btAccountFilter" data-kw-onchange="BankTransactionsController.filterData()">
                         <option value="">All Accounts</option>
                     </select>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
-                    <select class="form-select" id="btTypeFilter" onchange="BankTransactionsController.filterData()">
+                    <select class="form-select" id="btTypeFilter" data-kw-onchange="BankTransactionsController.filterData()">
                         <option value="">All Statuses</option>
                         <option value="pending">Pending</option>
                         <option value="processed">Processed</option>
@@ -118,7 +118,7 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Reconciled</label>
-                    <select class="form-select" id="btReconciledFilter" onchange="BankTransactionsController.filterData()">
+                    <select class="form-select" id="btReconciledFilter" data-kw-onchange="BankTransactionsController.filterData()">
                         <option value="">All</option>
                         <option value="Yes">Reconciled</option>
                         <option value="No">Unreconciled</option>
@@ -126,14 +126,14 @@
                 </div>
                 <div class="col-md-1">
                     <label class="form-label small text-muted">From</label>
-                    <input type="date" class="form-control" id="btDateFrom" onchange="BankTransactionsController.filterData()">
+                    <input type="date" class="form-control" id="btDateFrom" data-kw-onchange="BankTransactionsController.filterData()">
                 </div>
                 <div class="col-md-1">
                     <label class="form-label small text-muted">To</label>
-                    <input type="date" class="form-control" id="btDateTo" onchange="BankTransactionsController.filterData()">
+                    <input type="date" class="form-control" id="btDateTo" data-kw-onchange="BankTransactionsController.filterData()">
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" onclick="BankTransactionsController.clearFilters()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="BankTransactionsController.clearFilters()">
                         <i class="bi bi-x-lg me-1"></i> Clear
                     </button>
                 </div>
@@ -229,7 +229,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-info text-white" onclick="BankTransactionsController.saveTransaction()" data-year-write>
+                <button type="button" class="btn btn-info text-white" data-kw-onclick="BankTransactionsController.saveTransaction()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Transaction
                 </button>
             </div>

@@ -14,10 +14,10 @@
             <p class="text-muted mb-0">Capital expenditure log — track all school asset acquisitions</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="assetPurchasesController.exportCSV()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="assetPurchasesController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-primary" onclick="assetPurchasesController.showModal()">
+            <button class="btn btn-primary" data-kw-onclick="assetPurchasesController.showModal()">
                 <i class="bi bi-plus-lg me-1"></i> Add Purchase
             </button>
         </div>
@@ -93,11 +93,11 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Search</label>
-                    <input type="text" class="form-control" id="apSearch" placeholder="Asset name, number, vendor..." oninput="assetPurchasesController._applyFilters()">
+                    <input type="text" class="form-control" id="apSearch" placeholder="Asset name, number, vendor..." data-kw-oninput="assetPurchasesController._applyFilters()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Category</label>
-                    <select class="form-select" id="apFilterCategory" onchange="assetPurchasesController._applyFilters()">
+                    <select class="form-select" id="apFilterCategory" data-kw-onchange="assetPurchasesController._applyFilters()">
                         <option value="">All Categories</option>
                         <option value="Furniture">Furniture</option>
                         <option value="Electronics">Electronics</option>
@@ -109,13 +109,13 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Year</label>
-                    <select class="form-select" id="apFilterYear" onchange="assetPurchasesController._applyFilters()">
+                    <select class="form-select" id="apFilterYear" data-kw-onchange="assetPurchasesController._applyFilters()">
                         <option value="">All Years</option>
                     </select>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
-                    <select class="form-select" id="apFilterStatus" onchange="assetPurchasesController._applyFilters()">
+                    <select class="form-select" id="apFilterStatus" data-kw-onchange="assetPurchasesController._applyFilters()">
                         <option value="">All Statuses</option>
                         <option value="Active">Active</option>
                         <option value="Disposed">Disposed</option>
@@ -124,7 +124,7 @@
                     </select>
                 </div>
                 <div class="col-md-1">
-                    <button class="btn btn-outline-secondary w-100" onclick="assetPurchasesController._clearFilters()" title="Clear filters">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="assetPurchasesController._clearFilters()" title="Clear filters">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
@@ -251,7 +251,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="assetPurchasesController.saveAsset()" data-year-write>
+                <button type="button" class="btn btn-primary" data-kw-onclick="assetPurchasesController.saveAsset()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Asset
                 </button>
             </div>
@@ -298,7 +298,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" onclick="assetPurchasesController.confirmDispose()" data-year-write>
+                <button type="button" class="btn btn-danger" data-kw-onclick="assetPurchasesController.confirmDispose()" data-year-write>
                     <i class="bi bi-trash me-1"></i> Confirm Disposal
                 </button>
             </div>

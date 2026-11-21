@@ -43,12 +43,12 @@ const studentPromotionController = {
       <td class="small">${this.esc(s.current_class || '—')}</td>
       <td class="small">${this.esc(s.current_stream || '—')}</td>
       <td class="small text-center">
-        <select class="form-select form-select-sm" data-student-id="${s.id}" onchange="studentPromotionController.updateTargetClass(this)">
+        <select class="form-select form-select-sm" data-student-id="${s.id}" data-kw-onchange="studentPromotionController.updateTargetClass(this)">
           <option value="">Select Class</option>
           ${(this.getCache('classes') || []).map(c => `<option value="${c.id}">${this.esc(c.name)}</option>`).join('')}
         </select>
       </td>
-      <td><button class="btn btn-sm btn-primary" onclick="studentPromotionController.promoteStudent(${s.id})">Promote</button></td>
+      <td><button class="btn btn-sm btn-primary" data-kw-onclick="studentPromotionController.promoteStudent(${s.id})">Promote</button></td>
     </tr>`).join('');
   },
 

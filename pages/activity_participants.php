@@ -16,7 +16,7 @@
     <div class="col-lg-4">
       <div class="bg-white border rounded-3 p-4">
         <h6 class="fw-semibold mb-3"><i class="bi bi-person-plus-fill text-success me-2"></i>Register Participant</h6>
-        <form id="apForm" onsubmit="activityParticipantsController.save(event)">
+        <form id="apForm" data-kw-onsubmit="activityParticipantsController.save(event)">
           <div class="mb-3">
             <label class="form-label">Activity *</label>
             <select class="form-select" id="apActivity" required></select>
@@ -42,7 +42,7 @@
           <option value="">All statuses</option>
           <option>active</option><option>pending</option><option>withdrawn</option>
         </select>
-        <button class="btn btn-outline-success btn-sm" onclick="activityParticipantsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+        <button class="btn btn-outline-success btn-sm" data-kw-onclick="activityParticipantsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
       </div>
       <div class="bg-white border rounded-3 overflow-hidden">
         <div class="table-responsive">

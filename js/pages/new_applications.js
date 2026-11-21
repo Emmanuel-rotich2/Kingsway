@@ -740,7 +740,7 @@ const newApplicationsController = {
             <button
               type="button"
               class="btn btn-outline-primary"
-              onclick="event.preventDefault(); event.stopPropagation(); window.newApplicationsController.viewApplication(${Number(id)})"
+              data-kw-onclick="event.preventDefault(); event.stopPropagation(); window.newApplicationsController.viewApplication(${Number(id)})"
               title="View / Continue Intake"
             >
               <i class="bi bi-eye"></i>
@@ -748,7 +748,7 @@ const newApplicationsController = {
             ${nextAction ? `<button
               type="button"
               class="btn btn-outline-success"
-              onclick="event.preventDefault(); event.stopPropagation(); window.newApplicationsController.startIntake(${Number(id)})"
+              data-kw-onclick="event.preventDefault(); event.stopPropagation(); window.newApplicationsController.startIntake(${Number(id)})"
               title="${this.escapeHtml(nextAction.label)}"
             >
               <i class="bi bi-arrow-right-circle"></i>

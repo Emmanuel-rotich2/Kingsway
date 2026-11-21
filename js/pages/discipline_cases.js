@@ -258,7 +258,7 @@ const DisciplineCasesController = {
             <td>${this.escapeHtml(c.incident_date || "-")}</td>
             <td>${this.escapeHtml(c.action_taken || "-")}</td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="DisciplineCasesController.viewCase(${this.escapeHtml(c.id)})">
+              <button class="btn btn-sm btn-outline-primary" data-kw-onclick="DisciplineCasesController.viewCase(${this.escapeHtml(c.id)})">
                 <i class="bi bi-eye me-1"></i> View
               </button>
             </td>

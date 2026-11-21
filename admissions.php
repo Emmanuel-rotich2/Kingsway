@@ -258,7 +258,7 @@ $adSteps = [
             </div>
           </div>
           <div class="d-flex justify-content-end mt-4">
-            <button type="button" class="btn-kw-primary" onclick="adNext(0)">
+            <button type="button" class="btn-kw-primary" data-kw-onclick="adNext(0)">
               Next: Parent Details <i class="bi bi-arrow-right"></i>
             </button>
           </div>
@@ -312,10 +312,10 @@ $adSteps = [
             </div>
           </div>
           <div class="d-flex justify-content-between mt-4">
-            <button type="button" class="btn-kw-outline" onclick="adPrev(1)">
+            <button type="button" class="btn-kw-outline" data-kw-onclick="adPrev(1)">
               <i class="bi bi-arrow-left"></i> Back
             </button>
-            <button type="button" class="btn-kw-primary" onclick="adNext(1)">
+            <button type="button" class="btn-kw-primary" data-kw-onclick="adNext(1)">
               Next: Application Details <i class="bi bi-arrow-right"></i>
             </button>
           </div>
@@ -361,10 +361,10 @@ $adSteps = [
             </div>
           </div>
           <div class="d-flex justify-content-between mt-4">
-            <button type="button" class="btn-kw-outline" onclick="adPrev(2)">
+            <button type="button" class="btn-kw-outline" data-kw-onclick="adPrev(2)">
               <i class="bi bi-arrow-left"></i> Back
             </button>
-            <button type="button" class="btn-kw-primary" onclick="adNext(2)">
+            <button type="button" class="btn-kw-primary" data-kw-onclick="adNext(2)">
               Next: Required Documents <i class="bi bi-arrow-right"></i>
             </button>
           </div>
@@ -438,10 +438,10 @@ $adSteps = [
             </div>
           </div>
           <div class="d-flex justify-content-between mt-4">
-            <button type="button" class="btn-kw-outline" onclick="adPrev(3)">
+            <button type="button" class="btn-kw-outline" data-kw-onclick="adPrev(3)">
               <i class="bi bi-arrow-left"></i> Back
             </button>
-            <button type="button" class="btn-kw-primary" onclick="adNext(3)">
+            <button type="button" class="btn-kw-primary" data-kw-onclick="adNext(3)">
               Next: Declaration <i class="bi bi-arrow-right"></i>
             </button>
           </div>
@@ -481,7 +481,7 @@ $adSteps = [
           <div id="adStatusMsg" style="display:none" class="mb-3 p-3 rounded-3 small fw-semibold"></div>
 
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <button type="button" class="btn-kw-outline" onclick="adPrev(4)">
+            <button type="button" class="btn-kw-outline" data-kw-onclick="adPrev(4)">
               <i class="bi bi-arrow-left"></i> Back
             </button>
             <button type="submit" id="adSubmitBtn" class="btn-kw-primary px-5">
@@ -549,7 +549,7 @@ $adSteps = [
   </div>
 </section>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 /* ── Multi-step form navigation ── */
 function adShowSection(n) {
   document.querySelectorAll('.form-section').forEach((s,i) => {

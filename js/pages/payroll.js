@@ -181,11 +181,11 @@ const payrollController = {
                   <td>${r.month || r.payroll_period || "-"}${r.year ? "/" + r.year : ""}</td>
                   <td><span class="badge bg-${r.status === 'approved' || r.status === 'paid' ? 'success' : r.status === 'pending' ? 'warning' : 'secondary'}">${r.status || 'draft'}</span></td>
                   <td class="text-nowrap">
-                    <button class="btn btn-sm btn-outline-info me-1" onclick="payrollController.viewPayslip(${r.staff_id || r.id}, ${r.month || 0}, ${r.year || 0})">
+                    <button class="btn btn-sm btn-outline-info me-1" data-kw-onclick="payrollController.viewPayslip(${r.staff_id || r.id}, ${r.month || 0}, ${r.year || 0})">
                       <i class="bi bi-receipt"></i> Payslip
                     </button>
                     ${canApprove && (r.status === 'pending' || r.status === 'draft') ? `
-                    <button class="btn btn-sm btn-outline-success" onclick="payrollController.approvePayroll(${r.id})" data-year-write>
+                    <button class="btn btn-sm btn-outline-success" data-kw-onclick="payrollController.approvePayroll(${r.id})" data-year-write>
                       <i class="bi bi-check-circle"></i> Approve
                     </button>` : ''}
                   </td>

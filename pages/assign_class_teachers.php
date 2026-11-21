@@ -15,10 +15,10 @@
                 <i class="bi bi-person-badge"></i> Assign Class Teachers
             </h4>
             <div class="btn-group">
-                <button class="btn btn-outline-light btn-sm" onclick="AssignClassTeachersController.exportAssignments()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="AssignClassTeachersController.exportAssignments()">
                     <i class="bi bi-download"></i> Export
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="AssignClassTeachersController.printAssignments()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="AssignClassTeachersController.printAssignments()">
                     <i class="bi bi-printer"></i> Print
                 </button>
             </div>
@@ -139,7 +139,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="AssignClassTeachersController.saveAssignment()" data-year-write>
+                <button type="button" class="btn btn-primary" data-kw-onclick="AssignClassTeachersController.saveAssignment()" data-year-write>
                     Save Assignment
                 </button>
             </div>

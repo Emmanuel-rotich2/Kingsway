@@ -7,7 +7,7 @@
       <h3 class="mb-0"><i class="bi bi-journal-check me-2 text-primary"></i>Financial Audit Logs</h3>
       <small class="text-muted">Immutable transaction audit trail — all financial actions logged</small>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" onclick="auditLogsController.exportCSV()">
+    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="auditLogsController.exportCSV()">
       <i class="bi bi-download me-1"></i> Export
     </button>
   </div>
@@ -54,10 +54,10 @@
       <div class="row g-2 align-items-center">
         <div class="col-md-3">
           <input type="text" id="alSearch" class="form-control form-control-sm" placeholder="Search reference, user, action…"
-                 oninput="auditLogsController.filter()">
+                 data-kw-oninput="auditLogsController.filter()">
         </div>
         <div class="col-md-2">
-          <select id="alAction" class="form-select form-select-sm" onchange="auditLogsController.filter()">
+          <select id="alAction" class="form-select form-select-sm" data-kw-onchange="auditLogsController.filter()">
             <option value="">All Actions</option>
             <option value="CREATE">Create</option>
             <option value="UPDATE">Update</option>
@@ -67,10 +67,10 @@
           </select>
         </div>
         <div class="col-md-2">
-          <input type="date" id="alDateFrom" class="form-control form-control-sm" onchange="auditLogsController.filter()">
+          <input type="date" id="alDateFrom" class="form-control form-control-sm" data-kw-onchange="auditLogsController.filter()">
         </div>
         <div class="col-md-2">
-          <input type="date" id="alDateTo" class="form-control form-control-sm" onchange="auditLogsController.filter()">
+          <input type="date" id="alDateTo" class="form-control form-control-sm" data-kw-onchange="auditLogsController.filter()">
         </div>
       </div>
     </div>
@@ -106,10 +106,10 @@
       <div class="p-3 border-top d-flex justify-content-between align-items-center">
         <span class="text-muted small" id="alPaginationInfo">—</span>
         <div class="btn-group btn-group-sm">
-          <button class="btn btn-outline-secondary" id="alPrevBtn" onclick="auditLogsController.prevPage()">
+          <button class="btn btn-outline-secondary" id="alPrevBtn" data-kw-onclick="auditLogsController.prevPage()">
             <i class="bi bi-chevron-left"></i>
           </button>
-          <button class="btn btn-outline-secondary" id="alNextBtn" onclick="auditLogsController.nextPage()">
+          <button class="btn btn-outline-secondary" id="alNextBtn" data-kw-onclick="auditLogsController.nextPage()">
             <i class="bi bi-chevron-right"></i>
           </button>
         </div>

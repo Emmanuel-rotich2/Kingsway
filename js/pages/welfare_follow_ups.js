@@ -87,10 +87,10 @@ const welfareFUController = {
           <td>${statusBadge(displayStatus)}</td>
           <td>
             ${f.status !== 'completed' ? `
-              <button class="btn btn-sm btn-success me-1" onclick="welfareFUController.complete(${f.id})" title="Mark complete">
+              <button class="btn btn-sm btn-success me-1" data-kw-onclick="welfareFUController.complete(${f.id})" title="Mark complete">
                 <i class="bi bi-check-lg"></i>
               </button>` : ''}
-            <button class="btn btn-sm btn-outline-secondary" onclick="welfareFUController.editItem(${f.id})" title="Edit" data-year-write>
+            <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="welfareFUController.editItem(${f.id})" title="Edit" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
           </td>

@@ -65,9 +65,9 @@ window.GradingScalesCtrl = {
                     <td class="small text-muted">${this.escapeHtml(b.description || "")}</td>
                     <td class="no-print text-nowrap">
                         <button class="btn btn-outline-primary btn-sm py-0 px-2" data-curriculum-manage
-                            onclick="GradingScalesCtrl.editBand(${sys.id}, ${b.id})"><i class="bi bi-pencil"></i></button>
+                            data-kw-onclick="GradingScalesCtrl.editBand(${sys.id}, ${b.id})"><i class="bi bi-pencil"></i></button>
                         <button class="btn btn-outline-danger btn-sm py-0 px-2" data-curriculum-manage
-                            onclick="GradingScalesCtrl.removeBand(${b.id}, '${this.escapeHtml(b.band_code)}')"><i class="bi bi-trash"></i></button>
+                            data-kw-onclick="GradingScalesCtrl.removeBand(${b.id}, '${this.escapeHtml(b.band_code)}')"><i class="bi bi-trash"></i></button>
                     </td>
                 </tr>`).join("");
             return `
@@ -82,11 +82,11 @@ window.GradingScalesCtrl = {
                             <small class="text-muted">${this.escapeHtml(sys.description || "")}</small>
                         </div>
                         <div class="d-flex gap-2">
-                            <button class="btn btn-outline-success btn-sm" onclick="GradingScalesCtrl.exportBandsCsv(${sys.id})">
+                            <button class="btn btn-outline-success btn-sm" data-kw-onclick="GradingScalesCtrl.exportBandsCsv(${sys.id})">
                                 <i class="bi bi-filetype-csv me-1"></i> CSV
                             </button>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="window.PrintManager?.printPage({title:'Grading Scales',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer"></i></button>
-                            <button class="btn btn-primary btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.addBand(${sys.id})">
+                            <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="window.PrintManager?.printPage({title:'Grading Scales',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer"></i></button>
+                            <button class="btn btn-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.addBand(${sys.id})">
                                 <i class="bi bi-plus-circle me-1"></i> Add Band
                             </button>
                         </div>
@@ -214,7 +214,7 @@ window.GradingScalesCtrl = {
                 <td class="no-print">
                     ${p.status === "active" && p.scope !== "school_default"
                         ? `<button class="btn btn-outline-danger btn-sm py-0 px-2" data-curriculum-manage
-                            onclick="GradingScalesCtrl.deactivateProfile(${p.id})" title="Deactivate"><i class="bi bi-x-circle"></i></button>` : ""}
+                            data-kw-onclick="GradingScalesCtrl.deactivateProfile(${p.id})" title="Deactivate"><i class="bi bi-x-circle"></i></button>` : ""}
                 </td>
             </tr>`;
         }).join("") || '<tr><td colspan="7" class="text-center text-muted">No profiles yet</td></tr>';
@@ -418,9 +418,9 @@ window.GradingScalesCtrl = {
                 <td class="no-print text-nowrap">
                     ${st === "pending_review" ? `
                         <button class="btn btn-outline-success btn-sm py-0 px-2" data-curriculum-manage
-                            onclick="GradingScalesCtrl.reviewNational(${r.id}, 'approved')" title="Approve"><i class="bi bi-check-lg"></i></button>
+                            data-kw-onclick="GradingScalesCtrl.reviewNational(${r.id}, 'approved')" title="Approve"><i class="bi bi-check-lg"></i></button>
                         <button class="btn btn-outline-danger btn-sm py-0 px-2" data-curriculum-manage
-                            onclick="GradingScalesCtrl.reviewNational(${r.id}, 'rejected')" title="Reject"><i class="bi bi-x-lg"></i></button>`
+                            data-kw-onclick="GradingScalesCtrl.reviewNational(${r.id}, 'rejected')" title="Reject"><i class="bi bi-x-lg"></i></button>`
                     : ""}
                 </td>
             </tr>`;

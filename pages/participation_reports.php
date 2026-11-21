@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-people text-primary me-2"></i>Participation Reports</h4>
       <p class="text-muted small mb-0 mt-1">Student participation across co-curricular activities.</p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="participationReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="participationReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden mb-4">

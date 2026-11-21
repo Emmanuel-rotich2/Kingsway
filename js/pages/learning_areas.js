@@ -126,13 +126,13 @@ const LearningAreasController = {
                 </td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="LearningAreasController.viewSubject(${subject.id})" title="View">
+                        <button class="btn btn-outline-primary" data-kw-onclick="LearningAreasController.viewSubject(${subject.id})" title="View">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn btn-outline-warning" onclick="LearningAreasController.editSubject(${subject.id})" title="Edit" data-year-write>
+                        <button class="btn btn-outline-warning" data-kw-onclick="LearningAreasController.editSubject(${subject.id})" title="Edit" data-year-write>
                             <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-outline-danger" onclick="LearningAreasController.deleteSubject(${subject.id})" title="Delete" data-year-write>
+                        <button class="btn btn-outline-danger" data-kw-onclick="LearningAreasController.deleteSubject(${subject.id})" title="Delete" data-year-write>
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -212,7 +212,7 @@ const LearningAreasController = {
                 <td>${a.lessons_per_week || "--"}</td>
                 <td><span class="badge bg-${a.status === "active" ? "success" : "secondary"}">${a.status || "active"}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-danger" onclick="LearningAreasController.removeAssignment(${a.id})" data-year-write>
+                    <button class="btn btn-sm btn-outline-danger" data-kw-onclick="LearningAreasController.removeAssignment(${a.id})" data-year-write>
                         <i class="fas fa-times"></i>
                     </button>
                 </td>
@@ -292,7 +292,7 @@ const LearningAreasController = {
                         <td>${this.escapeHtml(sow.teacher_name || "")}</td>
                         <td><span class="badge bg-${sow.status === "approved" ? "success" : sow.status === "pending" ? "warning" : "secondary"}">${sow.status || "pending"}</span></td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="LearningAreasController.viewSow(${sow.id})">
+                            <button class="btn btn-sm btn-outline-primary" data-kw-onclick="LearningAreasController.viewSow(${sow.id})">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </td>

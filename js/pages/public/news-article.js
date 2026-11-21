@@ -94,7 +94,7 @@
           <img src="${imgFor(a, 1200, 600)}" alt="${S(a.title)}"
                class="w-100 rounded-4 mb-4"
                style="aspect-ratio:16/9;object-fit:cover;max-height:480px"
-               onerror="this.src='https://placehold.co/800x450/198754/ffffff?text=Kingsway+News'">
+               data-kw-onerror="this.src='https://placehold.co/800x450/198754/ffffff?text=Kingsway+News'">
           <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
             <span class="tag text-white" style="background:${col}">${S(a.category)}</span>
             <span class="text-muted small"><i class="bi bi-calendar3 me-1"></i>${dateOnly(a.created_at)}</span>
@@ -146,7 +146,7 @@
           ${related.map((r) => `
             <a href="${this.articleUrl(r.id)}" class="d-flex gap-3 mb-3 text-decoration-none text-dark">
               <img src="${imgFor(r, 120, 80)}" alt="" style="width:80px;height:60px;object-fit:cover;border-radius:8px;flex-shrink:0"
-                   onerror="this.src='https://placehold.co/80x60/198754/ffffff?text=News'">
+                   data-kw-onerror="this.src='https://placehold.co/80x60/198754/ffffff?text=News'">
               <div>
                 <div class="small fw-semibold lh-sm mb-1">${S(excerpt(r.title, 65))}</div>
                 <div class="text-muted" style="font-size:.75rem">${dateOnly(r.created_at)}</div>

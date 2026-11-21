@@ -74,6 +74,6 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<script>window.KINGSWAY_PUBLIC_PAGE = true;</script>
+<script nonce="<?= csp_nonce() ?>">window.KINGSWAY_PUBLIC_PAGE = true;</script>
 <?php asset_script($appBase, 'js/pages/reset_default_password.js'); ?>
 <?php include __DIR__ . '/public/layout/footer.php'; ?>

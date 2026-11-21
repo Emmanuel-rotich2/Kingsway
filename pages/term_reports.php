@@ -218,13 +218,13 @@
         <small>Generate, print, and distribute CBC end-of-term report cards in bulk</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" id="generateReports" onclick="termReportsCtrl.generateReports()" data-year-write>
+        <button class="btn btn-light btn-sm" id="generateReports" data-kw-onclick="termReportsCtrl.generateReports()" data-year-write>
             <i class="bi bi-file-earmark-check me-1"></i>Prepare Report Documents
         </button>
-        <button class="btn btn-light btn-sm" id="bulkPrint" onclick="termReportsCtrl.bulkPrint()">
+        <button class="btn btn-light btn-sm" id="bulkPrint" data-kw-onclick="termReportsCtrl.bulkPrint()">
             <i class="bi bi-printer me-1"></i>Bulk Print
         </button>
-        <button class="btn btn-light btn-sm" onclick="termReportsCtrl.exportCSV()">
+        <button class="btn btn-light btn-sm" data-kw-onclick="termReportsCtrl.exportCSV()">
             <i class="bi bi-download me-1"></i>Export
         </button>
     </div>

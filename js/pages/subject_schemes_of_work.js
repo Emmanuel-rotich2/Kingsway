@@ -157,13 +157,13 @@ const SubjectSchemesOfWorkController = {
           <td>${lastUpdated}</td>
           <td>
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="SubjectSchemesOfWorkController.viewScheme(${scheme.id})" title="View Scheme">
+              <button class="btn btn-outline-primary" data-kw-onclick="SubjectSchemesOfWorkController.viewScheme(${scheme.id})" title="View Scheme">
                 <i class="bi bi-eye"></i>
               </button>
-              <button class="btn btn-outline-secondary" onclick="SubjectSchemesOfWorkController.editScheme(${scheme.id})" title="Edit Scheme" data-year-write>
+              <button class="btn btn-outline-secondary" data-kw-onclick="SubjectSchemesOfWorkController.editScheme(${scheme.id})" title="Edit Scheme" data-year-write>
                 <i class="bi bi-pencil"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="SubjectSchemesOfWorkController.submitForApproval(${scheme.id})" title="Submit for Approval" data-year-write>
+              <button class="btn btn-outline-success" data-kw-onclick="SubjectSchemesOfWorkController.submitForApproval(${scheme.id})" title="Submit for Approval" data-year-write>
                 <i class="bi bi-send"></i>
               </button>
             </div>

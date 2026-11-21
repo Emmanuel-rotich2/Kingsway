@@ -114,7 +114,7 @@ const activityParticipantsController = {
       <td class="small">${this.esc(p.activity_title || '\u2014')}</td>
       <td class="small text-muted">${this.esc(p.role || '\u2014')}</td>
       <td><span class="badge ${this.badgeClass(p.status)}">${this.esc(p.status || '\u2014')}</span></td>
-      <td class="text-end">${p.status === 'active' ? `<button class="btn btn-sm btn-outline-secondary" onclick="activityParticipantsController.withdraw(${p.id})">Withdraw</button>` : ''}</td>
+      <td class="text-end">${p.status === 'active' ? `<button class="btn btn-sm btn-outline-secondary" data-kw-onclick="activityParticipantsController.withdraw(${p.id})">Withdraw</button>` : ''}</td>
     </tr>`).join('');
   },
 

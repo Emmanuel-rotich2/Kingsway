@@ -49,7 +49,7 @@
       const available = sizes.reduce((sum, size) => sum + Number(size.available || 0), 0);
       const swatches = (product.variants || []).slice(0, 6).map((variant) => `<span class="catalog-swatch" style="background:${esc(variant.swatch_hex || '#0b5d3b')}" title="${esc(variant.name || 'Variant')}"></span>`).join('');
       return `<article class="staff-catalog-item">
-        <button type="button" class="staff-catalog-photo border-0 p-0" data-product="${Number(product.id)}"><img src="${esc(versionedImage(product.image_url || fallback, '20260831-4'))}" alt="${esc(product.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'"><span>${String(index + 1).padStart(2, '0')}</span></button>
+        <button type="button" class="staff-catalog-photo border-0 p-0" data-product="${Number(product.id)}"><img src="${esc(versionedImage(product.image_url || fallback, '20260831-4'))}" alt="${esc(product.title)}" loading="lazy" data-kw-onerror="this.onerror=null;this.src='${fallback}'"><span>${String(index + 1).padStart(2, '0')}</span></button>
         <div class="staff-catalog-item-copy"><small>${esc(labels[product.category_slug] || product.category_slug || 'Collection')}</small><h3>${esc(product.title)}</h3><p>${esc((product.description || 'Official Kingsway school product.').substring(0, 125))}</p>${swatches ? `<div class="catalog-swatches">${swatches}</div>` : ''}<footer><strong>${available > 0 ? 'Available' : 'Coming Soon'}</strong><button type="button" data-product="${Number(product.id)}">View product <i class="bi bi-arrow-up-right"></i></button></footer></div>
       </article>`;
     }).join('') || '<div class="catalog-empty"><i class="bi bi-search fs-2 d-block mb-2"></i>No matching products.</div>';

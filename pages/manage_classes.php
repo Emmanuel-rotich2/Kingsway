@@ -17,13 +17,13 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
             <select class="form-select form-select-sm" id="academicYearFilter" aria-label="Academic year" style="min-width: 13rem"><option>Loading…</option></select>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="academicsController.showClassModal()" data-permission="academic_create">
+                <button class="btn btn-light btn-sm" data-kw-onclick="academicsController.showClassModal()" data-permission="academic_create">
                     <i class="bi bi-plus-circle"></i> Add Class
                 </button>
-                <button class="btn btn-light btn-sm" onclick="window.location.href='<?= $appBase ?>/home.php?route=class_streams'" data-permission="academic_create">
+                <button class="btn btn-light btn-sm" data-kw-onclick="window.location.href='<?= $appBase ?>/home.php?route=class_streams'" data-permission="academic_create">
                     <i class="bi bi-diagram-3"></i> Manage Streams
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="academicsController.exportClasses()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="academicsController.exportClasses()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -207,7 +207,7 @@
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="classForm" onsubmit="academicsController.saveClass(event)">
+            <form id="classForm" data-kw-onsubmit="academicsController.saveClass(event)">
                 <div class="modal-body">
                     <input type="hidden" id="classId">
                     
@@ -301,7 +301,7 @@
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="streamForm" onsubmit="academicsController.saveStream(event)">
+            <form id="streamForm" data-kw-onsubmit="academicsController.saveStream(event)">
                 <div class="modal-body">
                     <input type="hidden" id="streamId">
                     

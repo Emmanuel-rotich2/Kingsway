@@ -64,7 +64,7 @@
         <option value="resolved">Resolved</option>
     </select>
     <input type="text" class="filter-search" id="searchCase" placeholder="🔍 Search...">
-    <button class="btn btn-primary btn-sm" onclick="DisciplineController.showNewCaseModal()">➕ Report Case</button>
+    <button class="btn btn-primary btn-sm" data-kw-onclick="DisciplineController.showNewCaseModal()">➕ Report Case</button>
 </div>
 
 <!-- Table - 7 columns -->

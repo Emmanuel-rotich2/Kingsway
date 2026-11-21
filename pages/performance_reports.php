@@ -44,10 +44,10 @@
         <small>Subject analysis, student rankings, CBC grade distributions and performance trends</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" onclick="performanceReportsCtrl.exportReport()">
+        <button class="btn btn-light btn-sm" data-kw-onclick="performanceReportsCtrl.exportReport()">
             <i class="bi bi-file-excel me-1"></i>Export
         </button>
-        <button class="btn btn-light btn-sm" onclick="performanceReportsCtrl.printReport()">
+        <button class="btn btn-light btn-sm" data-kw-onclick="performanceReportsCtrl.printReport()">
             <i class="bi bi-printer me-1"></i>Print
         </button>
     </div>

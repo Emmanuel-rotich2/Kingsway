@@ -238,10 +238,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function assembleDocument($title, $header, $content, $footer, $printBtnText = 'Print')
     {
         $printBtn = $this->getPrintButtonHTML($printBtnText);
+        // Runs the print button's data-kw-onclick under the strict CSP.
+        $inlineActions = function_exists('csp_bootstrap_script') ? csp_bootstrap_script() : '';
 
         return "<!DOCTYPE html>
 <html>
 <head>
+    {$inlineActions}
     <meta charset='UTF-8'>
     <title>{$title}</title>
     <link href='https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css' rel='stylesheet'>
@@ -318,7 +321,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function getPrintButtonHTML($label = 'Print')
     {
         $labelEscaped = htmlspecialchars($label, ENT_QUOTES);
-        return "<button class='btn btn-success btn-lg' onclick='window.opener?.PrintManager?.printElement?.(document.body.id || \"print-root\")'>{$labelEscaped}</button>";
+        return "<button class='btn btn-success btn-lg' data-kw-onclick='window.opener?.PrintManager?.printElement?.(document.body.id || \"print-root\")'>{$labelEscaped}</button>";
     }
 
     // ========================================================================

@@ -275,7 +275,7 @@ const StudentLeadershipController = {
         <td class="small">${this.esc(item.position_name || '—')}</td><td class="small">${this.esc(item.leadership_category_name || '—')}</td>
         <td class="small">${yearTerm}</td><td class="small">${this.esc(item.house_name || '—')}</td>
         <td class="small">${this.esc(item.class_stream || '—')}</td><td>${this.statusBadge(Number(item.is_active) === 1 ? 'active' : 'inactive')}</td>
-        <td class="text-end">${canManage ? `<button type="button" class="btn btn-sm btn-outline-danger" onclick="StudentLeadershipController.removeLeadership(${Number(item.id)})" aria-label="Remove assignment" data-year-write><i class="fas fa-trash"></i></button>` : ''}</td>
+        <td class="text-end">${canManage ? `<button type="button" class="btn btn-sm btn-outline-danger" data-kw-onclick="StudentLeadershipController.removeLeadership(${Number(item.id)})" aria-label="Remove assignment" data-year-write><i class="fas fa-trash"></i></button>` : ''}</td>
       </tr>`;
     }).join('');
   },
@@ -287,7 +287,7 @@ const StudentLeadershipController = {
       <td>${this.esc(position.name)}</td><td>${this.esc(position.description || '—')}</td>
       <td>${position.max_holders ? Number(position.max_holders) : 'No limit'}</td>
       <td>${this.statusBadge(Number(position.is_active) === 1 ? 'active' : 'inactive')}</td>
-      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-primary" onclick="StudentLeadershipController.editPosition(${Number(position.id)})" aria-label="Edit position" data-year-write><i class="fas fa-pen"></i></button></td>
+      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-primary" data-kw-onclick="StudentLeadershipController.editPosition(${Number(position.id)})" aria-label="Edit position" data-year-write><i class="fas fa-pen"></i></button></td>
     </tr>`).join('');
   },
   renderHouses() {
@@ -303,7 +303,7 @@ const StudentLeadershipController = {
       <div class="text-muted small">${this.esc(house.motto || house.mascot || 'School house')}</div>
       <div class="mt-3 small">Patron: ${this.esc(house.patron_name || 'Not assigned')} · ${Number(house.active_members || 0)} learners</div>
       <div class="mt-2">${this.statusBadge(Number(house.is_active) === 1 ? 'active' : 'inactive')}</div>
-      ${canManage ? `<button type="button" class="btn btn-sm btn-outline-primary mt-3" onclick="StudentLeadershipController.editHouse(${Number(house.id)})" data-year-write>Edit house</button>` : ''}
+      ${canManage ? `<button type="button" class="btn btn-sm btn-outline-primary mt-3" data-kw-onclick="StudentLeadershipController.editHouse(${Number(house.id)})" data-year-write>Edit house</button>` : ''}
     </div></div></div>`).join('');
   },
   renderAwards() {
@@ -327,7 +327,7 @@ const StudentLeadershipController = {
       <td>${this.esc(item.category_name || '—')}</td><td>${this.esc(item.department_name || 'School-wide')}</td>
       <td>${this.esc(item.template_key || 'Default')}</td><td>${this.esc(item.number_prefix || '—')}</td>
       <td>${this.esc([item.signatory_label, item.secondary_signatory_label].filter(Boolean).join(' / ') || '—')}</td>
-      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-primary" onclick="StudentLeadershipController.editAwardType(${Number(item.id)})" aria-label="Edit award type" data-year-write><i class="fas fa-pen"></i></button> <button type="button" class="btn btn-sm btn-outline-danger" onclick="StudentLeadershipController.deleteAwardType(${Number(item.id)})" aria-label="Delete award type" data-year-write><i class="fas fa-trash"></i></button></td></tr>`).join('');
+      <td class="text-end"><button type="button" class="btn btn-sm btn-outline-primary" data-kw-onclick="StudentLeadershipController.editAwardType(${Number(item.id)})" aria-label="Edit award type" data-year-write><i class="fas fa-pen"></i></button> <button type="button" class="btn btn-sm btn-outline-danger" data-kw-onclick="StudentLeadershipController.deleteAwardType(${Number(item.id)})" aria-label="Delete award type" data-year-write><i class="fas fa-trash"></i></button></td></tr>`).join('');
   },
   statusBadge(status) {
     const normalized = String(status || 'unknown').toLowerCase();

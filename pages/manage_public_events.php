@@ -38,7 +38,7 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <label class="d-flex align-items-center gap-2 small"><input type="checkbox" id="eventsUpcomingOnly"> Upcoming only</label>
-    <button class="btn btn-success btn-sm rounded-pill px-3" onclick="publicEventsOpenModal()">
+    <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="publicEventsOpenModal()">
       <i class="bi bi-plus-lg me-1"></i>New Event
     </button>
   </div>
@@ -89,7 +89,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="publicEventsSave()"><i class="bi bi-calendar-check me-1"></i>Save Event</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="publicEventsSave()"><i class="bi bi-calendar-check me-1"></i>Save Event</button>
     </div>
   </div></div>
 </div>

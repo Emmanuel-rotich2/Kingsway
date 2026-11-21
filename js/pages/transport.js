@@ -50,7 +50,7 @@ const transportController = {
       <td class="small">${this.esc(r.vehicle_reg || '—')}</td>
       <td class="small">${this.esc(r.driver_name || '—')}</td>
       <td class="small">${r.stops_count || 0} stops</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportController.viewRoute(${r.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportController.viewRoute(${r.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 
@@ -63,7 +63,7 @@ const transportController = {
       <td class="small">${this.esc(v.type || '—')}</td>
       <td class="small">${v.capacity || 0} seats</td>
       <td class="small"><span class="badge bg-${v.status === 'active' ? 'success' : v.status === 'maintenance' ? 'warning' : 'secondary'}">${this.esc(v.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportController.viewVehicle(${v.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportController.viewVehicle(${v.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 
@@ -75,7 +75,7 @@ const transportController = {
       <td class="small">${this.esc(d.name || '—')}</td>
       <td class="small">${this.esc(d.license_number || '—')}</td>
       <td class="small"><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${this.esc(d.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportController.viewDriver(${d.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportController.viewDriver(${d.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 
@@ -87,7 +87,7 @@ const transportController = {
       <td class="small">${this.esc(s.name || '—')}</td>
       <td class="small">${this.esc(s.location || '—')}</td>
       <td class="small">${this.fmtTime(s.pickup_time)}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="transportController.viewStop(${s.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportController.viewStop(${s.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 

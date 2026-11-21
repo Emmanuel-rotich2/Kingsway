@@ -8,7 +8,7 @@
       <small class="text-muted">Staff salary advance requests, approvals, and payroll deduction tracking</small>
     </div>
     <button class="btn btn-sm btn-warning" id="addAdvanceBtn" style="display:none"
-            onclick="salaryAdvancesController.showModal()" data-year-write>
+            data-kw-onclick="salaryAdvancesController.showModal()" data-year-write>
       <i class="bi bi-plus-circle me-1"></i> Request Advance
     </button>
   </div>
@@ -68,7 +68,7 @@
           </select>
         </div>
         <div class="col-md-2">
-          <button class="btn btn-sm btn-outline-secondary w-100" onclick="salaryAdvancesController.clearFilters()">Clear</button>
+          <button class="btn btn-sm btn-outline-secondary w-100" data-kw-onclick="salaryAdvancesController.clearFilters()">Clear</button>
         </div>
       </div>
     </div>
@@ -152,7 +152,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-warning" onclick="salaryAdvancesController.save()" data-year-write>Submit Request</button>
+        <button class="btn btn-warning" data-kw-onclick="salaryAdvancesController.save()" data-year-write>Submit Request</button>
       </div>
     </div>
   </div>
@@ -189,11 +189,11 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn" id="approveAdvBtn" onclick="salaryAdvancesController.confirmApproval()" data-year-write>Confirm</button>
+        <button class="btn" id="approveAdvBtn" data-kw-onclick="salaryAdvancesController.confirmApproval()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/salary_advances.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => salaryAdvancesController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => salaryAdvancesController.init());</script>

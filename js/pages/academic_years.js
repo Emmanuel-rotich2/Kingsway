@@ -157,7 +157,7 @@ var academicYearsController = {
       <td class="small">${this.fmtDate(y.end_date)}</td>
       <td class="small">${this.state.termCountsAvailable && y.term_count != null ? Number(y.term_count) : '<span class="text-muted" title="Term counts could not be matched to this academic year">—</span>'}</td>
       <td class="small"><span class="badge bg-${this.yearStatus(y).className}">${this.yearStatus(y).label}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="academicYearsController.editYear(${y.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicYearsController.editYear(${y.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

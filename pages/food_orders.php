@@ -18,7 +18,7 @@
       <option value="">All statuses</option>
       <option>draft</option><option>pending</option><option>approved</option><option>ordered</option><option>received</option><option>cancelled</option>
     </select></div>
-    <button class="btn btn-outline-success btn-sm" onclick="foodOrdersController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="foodOrdersController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

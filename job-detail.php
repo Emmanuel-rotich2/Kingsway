@@ -146,11 +146,11 @@ require_once __DIR__ . '/public/layout/public_data.php';
 </section>
 
 <!-- Apply Modal (shared) -->
-<div id="applyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)this.style.display='none'">
+<div id="applyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:20px" data-kw-onclick="if(event.target===this)this.style.display='none'">
   <div class="bg-white rounded-4 p-4 shadow-lg" style="max-width:520px;width:100%;max-height:90vh;overflow-y:auto">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h4 class="fw-bold mb-0">Apply for <span id="applyJobTitleDisplay">Position</span></h4>
-      <button class="btn-close" onclick="document.getElementById('applyModal').style.display='none'"></button>
+      <button class="btn-close" data-kw-onclick="document.getElementById('applyModal').style.display='none'"></button>
     </div>
     <form id="applyForm" enctype="multipart/form-data">
       <input type="hidden" id="applyJobId" name="apply_job_id" value="0">
@@ -194,7 +194,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function openApplyModal(jobId, jobTitle) {
   document.getElementById('applyJobId').value = jobId;
   document.getElementById('applyJobTitleDisplay').textContent = jobTitle;

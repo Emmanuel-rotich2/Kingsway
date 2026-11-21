@@ -132,7 +132,7 @@ const libraryIssueReturnController = {
       <td class="small text-muted">${this.esc(i.borrower_ref || '\u2014')}</td>
       <td class="small">${this.fmtDate(i.issued_date)}</td>
       <td class="small ${Number(i.days_overdue || 0) > 0 ? 'text-danger fw-semibold' : ''}">${this.fmtDate(i.due_date)}${Number(i.days_overdue || 0) > 0 ? ` (${this.esc(i.days_overdue)}d overdue)` : ''}</td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="libraryIssueReturnController.returnBook(${i.id})" data-year-write>Return</button></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="libraryIssueReturnController.returnBook(${i.id})" data-year-write>Return</button></td>
     </tr>`).join('');
   },
 

@@ -141,9 +141,9 @@ const AlumniController = {
                     <td>${active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="AlumniController.viewAlumni(${i})" title="View"><i class="fas fa-eye"></i></button>
-                            <button class="btn btn-outline-info" onclick="AlumniController.editAlumni(${i})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
-                            ${active ? `<button class="btn btn-outline-warning" onclick="AlumniController.deactivateAlumni(${i})" title="Deactivate" data-year-write><i class="fas fa-user-slash"></i></button>` : ''}
+                            <button class="btn btn-outline-primary" data-kw-onclick="AlumniController.viewAlumni(${i})" title="View"><i class="fas fa-eye"></i></button>
+                            <button class="btn btn-outline-info" data-kw-onclick="AlumniController.editAlumni(${i})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+                            ${active ? `<button class="btn btn-outline-warning" data-kw-onclick="AlumniController.deactivateAlumni(${i})" title="Deactivate" data-year-write><i class="fas fa-user-slash"></i></button>` : ''}
                         </div>
                     </td>
                 </tr>`;

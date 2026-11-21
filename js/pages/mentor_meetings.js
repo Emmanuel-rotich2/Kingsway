@@ -99,7 +99,7 @@ const mentorMeetingsController = (() => {
           <td>${statusBadge(dateStr)}</td>
           <td class="small text-muted" style="max-width:200px;">${esc(m.notes || m.summary || '—')}</td>
           <td>
-            <button class="btn btn-outline-primary btn-sm" onclick="mentorMeetingsController.editMeeting(${Number(m.id)})" data-year-write>
+            <button class="btn btn-outline-primary btn-sm" data-kw-onclick="mentorMeetingsController.editMeeting(${Number(m.id)})" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
           </td>

@@ -347,7 +347,7 @@ const examSetupController = (() => {
                         <div class="empty-state">
                             <i class="bi bi-journal-x"></i>
                             <p>No exam configurations found.<br>
-                            <button class="btn btn-sm btn-academic mt-2" onclick="examSetupController.openCreateModal()" data-year-write>
+                            <button class="btn btn-sm btn-academic mt-2" data-kw-onclick="examSetupController.openCreateModal()" data-year-write>
                                 <i class="bi bi-plus-circle me-1"></i>Create First Exam
                             </button></p>
                         </div>
@@ -410,14 +410,14 @@ const examSetupController = (() => {
                     </td>
                     <td class="actions-cell text-center">
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-success btn-sm" onclick="examSetupController.viewExam(${exam.id})" title="View Details">
+                            <button class="btn btn-outline-success btn-sm" data-kw-onclick="examSetupController.viewExam(${exam.id})" title="View Details">
                                 <i class="bi bi-eye"></i>
                             </button>
                             ${_canCreate() ? `
-                            <button class="btn btn-outline-warning btn-sm" onclick="examSetupController.editExam(${exam.id})" title="Edit" data-year-write>
+                            <button class="btn btn-outline-warning btn-sm" data-kw-onclick="examSetupController.editExam(${exam.id})" title="Edit" data-year-write>
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-outline-danger btn-sm" onclick="examSetupController.confirmDelete(${exam.id}, '${escHtml(name).replace(/'/g, "\\'")}')" title="Delete" data-year-write>
+                            <button class="btn btn-outline-danger btn-sm" data-kw-onclick="examSetupController.confirmDelete(${exam.id}, '${escHtml(name).replace(/'/g, "\\'")}')" title="Delete" data-year-write>
                                 <i class="bi bi-trash"></i>
                             </button>` : ''}
                         </div>
@@ -478,7 +478,7 @@ const examSetupController = (() => {
 
     // Previous
     html += `<li class="page-item ${current <= 1 ? "disabled" : ""}">
-                    <a class="page-link" href="#" onclick="examSetupController.goToPage(${current - 1}); return false;">&laquo;</a>
+                    <a class="page-link" href="#" data-kw-onclick="examSetupController.goToPage(${current - 1}); return false;">&laquo;</a>
                  </li>`;
 
     // Determine visible page range (max 7 buttons)
@@ -487,24 +487,24 @@ const examSetupController = (() => {
     if (endPage - startPage < 6) startPage = Math.max(1, endPage - 6);
 
     if (startPage > 1) {
-      html += `<li class="page-item"><a class="page-link" href="#" onclick="examSetupController.goToPage(1); return false;">1</a></li>`;
+      html += `<li class="page-item"><a class="page-link" href="#" data-kw-onclick="examSetupController.goToPage(1); return false;">1</a></li>`;
       if (startPage > 2)
         html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
     }
     for (let i = startPage; i <= endPage; i++) {
       html += `<li class="page-item ${i === current ? "active" : ""}">
-                        <a class="page-link" href="#" onclick="examSetupController.goToPage(${i}); return false;">${i}</a>
+                        <a class="page-link" href="#" data-kw-onclick="examSetupController.goToPage(${i}); return false;">${i}</a>
                      </li>`;
     }
     if (endPage < totalPages) {
       if (endPage < totalPages - 1)
         html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
-      html += `<li class="page-item"><a class="page-link" href="#" onclick="examSetupController.goToPage(${totalPages}); return false;">${totalPages}</a></li>`;
+      html += `<li class="page-item"><a class="page-link" href="#" data-kw-onclick="examSetupController.goToPage(${totalPages}); return false;">${totalPages}</a></li>`;
     }
 
     // Next
     html += `<li class="page-item ${current >= totalPages ? "disabled" : ""}">
-                    <a class="page-link" href="#" onclick="examSetupController.goToPage(${current + 1}); return false;">&raquo;</a>
+                    <a class="page-link" href="#" data-kw-onclick="examSetupController.goToPage(${current + 1}); return false;">&raquo;</a>
                  </li>`;
 
     container.innerHTML = html;
@@ -624,10 +624,10 @@ const examSetupController = (() => {
             <td>
                 <input type="number" class="form-control subject-weight" name="weight" min="0" max="100" step="0.1"
                        value="${data?.weight || data?.weight_percentage || ""}" placeholder="--"
-                       onchange="examSetupController.updateSubjectTotals()">
+                       data-kw-onchange="examSetupController.updateSubjectTotals()">
             </td>
             <td class="text-center">
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="examSetupController.removeSubjectRow(this)" title="Remove" data-year-write>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-kw-onclick="examSetupController.removeSubjectRow(this)" title="Remove" data-year-write>
                     <i class="bi bi-x-lg"></i>
                 </button>
             </td>`;

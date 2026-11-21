@@ -16,10 +16,10 @@
                 <i class="bi bi-book"></i> Subjects Assigned
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="InternAssignedSubjectsController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="InternAssignedSubjectsController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="InternAssignedSubjectsController.exportSubjects()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="InternAssignedSubjectsController.exportSubjects()">
                     <i class="bi bi-download"></i> Export
                 </button>
                 <button class="btn btn-outline-light btn-sm" id="iasPrint" type="button">

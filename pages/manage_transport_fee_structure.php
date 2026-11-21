@@ -26,7 +26,7 @@
         <option value="partial">Partial</option>
         <option value="pending">Pending</option>
       </select>
-      <button class="btn btn-outline-success btn-sm" onclick="manageTransportFeeStructureController.loadBills()"><i class="bi bi-arrow-clockwise"></i></button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="manageTransportFeeStructureController.loadBills()"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
 
     <div class="row g-3 mb-4">
@@ -93,7 +93,7 @@
     <div class="modal-body" id="mtfReceiptBody"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-      <button class="btn btn-success btn-sm" onclick="manageTransportFeeStructureController.printReceipt()"><i class="bi bi-printer me-1"></i>Print Receipt</button>
+      <button class="btn btn-success btn-sm" data-kw-onclick="manageTransportFeeStructureController.printReceipt()"><i class="bi bi-printer me-1"></i>Print Receipt</button>
     </div>
   </div></div>
 </div>

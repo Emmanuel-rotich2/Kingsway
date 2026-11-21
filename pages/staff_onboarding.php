@@ -8,11 +8,11 @@
       <small class="text-muted">Track new hire onboarding, document collection, probation reviews, and clearance</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-secondary" onclick="staffOnboardingController.showPendingPanel()">
+      <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="staffOnboardingController.showPendingPanel()">
         <i class="bi bi-exclamation-circle me-1"></i>Pending Actions
       </button>
       <button class="btn btn-sm btn-success" id="newOnboardingBtn" style="display:none"
-              onclick="staffOnboardingController.showInitiateModal()" data-year-write>
+              data-kw-onclick="staffOnboardingController.showInitiateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i>Initiate Onboarding
       </button>
     </div>
@@ -86,7 +86,7 @@
           </select>
         </div>
         <div class="col-md-1">
-          <button class="btn btn-sm btn-outline-secondary w-100" onclick="staffOnboardingController.clearFilters()">Clear</button>
+          <button class="btn btn-sm btn-outline-secondary w-100" data-kw-onclick="staffOnboardingController.clearFilters()">Clear</button>
         </div>
       </div>
     </div>
@@ -157,7 +157,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success" onclick="staffOnboardingController.initiateOnboarding()">
+        <button class="btn btn-success" data-kw-onclick="staffOnboardingController.initiateOnboarding()">
           <i class="bi bi-rocket-takeoff me-1"></i> Start Onboarding
         </button>
       </div>
@@ -219,7 +219,7 @@
       <div class="tab-pane fade" id="obTabDocs">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h6 class="mb-0">Documents Collected</h6>
-          <button class="btn btn-sm btn-outline-success" onclick="staffOnboardingController.showDocModal()">
+          <button class="btn btn-sm btn-outline-success" data-kw-onclick="staffOnboardingController.showDocModal()">
             <i class="bi bi-plus me-1"></i>Record Document
           </button>
         </div>
@@ -230,7 +230,7 @@
       <div class="tab-pane fade" id="obTabReviews">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h6 class="mb-0">Probation Reviews</h6>
-          <button class="btn btn-sm btn-outline-primary" onclick="staffOnboardingController.showReviewModal()">
+          <button class="btn btn-sm btn-outline-primary" data-kw-onclick="staffOnboardingController.showReviewModal()">
             <i class="bi bi-plus me-1"></i>Add Review
           </button>
         </div>
@@ -296,7 +296,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="staffOnboardingController.saveDocument()" data-year-write>Save Document</button>
+        <button class="btn btn-primary" data-kw-onclick="staffOnboardingController.saveDocument()" data-year-write>Save Document</button>
       </div>
     </div>
   </div>
@@ -360,7 +360,7 @@
           </div>
           <div class="col-12">
             <label class="form-label fw-semibold">Outcome <span class="text-danger">*</span></label>
-            <select class="form-select" id="rev_outcome" required onchange="staffOnboardingController.onOutcomeChange()">
+            <select class="form-select" id="rev_outcome" required data-kw-onchange="staffOnboardingController.onOutcomeChange()">
               <option value="continue">Continue Probation</option>
               <option value="extend_probation">Extend Probation</option>
               <option value="confirm_permanent">Confirm Permanent Employment ✓</option>
@@ -382,7 +382,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-warning" onclick="staffOnboardingController.saveReview()" data-year-write>Save Review</button>
+        <button class="btn btn-warning" data-kw-onclick="staffOnboardingController.saveReview()" data-year-write>Save Review</button>
       </div>
     </div>
   </div>
@@ -390,4 +390,4 @@
 
 <?php $staffOnboardingJs = __DIR__ . '/../js/pages/staff_onboarding.js'; ?>
 <?php asset_script($appBase, 'js/pages/staff_onboarding.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>

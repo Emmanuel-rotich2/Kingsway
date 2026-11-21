@@ -91,7 +91,7 @@
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label fw-semibold">Class</label>
-                <select id="classSelect" class="form-select" required onchange="enterResultsController.loadStudents()">
+                <select id="classSelect" class="form-select" required data-kw-onchange="enterResultsController.loadStudents()">
                     <option value="">-- Select Class --</option>
                 </select>
             </div>

@@ -7,7 +7,7 @@
       <h3 class="mb-0"><i class="bi bi-person-lines-fill me-2 text-primary"></i>Student Full Record</h3>
       <small class="text-muted">Complete academic, finance, attendance and conduct history from enrollment to today</small>
     </div>
-    <button class="btn btn-sm btn-outline-primary" onclick="studentTimelineController.exportPDF()" id="exportBtn" style="display:none">
+    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="studentTimelineController.exportPDF()" id="exportBtn" style="display:none">
       <i class="bi bi-file-earmark-pdf me-1"></i> Export Report
     </button>
   </div>
@@ -28,7 +28,7 @@
           </select>
         </div>
         <div class="col-md-2">
-          <button class="btn btn-primary w-100" onclick="studentTimelineController.loadSelected()">
+          <button class="btn btn-primary w-100" data-kw-onclick="studentTimelineController.loadSelected()">
             <i class="bi bi-search me-1"></i> Load
           </button>
         </div>
@@ -47,7 +47,7 @@
             <img id="tlPhoto" src="" alt="Photo"
                  class="rounded-circle border border-2"
                  style="width:80px;height:80px;object-fit:cover"
-                 onerror="this.onerror=null; this.src='<?= htmlspecialchars(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') . '/students/avatar.jpg' : $appBase . '/uploads/students/avatar.jpg', ENT_QUOTES, 'UTF-8') ?>'">
+                 data-kw-onerror="this.onerror=null; this.src='<?= htmlspecialchars(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') . '/students/avatar.jpg' : $appBase . '/uploads/students/avatar.jpg', ENT_QUOTES, 'UTF-8') ?>'">
           </div>
           <div class="col">
             <h4 class="mb-1" id="tlStudentName">—</h4>
@@ -256,7 +256,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-warning" onclick="studentTimelineController.submitTransfer()">Submit Request</button>
+        <button class="btn btn-warning" data-kw-onclick="studentTimelineController.submitTransfer()">Submit Request</button>
       </div>
     </div>
   </div>

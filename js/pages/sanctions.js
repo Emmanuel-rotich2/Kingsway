@@ -87,7 +87,7 @@ const sanctionsController = {
         <td><span class="badge bg-${statusCls[status] || 'secondary'}">${this._esc(status)}</span></td>
         <td>${this._esc(s.action_taken || '—')}</td>
         <td class="text-end">
-          ${status === 'pending' ? `<button class="btn btn-sm btn-outline-success" onclick="sanctionsController.showLiftModal(${Number(s.id)})">Resolve</button>` : ''}
+          ${status === 'pending' ? `<button class="btn btn-sm btn-outline-success" data-kw-onclick="sanctionsController.showLiftModal(${Number(s.id)})">Resolve</button>` : ''}
         </td>
       </tr>`;
     }).join('');

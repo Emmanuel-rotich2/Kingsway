@@ -8,7 +8,7 @@
       <h3 class="mb-0"><i class="bi bi-clipboard2-data me-2 text-primary"></i>Attendance Reports</h3>
       <small class="text-muted">Attendance statistics by class, student, and date range</small>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="attendanceReportsController.exportCSV()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="attendanceReportsController.exportCSV()">
       <i class="bi bi-download me-1"></i>Export CSV
     </button>
     <button class="btn btn-outline-primary btn-sm" id="printAttendanceReport" type="button">

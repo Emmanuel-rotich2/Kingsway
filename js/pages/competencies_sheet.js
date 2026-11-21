@@ -134,7 +134,7 @@ const compCtrl = {
         return `<td class="text-center p-1">
           <select class="form-select form-select-sm comp-rating-sel" data-year-write
             data-student="${s.id}" data-comp="${c.id}"
-            onchange="compCtrl._updateBadge(this)"
+            data-kw-onchange="compCtrl._updateBadge(this)"
             style="font-size:.78rem;padding:2px 4px;min-width:100px;">
             ${options}
           </select>
@@ -151,7 +151,7 @@ const compCtrl = {
     container.innerHTML = `
       <div class="d-flex justify-content-between align-items-center px-3 pt-3 pb-2 border-bottom">
         <span class="fw-semibold">${this._students.length} students · ${this._competencies.length} competencies</span>
-        <button class="btn btn-success btn-sm" onclick="compCtrl.saveAll()" data-year-write>
+        <button class="btn btn-success btn-sm" data-kw-onclick="compCtrl.saveAll()" data-year-write>
           <i class="bi bi-floppy me-1"></i> Save All Ratings
         </button>
       </div>
@@ -169,7 +169,7 @@ const compCtrl = {
         </table>
       </div>
       <div class="px-3 py-2 border-top">
-        <button class="btn btn-success" onclick="compCtrl.saveAll()" data-year-write>
+        <button class="btn btn-success" data-kw-onclick="compCtrl.saveAll()" data-year-write>
           <i class="bi bi-floppy me-1"></i> Save All Ratings
         </button>
         <span class="text-muted small ms-3">Changes are saved in bulk when you click Save.</span>
@@ -239,3 +239,6 @@ const compCtrl = {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   },
 };
+
+// Inline actions (data-kw-on*) resolve handler targets on window.
+window.compCtrl = compCtrl;

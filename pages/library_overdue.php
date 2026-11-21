@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-alarm text-danger me-2"></i>Library Overdue</h4>
       <p class="text-muted small mb-0 mt-1">Overdue book loans and outstanding fines.</p>
     </div>
-    <button class="btn btn-outline-danger btn-sm" onclick="libraryOverdueController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-danger btn-sm" data-kw-onclick="libraryOverdueController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3">

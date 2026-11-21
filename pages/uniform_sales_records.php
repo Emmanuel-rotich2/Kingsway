@@ -16,7 +16,7 @@
     <div><label class="form-label small fw-semibold">Payment Status</label><select class="form-select form-select-sm" id="usrStatus"><option value="">All statuses</option><option>paid</option><option>pending</option><option>partially_paid</option></select></div>
     <div><label class="form-label small fw-semibold">From</label><input type="date" class="form-control form-control-sm" id="usrFrom"></div>
     <div><label class="form-label small fw-semibold">To</label><input type="date" class="form-control form-control-sm" id="usrTo"></div>
-    <button class="btn btn-outline-primary btn-sm" onclick="uniformSalesRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="uniformSalesRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

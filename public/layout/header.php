@@ -81,6 +81,7 @@ $organizationData = [
 <head>
   <?php /* Load first: silences every console.* call site (incl. inline <script>)
         across public pages and routes warnings/errors to the file logger. */ ?>
+  <?= csp_bootstrap_script($appBase) ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
   <?php if (!empty($showCookieConsent)): ?>
   <?php asset_script($appBase, 'js/core/cookie_consent.js'); ?>
@@ -105,9 +106,9 @@ $organizationData = [
   <meta name="twitter:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
   <meta name="twitter:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <meta name="twitter:image" content="<?= htmlspecialchars($pageImage, ENT_QUOTES, 'UTF-8') ?>">
-  <script type="application/ld+json"><?= json_encode($organizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($organizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
   <?php if (!empty($pageStructuredData) && is_array($pageStructuredData)): ?>
-  <script type="application/ld+json"><?= json_encode($pageStructuredData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
+  <script nonce="<?= csp_nonce() ?>" type="application/ld+json"><?= json_encode($pageStructuredData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
   <?php endif; ?>
 
   <!-- Favicons -->
@@ -128,7 +129,7 @@ $organizationData = [
   <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css?v=<?= asset_version('css/no-script.css') ?>"></noscript>
 </head>
 <body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 window.PUBLIC_ROUTE_KEY = <?= json_encode(isset($activePage) ? (string)$activePage : (string)($activePage = 'home')) ?>;
 window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
 </script>
@@ -149,7 +150,7 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
   <div class="container-fluid site-nav-inner">
 
     <a class="navbar-brand" href="<?= $appBase ?>/index.php">
-      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png?v=<?= asset_version('school_assets/official_school_logo.png') ?>" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png?v=<?= asset_version('school_assets/official_school_logo.png') ?>" alt="Kingsway Logo" class="school-logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
       <span class="school-name">Kingsway Preparatory School</span>
     </a>
 

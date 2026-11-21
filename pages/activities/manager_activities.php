@@ -21,7 +21,7 @@ if ($navBase === '.') $navBase = '';
     <!-- Compact Sidebar -->
     <aside class="manager-sidebar" id="managerSidebar">
         <div class="logo-section">
-            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
         </div>
 
         <nav class="manager-nav">

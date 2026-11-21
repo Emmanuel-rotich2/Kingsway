@@ -25,8 +25,8 @@
                     <p class="text-muted mb-0">Master holiday registry - national, religious (moon-based), inter-term (April/August/December) and school holidays</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-outline-success" onclick="ManageHolidaysController.applyToCalendar()" title="Regenerate the academic calendar + events from this registry" data-year-write><i class="bi bi-lightning-charge me-1"></i> Apply to Calendar</button>
-                    <button class="btn btn-primary" onclick="ManageHolidaysController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Holiday</button>
+                    <button class="btn btn-outline-success" data-kw-onclick="ManageHolidaysController.applyToCalendar()" title="Regenerate the academic calendar + events from this registry" data-year-write><i class="bi bi-lightning-charge me-1"></i> Apply to Calendar</button>
+                    <button class="btn btn-primary" data-kw-onclick="ManageHolidaysController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add Holiday</button>
                 </div>
             </div>
         </div>
@@ -71,8 +71,8 @@
                     <option value="school">School</option>
                 </select></div>
                 <div class="col-md-2"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="ManageHolidaysController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
-                <div class="col-md-2"><button class="btn btn-outline-success w-100" onclick="ManageHolidaysController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="ManageHolidaysController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-success w-100" data-kw-onclick="ManageHolidaysController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
             </div>
         </div>
     </div>
@@ -130,9 +130,9 @@
         <div class="mb-3"><label class="form-label">Description / Notes</label><textarea class="form-control" id="recordDescription" rows="2" placeholder="e.g., Approximate date - subject to moon sighting"></textarea></div>
     </form></div>
     <div class="modal-footer">
-        <button type="button" class="btn btn-outline-success me-auto" onclick="ManageHolidaysController.saveAndApply()" data-year-write><i class="bi bi-lightning-charge me-1"></i> Save &amp; Apply to Calendar</button>
+        <button type="button" class="btn btn-outline-success me-auto" data-kw-onclick="ManageHolidaysController.saveAndApply()" data-year-write><i class="bi bi-lightning-charge me-1"></i> Save &amp; Apply to Calendar</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="ManageHolidaysController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="ManageHolidaysController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button>
     </div>
 </div></div></div>
 

@@ -8,10 +8,10 @@
       <small class="text-muted">Day-to-day cash expenses, top-ups, and running balance</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-secondary" onclick="pettyCashController.exportCSV()">
+      <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="pettyCashController.exportCSV()">
         <i class="bi bi-download me-1"></i> Export
       </button>
-      <button class="btn btn-sm btn-success" id="addPcBtn" onclick="pettyCashController.showModal()"
+      <button class="btn btn-sm btn-success" id="addPcBtn" data-kw-onclick="pettyCashController.showModal()"
               style="display:none" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Record Transaction
       </button>
@@ -80,7 +80,7 @@
           <input type="date" class="form-control form-control-sm" id="pcDateTo">
         </div>
         <div class="col-md-1">
-          <button class="btn btn-sm btn-outline-secondary w-100" onclick="pettyCashController.clearFilters()">Clear</button>
+          <button class="btn btn-sm btn-outline-secondary w-100" data-kw-onclick="pettyCashController.clearFilters()">Clear</button>
         </div>
       </div>
     </div>
@@ -174,7 +174,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success" onclick="pettyCashController.save()" data-year-write>Save Record</button>
+        <button class="btn btn-success" data-kw-onclick="pettyCashController.save()" data-year-write>Save Record</button>
       </div>
     </div>
   </div>

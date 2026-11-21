@@ -17,7 +17,7 @@
                     <h4 class="mb-1"><i class="bi bi-trophy me-2"></i>Competitions</h4>
                     <p class="text-muted mb-0">Record and track school competitions</p>
                 </div>
-                <button class="btn btn-primary" onclick="CompetitionsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
+                <button class="btn btn-primary" data-kw-onclick="CompetitionsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Add New</button>
             </div>
         </div>
     </div>
@@ -55,7 +55,7 @@
                 <div class="col-md-4"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
                 <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All</option></select></div>
                 <div class="col-md-3"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="CompetitionsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="CompetitionsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -63,7 +63,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Competitions</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="CompetitionsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <button class="btn btn-sm btn-outline-success" data-kw-onclick="CompetitionsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -101,7 +101,7 @@
         <div class="mb-3"><label class="form-label">Date</label><input type="date" class="form-control" id="recordDate"></div>
         <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option><option value="pending">Pending</option></select></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="CompetitionsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" data-kw-onclick="CompetitionsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
 <script src="<?= $appBase ?>/js/pages/competitions.js?v=<?php echo asset_version('js/pages/competitions.js'); ?>"></script>

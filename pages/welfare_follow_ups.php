@@ -14,7 +14,7 @@
       <h2 class="mb-0"><i class="bi bi-clipboard2-check me-2 text-success"></i>Welfare Follow-ups</h2>
       <small class="text-muted">Track and manage follow-up actions for at-risk students</small>
     </div>
-    <button class="btn btn-primary" onclick="welfareFUController.showModal()">
+    <button class="btn btn-primary" data-kw-onclick="welfareFUController.showModal()">
       <i class="bi bi-plus-circle me-1"></i> Add Follow-up
     </button>
   </div>
@@ -112,7 +112,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="welfareFUController.save()" data-year-write>Save Follow-up</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="welfareFUController.save()" data-year-write>Save Follow-up</button>
       </div>
     </div>
   </div>

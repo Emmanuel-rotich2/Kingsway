@@ -572,7 +572,7 @@ const RoleBasedUI = (() => {
         const icon = action.icon || "bi-three-dots";
         const title = action.title || action.label || action.id;
         const onClick = action.onClick
-          ? `onclick="${action.onClick.replace("{{id}}", rowId)}"`
+          ? `data-kw-onclick="${action.onClick.replace("{{id}}", rowId)}"`
           : "";
 
         return `
@@ -621,7 +621,7 @@ const RoleBasedUI = (() => {
 
         return `
                     <li>
-                        <a class="dropdown-item" href="#" onclick="event.preventDefault(); ${onClick}">
+                        <a class="dropdown-item" href="#" data-kw-onclick="event.preventDefault(); ${onClick}">
                             <i class="bi ${icon} me-2"></i>${action.label}
                         </a>
                     </li>
@@ -1309,7 +1309,7 @@ const RoleBasedUI = (() => {
 
     let html = `
       <div class="logo-section">
-        <img src="${(window.APP_BASE || '')}/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='${(window.APP_BASE || '')}/images/official_school_logo.png';">
+        <img src="${(window.APP_BASE || '')}/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" data-kw-onerror="this.onerror=null;this.src='${(window.APP_BASE || '')}/images/official_school_logo.png';">
         ${showLabels ? '<span class="logo-text">Kingsway</span>' : ""}
       </div>
       <nav class="${category}-nav">

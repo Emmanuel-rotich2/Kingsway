@@ -116,7 +116,7 @@
         </small>
     </div>
 
-    <button class="btn btn-light btn-sm" onclick="academicsManager.showQuickActions()">
+    <button class="btn btn-light btn-sm" data-kw-onclick="academicsManager.showQuickActions()">
         <i class="bi bi-lightning-fill me-1"></i>Quick Actions
     </button>
 </div>
@@ -175,7 +175,7 @@
         <div class="academic-card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Academic Years</h5>
-                <button class="btn btn-academic btn-sm" onclick="academicsManager.showYearModal()">Add Year</button>
+                <button class="btn btn-academic btn-sm" data-kw-onclick="academicsManager.showYearModal()">Add Year</button>
             </div>
 
             <div id="yearsContainer" class="text-center text-muted py-4">
@@ -190,7 +190,7 @@
         <div class="academic-card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Academic Terms</h5>
-                <button class="btn btn-academic btn-sm" onclick="academicsManager.showTermModal()">Add Term</button>
+                <button class="btn btn-academic btn-sm" data-kw-onclick="academicsManager.showTermModal()">Add Term</button>
             </div>
             <div id="termsContainer"></div>
         </div>
@@ -201,7 +201,7 @@
         <div class="academic-card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Classes</h5>
-                <button class="btn btn-academic btn-sm" onclick="academicsManager.showClassModal()">Add Class</button>
+                <button class="btn btn-academic btn-sm" data-kw-onclick="academicsManager.showClassModal()">Add Class</button>
             </div>
             <div id="classesContainer"></div>
         </div>
@@ -212,7 +212,7 @@
         <div class="academic-card p-3">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">Learning Areas</h5>
-                <button class="btn btn-academic btn-sm" onclick="academicsManager.showSubjectModal()">Add Learning Area</button>
+                <button class="btn btn-academic btn-sm" data-kw-onclick="academicsManager.showSubjectModal()">Add Learning Area</button>
             </div>
             <div id="subjectsContainer"></div>
         </div>

@@ -8,10 +8,10 @@
       <p class="text-muted mb-0 small">Your weekly teaching timetable, duties and upcoming commitments.</p>
     </div>
     <div class="d-flex gap-2 align-items-center flex-wrap">
-      <select class="form-select form-select-sm" id="ssTermFilter" style="width:auto;" onchange="staffScheduleController.loadTimetable()">
+      <select class="form-select form-select-sm" id="ssTermFilter" style="width:auto;" data-kw-onchange="staffScheduleController.loadTimetable()">
         <option value="">Current Term</option>
       </select>
-      <button class="btn btn-outline-secondary btn-sm" onclick="staffScheduleController.printSchedule()">
+      <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="staffScheduleController.printSchedule()">
         <i class="bi bi-printer me-1"></i> Print
       </button>
     </div>

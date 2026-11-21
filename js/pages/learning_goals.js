@@ -95,10 +95,10 @@ const learningGoalsController = (() => {
               </small>
             </div>
             <div class="card-footer bg-transparent border-top-0 d-flex gap-2">
-              <button class="btn btn-outline-primary btn-sm flex-fill" onclick="learningGoalsController.editGoal(${Number(g.id)})">
+              <button class="btn btn-outline-primary btn-sm flex-fill" data-kw-onclick="learningGoalsController.editGoal(${Number(g.id)})">
                 <i class="bi bi-pencil me-1"></i>Edit
               </button>
-              <button class="btn btn-outline-danger btn-sm" onclick="learningGoalsController.deleteGoal(${Number(g.id)})">
+              <button class="btn btn-outline-danger btn-sm" data-kw-onclick="learningGoalsController.deleteGoal(${Number(g.id)})">
                 <i class="bi bi-trash"></i>
               </button>
             </div>

@@ -1,4 +1,4 @@
-<script>
+<script nonce="<?= csp_nonce() ?>">
 window.location.replace((window.APP_BASE || '') + '/home.php?route=account_settings&section=profile');
 </script>
 <noscript><meta http-equiv="refresh" content="0;url=home.php?route=account_settings&amp;section=profile"></noscript>

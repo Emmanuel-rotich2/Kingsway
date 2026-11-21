@@ -5,7 +5,7 @@
             src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png"
             alt="Kingsway Preparatory School"
             class="app-sidebar-logo"
-            onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';"
+            data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';"
         >
 
         <div class="app-sidebar-brand-copy">

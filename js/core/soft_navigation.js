@@ -90,6 +90,8 @@
    */
   function executeInlineScript(code, host) {
     const s = document.createElement('script');
+    // Strict CSP: only nonce'd inline scripts run (see config/csp_helpers.php).
+    s.nonce = window.KW_CSP_NONCE || '';
     s.textContent = `{\n${code}\n}`;
     try {
       (host || document.head).appendChild(s);
@@ -179,6 +181,9 @@
       }
 
       const html = await response.text();
+      // The server stamps its own inline scripts with this response's nonce;
+      // anything without it (e.g. markup injected into page data) never runs.
+      const fragmentNonce = response.headers.get('X-CSP-Nonce') || '';
 
       // --- Parse fragment HTML: separate scripts from content ---
       const temp = document.createElement('div');
@@ -197,7 +202,12 @@
         // and modules (which cannot be block-wrapped) are left out.
         const type = (s.getAttribute('type') || '').trim().toLowerCase();
         const isClassic = type === '' || type === 'text/javascript' || type === 'application/javascript';
-        if (isClassic && code.trim()) inlineScripts.push(code);
+        const nonce = s.nonce || s.getAttribute('nonce') || '';
+        if (isClassic && code.trim() && fragmentNonce !== '' && nonce === fragmentNonce) {
+          inlineScripts.push(code);
+        } else if (isClassic && code.trim()) {
+          console.warn('Soft nav skipped an inline script without the response nonce');
+        }
         s.remove();
       });
 
@@ -308,7 +318,7 @@
           <i class="bi bi-exclamation-triangle me-2"></i>
           Failed to load the page. Please try again.
           <br>
-          <button class="btn btn-sm btn-outline-danger mt-2" onclick="window.location.reload()">
+          <button class="btn btn-sm btn-outline-danger mt-2" data-kw-onclick="window.location.reload()">
             Reload full page
           </button>
         </div>

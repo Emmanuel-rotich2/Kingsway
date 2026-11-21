@@ -38,7 +38,7 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <p class="text-muted small mb-0">Add image or video URLs (Unsplash, school CDN, YouTube, direct MP4, etc.) to display in the homepage gallery.</p>
-    <button class="btn btn-success btn-sm rounded-pill px-3" onclick="galleryOpenModal()">
+    <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="galleryOpenModal()">
       <i class="bi bi-plus-lg me-1"></i>Add Media
     </button>
   </div>
@@ -60,7 +60,7 @@
       <div class="row g-3">
         <div class="col-12 ws-form-group">
           <label>Media Type</label>
-          <select id="galleryMediaType" onchange="galleryMediaTypeChanged()">
+          <select id="galleryMediaType" data-kw-onchange="galleryMediaTypeChanged()">
             <option value="image">Image</option><option value="video">Video</option>
           </select>
         </div>
@@ -88,7 +88,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="gallerySave()"><i class="bi bi-collection me-1"></i>Add to Gallery</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="gallerySave()"><i class="bi bi-collection me-1"></i>Add to Gallery</button>
     </div>
   </div></div>
 </div>

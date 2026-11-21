@@ -109,7 +109,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 </section>
 
 <?php include __DIR__ . '/public/layout/footer.php'; ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 document.getElementById('subscribeForm')?.addEventListener('submit', async function(e) {
   e.preventDefault();
   const btn = document.getElementById('subscribeBtn');

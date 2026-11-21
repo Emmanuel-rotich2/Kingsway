@@ -16,7 +16,7 @@
     <div><label class="form-label small fw-semibold">From</label><input type="date" class="form-control form-control-sm" id="prFrom"></div>
     <div><label class="form-label small fw-semibold">To</label><input type="date" class="form-control form-control-sm" id="prTo"></div>
     <div><label class="form-label small fw-semibold">Method</label><select class="form-select form-select-sm" id="prMethod"><option value="">All methods</option><option>M-Pesa</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option><option>Other</option></select></div>
-    <button class="btn btn-outline-success btn-sm" onclick="paymentRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="paymentRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

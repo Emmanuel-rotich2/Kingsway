@@ -250,8 +250,8 @@ const FoodStoreController = {
                 <td><span class="badge bg-${statusColors[status]}">${statusLabels[status]}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="FoodStoreController.openItemModal(${i.id})" title="Edit"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-outline-danger" onclick="FoodStoreController.deleteItem(${i.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
+                        <button class="btn btn-outline-primary" data-kw-onclick="FoodStoreController.openItemModal(${i.id})" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-outline-danger" data-kw-onclick="FoodStoreController.deleteItem(${i.id})" title="Delete" data-year-write><i class="fas fa-trash"></i></button>
                     </div>
                 </td>
             </tr>`;

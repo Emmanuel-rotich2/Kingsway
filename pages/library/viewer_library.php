@@ -20,23 +20,23 @@
         <div class="col-md-5">
           <input type="text" id="viewerSearch" class="form-control form-control-lg"
                  placeholder="Search by title, author or ISBN…"
-                 onkeydown="if(event.key==='Enter') libraryController.viewerSearch()">
+                 data-kw-onkeydown="if(event.key==='Enter') libraryController.viewerSearch()">
         </div>
         <div class="col-md-3">
           <select id="viewerCategory" class="form-select form-select-lg"
-                  onchange="libraryController.viewerSearch()">
+                  data-kw-onchange="libraryController.viewerSearch()">
             <option value="">All Categories</option>
           </select>
         </div>
         <div class="col-md-2">
           <div class="form-check form-switch mt-2">
             <input class="form-check-input" type="checkbox" id="viewerAvailOnly"
-                   onchange="libraryController.viewerSearch()">
+                   data-kw-onchange="libraryController.viewerSearch()">
             <label class="form-check-label" for="viewerAvailOnly">Available only</label>
           </div>
         </div>
         <div class="col-md-2">
-          <button class="btn btn-primary btn-lg w-100" onclick="libraryController.viewerSearch()">
+          <button class="btn btn-primary btn-lg w-100" data-kw-onclick="libraryController.viewerSearch()">
             <i class="bi bi-search me-1"></i> Search
           </button>
         </div>

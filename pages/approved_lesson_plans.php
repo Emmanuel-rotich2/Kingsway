@@ -26,7 +26,7 @@
         <option value="">All classes</option>
       </select>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="approvedLessonPlansController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="approvedLessonPlansController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

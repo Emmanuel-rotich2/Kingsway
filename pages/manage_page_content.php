@@ -32,7 +32,7 @@
       <div class="bg-white border rounded-3 p-4">
         <h6 class="fw-bold mb-3"><i class="bi bi-list-ul text-success me-2"></i>News Categories</h6>
         <div id="categoriesList"></div>
-        <button class="btn btn-outline-success btn-sm mt-3 w-100" onclick="pageContentAddCategory()">
+        <button class="btn btn-outline-success btn-sm mt-3 w-100" data-kw-onclick="pageContentAddCategory()">
           <i class="bi bi-plus me-1"></i>Add Category
         </button>
       </div>

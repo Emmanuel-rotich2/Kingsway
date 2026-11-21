@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-airplane text-success me-2"></i>End of Term Travel</h4>
       <p class="text-muted small mb-0 mt-1">Travel and end-of-term leave requests for boarders.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="endOfTermTravelController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="endOfTermTravelController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

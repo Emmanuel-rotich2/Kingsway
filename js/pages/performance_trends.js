@@ -37,7 +37,7 @@ const PerformanceTrendsController = {
   bindEvents() {
     const analyzeBtn =
       document.getElementById("exportAnalysis") ||
-      document.querySelector('[onclick*="analyze"]');
+      document.querySelector('[data-kw-onclick*="analyze"]');
     // Year/class/subject filter changes
     ["classFilter", "subjectFilter", "analysisType"].forEach(
       (id) => {

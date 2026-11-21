@@ -6,7 +6,7 @@
       <!-- Brand col -->
       <div class="col-lg-4 col-md-6">
         <div class="footer-brand d-flex align-items-center gap-2 mb-3">
-          <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+          <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
           <div>
             <div class="footer-brand-name">Kingsway Preparatory School</div>
             <div class="footer-tagline">In God We Soar</div>
@@ -102,7 +102,7 @@
 
 <!-- Scripts -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script>
+<script nonce="<?= csp_nonce() ?>">
   window.APP_BASE = <?= json_encode($appBase) ?>;
 </script>
 <?php asset_script($appBase, 'js/api.js'); ?>
@@ -117,7 +117,7 @@
      guest-scoped cache (memory + IndexedDB + stale-while-revalidate). Loaded
      after data_store.js so window.PublicSite is ready for the page controllers. -->
 <?php asset_script($appBase, 'js/core/public_site.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
   // Open the IndexedDB store, then register the service worker. Both are guarded
   // so a missing global degrades gracefully instead of throwing on every page.
   (function () {
@@ -137,7 +137,7 @@
 $__publicRealtimeOrigin = class_exists(\App\API\Services\RealtimeGatewayPublisher::class)
     ? \App\API\Services\RealtimeGatewayPublisher::liveBrowserStreamBase()
     : '';
-echo '<script>window.KINGSWAY_REALTIME_ORIGIN = '
+echo '<script nonce="' . csp_nonce() . '">window.KINGSWAY_REALTIME_ORIGIN = '
     . json_encode($__publicRealtimeOrigin, JSON_UNESCAPED_SLASHES)
     . ';</script>';
 ?>

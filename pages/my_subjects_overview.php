@@ -16,10 +16,10 @@
                 <i class="bi bi-book"></i> My Subjects Overview
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="MySubjectsController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="MySubjectsController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="MySubjectsController.exportSubjects()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="MySubjectsController.exportSubjects()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>

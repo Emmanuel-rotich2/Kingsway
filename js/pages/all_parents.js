@@ -176,8 +176,8 @@ const AllParentsController = {
                 <td>${p.pta_member || p.is_pta ? '<span class="badge bg-success">PTA</span>' : '<span class="badge bg-secondary">No</span>'}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="AllParentsController.viewParent(${i})" title="View"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-outline-info" onclick="AllParentsController.contactParent(${i})" title="Contact"><i class="fas fa-envelope"></i></button>
+                        <button class="btn btn-outline-primary" data-kw-onclick="AllParentsController.viewParent(${i})" title="View"><i class="fas fa-eye"></i></button>
+                        <button class="btn btn-outline-info" data-kw-onclick="AllParentsController.contactParent(${i})" title="Contact"><i class="fas fa-envelope"></i></button>
                     </div>
                 </td>
             </tr>`;

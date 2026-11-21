@@ -88,7 +88,7 @@ const MpesaReconciliationController = {
                 <td class="text-end fw-bold">${parseFloat(t.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                 <td><small>${this.esc(t.bill_ref_number || '--')}</small></td>
                 <td>
-                    <button class="btn btn-sm btn-success" onclick="MpesaReconciliationController.openReconcile(${i})">
+                    <button class="btn btn-sm btn-success" data-kw-onclick="MpesaReconciliationController.openReconcile(${i})">
                         <i class="bi bi-check-circle"></i> Reconcile
                     </button>
                 </td>
@@ -126,7 +126,7 @@ const MpesaReconciliationController = {
                 <label class="form-label fw-semibold">Find Parent <span class="text-muted fw-normal">(phone number or ID number)</span></label>
                 <div class="input-group">
                     <input type="text" class="form-control" id="lookupParent" value="${this.esc(phone)}" placeholder="e.g. 07XX XXX XXX or 12345678">
-                    <button class="btn btn-outline-primary" onclick="MpesaReconciliationController.lookupParent()">
+                    <button class="btn btn-outline-primary" data-kw-onclick="MpesaReconciliationController.lookupParent()">
                         <i class="bi bi-search"></i> Find
                     </button>
                 </div>
@@ -202,7 +202,7 @@ const MpesaReconciliationController = {
                 '<div class="alert alert-info py-2 mb-2"><small>' + parents.length + ' parents match. Select one:</small></div>' +
                 parents.map(p => `
                     <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center rounded mb-1" style="cursor:pointer;"
-                         onclick="MpesaReconciliationController.selectParent(${p.parent_id})">
+                         data-kw-onclick="MpesaReconciliationController.selectParent(${p.parent_id})">
                         <div>
                             <strong>${this.esc([p.parent_first_name, p.parent_last_name].filter(Boolean).join(' '))}</strong>
                             ${p.national_id_no ? `<small class="text-muted ms-2">ID: ${this.esc(p.national_id_no)}</small>` : ''}
@@ -244,7 +244,7 @@ const MpesaReconciliationController = {
             return `
                 <label class="list-group-item d-flex align-items-center rounded mb-1" style="cursor:pointer;">
                     <input class="form-check-input me-2" type="radio" name="childChoice" value="${c.student_id}"
-                           onchange="MpesaReconciliationController.pickChild(${c.student_id})">
+                           data-kw-onchange="MpesaReconciliationController.pickChild(${c.student_id})">
                     <div>
                         <strong>${this.esc([c.first_name, c.last_name].filter(Boolean).join(' '))}</strong>
                         <small class="text-muted ms-2">${this.esc(c.admission_no || 'N/A')}${cls ? ' · ' + this.esc(cls) : ''}</small>

@@ -55,7 +55,7 @@
 
 <!-- Download Statement -->
 <div class="viewer-section">
-    <button class="btn btn-outline-full" onclick="downloadStatement()">
+    <button class="btn btn-outline-full" data-kw-onclick="downloadStatement()">
         📥 Download Fee Statement
     </button>
 </div>
@@ -168,7 +168,7 @@
 </style>
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'viewer' });

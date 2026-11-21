@@ -25,20 +25,20 @@
       <div class="row g-2 align-items-center">
         <div class="col-12 col-md-4">
           <input type="text" id="tmSearch" class="form-control" placeholder="Search materials…"
-                 oninput="teachingMaterialsController.filter()">
+                 data-kw-oninput="teachingMaterialsController.filter()">
         </div>
         <div class="col-6 col-md-2">
-          <select id="tmSubject" class="form-select" onchange="teachingMaterialsController.filter()">
+          <select id="tmSubject" class="form-select" data-kw-onchange="teachingMaterialsController.filter()">
             <option value="">All Subjects</option>
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <select id="tmClass" class="form-select" onchange="teachingMaterialsController.filter()">
+          <select id="tmClass" class="form-select" data-kw-onchange="teachingMaterialsController.filter()">
             <option value="">All Classes</option>
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <select id="tmType" class="form-select" onchange="teachingMaterialsController.filter()">
+          <select id="tmType" class="form-select" data-kw-onchange="teachingMaterialsController.filter()">
             <option value="">All Types</option>
             <option value="Worksheet">Worksheet</option>
             <option value="Notes">Notes</option>
@@ -48,7 +48,7 @@
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <button class="btn btn-outline-secondary w-100" onclick="teachingMaterialsController.filter()">
+          <button class="btn btn-outline-secondary w-100" data-kw-onclick="teachingMaterialsController.filter()">
             <i class="bi bi-search me-1"></i> Search
           </button>
         </div>
@@ -67,4 +67,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/teaching_materials.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => teachingMaterialsController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => teachingMaterialsController.init());</script>

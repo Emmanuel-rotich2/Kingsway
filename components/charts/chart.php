@@ -8,7 +8,7 @@ function renderChart($id, $type, $labels = [], $datasets = [], $options = [])
 
   echo "
   <canvas id='$id' style='height:300px; width:100%;'></canvas>
-  <script>
+  <script nonce='" . csp_nonce() . "'>
     window.addEventListener('load', function () {
       var ctx = document.getElementById('$id');
       if (ctx) {

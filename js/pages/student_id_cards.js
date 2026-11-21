@@ -500,7 +500,7 @@ changePage: function(delta) {
             return `
                 <tr>
                     <td><input type="checkbox" class="student-checkbox" data-id="${studentId}"></td>
-                    <td><img src="${KingswayFileLifecycle.resolveUrl(student.photo_url)}" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
+                    <td><img src="${KingswayFileLifecycle.resolveUrl(student.photo_url)}" data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
                     <td><strong>${this.escapeHtml(student.admission_no || '—')}</strong></td>
                     <td>${this.escapeHtml(fullName)}</td>
                     <td>${this.escapeHtml(student.class_name || '—')}</td>
@@ -544,32 +544,32 @@ changePage: function(delta) {
         const actions = [];
 
         if (status === 'not_generated') {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showGenerateModalForStudent(${studentId})"><i class="bi bi-plus-circle me-2"></i>Generate card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.showGenerateModalForStudent(${studentId})"><i class="bi bi-plus-circle me-2"></i>Generate card</button>`);
         } else {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.previewCard(${studentId})"><i class="bi bi-eye me-2"></i>View card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.previewCard(${studentId})"><i class="bi bi-eye me-2"></i>View card</button>`);
         }
 
         if (status === 'generated') {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.printCard(${studentId})"><i class="bi bi-printer me-2"></i>Print card</button>`);
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.markPrintedForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark printed</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.printCard(${studentId})"><i class="bi bi-printer me-2"></i>Print card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.markPrintedForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark printed</button>`);
         }
 
         if (status === 'printed') {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showIssueModalForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark issued</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.showIssueModalForStudent(${studentId})"><i class="bi bi-check-circle me-2"></i>Mark issued</button>`);
         }
 
         if (status === 'issued') {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.markLostForStudent(${studentId})"><i class="bi bi-exclamation-triangle me-2"></i>Mark lost</button>`);
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showRenewModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Renew card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.markLostForStudent(${studentId})"><i class="bi bi-exclamation-triangle me-2"></i>Mark lost</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.showRenewModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Renew card</button>`);
         }
 
         if (status === 'lost' || status === 'damaged' || status === 'expired') {
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.showReplaceModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Replace card</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.showReplaceModalForStudent(${studentId})"><i class="bi bi-arrow-repeat me-2"></i>Replace card</button>`);
         }
 
         if (cardId && status !== 'not_generated') {
             if (actions.length) actions.push('<div class="dropdown-divider"></div>');
-            actions.push(`<button type="button" class="dropdown-item" onclick="StudentIdCardsController.viewHistory(${studentId})"><i class="bi bi-clock-history me-2"></i>Card history</button>`);
+            actions.push(`<button type="button" class="dropdown-item" data-kw-onclick="StudentIdCardsController.viewHistory(${studentId})"><i class="bi bi-clock-history me-2"></i>Card history</button>`);
         }
 
         const admission = this.escapeAttr(student.admission_no || String(studentId));
@@ -905,7 +905,7 @@ changePage: function(delta) {
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="button" class="btn btn-primary" onclick="StudentIdCardsController.generateBulkPDF()">Generate PDF</button>
+                                <button type="button" class="btn btn-primary" data-kw-onclick="StudentIdCardsController.generateBulkPDF()">Generate PDF</button>
                             </div>
                         </div>
                     </div>

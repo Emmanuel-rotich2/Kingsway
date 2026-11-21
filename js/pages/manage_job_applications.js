@@ -150,11 +150,11 @@ const jobAppsController = {
         <td>${this.badgeStatus(a.status)}</td>
         <td class="small text-muted">${this.fmtDate(a.created_at)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" title="Copy email" onclick="jobAppsCopy('${this.esc(a.email)}')"><i class="bi bi-envelope"></i></button>
-          ${a.status === 'received' ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-2 ms-1" onclick="jobAppsAction('shortlist', ${a.id})" title="Shortlist"><i class="bi bi-check2"></i></button>` : ''}
-          ${['shortlisted','received'].includes(a.status) ? `<button class="btn btn-sm btn-outline-warning rounded-pill px-2 ms-1" onclick="jobAppsAction('schedule', ${a.id})" title="Schedule interview"><i class="bi bi-calendar-plus"></i></button>` : ''}
-          ${a.status === 'interview_scheduled' && a.interview_id ? `<button class="btn btn-sm btn-outline-success rounded-pill px-2 ms-1" onclick="jobAppsAction('complete', ${a.id})" title="Record interview"><i class="bi bi-clipboard-check"></i></button>` : ''}
-          ${a.status === 'interviewed' && !a.staff_id && !a.staff_appointment_id ? `<button class="btn btn-sm btn-success rounded-pill px-2 ms-1" onclick="jobAppsAction('employment', ${a.id})" title="Prepare school employment proposal"><i class="bi bi-person-check"></i><span class="ms-1">Prepare hire</span></button>` : ''}
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" title="Copy email" data-kw-onclick="jobAppsCopy('${this.esc(a.email)}')"><i class="bi bi-envelope"></i></button>
+          ${a.status === 'received' ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-2 ms-1" data-kw-onclick="jobAppsAction('shortlist', ${a.id})" title="Shortlist"><i class="bi bi-check2"></i></button>` : ''}
+          ${['shortlisted','received'].includes(a.status) ? `<button class="btn btn-sm btn-outline-warning rounded-pill px-2 ms-1" data-kw-onclick="jobAppsAction('schedule', ${a.id})" title="Schedule interview"><i class="bi bi-calendar-plus"></i></button>` : ''}
+          ${a.status === 'interview_scheduled' && a.interview_id ? `<button class="btn btn-sm btn-outline-success rounded-pill px-2 ms-1" data-kw-onclick="jobAppsAction('complete', ${a.id})" title="Record interview"><i class="bi bi-clipboard-check"></i></button>` : ''}
+          ${a.status === 'interviewed' && !a.staff_id && !a.staff_appointment_id ? `<button class="btn btn-sm btn-success rounded-pill px-2 ms-1" data-kw-onclick="jobAppsAction('employment', ${a.id})" title="Prepare school employment proposal"><i class="bi bi-person-check"></i><span class="ms-1">Prepare hire</span></button>` : ''}
           ${a.staff_appointment_id && !a.staff_id ? `<span class="badge text-bg-warning ms-1">Proposal: ${this.esc(a.staff_appointment_status || 'submitted')}</span>` : ''}
           ${a.staff_id ? `<span class="badge text-bg-success ms-1">Staff account created</span>` : ''}
         </td>

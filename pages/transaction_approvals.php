@@ -7,7 +7,7 @@
       <h3 class="mb-0"><i class="bi bi-check2-square me-2 text-primary"></i>Transaction Approvals</h3>
       <small class="text-muted">Review and approve pending financial transactions</small>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" onclick="transactionApprovalsController._loadStats(); transactionApprovalsController._loadPending(); transactionApprovalsController._loadHistory();">
+    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="transactionApprovalsController._loadStats(); transactionApprovalsController._loadPending(); transactionApprovalsController._loadHistory();">
       <i class="bi bi-arrow-clockwise me-1"></i> Refresh
     </button>
   </div>
@@ -51,12 +51,12 @@
   <!-- Tabs -->
   <ul class="nav nav-tabs mb-3" id="taTabs">
     <li class="nav-item">
-      <button class="nav-link active" onclick="transactionApprovalsController.switchTab(this,'pending')">
+      <button class="nav-link active" data-kw-onclick="transactionApprovalsController.switchTab(this,'pending')">
         <i class="bi bi-clock me-1"></i>Pending
       </button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" onclick="transactionApprovalsController.switchTab(this,'history')">
+      <button class="nav-link" data-kw-onclick="transactionApprovalsController.switchTab(this,'history')">
         <i class="bi bi-clock-history me-1"></i>History
       </button>
     </li>

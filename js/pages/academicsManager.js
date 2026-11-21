@@ -176,14 +176,14 @@ const academicsManager = {
                                     </div>
                                     <div class="btn-group-vertical">
                                         ${!year.is_current && year.status === 'active' ? `
-                                            <button class="btn btn-sm btn-success" onclick="academicsManager.setCurrentYear(${year.id})" title="Set as current">
+                                            <button class="btn btn-sm btn-success" data-kw-onclick="academicsManager.setCurrentYear(${year.id})" title="Set as current">
                                                 <i class="bi bi-check-circle"></i>
                                             </button>
                                         ` : ''}
-                                        <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editYear(${year.id})" title="Edit">
+                                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicsManager.editYear(${year.id})" title="Edit">
                                             <i class="bi bi-pencil"></i>
                                         </button>
-                                        <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteYear(${year.id})" title="Delete">
+                                        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteYear(${year.id})" title="Delete">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
@@ -285,7 +285,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveYear(${yearId})">
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveYear(${yearId})">
                             <i class="bi bi-save"></i> ${isEdit ? 'Update' : 'Create'} Year
                         </button>
                     </div>
@@ -459,10 +459,10 @@ const academicsManager = {
                             <td>${this.formatDate(term.end_date)}</td>
                             <td><span class="badge ${term.status === 'current' ? 'bg-success' : term.status === 'upcoming' ? 'bg-info' : 'bg-secondary'}">${term.status}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editTerm(${term.id})" title="Edit">
+                                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicsManager.editTerm(${term.id})" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteTerm(${term.id})" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteTerm(${term.id})" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -530,7 +530,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveTerm(${termId})">
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveTerm(${termId})">
                             <i class="bi bi-save"></i> Save Term
                         </button>
                     </div>
@@ -664,13 +664,13 @@ const academicsManager = {
                             <td>${cls.stream_count || 0}</td>
                             <td><span class="badge ${cls.status === 'active' ? 'bg-success' : 'bg-secondary'}">${cls.status}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-info" onclick="academicsManager.viewClassDetails(${cls.id})" title="View Details">
+                                <button class="btn btn-sm btn-outline-info" data-kw-onclick="academicsManager.viewClassDetails(${cls.id})" title="View Details">
                                     <i class="bi bi-eye"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editClass(${cls.id})" title="Edit">
+                                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicsManager.editClass(${cls.id})" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteClass(${cls.id})" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteClass(${cls.id})" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -717,7 +717,7 @@ const academicsManager = {
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                            <button type="button" class="btn btn-academic-primary" onclick="academicsManager.editClass(${cls.id}); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.editClass(${cls.id}); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-pencil"></i> Edit Class
                             </button>
                         </div>
@@ -796,7 +796,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveClass(${classId})">
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveClass(${classId})">
                             <i class="bi bi-save"></i> Save Class
                         </button>
                     </div>
@@ -972,10 +972,10 @@ const academicsManager = {
                             <td>${subject.levels || 'All'}</td>
                             <td><span class="badge ${subject.status === 'active' ? 'bg-success' : 'bg-secondary'}">${subject.status}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editSubject(${subject.id})" title="Edit">
+                                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicsManager.editSubject(${subject.id})" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteSubject(${subject.id})" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteSubject(${subject.id})" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -1035,7 +1035,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveSubject(${subjectId})">
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveSubject(${subjectId})">
                             <i class="bi bi-save"></i> Save Learning Area
                         </button>
                     </div>
@@ -1164,10 +1164,10 @@ const academicsManager = {
                             <td><span class="badge badge-academic">${stream.student_count || stream.current_students || 0}</span></td>
                             <td><span class="badge ${stream.status === 'active' ? 'bg-success' : 'bg-secondary'}">${stream.status}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editStream(${stream.id})" title="Edit">
+                                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="academicsManager.editStream(${stream.id})" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteStream(${stream.id})" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteStream(${stream.id})" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -1230,7 +1230,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveStream(${streamId || 'null'})">
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveStream(${streamId || 'null'})">
                             <i class="bi bi-save"></i> Save Stream
                         </button>
                     </div>
@@ -1349,7 +1349,7 @@ const academicsManager = {
             <div class="row g-3 mb-3">
                 <div class="col-md-7">
                     <label class="form-label mb-1">Select Teacher</label>
-                    <select class="form-select" id="teacherSelect" onchange="academicsManager.loadTeacherDetails(this.value)">
+                    <select class="form-select" id="teacherSelect" data-kw-onchange="academicsManager.loadTeacherDetails(this.value)">
                         <option value="">Choose a teacher...</option>
                         ${this.state.teachers.map((teacher) =>
                             `<option value="${teacher.id}">${teacher.full_name || teacher.teacher_name} (${teacher.position || 'Staff'})</option>`
@@ -1422,19 +1422,19 @@ const academicsManager = {
                     </div>
                     <div class="modal-body">
                         <div class="list-group list-group-flush">
-                            <button class="list-group-item list-group-item-action" onclick="academicsManager.showYearModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button class="list-group-item list-group-item-action" data-kw-onclick="academicsManager.showYearModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-calendar-plus text-success"></i> Add New Academic Year
                             </button>
-                            <button class="list-group-item list-group-item-action" onclick="academicsManager.showTermModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button class="list-group-item list-group-item-action" data-kw-onclick="academicsManager.showTermModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-calendar-week text-success"></i> Add New Term
                             </button>
-                            <button class="list-group-item list-group-item-action" onclick="academicsManager.showClassModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button class="list-group-item list-group-item-action" data-kw-onclick="academicsManager.showClassModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-journal-bookmark text-success"></i> Add New Class
                             </button>
-                            <button class="list-group-item list-group-item-action" onclick="academicsManager.showSubjectModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button class="list-group-item list-group-item-action" data-kw-onclick="academicsManager.showSubjectModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-book text-success"></i> Add New Learning Area
                             </button>
-                            <button class="list-group-item list-group-item-action" onclick="academicsManager.showStreamModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
+                            <button class="list-group-item list-group-item-action" data-kw-onclick="academicsManager.showStreamModal(); bootstrap.Modal.getInstance(document.querySelector('.modal')).hide();">
                                 <i class="bi bi-diagram-3 text-success"></i> Add New Stream
                             </button>
                         </div>
@@ -1486,7 +1486,7 @@ const academicsManager = {
         container.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div class="text-muted">${rows.length} active lessons</div>
-                <button class="btn btn-sm btn-academic" onclick="academicsManager.showScheduleModal()">Add Schedule Slot</button>
+                <button class="btn btn-sm btn-academic" data-kw-onclick="academicsManager.showScheduleModal()">Add Schedule Slot</button>
             </div>
             <div class="table-responsive">
                 <table class="table table-academic table-hover">
@@ -1510,7 +1510,7 @@ const academicsManager = {
                                 <td>${row.day_of_week || '-'}</td>
                                 <td>${row.start_time || '-'} - ${row.end_time || '-'}</td>
                                 <td>${row.room_name || '-'}</td>
-                                <td><button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteSchedule(${row.id})"><i class="bi bi-trash"></i></button></td>
+                                <td><button class="btn btn-sm btn-outline-danger" data-kw-onclick="academicsManager.deleteSchedule(${row.id})"><i class="bi bi-trash"></i></button></td>
                             </tr>
                         `).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No schedule slots yet.</td></tr>'}
                     </tbody>
@@ -1555,9 +1555,9 @@ const academicsManager = {
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div class="text-muted">${this.state.curriculumUnits.length} curriculum units</div>
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-academic" onclick="academicsManager.showCurriculumUnitModal()">Add Unit</button>
-                    <button class="btn btn-outline-success" onclick="academicsManager.showTopicModal()">Add Topic</button>
-                    <button class="btn btn-outline-primary" onclick="academicsManager.showLessonPlanModal()">Add Lesson Plan</button>
+                    <button class="btn btn-academic" data-kw-onclick="academicsManager.showCurriculumUnitModal()">Add Unit</button>
+                    <button class="btn btn-outline-success" data-kw-onclick="academicsManager.showTopicModal()">Add Topic</button>
+                    <button class="btn btn-outline-primary" data-kw-onclick="academicsManager.showLessonPlanModal()">Add Lesson Plan</button>
                 </div>
             </div>
             <div class="table-responsive">
@@ -1643,7 +1643,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveSchedule()">Save Slot</button>
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveSchedule()">Save Slot</button>
                     </div>
                 </div>
             </div>
@@ -1687,7 +1687,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveCurriculumUnit()">Save Unit</button>
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveCurriculumUnit()">Save Unit</button>
                     </div>
                 </div>
             </div>
@@ -1728,7 +1728,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveTopic()">Save Topic</button>
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveTopic()">Save Topic</button>
                     </div>
                 </div>
             </div>
@@ -1807,7 +1807,7 @@ const academicsManager = {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveLessonPlan()">Save Lesson Plan</button>
+                        <button type="button" class="btn btn-academic-primary" data-kw-onclick="academicsManager.saveLessonPlan()">Save Lesson Plan</button>
                     </div>
                 </div>
             </div>

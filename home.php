@@ -27,11 +27,13 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    $connectSources = "'self' http://localhost:*";
+    // Strict CSP (config/csp_helpers.php): nonce'd inline scripts only, no
+    // inline handlers, no eval. Loopback realtime ports in development only.
+    $connectSources = \App\Config\Config::isProduction() ? '' : 'http://localhost:*';
     if ($nodeRealtimeOrigin !== '') {
         $connectSources .= ' ' . $nodeRealtimeOrigin;
     }
-    header("Content-Security-Policy: default-src 'self'; object-src 'self' blob:; frame-src 'self' blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; connect-src {$connectSources}; frame-ancestors 'none'; form-action 'self'");
+    csp_send('staff', ['connect' => trim($connectSources)]);
 }
 ?>
 <!doctype html>
@@ -39,6 +41,7 @@ if (!headers_sent()) {
 <head>
     <!-- Load first: silences every console.* call and routes warnings/errors to the
          central file logger (never the browser console). -->
+    <?= csp_bootstrap_script($appBase) ?>
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
     <meta charset="utf-8">
     <meta
@@ -100,7 +103,7 @@ if (!headers_sent()) {
         media="print"
     >
 
-    <script>
+    <script nonce="<?= csp_nonce() ?>">
         window.APP_BASE = <?= json_encode($appBase) ?>;
         window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
         window.REQUESTED_ROUTE = <?= json_encode($route) ?>;
@@ -202,14 +205,14 @@ $isFragment = isset($_GET['fragment']) && $_GET['fragment'] === '1';
 
 <?php if (!$isFragment): ?>
 <?php
-echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
-echo '<script>window.KINGSWAY_REALTIME_ORIGIN = ' . json_encode($nodeRealtimeOrigin, JSON_UNESCAPED_SLASHES) . ';</script>';
+echo '<script nonce="' . csp_nonce() . '">window.KINGSWAY_REALTIME_SSE_ENABLED = ' . ($nodeRealtimeOrigin !== '' ? 'true' : 'false') . ';</script>';
+echo '<script nonce="' . csp_nonce() . '">window.KINGSWAY_REALTIME_ORIGIN = ' . json_encode($nodeRealtimeOrigin, JSON_UNESCAPED_SLASHES) . ';</script>';
 // Cache-bust the service worker registration URL: static proxy caches (nginx
 // proxy_cache in dev and production CDNs) can otherwise serve a stale SW
 // script at an unversioned URL for weeks, freezing every browser on an old
 // CACHE_VERSION. filemtime changes whenever service-worker.js is edited.
 $__swMtime = @filemtime(__DIR__ . '/service-worker.js');
-echo '<script>window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
+echo '<script nonce="' . csp_nonce() . '">window.APP_SW_VERSION = ' . ($__swMtime ? (int) $__swMtime : time()) . ';</script>';
 $files = [
     'js/api.js',
     'js/config/ai-features.js',
@@ -274,7 +277,7 @@ foreach ($files as $file) {
     ></script>
 <?php endif; ?>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     // Frontend telemetry logger: safe to initialize once the API client exists.
     // It buffers + batches events to the same file logger as the backend.
     if (window.AppLogger && typeof window.AppLogger.init === "function") {
@@ -282,7 +285,7 @@ foreach ($files as $file) {
     }
 </script>
 <?php if (!$isFragment): ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     // Self-binding form validation kernel: wire every decoded form that carries
     // data-kw-validate fields (names, DOB, email, phone). Injected modals are
     // covered because the kernel delegates submit/blur handling globally.
@@ -292,7 +295,7 @@ foreach ($files as $file) {
         });
     }
 </script>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (async function () {
         const route = window.REQUESTED_ROUTE;
 

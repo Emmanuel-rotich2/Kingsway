@@ -61,3 +61,5 @@ if (!function_exists('asset_script')) {
             . '"></script>' . PHP_EOL;
     }
 }
+
+require_once __DIR__ . '/csp_helpers.php';

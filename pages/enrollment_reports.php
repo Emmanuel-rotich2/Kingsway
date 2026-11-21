@@ -81,10 +81,10 @@
                 <p class="mb-0 text-muted">Comprehensive admissions and enrollment statistics</p>
             </div>
             <div class="d-flex gap-2">
-                <button class="btn btn-light" onclick="enrollmentReportsController.refreshData()">
+                <button class="btn btn-light" data-kw-onclick="enrollmentReportsController.refreshData()">
                     <i class="bi bi-arrow-clockwise me-2"></i>Refresh
                 </button>
-                <button class="btn btn-light" onclick="enrollmentReportsController.exportReport()">
+                <button class="btn btn-light" data-kw-onclick="enrollmentReportsController.exportReport()">
                     <i class="bi bi-download me-2"></i>Export
                 </button>
                 <button class="btn btn-outline-light" id="printEnrollmentReport" type="button">
@@ -287,12 +287,12 @@
 </div>
 <?php asset_script($appBase, 'js/components/report_tabs.js'); ?>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/enrollment_reports.js"
-    onload="console.log('enrollment_reports.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load enrollment_reports.js. Check path:', this.src)">
+    data-kw-onload="console.log('enrollment_reports.js script tag loaded successfully')"
+    data-kw-onerror="console.error('FAILED to load enrollment_reports.js. Check path:', this.src)">
 </script>

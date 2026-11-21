@@ -224,13 +224,13 @@ const StudentsWithBalanceController = {
             <td>${lastPayment !== "-" ? new Date(lastPayment).toLocaleDateString() : "-"}</td>
             <td>
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-info" onclick="StudentsWithBalanceController.viewStatement(${s.id || s.student_id})" title="View Statement">
+                <button class="btn btn-outline-info" data-kw-onclick="StudentsWithBalanceController.viewStatement(${s.id || s.student_id})" title="View Statement">
                   <i class="fas fa-file-invoice"></i>
                 </button>
-                <button class="btn btn-outline-primary" onclick="StudentsWithBalanceController.recordPayment(${s.id || s.student_id})" title="Record Payment">
+                <button class="btn btn-outline-primary" data-kw-onclick="StudentsWithBalanceController.recordPayment(${s.id || s.student_id})" title="Record Payment">
                   <i class="fas fa-money-bill"></i>
                 </button>
-                <button class="btn btn-outline-warning" onclick="StudentsWithBalanceController.sendReminder(${s.id || s.student_id})" title="Send Reminder">
+                <button class="btn btn-outline-warning" data-kw-onclick="StudentsWithBalanceController.sendReminder(${s.id || s.student_id})" title="Send Reminder">
                   <i class="fas fa-bell"></i>
                 </button>
               </div>
@@ -265,7 +265,7 @@ const StudentsWithBalanceController = {
 
     let html = `
       <li class="page-item ${page <= 1 ? "disabled" : ""}">
-        <a class="page-link" href="#" onclick="StudentsWithBalanceController.loadData(${page - 1}); return false;">&laquo;</a>
+        <a class="page-link" href="#" data-kw-onclick="StudentsWithBalanceController.loadData(${page - 1}); return false;">&laquo;</a>
       </li>`;
 
     const start = Math.max(1, page - 2);
@@ -274,13 +274,13 @@ const StudentsWithBalanceController = {
     for (let i = start; i <= end; i++) {
       html += `
         <li class="page-item ${i === page ? "active" : ""}">
-          <a class="page-link" href="#" onclick="StudentsWithBalanceController.loadData(${i}); return false;">${i}</a>
+          <a class="page-link" href="#" data-kw-onclick="StudentsWithBalanceController.loadData(${i}); return false;">${i}</a>
         </li>`;
     }
 
     html += `
       <li class="page-item ${page >= totalPages ? "disabled" : ""}">
-        <a class="page-link" href="#" onclick="StudentsWithBalanceController.loadData(${page + 1}); return false;">&raquo;</a>
+        <a class="page-link" href="#" data-kw-onclick="StudentsWithBalanceController.loadData(${page + 1}); return false;">&raquo;</a>
       </li>`;
 
     ul.innerHTML = html;
@@ -349,7 +349,7 @@ const StudentsWithBalanceController = {
                 </table>
               </div>
               <div class="modal-footer">
-                <button type="button" class="btn btn-outline-primary" onclick="StudentsWithBalanceController.printStatement()">
+                <button type="button" class="btn btn-outline-primary" data-kw-onclick="StudentsWithBalanceController.printStatement()">
                   <i class="fas fa-print"></i> Print
                 </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -405,7 +405,7 @@ const StudentsWithBalanceController = {
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-              <button type="button" class="btn btn-primary" onclick="StudentsWithBalanceController.submitPayment()">
+              <button type="button" class="btn btn-primary" data-kw-onclick="StudentsWithBalanceController.submitPayment()">
                 <i class="fas fa-save"></i> Save Payment
               </button>
             </div>

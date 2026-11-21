@@ -65,6 +65,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <?= csp_bootstrap_script($appBase) ?>
   <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -74,7 +75,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
   <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
   <link rel="stylesheet" href="<?= $appBase ?>/css/parent-cpanel.css?v=<?= asset_version('css/parent-cpanel.css') ?>">
-  <script>
+  <script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = <?= json_encode($appBase) ?>;
     window.UPLOAD_URL = <?= json_encode(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') : rtrim($appBase, '/') . '/uploads') ?>;
     // The parent portal owns an independent family session. Prevent api.js
@@ -93,7 +94,7 @@ $ppAdminGradeOptions = $ppGrades ?: ['PP1','PP2','Grade 1','Grade 2','Grade 3','
 <!-- ═══════ TOP NAVIGATION (shared) ══════════════════════════════════════ -->
 <header class="pp-topbar no-print">
   <a class="pp-brand" href="<?= $appBase ?>/parent_portal.php?route=dashboard">
-    <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+    <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
     <span><strong>KINGSWAY PREPARATORY SCHOOL</strong><small>Parent &amp; Family Centre</small></span>
   </a>
   <nav class="pp-nav" aria-label="Parent portal sections">

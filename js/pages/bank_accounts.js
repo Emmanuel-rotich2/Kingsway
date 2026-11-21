@@ -122,7 +122,7 @@
                     '<td class="text-end fw-bold">KES ' + self.formatCurrency(acc.balance || acc.current_balance || 0) + '</td>' +
                     '<td class="text-center">' + statusBadge + '</td>' +
                     '<td>' + self.formatDate(acc.last_transaction_date || acc.last_transaction || acc.updated_at) + '</td>' +
-                    '<td class="text-center"><button class="btn btn-sm btn-outline-primary" onclick="BankAccountsController.viewAccount(' + acc.id + ')" title="View bank account"><i class="fas fa-eye me-1"></i>View</button></td>' +
+                    '<td class="text-center"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="BankAccountsController.viewAccount(' + acc.id + ')" title="View bank account"><i class="fas fa-eye me-1"></i>View</button></td>' +
                     '</tr>';
             });
 
@@ -250,19 +250,19 @@
 
             var html = "";
             html += '<li class="page-item ' + (this.currentPage === 1 ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="BankAccountsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="BankAccountsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
 
             for (var i = 1; i <= totalPages; i++) {
                 if (i === 1 || i === totalPages || (i >= this.currentPage - 2 && i <= this.currentPage + 2)) {
                     html += '<li class="page-item ' + (i === this.currentPage ? "active" : "") + '">' +
-                        '<a class="page-link" href="#" onclick="BankAccountsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
+                        '<a class="page-link" href="#" data-kw-onclick="BankAccountsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
                 } else if (i === this.currentPage - 3 || i === this.currentPage + 3) {
                     html += '<li class="page-item disabled"><a class="page-link">...</a></li>';
                 }
             }
 
             html += '<li class="page-item ' + (this.currentPage === totalPages ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="BankAccountsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="BankAccountsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
 
             pagination.innerHTML = html;
         },

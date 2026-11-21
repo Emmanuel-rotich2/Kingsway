@@ -88,7 +88,7 @@
                 <h4 class="mb-1">Class Placement</h4>
                 <p class="mb-0 text-muted">Manage class capacities and assign student placements</p>
             </div>
-            <button class="btn btn-light btn-lg" onclick="classPlacementController.refreshData()">
+            <button class="btn btn-light btn-lg" data-kw-onclick="classPlacementController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-2"></i>Refresh
             </button>
         </div>
@@ -155,17 +155,17 @@
         <!-- Tabs -->
         <ul class="nav nav-tabs mb-4" id="placementTabs">
             <li class="nav-item">
-                <button class="nav-link active" data-tab="classes" onclick="classPlacementController.switchTab('classes')">
+                <button class="nav-link active" data-tab="classes" data-kw-onclick="classPlacementController.switchTab('classes')">
                     <i class="bi bi-building me-2"></i>Classes
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="placements" onclick="classPlacementController.switchTab('placements')">
+                <button class="nav-link" data-tab="placements" data-kw-onclick="classPlacementController.switchTab('placements')">
                     <i class="bi bi-people me-2"></i>Placements
                 </button>
             </li>
             <li class="nav-item">
-                <button class="nav-link" data-tab="capacity" onclick="classPlacementController.switchTab('capacity')">
+                <button class="nav-link" data-tab="capacity" data-kw-onclick="classPlacementController.switchTab('capacity')">
                     <i class="bi bi-graph-up me-2"></i>Capacity
                 </button>
             </li>
@@ -250,7 +250,7 @@
                             </select>
                         </div>
                         <div class="col-12 col-md-2">
-                            <button class="btn btn-info w-100" id="btnProjectCapacity" onclick="classPlacementController.projectCapacity()">
+                            <button class="btn btn-info w-100" id="btnProjectCapacity" data-kw-onclick="classPlacementController.projectCapacity()">
                                 <i class="bi bi-lightbulb me-1"></i>Project
                             </button>
                         </div>
@@ -266,7 +266,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
