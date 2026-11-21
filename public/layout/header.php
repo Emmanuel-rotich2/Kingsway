@@ -25,21 +25,43 @@ $pageDescriptions = [
 $pageDescription = $pageDescription ?? ($pageDescriptions[$activePage] ?? 'Kingsway Preparatory School — Nurturing Excellence, Character & Leadership in Londiani, Kenya.');
 $siteBase = rtrim((string) (defined('BASE_URL') ? BASE_URL : $appBase), '/');
 $publicRouteKeys = array_keys((require __DIR__ . '/facade_routes.php')['public'] ?? []);
-$canonicalUrl = $canonicalUrl ?? ($activePage === 'home'
-  ? $siteBase . '/'
-  : (in_array($activePage, $publicRouteKeys, true)
-      ? $siteBase . '/' . public_route_url($activePage)
-      : $siteBase . '/'));
+// Canonical URL: one crawlable URL per page. Listing pages use their clean
+// path (/about); detail pages (article, event, vacancy, product) set
+// $canonicalRouteKey and keep their ?id so every item has its own canonical.
+// The uniform store pages report activePage 'uniforms' for the nav highlight.
+$canonicalPageKey = $canonicalRouteKey ?? ($activePage === 'uniforms' ? 'uniform-catalog' : $activePage);
+$detailId = (int) ($_GET['id'] ?? 0);
+if (!isset($canonicalUrl)) {
+  if ($canonicalPageKey === 'home') {
+    $canonicalUrl = $siteBase . '/';
+  } elseif (isset($canonicalRouteKey)) {
+    $canonicalUrl = $siteBase . '/index.php?route=' . rawurlencode($canonicalRouteKey) . ($detailId > 0 ? '&id=' . $detailId : '');
+  } elseif (in_array($canonicalPageKey, $publicRouteKeys, true)) {
+    $canonicalUrl = $siteBase . '/' . public_clean_url($canonicalPageKey);
+  } else {
+    $canonicalUrl = $siteBase . '/';
+  }
+}
+// Sign-in, password and account pages, and detail pages without an item,
+// stay out of search results (they are still crawlable for link discovery).
+$robotsNoindex = !empty($robotsNoindex)
+  || $activePage === 'login'
+  || (isset($canonicalRouteKey) && $detailId <= 0);
 $socialImage = $siteBase . '/uploads/school_assets/official_school_logo.png?v=' . asset_version('school_assets/official_school_logo.png');
+$pageImage = (string) ($socialImageOverride ?? $socialImage);
 $organizationData = [
   '@context' => 'https://schema.org',
-  '@type' => 'Organization',
+  '@type' => ['School', 'EducationalOrganization'],
+  '@id' => $siteBase . '/#school',
   'name' => 'Kingsway Preparatory School',
   'url' => $siteBase . '/',
   'logo' => $socialImage,
-  'description' => 'A Seventh-day Adventist CBC primary and junior secondary school in Simotwet, Londiani, Kericho County, Kenya.',
+  'image' => $socialImage,
+  'description' => 'A Seventh-day Adventist CBC primary and junior secondary school (Playgroup to Grade 9) with day and boarding places in Simotwet, Londiani, Kericho County, Kenya.',
+  'foundingDate' => '2008',
   'email' => 'info@kingswaypreparatoryschool.sc.ke',
   'telephone' => '+254720113030',
+  'areaServed' => ['Londiani', 'Kericho County', 'Kenya'],
   'sameAs' => [
     'https://www.facebook.com/profile.php/?id=100066942647437',
     'https://www.instagram.com/p/DE7jLBkIEjS/',
@@ -69,15 +91,20 @@ $organizationData = [
   <title><?= htmlspecialchars($pageTitle) ?> | Kingsway Preparatory School</title>
   <meta name="description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <link rel="canonical" href="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
-  <meta property="og:type" content="website">
+  <?php if ($robotsNoindex): ?>
+  <meta name="robots" content="noindex, follow">
+  <?php endif; ?>
+  <meta property="og:type" content="<?= isset($canonicalRouteKey) && $canonicalRouteKey === 'news-article' ? 'article' : 'website' ?>">
+  <meta property="og:locale" content="en_KE">
   <meta property="og:site_name" content="Kingsway Preparatory School">
   <meta property="og:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
   <meta property="og:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
   <meta property="og:url" content="<?= htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8') ?>">
-  <meta property="og:image" content="<?= htmlspecialchars($socialImage, ENT_QUOTES, 'UTF-8') ?>">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="<?= htmlspecialchars($pageImage, ENT_QUOTES, 'UTF-8') ?>">
+  <meta name="twitter:card" content="<?= $pageImage !== $socialImage ? 'summary_large_image' : 'summary' ?>">
   <meta name="twitter:title" content="<?= htmlspecialchars($pageTitle . ' | Kingsway Preparatory School', ENT_QUOTES, 'UTF-8') ?>">
   <meta name="twitter:description" content="<?= htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8') ?>">
+  <meta name="twitter:image" content="<?= htmlspecialchars($pageImage, ENT_QUOTES, 'UTF-8') ?>">
   <script type="application/ld+json"><?= json_encode($organizationData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
   <?php if (!empty($pageStructuredData) && is_array($pageStructuredData)): ?>
   <script type="application/ld+json"><?= json_encode($pageStructuredData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?></script>
@@ -140,53 +167,53 @@ window.PUBLIC_ROUTE_MAP = <?= json_encode(public_route_map()) ?>;
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle <?= $activePage==='about'?'active':'' ?>" href="#" data-bs-toggle="dropdown">About Us</a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r417bdc0697f0#mission"><i class="bi bi-bullseye me-2 text-success"></i>Mission &amp; Vision</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r417bdc0697f0#history"><i class="bi bi-book me-2 text-success"></i>Our History</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r417bdc0697f0#leadership"><i class="bi bi-person-badge me-2 text-success"></i>Leadership Team</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r417bdc0697f0#facilities"><i class="bi bi-buildings me-2 text-success"></i>Facilities</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/about#mission"><i class="bi bi-bullseye me-2 text-success"></i>Mission &amp; Vision</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/about#history"><i class="bi bi-book me-2 text-success"></i>Our History</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/about#leadership"><i class="bi bi-person-badge me-2 text-success"></i>Leadership Team</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/about#facilities"><i class="bi bi-buildings me-2 text-success"></i>Facilities</a></li>
           </ul>
         </li>
 
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle <?= $activePage==='admissions'?'active':'' ?>" href="#" data-bs-toggle="dropdown">Admissions</a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#process"><i class="bi bi-list-check me-2 text-success"></i>Admission Process</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#requirements"><i class="bi bi-file-earmark-text me-2 text-success"></i>Requirements</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#fees"><i class="bi bi-cash me-2 text-success"></i>Fee Structure</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/admissions#process"><i class="bi bi-list-check me-2 text-success"></i>Admission Process</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/admissions#requirements"><i class="bi bi-file-earmark-text me-2 text-success"></i>Requirements</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/admissions#fees"><i class="bi bi-cash me-2 text-success"></i>Fee Structure</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item fw-semibold text-success" href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2#apply"><i class="bi bi-send me-2"></i>Apply Now</a></li>
+            <li><a class="dropdown-item fw-semibold text-success" href="<?= $appBase ?>/admissions#apply"><i class="bi bi-send me-2"></i>Apply Now</a></li>
           </ul>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link <?= $activePage==='news'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=rcbd4a4c91922">
+          <a class="nav-link <?= $activePage==='news'?'active':'' ?>" href="<?= $appBase ?>/news">
             <i class="bi bi-newspaper me-1"></i>News
           </a>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link <?= $activePage==='events'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=r78213fd42e2d">
+          <a class="nav-link <?= $activePage==='events'?'active':'' ?>" href="<?= $appBase ?>/events">
             <i class="bi bi-calendar-event me-1"></i>Events
           </a>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link <?= $activePage==='gallery'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=gallery">
+          <a class="nav-link <?= $activePage==='gallery'?'active':'' ?>" href="<?= $appBase ?>/gallery">
             <i class="bi bi-collection me-1"></i>Gallery
           </a>
         </li>
 
         <li class="nav-item">
-          <a class="nav-link <?= $activePage==='careers'?'active':'' ?>" href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c">Careers</a>
+          <a class="nav-link <?= $activePage==='careers'?'active':'' ?>" href="<?= $appBase ?>/careers">Careers</a>
         </li>
 
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">More</a>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r01a0050e3f7e"><i class="bi bi-download me-2 text-success"></i>Downloads</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/downloads"><i class="bi bi-download me-2 text-success"></i>Downloads</a></li>
             
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r39d07ccbcf8a"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
-            <li><a class="dropdown-item" href="<?= $appBase ?>/index.php?route=r3443047604ab"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/uniform-catalog"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
+            <li><a class="dropdown-item" href="<?= $appBase ?>/contact"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
           </ul>
         </li>

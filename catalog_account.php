@@ -1,6 +1,6 @@
 <?php
 $appBase=rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME']??'')),'/');if($appBase==='.')$appBase='';
-$pageTitle='My Uniform Store Account';$activePage='uniforms';$pageScript='catalog_account';
+$pageTitle='My Uniform Store Account';$activePage='uniforms';$pageScript='catalog_account';$robotsNoindex=true;
 require_once __DIR__.'/public/layout/public_data.php';
 ?>
 <?php include __DIR__.'/public/layout/header.php'; ?>
