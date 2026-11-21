@@ -6,9 +6,11 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 
 $pageTitle  = 'News';
 $activePage = 'news';
+$canonicalRouteKey = 'news-article';
 $pageScript = 'news-article';
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
+<?php require __DIR__ . '/public/layout/detail_seo.php'; ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">

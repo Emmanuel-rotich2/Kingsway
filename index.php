@@ -51,7 +51,7 @@ if ($route !== '' && $route !== 'home') {
 }
 unset($route);
 
-$pageTitle  = 'Home';
+$pageTitle  = 'CBC Day & Boarding School in Londiani, Kericho';
 $activePage = 'home';
 $pageScript = 'home';
 // Public pages keep the CSP header + Composer autoloader; the dynamic sections
@@ -79,10 +79,10 @@ $showCookieConsent = true;
           <div class="row align-items-center g-5">
             <div class="col-lg-7">
               <div class="hero-copy-panel">
-                <div class="hero-badge"><i class="bi bi-stars"></i>Serving Simotwet Since 2008</div>
+                <div class="hero-badge"><i class="bi bi-stars"></i>CBC Day &amp; Boarding · Londiani, Kericho · Since 2008</div>
                 <h1 class="hero-title">From Humble Beginnings<br><span class="highlight">A Legacy of Faith</span></h1>
                 <p class="hero-subtitle">Daniel Bett and his wife, Sabina, started Kingsway in 2008 from their shared desire to provide Christian education for children in the Simotwet community.</p>
-                <div class="hero-actions"><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0" class="btn-kw-gold"><i class="bi bi-book"></i>Read Our Story</a><a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2" class="btn-kw-outline"><i class="bi bi-pencil-square"></i>Apply for Admission</a></div>
+                <div class="hero-actions"><a href="<?= $appBase ?>/about" class="btn-kw-gold"><i class="bi bi-book"></i>Read Our Story</a><a href="<?= $appBase ?>/admissions" class="btn-kw-outline"><i class="bi bi-pencil-square"></i>Apply for Admission</a></div>
               </div>
             </div>
           </div>
@@ -93,7 +93,7 @@ $showCookieConsent = true;
           <div class="hero-badge"><i class="bi bi-heart-fill"></i>In God We Soar</div>
           <h2 class="hero-title">Growing Minds.<br><span class="highlight">Grounded in Christ.</span></h2>
           <p class="hero-subtitle">CBC learning and spiritual formation belong together here. Bible study, music, preaching, Pathfinder activities and Sabbath School help children grow in knowledge, character and service.</p>
-          <div class="hero-actions"><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs" class="btn-kw-gold"><i class="bi bi-mortarboard"></i>Explore Learning</a><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0" class="btn-kw-outline"><i class="bi bi-compass"></i>Discover Kingsway</a></div>
+          <div class="hero-actions"><a href="<?= $appBase ?>/about#programs" class="btn-kw-gold"><i class="bi bi-mortarboard"></i>Explore Learning</a><a href="<?= $appBase ?>/about" class="btn-kw-outline"><i class="bi bi-compass"></i>Discover Kingsway</a></div>
         </div></div></div></div>
       </div>
       <div class="carousel-item hero-slide hero-slide--community" style="--hero-image:url('<?= $appBase ?>/uploads/school_assets/bg_images/school_hero_section_3.png?v=<?= asset_version('school_assets/bg_images/school_hero_section_3.png') ?>')">
@@ -101,7 +101,7 @@ $showCookieConsent = true;
           <div class="hero-badge"><i class="bi bi-tree-fill"></i>Learning, Work & Service</div>
           <h2 class="hero-title">Learning Beyond<br><span class="highlight">The Classroom</span></h2>
           <p class="hero-subtitle">Our farm, greenhouses, vegetable garden, bakery and sewing programmes support the school while building practical skills, enterprise and opportunity in the surrounding community.</p>
-          <div class="hero-actions"><a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs" class="btn-kw-gold"><i class="bi bi-grid"></i>Explore Our Programmes</a><a href="<?= $appBase ?>/index.php?route=r3443047604ab" class="btn-kw-outline"><i class="bi bi-geo-alt"></i>Visit the School</a></div>
+          <div class="hero-actions"><a href="<?= $appBase ?>/about#programs" class="btn-kw-gold"><i class="bi bi-grid"></i>Explore Our Programmes</a><a href="<?= $appBase ?>/contact" class="btn-kw-outline"><i class="bi bi-geo-alt"></i>Visit the School</a></div>
         </div></div></div></div>
       </div>
     </div>
@@ -219,7 +219,7 @@ $showCookieConsent = true;
           </div>
           <?php endforeach; ?>
         </div>
-        <a href="<?= $appBase ?>/index.php?route=r417bdc0697f0" class="btn-kw-primary">
+        <a href="<?= $appBase ?>/about" class="btn-kw-primary">
           <i class="bi bi-arrow-right-circle"></i>Learn More About Us
         </a>
       </div>
@@ -238,7 +238,7 @@ $showCookieConsent = true;
     <div class="row g-4" id="home-programs">
     </div>
     <div class="text-center mt-5">
-      <a href="<?= $appBase ?>/index.php?route=r417bdc0697f0#programs" class="btn-kw-outline">
+      <a href="<?= $appBase ?>/about#programs" class="btn-kw-outline">
         <i class="bi bi-grid-3x3-gap"></i>View All Programs
       </a>
     </div>
@@ -257,7 +257,7 @@ $showCookieConsent = true;
             <div class="section-label"><span>Latest Updates</span></div>
             <h2 class="section-title mb-0">News &amp; <span>Blog</span></h2>
           </div>
-          <a href="<?= $appBase ?>/index.php?route=rcbd4a4c91922" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
+          <a href="<?= $appBase ?>/news" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
             All News <i class="bi bi-arrow-right"></i>
           </a>
         </div>
@@ -272,14 +272,14 @@ $showCookieConsent = true;
             <div class="section-label"><span>What's Coming</span></div>
             <h2 class="section-title mb-0">Upcoming <span>Events</span></h2>
           </div>
-          <a href="<?= $appBase ?>/index.php?route=r78213fd42e2d" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
+          <a href="<?= $appBase ?>/events" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
             Calendar <i class="bi bi-arrow-right"></i>
           </a>
         </div>
         <div class="bg-white rounded-4 border p-4 reveal">
           <div id="home-events"></div>
           <div class="text-center pt-2">
-            <a href="<?= $appBase ?>/index.php?route=r78213fd42e2d" class="read-more justify-content-center">
+            <a href="<?= $appBase ?>/events" class="read-more justify-content-center">
               View Full Calendar <i class="bi bi-arrow-right"></i>
             </a>
           </div>
@@ -337,7 +337,7 @@ $showCookieConsent = true;
         <h2 class="section-title">Everything they need to <span>look the part</span></h2>
         <p class="section-subtitle mb-4">Browse official Kingsway uniforms by size, save favourites, and let the school store prepare your child’s order. Uniform purchases are optional and handled separately from school fees.</p>
         <div class="d-flex flex-wrap gap-3">
-          <a href="<?= $appBase ?>/index.php?route=r39d07ccbcf8a" class="btn-kw-primary"><i class="bi bi-bag-heart"></i>Shop Uniforms</a>
+          <a href="<?= $appBase ?>/uniform-catalog" class="btn-kw-primary"><i class="bi bi-bag-heart"></i>Shop Uniforms</a>
           <a href="<?= $appBase ?>/parent_portal.php" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
         </div>
       </div>
@@ -366,10 +366,10 @@ $showCookieConsent = true;
       </div>
       <div class="col-lg-4 text-lg-end reveal reveal-right">
         <div class="d-flex flex-column flex-sm-row flex-lg-column gap-3 justify-content-lg-end">
-          <a href="<?= $appBase ?>/index.php?route=rdb9314b5fdb2" class="btn-kw-gold">
+          <a href="<?= $appBase ?>/admissions" class="btn-kw-gold">
             <i class="bi bi-pencil-square"></i>Start Application
           </a>
-          <a href="<?= $appBase ?>/index.php?route=r01a0050e3f7e" class="btn-kw-outline" style="color:#fff;border-color:rgba(255,255,255,.4)">
+          <a href="<?= $appBase ?>/downloads" class="btn-kw-outline" style="color:#fff;border-color:rgba(255,255,255,.4)">
             <i class="bi bi-download"></i>Download Prospectus
           </a>
         </div>
@@ -413,7 +413,7 @@ $showCookieConsent = true;
           We are always looking for passionate educators and support staff who share our
           vision of excellence and child-centred education. Join our team and make a difference.
         </p>
-        <a href="<?= $appBase ?>/index.php?route=ra5d49bd64f1c" class="btn-kw-primary">
+        <a href="<?= $appBase ?>/careers" class="btn-kw-primary">
           <i class="bi bi-briefcase-fill"></i>View Open Positions
         </a>
       </div>

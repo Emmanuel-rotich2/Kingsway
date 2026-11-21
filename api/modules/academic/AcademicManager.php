@@ -138,6 +138,28 @@ class AcademicManager extends BaseAPI
             if (!in_array($ext, $allowedExt, true)) {
                 return $this->errorResponse('File type not allowed.', 400);
             }
+            // The extension is client-chosen: also check what the bytes are,
+            // so a script or HTML page renamed to .pdf/.jpg is refused.
+            $office = ['application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'application/zip', 'application/octet-stream', 'application/x-ole-storage', 'application/CDFV2'];
+            $allowedMime = [
+                'pdf' => ['application/pdf'],
+                'doc' => $office, 'docx' => $office, 'ppt' => $office, 'pptx' => $office,
+                'xls' => $office, 'xlsx' => $office,
+                'txt' => ['text/plain'],
+                'jpg' => ['image/jpeg'], 'jpeg' => ['image/jpeg'], 'png' => ['image/png'], 'gif' => ['image/gif'],
+                'mp4' => ['video/mp4', 'application/mp4'],
+                'mp3' => ['audio/mpeg', 'audio/mp3', 'audio/x-mpeg', 'application/octet-stream'],
+                'zip' => ['application/zip', 'application/x-zip-compressed'],
+            ];
+            $finfo = new \finfo(FILEINFO_MIME_TYPE);
+            $mime = (string) $finfo->file((string) ($file['tmp_name'] ?? ''));
+            if (!in_array($mime, $allowedMime[$ext] ?? [], true)) {
+                return $this->errorResponse('File content does not match its type.', 400);
+            }
 
             $base = defined('UPLOAD_PATH') ? UPLOAD_PATH : dirname(__DIR__, 3) . '/uploads';
             if (!preg_match('#^(/|\\\\|[A-Za-z]:\\\\)#', $base)) {
@@ -145,7 +167,8 @@ class AcademicManager extends BaseAPI
             }
             $destDir = $base . '/teaching_materials';
             if (!is_dir($destDir) && !@mkdir($destDir, 0775, true) && !is_dir($destDir)) {
-                return $this->errorResponse('Could not create upload directory: ' . $destDir, 500);
+                \App\API\Services\Logger::legacyError('[AcademicManager] Could not create upload directory: ' . $destDir);
+                return $this->errorResponse('Could not store the uploaded file.', 500);
             }
             $safeName = bin2hex(random_bytes(12)) . '.' . $ext;
             $destPath = $destDir . '/' . $safeName;

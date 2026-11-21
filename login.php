@@ -28,6 +28,7 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="theme-color" content="#0b5d3b">
+    <meta name="robots" content="noindex, follow">
     <title>Secure sign in · Kingsway Preparatory School</title>
     <link rel="icon" href="<?= htmlspecialchars($appBase) ?>/images/favicon/favicon-96x96.png">
     <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>">

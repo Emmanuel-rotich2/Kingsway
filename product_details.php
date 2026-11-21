@@ -3,6 +3,7 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 
 $pageTitle  = 'Product Details';
 $activePage = 'uniforms';
+$canonicalRouteKey = 'product-details';
 $pageScript = 'product_details';
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
