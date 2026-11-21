@@ -71,9 +71,12 @@ class StudentTransportAssignmentManager
             FROM " . ReadReplicaService::qualifiedRef("student_transport_assignments") . " a
             JOIN " . ReadReplicaService::qualifiedRef("students") . " s ON a.student_id = s.id
             JOIN " . ReadReplicaService::qualifiedRef("persons") . " p ON p.id = s.person_id
-            JOIN transport_stops st ON a.stop_id = st.id
+            LEFT JOIN transport_stops st ON a.stop_id = st.id
             WHERE a.route_id = ? AND a.status = 'active'"
-            . ($month ? " AND a.month = " . intval($month) : "")
+            // An assignment runs from its start month for the rest of that
+            // year (the same rule monthly billing uses), so a month view lists
+            // everyone riding that month, not only those assigned in it.
+            . ($month ? " AND a.month <= " . intval($month) : "")
             . ($year ? " AND a.year = " . intval($year) : "")
             . " ORDER BY st.name, s.admission_no";
         $stmt = $this->db->prepare($sql);

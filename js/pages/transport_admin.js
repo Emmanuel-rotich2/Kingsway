@@ -270,8 +270,19 @@ const transportAdminController = {
       </tr>`).join('') : '<tr><td colspan="6" class="transport-empty">No collections for this month.</td></tr>';
       const s = totals?.data?.summary || totals?.summary || {};
       if (summary) {
+        // Fixed order and readable labels; money as KES, counts as integers.
+        const money = (v) => 'KES ' + Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const count = (v) => Number(v || 0).toLocaleString('en-KE');
+        const chips = [
+          ['total_bills', 'Bills', count],
+          ['total_due', 'Total due', money],
+          ['total_paid', 'Collected', money],
+          ['total_outstanding', 'Outstanding', money],
+          ['paid_count', 'Paid', count],
+          ['pending_count', 'Pending', count],
+        ];
         summary.innerHTML = Object.keys(s).length
-          ? Object.entries(s).map(([k, v]) => `<span><small>${this.esc(k.replace(/_/g, ' '))}</small><strong>${this.esc(String(v))}</strong></span>`).join('')
+          ? chips.map(([key, label, fmt]) => `<div class="transport-summary-chip"><small>${this.esc(label)}</small><strong>${this.esc(fmt(s[key]))}</strong></div>`).join('')
           : '';
       }
     } catch (error) {
