@@ -48,6 +48,7 @@ return [
         'privacy-policy'      => 'privacy_policy.php',
         'terms-of-use'        => 'terms_of_use.php',
         'cookie-policy'       => 'cookie_policy.php',
+        'sitemap-xml'         => 'public/layout/sitemap_xml.php',
     ],
 
     'parents' => [

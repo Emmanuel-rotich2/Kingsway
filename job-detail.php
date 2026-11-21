@@ -3,6 +3,7 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 
 $pageTitle  = 'Job Vacancy';
 $activePage = 'careers';
+$canonicalRouteKey = 'job-detail';
 $pageScript = 'job-detail';
 $jobId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
 if ($jobId && defined('BASE_URL')) {
@@ -14,6 +15,7 @@ if ($jobId && defined('BASE_URL')) {
 // client-side (no server data fetch happens here).
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
+<?php require __DIR__ . '/public/layout/detail_seo.php'; ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">
