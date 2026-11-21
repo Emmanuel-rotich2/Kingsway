@@ -106,13 +106,13 @@ const MySubjectsController = {
           <td>${statusBadge}</td>
           <td>
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="MySubjectsController.viewSubject(${subject.id})" title="View Details">
+              <button class="btn btn-outline-primary" data-kw-onclick="MySubjectsController.viewSubject(${subject.id})" title="View Details">
                 <i class="bi bi-eye"></i>
               </button>
-              <button class="btn btn-outline-info" onclick="MySubjectsController.viewSyllabus(${subject.id})" title="View Syllabus">
+              <button class="btn btn-outline-info" data-kw-onclick="MySubjectsController.viewSyllabus(${subject.id})" title="View Syllabus">
                 <i class="bi bi-journal-text"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="MySubjectsController.manageSchemes(${subject.id})" title="Manage Schemes">
+              <button class="btn btn-outline-success" data-kw-onclick="MySubjectsController.manageSchemes(${subject.id})" title="Manage Schemes">
                 <i class="bi bi-file-earmark-text"></i>
               </button>
             </div>

@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-boxes text-success me-2"></i>Food Stock Levels</h4>
       <p class="text-muted small mb-0 mt-1">Current stock position of all food and catering items.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="foodStockLevelsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="foodStockLevelsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div id="fslStats" class="row g-3 mb-4"></div>

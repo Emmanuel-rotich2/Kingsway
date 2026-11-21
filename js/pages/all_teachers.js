@@ -310,13 +310,13 @@ const AllTeachersController = {
                 <td>${this.escapeHtml(teacher.department_name || '--')}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="AllTeachersController.viewTeacher(${Number(teacher.id)})" title="View">
+                        <button class="btn btn-outline-primary" data-kw-onclick="AllTeachersController.viewTeacher(${Number(teacher.id)})" title="View">
                             <i class="bi bi-eye"></i>
                         </button>
-                        <button class="btn btn-outline-info" onclick="AllTeachersController.viewAssignments(${Number(teacher.id)})" title="View Assignments" data-year-write>
+                        <button class="btn btn-outline-info" data-kw-onclick="AllTeachersController.viewAssignments(${Number(teacher.id)})" title="View Assignments" data-year-write>
                             <i class="bi bi-journal-text"></i>
                         </button>
-                        <button class="btn btn-outline-warning" onclick="AllTeachersController.viewWorkload(${Number(teacher.id)})" title="View Workload">
+                        <button class="btn btn-outline-warning" data-kw-onclick="AllTeachersController.viewWorkload(${Number(teacher.id)})" title="View Workload">
                             <i class="bi bi-bar-chart"></i>
                         </button>
                     </div>
@@ -328,7 +328,7 @@ const AllTeachersController = {
     renderAvatar(teacher) {
         const photoUrl = String(teacher.photo_url || '').trim();
         if (photoUrl && !photoUrl.includes('/images/placeholders/')) {
-            return `<img src="${this.escapeHtml(this.resolveAssetUrl(photoUrl))}" alt="${this.escapeHtml(teacher.full_name)}" class="rounded-circle" width="40" height="40" onerror="this.replaceWith(AllTeachersController.initialsNode('${this.escapeJs(teacher.full_name)}'))">`;
+            return `<img src="${this.escapeHtml(this.resolveAssetUrl(photoUrl))}" alt="${this.escapeHtml(teacher.full_name)}" class="rounded-circle" width="40" height="40" data-kw-onerror="this.replaceWith(AllTeachersController.initialsNode('${this.escapeJs(teacher.full_name)}'))">`;
         }
 
         return this.initialsHtml(teacher.full_name);

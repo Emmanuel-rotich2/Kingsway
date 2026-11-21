@@ -266,9 +266,14 @@ const PageShell = (() => {
                         : 'Template not found: ' + templateUrl;
                     throw new Error(reason);
                 }
-                return response.text();
+                var fragmentNonce = response.headers.get('X-CSP-Nonce') || '';
+                return response.text().then(function (html) {
+                    return { html: html, fragmentNonce: fragmentNonce };
+                });
             })
-            .then(async function (html) {
+            .then(async function (payload) {
+                const html = payload.html;
+                const fragmentNonce = payload.fragmentNonce;
                 if (loadingEl) loadingEl.style.display = 'none';
                 if (contentEl) {
                     contentEl.innerHTML = html;
@@ -295,7 +300,14 @@ const PageShell = (() => {
                         original.remove();
                         await ensureExternalScript(src);
                     } else {
-                        inlineScripts.push(original.textContent || '');
+                        // Run only the template's own scripts (stamped with
+                        // this response's CSP nonce), never injected markup.
+                        const nonce = original.nonce || original.getAttribute('nonce') || '';
+                        if (fragmentNonce !== '' && nonce === fragmentNonce) {
+                            inlineScripts.push(original.textContent || '');
+                        } else if ((original.textContent || '').trim()) {
+                            console.warn('PageShell skipped an inline script without the response nonce');
+                        }
                         original.remove();
                     }
                 }
@@ -311,6 +323,7 @@ const PageShell = (() => {
 
                 inlineScripts.forEach((source) => {
                     const script = document.createElement('script');
+                    script.nonce = window.KW_CSP_NONCE || '';
                     script.textContent = source;
                     document.body.appendChild(script);
                 });

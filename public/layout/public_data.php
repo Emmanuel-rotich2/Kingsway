@@ -38,13 +38,5 @@ if (!headers_sent()) {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Expires: 0');
-    header(
-        "Content-Security-Policy: default-src 'self'; "
-        . "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.com https://cdnjs.cloudflare.com; "
-        . "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
-        . "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-        . "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; "
-        . "connect-src 'self'" . $devConnectSrc . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : '') . "; "
-        . "frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
-    );
+    csp_send('public', ['connect' => trim($devConnectSrc . ($realtimeConnectOrigin !== '' ? ' ' . $realtimeConnectOrigin : ''))]);
 }

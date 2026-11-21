@@ -10,7 +10,7 @@
 <div class="card shadow">
     <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
         <h2 class="mb-0">Staff Children Management</h2>
-        <button class="btn btn-light" onclick="staffChildrenController.showAddModal()" data-year-write>
+        <button class="btn btn-light" data-kw-onclick="staffChildrenController.showAddModal()" data-year-write>
             <i class="bi bi-plus-circle"></i> Link Child to Staff
         </button>
     </div>
@@ -35,17 +35,17 @@
             <div class="col-md-6">
                 <input type="text" id="searchStaffChildren" class="form-control"
                     placeholder="Search by staff name, child name, admission number..."
-                    onkeyup="staffChildrenController.search(this.value)">
+                    data-kw-onkeyup="staffChildrenController.search(this.value)">
             </div>
             <div class="col-md-3">
                 <select id="departmentFilter" class="form-select"
-                    onchange="staffChildrenController.filterByDepartment(this.value)">
+                    data-kw-onchange="staffChildrenController.filterByDepartment(this.value)">
                     <option value="">-- All Departments --</option>
                 </select>
             </div>
             <div class="col-md-3">
                 <select id="statusFilter" class="form-select"
-                    onchange="staffChildrenController.filterByStatus(this.value)">
+                    data-kw-onchange="staffChildrenController.filterByStatus(this.value)">
                     <option value="">-- All Status --</option>
                     <option value="active">Active</option>
                     <option value="graduated">Graduated</option>
@@ -220,7 +220,7 @@
                     <div class="col-md-4">
                         <label class="form-label">Month</label>
                         <select id="deductionMonth" class="form-select"
-                            onchange="staffChildrenController.recalculateDeductions()">
+                            data-kw-onchange="staffChildrenController.recalculateDeductions()">
                             <option value="1">January</option>
                             <option value="2">February</option>
                             <option value="3">March</option>
@@ -238,10 +238,10 @@
                     <div class="col-md-4">
                         <label class="form-label">Year</label>
                         <input type="number" id="deductionYear" class="form-control" value="<?php echo date('Y'); ?>"
-                            min="2020" max="2030" onchange="staffChildrenController.recalculateDeductions()">
+                            min="2020" max="2030" data-kw-onchange="staffChildrenController.recalculateDeductions()">
                     </div>
                     <div class="col-md-4 d-flex align-items-end">
-                        <button class="btn btn-primary w-100" onclick="staffChildrenController.recalculateDeductions()">
+                        <button class="btn btn-primary w-100" data-kw-onclick="staffChildrenController.recalculateDeductions()">
                             <i class="bi bi-calculator"></i> Calculate Deductions
                         </button>
                     </div>

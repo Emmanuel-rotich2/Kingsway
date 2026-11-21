@@ -285,15 +285,15 @@ const assessExamsCtrl = (() => {
     }
 
     let html = "";
-    html += `<li class="page-item${page <= 1 ? " disabled" : ""}"><a class="page-link" href="#" onclick="event.preventDefault(); ${onclickFnName}(${Math.max(1, page - 1)});">&lsaquo;</a></li>`;
+    html += `<li class="page-item${page <= 1 ? " disabled" : ""}"><a class="page-link" href="#" data-kw-onclick="event.preventDefault(); ${onclickFnName}(${Math.max(1, page - 1)});">&lsaquo;</a></li>`;
 
     const start = Math.max(1, page - 2);
     const end = Math.min(totalPages, page + 2);
     for (let p = start; p <= end; p += 1) {
-      html += `<li class="page-item${p === page ? " active" : ""}"><a class="page-link" href="#" onclick="event.preventDefault(); ${onclickFnName}(${p});">${p}</a></li>`;
+      html += `<li class="page-item${p === page ? " active" : ""}"><a class="page-link" href="#" data-kw-onclick="event.preventDefault(); ${onclickFnName}(${p});">${p}</a></li>`;
     }
 
-    html += `<li class="page-item${page >= totalPages ? " disabled" : ""}"><a class="page-link" href="#" onclick="event.preventDefault(); ${onclickFnName}(${Math.min(totalPages, page + 1)});">&rsaquo;</a></li>`;
+    html += `<li class="page-item${page >= totalPages ? " disabled" : ""}"><a class="page-link" href="#" data-kw-onclick="event.preventDefault(); ${onclickFnName}(${Math.min(totalPages, page + 1)});">&rsaquo;</a></li>`;
 
     container.innerHTML = html;
   }
@@ -355,8 +355,8 @@ const assessExamsCtrl = (() => {
               </td>
               <td>
                 <div class="btn-group btn-group-sm">
-                  <button class="btn btn-outline-success" title="Enter Results" onclick="assessExamsCtrl.openEnterResults(${a.id}, '${esc(a.title || "")}')"><i class="bi bi-pencil-square"></i></button>
-                  <button class="btn btn-outline-secondary" title="View" onclick="assessExamsCtrl.viewAssessment(${a.id})"><i class="bi bi-eye"></i></button>
+                  <button class="btn btn-outline-success" title="Enter Results" data-kw-onclick="assessExamsCtrl.openEnterResults(${a.id}, '${esc(a.title || "")}')"><i class="bi bi-pencil-square"></i></button>
+                  <button class="btn btn-outline-secondary" title="View" data-kw-onclick="assessExamsCtrl.viewAssessment(${a.id})"><i class="bi bi-eye"></i></button>
                 </div>
               </td>
             </tr>
@@ -422,7 +422,7 @@ const assessExamsCtrl = (() => {
             <td>${statusPill(ex.status || "upcoming")}</td>
             <td>${esc(ex.supervisor_name || ex.invigilator_name || "—")}</td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="assessExamsCtrl.viewAssessment(${ex.id})"><i class="bi bi-eye"></i></button>
+              <button class="btn btn-sm btn-outline-primary" data-kw-onclick="assessExamsCtrl.viewAssessment(${ex.id})"><i class="bi bi-eye"></i></button>
             </td>
           </tr>
         `)
@@ -493,7 +493,7 @@ const assessExamsCtrl = (() => {
               <td>${gradeBadge(cbc)}</td>
               <td>—</td>
               <td>
-                <button class="btn btn-sm btn-outline-primary" title="Enter Marks" onclick="assessExamsCtrl.openEnterResults(null, null, ${row.student_id})">
+                <button class="btn btn-sm btn-outline-primary" title="Enter Marks" data-kw-onclick="assessExamsCtrl.openEnterResults(null, null, ${row.student_id})">
                   <i class="bi bi-pencil"></i>
                 </button>
               </td>
@@ -777,7 +777,7 @@ const assessExamsCtrl = (() => {
                   max="${maxMarks}"
                   step="0.5"
                   placeholder="0"
-                  oninput="assessExamsCtrl.updateGradePreview(this)"
+                  data-kw-oninput="assessExamsCtrl.updateGradePreview(this)"
                   style="width:90px" data-year-write
                 >
               </td>

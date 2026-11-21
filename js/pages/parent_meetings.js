@@ -148,9 +148,9 @@ const ParentMeetingsController = {
                 <td><span class="badge bg-${statusColors[m.status] || "info"}">${m.status || "scheduled"}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="ParentMeetingsController.viewMeeting(${m.id})" title="View"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-outline-warning" onclick="ParentMeetingsController.editMeeting(${m.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-outline-danger" onclick="ParentMeetingsController.cancelMeeting(${m.id})" title="Cancel" data-year-write><i class="fas fa-times"></i></button>
+                        <button class="btn btn-outline-primary" data-kw-onclick="ParentMeetingsController.viewMeeting(${m.id})" title="View"><i class="fas fa-eye"></i></button>
+                        <button class="btn btn-outline-warning" data-kw-onclick="ParentMeetingsController.editMeeting(${m.id})" title="Edit" data-year-write><i class="fas fa-edit"></i></button>
+                        <button class="btn btn-outline-danger" data-kw-onclick="ParentMeetingsController.cancelMeeting(${m.id})" title="Cancel" data-year-write><i class="fas fa-times"></i></button>
                     </div>
                 </td>
             </tr>`;
@@ -181,8 +181,8 @@ const ParentMeetingsController = {
                 <td><span class="badge bg-${m.status === "completed" || m.status === "held" ? "success" : "secondary"}">${m.status || "completed"}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="ParentMeetingsController.viewMeeting(${m.id})" title="View"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-outline-info" onclick="ParentMeetingsController.viewMinutes(${m.id})" title="Minutes"><i class="fas fa-file-alt"></i></button>
+                        <button class="btn btn-outline-primary" data-kw-onclick="ParentMeetingsController.viewMeeting(${m.id})" title="View"><i class="fas fa-eye"></i></button>
+                        <button class="btn btn-outline-info" data-kw-onclick="ParentMeetingsController.viewMinutes(${m.id})" title="Minutes"><i class="fas fa-file-alt"></i></button>
                     </div>
                 </td>
             </tr>`;
@@ -229,7 +229,7 @@ const ParentMeetingsController = {
       const hasMeeting = meetings ? "border-primary" : "";
       html += `<td class="${isToday} ${hasMeeting}" style="min-height:60px;vertical-align:top;">
                 <div>${day}</div>
-                ${meetings ? meetings.map((m) => `<small class="badge bg-primary d-block mt-1" style="font-size:0.65rem;cursor:pointer;" onclick="ParentMeetingsController.viewMeeting(${m.id})">${this.esc(m.title || "Meeting")}</small>`).join("") : ""}
+                ${meetings ? meetings.map((m) => `<small class="badge bg-primary d-block mt-1" style="font-size:0.65rem;cursor:pointer;" data-kw-onclick="ParentMeetingsController.viewMeeting(${m.id})">${this.esc(m.title || "Meeting")}</small>`).join("") : ""}
             </td>`;
     }
 

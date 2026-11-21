@@ -15,7 +15,7 @@
       <h2 class="mb-0"><i class="bi bi-sliders me-2 text-warning"></i>Financial Adjustments</h2>
       <small class="text-muted">Journal entries · Fee corrections · Approvals</small>
     </div>
-    <button class="btn btn-primary" onclick="adjustmentsController.showNewModal()">
+    <button class="btn btn-primary" data-kw-onclick="adjustmentsController.showNewModal()">
       <i class="bi bi-plus-circle me-1"></i> New Adjustment
     </button>
   </div>
@@ -60,19 +60,19 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <ul class="nav nav-tabs" id="ajTabs">
       <li class="nav-item">
-        <button class="nav-link active" data-status="" onclick="adjustmentsController.switchTab(this, '')">All</button>
+        <button class="nav-link active" data-status="" data-kw-onclick="adjustmentsController.switchTab(this, '')">All</button>
       </li>
       <li class="nav-item">
-        <button class="nav-link" data-status="pending" onclick="adjustmentsController.switchTab(this, 'pending')">Pending</button>
+        <button class="nav-link" data-status="pending" data-kw-onclick="adjustmentsController.switchTab(this, 'pending')">Pending</button>
       </li>
       <li class="nav-item">
-        <button class="nav-link" data-status="approved" onclick="adjustmentsController.switchTab(this, 'approved')">Approved</button>
+        <button class="nav-link" data-status="approved" data-kw-onclick="adjustmentsController.switchTab(this, 'approved')">Approved</button>
       </li>
       <li class="nav-item">
-        <button class="nav-link" data-status="rejected" onclick="adjustmentsController.switchTab(this, 'rejected')">Rejected</button>
+        <button class="nav-link" data-status="rejected" data-kw-onclick="adjustmentsController.switchTab(this, 'rejected')">Rejected</button>
       </li>
     </ul>
-    <button class="btn btn-outline-secondary btn-sm" onclick="adjustmentsController.exportCSV()">
+    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="adjustmentsController.exportCSV()">
       <i class="bi bi-download me-1"></i> Export CSV
     </button>
   </div>
@@ -161,7 +161,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="adjustmentsController.saveAdjustment()" data-year-write>
+        <button type="button" class="btn btn-primary" data-kw-onclick="adjustmentsController.saveAdjustment()" data-year-write>
           <i class="bi bi-send me-1"></i> Submit for Approval
         </button>
       </div>
@@ -192,7 +192,7 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-success" id="ajApproveConfirmBtn"
-                onclick="adjustmentsController.confirmApproveReject()" data-year-write>Confirm</button>
+                data-kw-onclick="adjustmentsController.confirmApproveReject()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>

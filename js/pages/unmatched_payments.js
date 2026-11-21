@@ -99,7 +99,7 @@ const UnmatchedPaymentsController = (() => {
                 <td>${escapeHtml(item.reference || "--")}</td>
                 <td><span class="badge bg-${item.status === "unmatched" ? "danger" : "warning"}">${escapeHtml(item.status || "unmatched")}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="UnmatchedPaymentsController.showMatchModal(${i})" title="Match">
+                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="UnmatchedPaymentsController.showMatchModal(${i})" title="Match">
                         <i class="fas fa-link"></i>
                     </button>
                 </td>
@@ -160,7 +160,7 @@ const UnmatchedPaymentsController = (() => {
       document.getElementById("studentResults").innerHTML = students
         .map(
           (s) => `
-                <button type="button" class="list-group-item list-group-item-action" onclick="UnmatchedPaymentsController.selectStudent('${s.id}', '${escapeHtml(s.first_name + " " + s.last_name)}')">
+                <button type="button" class="list-group-item list-group-item-action" data-kw-onclick="UnmatchedPaymentsController.selectStudent('${s.id}', '${escapeHtml(s.first_name + " " + s.last_name)}')">
                     <strong>${escapeHtml(s.first_name + " " + s.last_name)}</strong>
                     <small class="text-muted ms-2">${escapeHtml(s.admission_number || "")}</small>
                 </button>

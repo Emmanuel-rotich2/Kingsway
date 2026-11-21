@@ -72,15 +72,15 @@ const manageArticlesController = {
     if (!this.state.items.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No articles found.</td></tr>'; return; }
     body.innerHTML = this.state.items.map(n => `
       <tr>
-        <td><img src="${this.esc(n.image_url || '')}" class="ws-img-thumb" onerror="this.src='https://placehold.co/80x50/198754/fff?text=News'"></td>
+        <td><img src="${this.esc(n.image_url || '')}" class="ws-img-thumb" data-kw-onerror="this.src='https://placehold.co/80x50/198754/fff?text=News'"></td>
         <td><div class="fw-semibold small" style="max-width:260px">${this.esc(n.title)}</div><div class="text-muted" style="font-size:.72rem">${this.esc(n.author || '')}</div></td>
         <td><span class="ws-tag-chip" style="background:${this.catColor(n.category)}22;color:${this.catColor(n.category)};border-color:${this.catColor(n.category)}44">${this.esc(n.category)}</span></td>
         <td>${this.badgeStatus(n.status)}</td>
         <td class="text-muted small">${n.views || 0}</td>
         <td class="text-muted small">${this.fmtDate(n.created_at)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" title="Edit" onclick="articlesOpenModal(${n.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Delete" onclick="articlesDelete(${n.id},'${this.esc(n.title).replace(/'/g, '')}')"><i class="bi bi-trash"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" title="Edit" data-kw-onclick="articlesOpenModal(${n.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Delete" data-kw-onclick="articlesDelete(${n.id},'${this.esc(n.title).replace(/'/g, '')}')"><i class="bi bi-trash"></i></button>
         </td>
       </tr>`).join('');
   },

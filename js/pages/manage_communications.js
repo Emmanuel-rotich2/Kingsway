@@ -190,7 +190,7 @@ const manageCommunicationsController = {
             <td class="small">${this.esc(l.name || '—')}</td>
             <td class="small">${l.contacts_count || 0}</td>
             <td class="small">${this.fmtDate(l.updated_at)}</td>
-            <td><button class="btn btn-sm btn-outline-primary" onclick="manageCommunicationsController.editList(${l.id})"><i class="bi bi-pencil"></i></button></td>
+            <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="manageCommunicationsController.editList(${l.id})"><i class="bi bi-pencil"></i></button></td>
         </tr>`).join('');
     },
 
@@ -203,7 +203,7 @@ const manageCommunicationsController = {
             <td class="small">${this.esc(c.name || '—')}</td>
             <td class="small">${this.esc(c.type || '—')}</td>
             <td class="small"><span class="badge bg-${c.is_active ? 'success' : 'secondary'}">${c.is_active ? 'Active' : 'Inactive'}</span></td>
-            <td><button class="btn btn-sm btn-outline-primary" onclick="manageCommunicationsController.editChannel(${c.id})"><i class="bi bi-pencil"></i></button></td>
+            <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="manageCommunicationsController.editChannel(${c.id})"><i class="bi bi-pencil"></i></button></td>
         </tr>`).join('');
     },
 

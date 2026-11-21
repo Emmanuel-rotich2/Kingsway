@@ -16,7 +16,7 @@
                 <i class="bi bi-folder2-open"></i> Teaching Materials
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="ViewTeachingMaterialsController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="ViewTeachingMaterialsController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
@@ -81,7 +81,7 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <button class="btn btn-primary w-100" onclick="ViewTeachingMaterialsController.filter()">
+                <button class="btn btn-primary w-100" data-kw-onclick="ViewTeachingMaterialsController.filter()">
                     <i class="bi bi-search"></i> Search
                 </button>
             </div>

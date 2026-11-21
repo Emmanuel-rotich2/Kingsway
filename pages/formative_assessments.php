@@ -23,10 +23,10 @@
       <small class="text-muted">CBC Classroom Assessments — Assignments · Homework · Quizzes · Projects · Oral · Portfolio · Observation</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary btn-sm" onclick="fAssCtrl.loadAll()">
+      <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="fAssCtrl.loadAll()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
-      <button class="btn btn-primary" onclick="fAssCtrl.showCreateModal()" data-year-write>
+      <button class="btn btn-primary" data-kw-onclick="fAssCtrl.showCreateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> New Assessment
       </button>
     </div>
@@ -59,19 +59,19 @@
         </div>
         <div class="col-md-2">
           <label class="form-label small fw-semibold mb-1">Class</label>
-          <select id="faClassFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll(); fAssCtrl._loadSummary()">
+          <select id="faClassFilter" class="form-select form-select-sm" data-kw-onchange="fAssCtrl.loadAll(); fAssCtrl._loadSummary()">
             <option value="">All Classes</option>
           </select>
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold mb-1">Learning Area</label>
-          <select id="faSubjectFilter" class="form-select form-select-sm" onchange="fAssCtrl._onSubjectFilterChange()">
+          <select id="faSubjectFilter" class="form-select form-select-sm" data-kw-onchange="fAssCtrl._onSubjectFilterChange()">
             <option value="">All Learning Areas</option>
           </select>
         </div>
         <div class="col-md-2">
           <label class="form-label small fw-semibold mb-1">Type</label>
-          <select id="faTypeFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll()">
+          <select id="faTypeFilter" class="form-select form-select-sm" data-kw-onchange="fAssCtrl.loadAll()">
             <option value="">All Types</option>
           </select>
         </div>
@@ -109,7 +109,7 @@
               </select>
             </div>
             <div class="col-auto">
-              <button class="btn btn-primary" onclick="fAssCtrl.loadMarksEntry()">
+              <button class="btn btn-primary" data-kw-onclick="fAssCtrl.loadMarksEntry()">
                 <i class="bi bi-table me-1"></i> Load Students
               </button>
             </div>
@@ -126,7 +126,7 @@
           <div class="row g-2 mb-3 align-items-end">
             <div class="col-md-3">
               <label class="form-label small fw-semibold mb-1">Breakdown</label>
-              <select id="faSummaryBreakdown" class="form-select form-select-sm" onchange="fAssCtrl._loadSummary()">
+              <select id="faSummaryBreakdown" class="form-select form-select-sm" data-kw-onchange="fAssCtrl._loadSummary()">
                 <option value="learning_area">By Learning Area</option>
                 <option value="strand">By Strand</option>
                 <option value="sub_strand">By Sub-strand</option>
@@ -134,7 +134,7 @@
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold mb-1">Strand <small class="text-muted">(optional)</small></label>
-              <select id="faStrandFilter" class="form-select form-select-sm" onchange="fAssCtrl._loadSummary()">
+              <select id="faStrandFilter" class="form-select form-select-sm" data-kw-onchange="fAssCtrl._loadSummary()">
                 <option value="">All Strands</option>
               </select>
             </div>
@@ -219,7 +219,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="fAssCtrl.saveAssessment()" data-year-write>Create Assessment</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="fAssCtrl.saveAssessment()" data-year-write>Create Assessment</button>
       </div>
     </div>
   </div>
@@ -227,4 +227,4 @@
 
 <?php asset_script($appBase, 'js/pages/formative_assessments.js'); ?>
 <?php asset_script($appBase, 'js/pages/ai_assessment_draft.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>

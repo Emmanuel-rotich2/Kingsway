@@ -8,31 +8,31 @@
       <h3 class="mb-0"><i class="bi bi-receipt me-2 text-primary"></i>Payslips &amp; P9 Forms</h3>
       <small class="text-muted">View employee payroll records or your personal payslips</small>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" id="psP9Button" onclick="payslipsController.downloadP9()" disabled>
+    <button class="btn btn-outline-secondary btn-sm" id="psP9Button" data-kw-onclick="payslipsController.downloadP9()" disabled>
       <i class="bi bi-file-earmark-pdf me-1"></i>P9 Form
     </button>
-    <button class="btn btn-outline-primary btn-sm" id="psViewSelected" onclick="payslipsController.viewSelected()" hidden disabled>
+    <button class="btn btn-outline-primary btn-sm" id="psViewSelected" data-kw-onclick="payslipsController.viewSelected()" hidden disabled>
       <i class="bi bi-eye me-1"></i>View Selected
     </button>
-    <button class="btn btn-outline-dark btn-sm" id="psPrintSelected" onclick="payslipsController.printSelected()" hidden disabled>
+    <button class="btn btn-outline-dark btn-sm" id="psPrintSelected" data-kw-onclick="payslipsController.printSelected()" hidden disabled>
       <i class="bi bi-printer me-1"></i>Print Selected
     </button>
-    <button class="btn btn-outline-secondary btn-sm" id="psGenerateSelectedP9" onclick="payslipsController.downloadP9()" hidden disabled>
+    <button class="btn btn-outline-secondary btn-sm" id="psGenerateSelectedP9" data-kw-onclick="payslipsController.downloadP9()" hidden disabled>
       <i class="bi bi-file-earmark-pdf me-1"></i>Generate P9
     </button>
-    <button class="btn btn-outline-success btn-sm" id="psShareEmail" onclick="payslipsController.shareSelected('email')" hidden disabled>
+    <button class="btn btn-outline-success btn-sm" id="psShareEmail" data-kw-onclick="payslipsController.shareSelected('email')" hidden disabled>
       <i class="bi bi-envelope me-1"></i>Email
     </button>
   </div>
 
   <ul class="nav nav-tabs mb-4" role="tablist">
     <li class="nav-item" role="presentation" id="employeePayslipsTabItem" hidden>
-      <button class="nav-link" id="employeePayslipsTab" type="button" role="tab" onclick="payslipsController.switchTab('employees')">
+      <button class="nav-link" id="employeePayslipsTab" type="button" role="tab" data-kw-onclick="payslipsController.switchTab('employees')">
         <i class="bi bi-people me-1"></i>Employee Payslips &amp; P9 Forms
       </button>
     </li>
     <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="personalPayslipsTab" type="button" role="tab" onclick="payslipsController.switchTab('personal')">
+      <button class="nav-link active" id="personalPayslipsTab" type="button" role="tab" data-kw-onclick="payslipsController.switchTab('personal')">
         <i class="bi bi-person me-1"></i>Personal Payslips &amp; P9 Forms
       </button>
     </li>
@@ -52,7 +52,7 @@
         </div>
         <div class="col-md-4 text-md-end mt-3 mt-md-0">
           <span class="badge bg-light text-primary fs-6 mb-2" id="psStatus">—</span><br>
-          <button class="btn btn-light btn-sm" onclick="payslipsController.viewSlip(null)">
+          <button class="btn btn-light btn-sm" data-kw-onclick="payslipsController.viewSlip(null)">
             <i class="bi bi-eye me-1"></i>View Full Payslip
           </button>
         </div>
@@ -64,7 +64,7 @@
   <div class="row g-2 mb-3 align-items-end">
     <div class="col-auto">
       <label class="form-label small fw-semibold">Year</label>
-      <select id="psYear" class="form-select form-select-sm" onchange="payslipsController.load()"></select>
+      <select id="psYear" class="form-select form-select-sm" data-kw-onchange="payslipsController.load()"></select>
     </div>
   </div>
 
@@ -106,7 +106,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button class="btn btn-primary" onclick="payslipsController.printCurrentSlip()"><i class="bi bi-printer me-1"></i>Print</button>
+          <button class="btn btn-primary" data-kw-onclick="payslipsController.printCurrentSlip()"><i class="bi bi-printer me-1"></i>Print</button>
         </div>
       </div>
     </div>

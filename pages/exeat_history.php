@@ -15,7 +15,7 @@
         <option value="">All statuses</option>
         <option>pending</option><option>approved</option><option>rejected</option><option>checked_out</option><option>checked_in</option>
       </select>
-      <button class="btn btn-outline-info btn-sm" onclick="exeatHistoryController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-info btn-sm" data-kw-onclick="exeatHistoryController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

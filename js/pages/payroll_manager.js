@@ -99,7 +99,7 @@ const PayrollManagerController = {
   },
 
   setupCompensationEvents: function () {
-    const button=document.querySelector('[onclick="PayrollManagerController.showCompensationModal()"]');
+    const button=document.querySelector('[data-kw-onclick="PayrollManagerController.showCompensationModal()"]');
     if(button&&!this.canManageCompensation())button.remove();
     document.getElementById('roleSalaryRateForm')?.addEventListener('submit',async e=>{
       e.preventDefault();try{await API.finance.saveRoleSalaryRate({role_id:Number(document.getElementById('salaryRateRole').value),gross_salary:Number(document.getElementById('salaryRateAmount').value),effective_from:document.getElementById('salaryRateFrom').value});this.showSuccess('Role salary rate saved');await this.loadCompensationSetup();await this.prepareBulkPayrollRows();}catch(err){this.showError(err.message||'Could not save role salary rate');}
@@ -272,7 +272,7 @@ const PayrollManagerController = {
 
   getPayrollColumns: function () {
     const base = {
-      select: { label: '<input type="checkbox" aria-label="Select all approved staff" onchange="PayrollManagerController.toggleAllPaymentSelection(this.checked)">', className: "text-center" },
+      select: { label: '<input type="checkbox" aria-label="Select all approved staff" data-kw-onchange="PayrollManagerController.toggleAllPaymentSelection(this.checked)">', className: "text-center" },
       staff: { label: "Staff" },
       period: { label: "Period" },
       basic: { label: "Basic Salary", className: "text-end" },
@@ -1214,7 +1214,7 @@ const PayrollManagerController = {
 
   renderPayrollCell: function (p, computed, column) {
     const cellMap = {
-      select: `<td class="text-center"><input type="checkbox" class="payroll-payment-select" value="${Number(p.id)}" ${this.selectedPaymentIds.has(Number(p.id)) ? "checked" : ""} ${!this.isPayoutSelectable(p) ? "disabled" : ""} onchange="PayrollManagerController.togglePaymentSelection(${Number(p.id)}, this.checked)" aria-label="Select ${this.escapeHtml(p.staff_name || "staff")} for payment"></td>`,
+      select: `<td class="text-center"><input type="checkbox" class="payroll-payment-select" value="${Number(p.id)}" ${this.selectedPaymentIds.has(Number(p.id)) ? "checked" : ""} ${!this.isPayoutSelectable(p) ? "disabled" : ""} data-kw-onchange="PayrollManagerController.togglePaymentSelection(${Number(p.id)}, this.checked)" aria-label="Select ${this.escapeHtml(p.staff_name || "staff")} for payment"></td>`,
       staff: `
         <td>
           <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
@@ -1280,19 +1280,19 @@ const PayrollManagerController = {
 
   renderPayrollActions: function (p) {
     return `
-      <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
+      <button class="table-action-btn" data-kw-onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
         <i class="fas fa-eye"></i>
       </button>
       ${(p.status === "pending" || p.status === "draft") && this.canApprovePayroll() ? `
-        <button class="table-action-btn" onclick="PayrollManagerController.reviewPayroll(${p.id})" title="Review payroll inputs">
+        <button class="table-action-btn" data-kw-onclick="PayrollManagerController.reviewPayroll(${p.id})" title="Review payroll inputs">
           <i class="fas fa-pen-to-square"></i>
         </button>
-        <button class="table-action-btn approve" onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
+        <button class="table-action-btn approve" data-kw-onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
           <i class="fas fa-user-check"></i>
         </button>
       ` : ""}
       ${this.isPayoutSelectable(p) && (this.canManagePayroll() || this.isPayrollReviewer() || this.canProcessPayroll()) ? `
-        <button class="table-action-btn approve" onclick="PayrollManagerController.openPayoutPlanForRow(${p.id})" title="${String(p.payroll_run_status).toLowerCase() === "processing" ? "Resume payout" : "Plan or release payout"}">
+        <button class="table-action-btn approve" data-kw-onclick="PayrollManagerController.openPayoutPlanForRow(${p.id})" title="${String(p.payroll_run_status).toLowerCase() === "processing" ? "Resume payout" : "Plan or release payout"}">
           <i class="fas fa-signpost-split"></i>
         </button>
       ` : ""}
@@ -1341,7 +1341,7 @@ const PayrollManagerController = {
 
     let html = "";
     html += `<li class="page-item ${this.currentPage === 1 ? "disabled" : ""}">
-            <a class="page-link" href="#" onclick="PayrollManagerController.goToPage(${
+            <a class="page-link" href="#" data-kw-onclick="PayrollManagerController.goToPage(${
               this.currentPage - 1
             }); return false;">&laquo;</a>
         </li>`;
@@ -1355,7 +1355,7 @@ const PayrollManagerController = {
         html += `<li class="page-item ${
           i === this.currentPage ? "active" : ""
         }">
-                    <a class="page-link" href="#" onclick="PayrollManagerController.goToPage(${i}); return false;">${i}</a>
+                    <a class="page-link" href="#" data-kw-onclick="PayrollManagerController.goToPage(${i}); return false;">${i}</a>
                 </li>`;
       } else if (i === this.currentPage - 3 || i === this.currentPage + 3) {
         html += `<li class="page-item disabled"><a class="page-link">...</a></li>`;
@@ -1365,7 +1365,7 @@ const PayrollManagerController = {
     html += `<li class="page-item ${
       this.currentPage === totalPages ? "disabled" : ""
     }">
-            <a class="page-link" href="#" onclick="PayrollManagerController.goToPage(${
+            <a class="page-link" href="#" data-kw-onclick="PayrollManagerController.goToPage(${
               this.currentPage + 1
             }); return false;">&raquo;</a>
         </li>`;
@@ -1846,7 +1846,7 @@ const PayrollManagerController = {
                                                ? "checked"
                                                : ""
                                            }
-                                           onchange="PayrollManagerController.toggleChildDeduction(${index}, this.checked)">
+                                           data-kw-onchange="PayrollManagerController.toggleChildDeduction(${index}, this.checked)">
                                 </div>
                             </div>
                             <div class="col-md-4">
@@ -1877,7 +1877,7 @@ const PayrollManagerController = {
                                                ? ""
                                                : "disabled"
                                            }
-                                           onchange="PayrollManagerController.updateChildDeduction(${index}, this.value)">
+                                           data-kw-onchange="PayrollManagerController.updateChildDeduction(${index}, this.value)">
                                 </div>
                             </div>
                         </div>

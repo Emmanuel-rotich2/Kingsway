@@ -228,7 +228,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
   document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('forgotPasswordForm');
     const input = document.getElementById('resetIdentifier');

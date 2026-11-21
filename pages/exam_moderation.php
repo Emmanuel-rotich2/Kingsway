@@ -32,8 +32,8 @@
             </select>
         </div>
         <div class="col-md-3">
-            <button class="btn btn-primary btn-sm me-2" onclick="ModerationController.loadPending()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-            <button class="btn btn-success btn-sm" onclick="ModerationController.approveAll()" data-year-write><i class="bi bi-check-all"></i> Approve All</button>
+            <button class="btn btn-primary btn-sm me-2" data-kw-onclick="ModerationController.loadPending()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+            <button class="btn btn-success btn-sm" data-kw-onclick="ModerationController.approveAll()" data-year-write><i class="bi bi-check-all"></i> Approve All</button>
         </div>
     </div>
 
@@ -71,7 +71,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-success btn-sm" onclick="ModerationController.approveAllInModal()" data-year-write>Approve All</button>
+                <button type="button" class="btn btn-success btn-sm" data-kw-onclick="ModerationController.approveAllInModal()" data-year-write>Approve All</button>
             </div>
         </div>
     </div>

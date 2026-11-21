@@ -17,7 +17,7 @@
                     <h4 class="mb-1"><i class="bi bi-subtract me-2"></i>Class Streams</h4>
                     <p class="text-muted mb-0">View and manage class streams</p>
                 </div>
-                <button class="btn btn-primary" onclick="ClassStreamsController.showAddModal()" data-permission="academic_create"><i class="bi bi-plus-lg me-1"></i> Add New</button>
+                <button class="btn btn-primary" data-kw-onclick="ClassStreamsController.showAddModal()" data-permission="academic_create"><i class="bi bi-plus-lg me-1"></i> Add New</button>
             </div>
         </div>
     </div>
@@ -65,7 +65,7 @@
                         <option value="inactive">Inactive</option>
                     </select>
                 </div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="ClassStreamsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="ClassStreamsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -73,7 +73,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Class Streams</h6>
-            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" onclick="ClassStreamsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" onclick="ClassStreamsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" data-kw-onclick="ClassStreamsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" data-kw-onclick="ClassStreamsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
@@ -111,7 +111,7 @@
         </div>
         <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="planning">Planning</option><option value="active">Active</option><option value="completed">Completed</option></select></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="ClassStreamsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" data-kw-onclick="ClassStreamsController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>
 
 <script src="<?= $appBase ?>/js/pages/class_streams.js?v=<?php echo asset_version('js/pages/class_streams.js'); ?>"></script>

@@ -66,7 +66,7 @@ const approvedLessonPlansController = {
         <td class="small text-muted">${this.esc(p.lesson_date || '\u2014')}</td>
         <td><span class="badge bg-success">Approved</span></td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" onclick="approvedLessonPlansController.view(${p.id})" title="View"><i class="bi bi-eye"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" data-kw-onclick="approvedLessonPlansController.view(${p.id})" title="View"><i class="bi bi-eye"></i></button>
         </td>
       </tr>`).join('');
   },

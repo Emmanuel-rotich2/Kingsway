@@ -56,8 +56,8 @@
           <div class="col-12"><label>Expected coverage</label><div id="lpCoverage" class="border rounded p-2 bg-light"><span class="text-muted small">Add the atomic coverage items expected from this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddCoverage" data-year-write><i class="bi bi-plus"></i> Add coverage item</button></div>
         </div>
         <div class="mt-4 d-flex gap-2">
-          <button type="button" class="btn btn-outline-primary" onclick="createLessonPlanController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
-          <button type="button" class="btn btn-success" onclick="createLessonPlanController.save('submitted')" data-year-write><i class="bi bi-send me-1"></i>Create &amp; Submit for Review</button>
+          <button type="button" class="btn btn-outline-primary" data-kw-onclick="createLessonPlanController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
+          <button type="button" class="btn btn-success" data-kw-onclick="createLessonPlanController.save('submitted')" data-year-write><i class="bi bi-send me-1"></i>Create &amp; Submit for Review</button>
         </div>
       </form>
     </div>

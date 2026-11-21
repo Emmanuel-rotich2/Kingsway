@@ -73,7 +73,7 @@ const counselingReportsController = {
       <td class="small">${this.esc(x.session_date || '—')}</td>
       <td class="small">${this.esc(x.status || '—')}</td>
       <td class="small">${this.esc(x.notes || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="counselingReportsController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="counselingReportsController.viewDetails(${x.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 

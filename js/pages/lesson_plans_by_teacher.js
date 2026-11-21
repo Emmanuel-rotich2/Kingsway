@@ -179,7 +179,7 @@ const LessonPlansByTeacherController = (() => {
     let html = "";
     for (let i = 1; i <= totalPages; i++) {
       html += `<li class="page-item ${i === pagination.page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="LessonPlansByTeacherController.loadPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-kw-onclick="LessonPlansByTeacherController.loadPage(${i}); return false;">${i}</a>
             </li>`;
     }
     container.innerHTML = html;

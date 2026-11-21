@@ -116,13 +116,13 @@ const ClubsSocietiesController = {
                     </div>
                     <div class="card-footer bg-transparent">
                         <div class="btn-group btn-group-sm w-100">
-                            <button class="btn btn-outline-${color}" onclick="ClubsSocietiesController.viewClub(${club.id})">
+                            <button class="btn btn-outline-${color}" data-kw-onclick="ClubsSocietiesController.viewClub(${club.id})">
                                 <i class="fas fa-eye me-1"></i>Details
                             </button>
-                            <button class="btn btn-outline-primary" onclick="ClubsSocietiesController.viewMembers(${club.id})">
+                            <button class="btn btn-outline-primary" data-kw-onclick="ClubsSocietiesController.viewMembers(${club.id})">
                                 <i class="fas fa-users me-1"></i>Members
                             </button>
-                            <button class="btn btn-outline-warning" onclick="ClubsSocietiesController.editClub(${club.id})" data-year-write>
+                            <button class="btn btn-outline-warning" data-kw-onclick="ClubsSocietiesController.editClub(${club.id})" data-year-write>
                                 <i class="fas fa-edit"></i>
                             </button>
                         </div>

@@ -43,8 +43,8 @@
         const src = isVideo ? S(g.video_url || g.image_url) : S(PS.mediaUrl(g.image_url));
         const poster = g.image_url ? S(PS.mediaUrl(g.image_url)) : '';
         const mediaHtml = isVideo
-          ? `<video src="${src}" poster="${poster}" class="gallery-media" style="width:100%;height:100%;object-fit:cover;background:#000" muted playsinline onclick="galleryViewMedia('${src}', 'video', '${this.escAttr(g.caption || '')}')"></video>`
-          : `<img src="${src}" alt="${S(g.caption || 'Kingsway School')}" class="gallery-media" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=70'" onclick="galleryViewMedia('${src}', 'image', '${this.escAttr(g.caption || '')}')">`;
+          ? `<video src="${src}" poster="${poster}" class="gallery-media" style="width:100%;height:100%;object-fit:cover;background:#000" muted playsinline data-kw-onclick="galleryViewMedia('${src}', 'video', '${this.escAttr(g.caption || '')}')"></video>`
+          : `<img src="${src}" alt="${S(g.caption || 'Kingsway School')}" class="gallery-media" loading="lazy" data-kw-onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=70'" data-kw-onclick="galleryViewMedia('${src}', 'image', '${this.escAttr(g.caption || '')}')">`;
         return `
           <div class="col-lg-3 col-md-4 col-sm-6">
             <div class="gallery-card">

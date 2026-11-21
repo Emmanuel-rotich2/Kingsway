@@ -434,6 +434,7 @@ const AdmissionsController = {
     // Tab clicks
     document.addEventListener("click", (e) => {
       if (e.target.closest(".admission-tab")) {
+        e.preventDefault();
         const tab = e.target.closest(".admission-tab").dataset.tab;
         this.switchTab(tab);
       }
@@ -809,7 +810,7 @@ const AdmissionsController = {
                     <a class="nav-link admission-tab ${
                       isActive ? "active" : ""
                     }" 
-                       data-tab="${key}" href="javascript:void(0)">
+                       data-tab="${key}" href="#" role="tab">
                         <i class="bi ${config.icon} me-1"></i>
                         ${config.label}
                         <span class="badge bg-${

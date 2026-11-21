@@ -41,7 +41,7 @@
       </select>
       <input type="text" id="appSearch" class="form-control form-control-sm" placeholder="Search name / position…" style="width:220px">
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="jobAppsController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="jobAppsController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

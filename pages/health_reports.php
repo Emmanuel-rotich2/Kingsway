@@ -13,7 +13,7 @@
     <div class="d-flex gap-2">
       <button class="btn btn-outline-success btn-sm" id="hrExport" type="button"><i class="bi bi-download me-1"></i>Export CSV</button>
       <button class="btn btn-outline-secondary btn-sm" id="hrPrint" type="button"><i class="bi bi-printer me-1"></i>Print / PDF</button>
-      <button class="btn btn-outline-danger btn-sm" id="hrRefresh" type="button" onclick="healthReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-danger btn-sm" id="hrRefresh" type="button" data-kw-onclick="healthReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

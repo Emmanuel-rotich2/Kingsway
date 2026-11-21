@@ -12,7 +12,7 @@
     </div>
     <div class="d-flex gap-2">
       <input type="text" class="form-control form-control-sm" id="lsaSearch" placeholder="Search item…" style="width: 220px;">
-      <button class="btn btn-outline-danger btn-sm" onclick="lowStockAlertsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-danger btn-sm" data-kw-onclick="lowStockAlertsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-hourglass-split text-warning me-2"></i>Pending Exeat Requests</h4>
       <p class="text-muted small mb-0 mt-1">Leave requests awaiting approval.</p>
     </div>
-    <button class="btn btn-outline-warning btn-sm" onclick="pendingExeatRequestsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-warning btn-sm" data-kw-onclick="pendingExeatRequestsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

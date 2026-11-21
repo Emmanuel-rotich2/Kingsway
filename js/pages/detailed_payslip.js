@@ -102,7 +102,7 @@ const DetailedPayslipController = {
     body.innerHTML = this.data.history.map(row => {
       const month = Number(row.payroll_month || row.month || 0), year = Number(row.payroll_year || row.year || 0);
       const status = row.payment_status || row.payslip_status || row.status || "pending";
-      return `<tr><td><strong>${this.escape(this.getMonthName(month))}</strong><div class="small text-muted">${year}</div></td><td>${this.money(row.gross_salary || row.gross_pay)}</td><td>${this.money(row.total_deductions || row.deductions_total)}</td><td class="fw-semibold">${this.money(row.net_salary || row.net_pay)}</td><td><span class="status-badge ${this.statusClass(status)}">${this.escape(status)}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-success" onclick="detailedPayslipController.loadPayslip(${month},${year})">View</button></td></tr>`;
+      return `<tr><td><strong>${this.escape(this.getMonthName(month))}</strong><div class="small text-muted">${year}</div></td><td>${this.money(row.gross_salary || row.gross_pay)}</td><td>${this.money(row.total_deductions || row.deductions_total)}</td><td class="fw-semibold">${this.money(row.net_salary || row.net_pay)}</td><td><span class="status-badge ${this.statusClass(status)}">${this.escape(status)}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-success" data-kw-onclick="detailedPayslipController.loadPayslip(${month},${year})">View</button></td></tr>`;
     }).join("");
   },
 

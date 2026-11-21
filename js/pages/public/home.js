@@ -128,7 +128,7 @@
           '<a href="' + base + '/index.php?route=rfcb132e4845b&id=' + encodeURIComponent(n.id) + '" class="text-decoration-none">' +
           '<div class="card-modern reveal delay-' + (i + 1) + '">' +
           '<div class="card-img-wrap">' +
-          '<img src="' + img + '" alt="' + S(n.title) + '" loading="lazy" onerror="this.src=\'https://placehold.co/600x380/' + color.replace('#', '') + '/ffffff?text=News\'">' +
+          '<img src="' + img + '" alt="' + S(n.title) + '" loading="lazy" data-kw-onerror="this.src=\'https://placehold.co/600x380/' + color.replace('#', '') + '/ffffff?text=News\'">' +
           '</div>' +
           '<div class="p-3">' +
           '<div class="d-flex align-items-center justify-content-between mb-2">' +
@@ -194,7 +194,7 @@
         const poster = g.image_url ? S(PS.mediaUrl(g.image_url)) : '';
         const mediaHtml = isVideo
           ? `<video src="${src}" poster="${poster}" class="w-100 h-100 object-fit-cover" style="background:#000" muted playsinline></video>`
-          : `<img src="${src}" alt="${S(g.caption || 'Kingsway School')}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70'">`;
+          : `<img src="${src}" alt="${S(g.caption || 'Kingsway School')}" loading="lazy" data-kw-onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70'">`;
         return '<div class="gallery-item">' +
           mediaHtml +
           '<div class="overlay"><i class="bi bi-zoom-in"></i></div>' +

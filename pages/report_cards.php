@@ -216,10 +216,10 @@
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span><i class="bi bi-table me-2"></i>Generated Report Card Releases</span>
         <div class="d-flex gap-2 align-items-center">
-            <button class="btn btn-sm btn-rc-outline" id="printSelectedBtn" style="display:none" onclick="reportCardsCtrl.printSelected()">
+            <button class="btn btn-sm btn-rc-outline" id="printSelectedBtn" style="display:none" data-kw-onclick="reportCardsCtrl.printSelected()">
                 <i class="bi bi-file-check me-1"></i>Print Selected
             </button>
-            <button class="btn btn-sm btn-rc-outline" onclick="reportCardsCtrl.exportCSV()">
+            <button class="btn btn-sm btn-rc-outline" data-kw-onclick="reportCardsCtrl.exportCSV()">
                 <i class="bi bi-filetype-csv me-1"></i>Export CSV
             </button>
             <small class="text-muted align-self-center" id="tableMeta">—</small>

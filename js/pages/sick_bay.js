@@ -93,10 +93,10 @@ const sickBayController = {
           <td>${v.parent_notified ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
           <td><span class="badge bg-${sc}">${v.status}</span></td>
           <td>
-            <button class="btn btn-sm btn-outline-secondary me-1" onclick="sickBayController.editVisit(${v.id})" data-year-write>
+            <button class="btn btn-sm btn-outline-secondary me-1" data-kw-onclick="sickBayController.editVisit(${v.id})" data-year-write>
               <i class="bi bi-pencil"></i>
             </button>
-            ${v.status === 'active' ? `<button class="btn btn-sm btn-success" onclick="sickBayController.dismissStudent(${v.id})">
+            ${v.status === 'active' ? `<button class="btn btn-sm btn-success" data-kw-onclick="sickBayController.dismissStudent(${v.id})">
               <i class="bi bi-box-arrow-right me-1"></i>Dismiss
             </button>` : ''}
           </td>

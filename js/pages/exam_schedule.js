@@ -325,11 +325,11 @@ const ExamScheduleController = (() => {
             <td>
               <div class="btn-group btn-group-sm">
                 ${state.canManageSchedules && !exam.exam_period_id ? `
-                <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit" data-year-write>
+                <button class="btn btn-outline-primary" data-kw-onclick="ExamScheduleController.editExam(${exam.id})" title="Edit" data-year-write>
                   <i class="bi bi-pencil"></i>
                 </button>` : ''}
                 ${state.canDeleteSchedules && !exam.exam_period_id ? `
-                <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete" data-year-write>
+                <button class="btn btn-outline-danger" data-kw-onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete" data-year-write>
                   <i class="bi bi-trash"></i>
                 </button>` : ''}
               </div>
@@ -350,7 +350,7 @@ const ExamScheduleController = (() => {
     for (let i = 1; i <= totalPages; i++) {
       html += `
         <li class="page-item ${i === page ? "active" : ""}">
-          <a class="page-link" href="#" onclick="ExamScheduleController.loadPage(${i}); return false;">${i}</a>
+          <a class="page-link" href="#" data-kw-onclick="ExamScheduleController.loadPage(${i}); return false;">${i}</a>
         </li>`;
     }
     container.innerHTML = html;

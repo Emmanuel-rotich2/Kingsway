@@ -20,10 +20,10 @@
             <p class="text-muted mb-0">Audit provider callbacks, posted fee payments, pending requests and unmatched receipts.</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="MpesaSettlementsController.exportCSV()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="MpesaSettlementsController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-outline-success" onclick="MpesaSettlementsController.refreshData()">
+            <button class="btn btn-outline-success" data-kw-onclick="MpesaSettlementsController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
@@ -99,19 +99,19 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
                     <label class="form-label small text-muted">Search</label>
-                    <input type="text" class="form-control" id="msSearch" placeholder="Search reference, status..." oninput="MpesaSettlementsController.filterData()">
+                    <input type="text" class="form-control" id="msSearch" placeholder="Search reference, status..." data-kw-oninput="MpesaSettlementsController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Date From</label>
-                    <input type="date" class="form-control" id="msDateFrom" onchange="MpesaSettlementsController.filterData()">
+                    <input type="date" class="form-control" id="msDateFrom" data-kw-onchange="MpesaSettlementsController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Date To</label>
-                    <input type="date" class="form-control" id="msDateTo" onchange="MpesaSettlementsController.filterData()">
+                    <input type="date" class="form-control" id="msDateTo" data-kw-onchange="MpesaSettlementsController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
-                    <select class="form-select" id="msStatusFilter" onchange="MpesaSettlementsController.filterData()">
+                    <select class="form-select" id="msStatusFilter" data-kw-onchange="MpesaSettlementsController.filterData()">
                         <option value="">All Statuses</option>
                         <option value="posted">Posted</option>
                         <option value="received_unallocated">Received · Unallocated</option>
@@ -121,7 +121,7 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" onclick="MpesaSettlementsController.clearFilters()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="MpesaSettlementsController.clearFilters()">
                         <i class="bi bi-x-lg me-1"></i> Clear
                     </button>
                 </div>
@@ -232,7 +232,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-outline-success" onclick="MpesaSettlementsController.printSettlement()">
+                <button type="button" class="btn btn-outline-success" data-kw-onclick="MpesaSettlementsController.printSettlement()">
                     <i class="bi bi-printer me-1"></i> Print
                 </button>
             </div>

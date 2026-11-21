@@ -99,10 +99,10 @@ const manageTransportFeeStructureController = {
           <td><span class="badge ${this.badgeClass(b.payment_status)}">${this.esc(b.payment_status || 'pending')}</span></td>
           <td>
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="manageTransportFeeStructureController.viewReceipt(${b.id})" title="View Receipt">
+              <button class="btn btn-outline-primary" data-kw-onclick="manageTransportFeeStructureController.viewReceipt(${b.id})" title="View Receipt">
                 <i class="bi bi-receipt"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="manageTransportFeeStructureController.printReceiptDirect(${b.id})" title="Print Receipt">
+              <button class="btn btn-outline-success" data-kw-onclick="manageTransportFeeStructureController.printReceiptDirect(${b.id})" title="Print Receipt">
                 <i class="bi bi-printer"></i>
               </button>
             </div>
@@ -122,11 +122,11 @@ const manageTransportFeeStructureController = {
     const end = Math.min(current * this.state.limit, total);
     info.textContent = `Showing ${start}-${end} of ${total}`;
     if (totalPages <= 1) { container.innerHTML = ''; return; }
-    let html = `<button class="btn btn-sm btn-outline-primary" ${current === 1 ? 'disabled' : ''} onclick="manageTransportFeeStructureController.loadBills(${current - 1})">Prev</button>`;
+    let html = `<button class="btn btn-sm btn-outline-primary" ${current === 1 ? 'disabled' : ''} data-kw-onclick="manageTransportFeeStructureController.loadBills(${current - 1})">Prev</button>`;
     for (let i = Math.max(1, current - 2); i <= Math.min(totalPages, current + 2); i++) {
-      html += `<button class="btn btn-sm ${i === current ? 'btn-primary' : 'btn-outline-primary'}" onclick="manageTransportFeeStructureController.loadBills(${i})">${i}</button>`;
+      html += `<button class="btn btn-sm ${i === current ? 'btn-primary' : 'btn-outline-primary'}" data-kw-onclick="manageTransportFeeStructureController.loadBills(${i})">${i}</button>`;
     }
-    html += `<button class="btn btn-sm btn-outline-primary" ${current === totalPages ? 'disabled' : ''} onclick="manageTransportFeeStructureController.loadBills(${current + 1})">Next</button>`;
+    html += `<button class="btn btn-sm btn-outline-primary" ${current === totalPages ? 'disabled' : ''} data-kw-onclick="manageTransportFeeStructureController.loadBills(${current + 1})">Next</button>`;
     container.innerHTML = html;
   },
 

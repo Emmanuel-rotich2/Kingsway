@@ -127,7 +127,7 @@
               </tbody>
             </table>
           </div>
-          <button class="btn btn-primary" id="yrStartBtn" onclick="yearRolloverController.createNewYear()" data-year-write>
+          <button class="btn btn-primary" id="yrStartBtn" data-kw-onclick="yearRolloverController.createNewYear()" data-year-write>
             <i class="bi bi-calendar-plus me-1"></i> Create New Academic Year &amp; Calendar
           </button>
           <span class="ms-2 small text-muted" id="yrCreateMsg"></span>
@@ -276,7 +276,7 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
           <span class="fw-semibold" id="yrPromotionProgress">Loading learners…</span>
           <span class="small text-muted" id="yrPromotionSelectionCount">0 selected</span>
-          <button class="btn btn-primary btn-sm" id="yrSavePromotionAssignments" onclick="yearRolloverController.savePromotionAssignments()" data-year-write><i class="bi bi-save me-1"></i>Save selected assignments</button>
+          <button class="btn btn-primary btn-sm" id="yrSavePromotionAssignments" data-kw-onclick="yearRolloverController.savePromotionAssignments()" data-year-write><i class="bi bi-save me-1"></i>Save selected assignments</button>
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle">

@@ -13,7 +13,7 @@
     <div class="d-flex gap-2 align-items-end flex-wrap">
       <div><label class="form-label small fw-semibold">From</label><input type="date" class="form-control form-control-sm" id="fcFrom"></div>
       <div><label class="form-label small fw-semibold">To</label><input type="date" class="form-control form-control-sm" id="fcTo"></div>
-      <button class="btn btn-outline-success btn-sm" onclick="foodConsumptionController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="foodConsumptionController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

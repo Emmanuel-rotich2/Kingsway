@@ -8,11 +8,11 @@
       <small class="text-muted">Record, track, and approve school operational expenditures</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-secondary" onclick="expensesController.exportCSV()">
+      <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="expensesController.exportCSV()">
         <i class="bi bi-download me-1"></i> Export
       </button>
       <button class="btn btn-sm btn-danger" id="addExpenseBtn" style="display:none"
-              onclick="expensesController.showModal()" data-year-write>
+              data-kw-onclick="expensesController.showModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Record Expense
       </button>
     </div>
@@ -111,7 +111,7 @@
           <input type="date" class="form-control form-control-sm" id="expDateTo">
         </div>
         <div class="col-md-1">
-          <button class="btn btn-sm btn-outline-secondary w-100" onclick="expensesController.clearFilters()">Clear</button>
+          <button class="btn btn-sm btn-outline-secondary w-100" data-kw-onclick="expensesController.clearFilters()">Clear</button>
         </div>
       </div>
     </div>
@@ -227,8 +227,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-outline-danger" onclick="expensesController.saveDraft()" data-year-write>Save as Draft</button>
-        <button class="btn btn-danger" onclick="expensesController.saveAndSubmit()" data-year-write>Submit for Approval</button>
+        <button class="btn btn-outline-danger" data-kw-onclick="expensesController.saveDraft()" data-year-write>Save as Draft</button>
+        <button class="btn btn-danger" data-kw-onclick="expensesController.saveAndSubmit()" data-year-write>Submit for Approval</button>
       </div>
     </div>
   </div>
@@ -266,11 +266,11 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn" id="approvalConfirmBtn" onclick="expensesController.confirmApproval()" data-year-write>Confirm</button>
+        <button class="btn" id="approvalConfirmBtn" data-kw-onclick="expensesController.confirmApproval()" data-year-write>Confirm</button>
       </div>
     </div>
   </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/expenses.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => expensesController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => expensesController.init());</script>

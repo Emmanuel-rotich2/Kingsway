@@ -45,7 +45,7 @@
             <select id="assignYear"></select>
           </div>
           <div id="verifiedStudent" class="small text-success fw-semibold mb-2"></div>
-          <button class="btn btn-success btn-sm w-100" id="assignBtn" onclick="routeAssignController.assign()">
+          <button class="btn btn-success btn-sm w-100" id="assignBtn" data-kw-onclick="routeAssignController.assign()">
             <i class="bi bi-check-lg me-1"></i>Assign Student
           </button>
         </div>

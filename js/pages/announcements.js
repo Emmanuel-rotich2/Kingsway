@@ -94,8 +94,8 @@ const announcementsController = {
             <div class="small text-muted">${this._esc(a.publish_date||a.created_at||'')}</div>
           </div>
           <div class="card-footer bg-transparent border-0 pt-0">
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="announcementsController.editAnnouncement(${a.id})">Edit</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="announcementsController.deleteAnnouncement(${a.id})">Delete</button>
+            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="announcementsController.editAnnouncement(${a.id})">Edit</button>
+            <button class="btn btn-sm btn-outline-danger" data-kw-onclick="announcementsController.deleteAnnouncement(${a.id})">Delete</button>
           </div>
         </div>
       </div>`;
@@ -107,7 +107,7 @@ const announcementsController = {
     if (pg) {
       pg.innerHTML = pages<=1?'':Array.from({length:pages},(_,i)=>`
         <li class="page-item ${i+1===this._page?'active':''}">
-          <button class="page-link" onclick="announcementsController._goPage(${i+1})">${i+1}</button>
+          <button class="page-link" data-kw-onclick="announcementsController._goPage(${i+1})">${i+1}</button>
         </li>`).join('');
     }
   },

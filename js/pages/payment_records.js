@@ -77,9 +77,9 @@ const paymentRecordsController = {
     document.getElementById('prInfo').textContent = `Showing ${this.state.payments.length} of ${this.state.total} records`;
     const pages = document.getElementById('prPages');
     let html = '';
-    if (this.state.page > 1) html += `<button class="btn btn-outline-secondary" onclick="paymentRecordsController.load(${this.state.page - 1})">&laquo; Prev</button>`;
+    if (this.state.page > 1) html += `<button class="btn btn-outline-secondary" data-kw-onclick="paymentRecordsController.load(${this.state.page - 1})">&laquo; Prev</button>`;
     html += `<span class="btn btn-light disabled">Page ${this.state.page}${this.state.pages ? ` / ${this.state.pages}` : ''}</span>`;
-    if (this.state.page < this.state.pages) html += `<button class="btn btn-outline-secondary" onclick="paymentRecordsController.load(${this.state.page + 1})">Next &raquo;</button>`;
+    if (this.state.page < this.state.pages) html += `<button class="btn btn-outline-secondary" data-kw-onclick="paymentRecordsController.load(${this.state.page + 1})">Next &raquo;</button>`;
     pages.innerHTML = html;
   },
 

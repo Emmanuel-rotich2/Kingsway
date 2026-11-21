@@ -136,10 +136,10 @@ const MySyllabusController = {
           <td>${statusBadge}</td>
           <td>
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="MySyllabusController.viewDetails(${entry.id})" title="View Details">
+              <button class="btn btn-outline-primary" data-kw-onclick="MySyllabusController.viewDetails(${entry.id})" title="View Details">
                 <i class="bi bi-eye"></i>
               </button>
-              <button class="btn btn-outline-success" onclick="MySyllabusController.markComplete(${entry.id})" title="Mark Complete" data-year-write>
+              <button class="btn btn-outline-success" data-kw-onclick="MySyllabusController.markComplete(${entry.id})" title="Mark Complete" data-year-write>
                 <i class="bi bi-check-circle"></i>
               </button>
             </div>

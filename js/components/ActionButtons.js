@@ -74,7 +74,7 @@ class ActionButtons {
         }
 
         const sizeClass = size === 'sm' ? 'btn-sm' : size === 'lg' ? 'btn-lg' : '';
-        const onclickAttr = onclick ? `onclick="${onclick}"` : '';
+        const onclickAttr = onclick ? `data-kw-onclick="${onclick}"` : '';
 
         return `
             <button 
@@ -162,7 +162,7 @@ class ActionButtons {
                         }
                         return `
                             <li>
-                                <a class="dropdown-item" href="#" data-action="${action.id}" onclick="event.preventDefault(); ${action.onclick || 'return false;'}">
+                                <a class="dropdown-item" href="#" data-action="${action.id}" data-kw-onclick="event.preventDefault(); ${action.onclick || 'return false;'}">
                                     ${action.icon ? `<i class="bi ${action.icon} me-2"></i>` : ''}
                                     ${action.label}
                                 </a>
@@ -225,7 +225,7 @@ class ActionButtons {
             return '';
         }
 
-        const onclickAttr = onclick ? `onclick="${onclick}"` : '';
+        const onclickAttr = onclick ? `data-kw-onclick="${onclick}"` : '';
 
         return `
             <button 

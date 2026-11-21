@@ -928,18 +928,18 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
 <?php $studentIdCardsScript = __DIR__ . '/../js/pages/student_id_cards.js'; ?>
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/utils/bulk_print.js?v=<?= (int) @filemtime(__DIR__ . '/../js/utils/bulk_print.js') ?>"
-    onload="console.log('bulk_print.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load bulk_print.js. Check path:', this.src)">
+    data-kw-onload="console.log('bulk_print.js script tag loaded successfully')"
+    data-kw-onerror="console.error('FAILED to load bulk_print.js. Check path:', this.src)">
 </script>
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/student_id_cards.js?v=<?= (int) @filemtime($studentIdCardsScript) ?>"
-    onload="console.log('student_id_cards.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load student_id_cards.js. Check path:', this.src)">
+    data-kw-onload="console.log('student_id_cards.js script tag loaded successfully')"
+    data-kw-onerror="console.error('FAILED to load student_id_cards.js. Check path:', this.src)">
 </script>

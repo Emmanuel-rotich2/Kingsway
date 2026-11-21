@@ -59,7 +59,7 @@
       var bt = bal <= 0 ? 'Fees Cleared' : 'KES ' + bal.toLocaleString() + ' Due';
       var photo = photoUrl(c.photo_url);
       var initials = P.esc((c.first_name || '?')[0].toUpperCase());
-      var identity = photo ? '<img class="pp-child-photo" src="' + P.esc(photo) + '" alt="' + P.esc(c.first_name + ' ' + c.last_name) + '" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="pp-child-avatar-fallback" hidden>' + initials + '</span>' : '<span class="pp-child-avatar-fallback">' + initials + '</span>';
+      var identity = photo ? '<img class="pp-child-photo" src="' + P.esc(photo) + '" alt="' + P.esc(c.first_name + ' ' + c.last_name) + '" loading="lazy" data-kw-onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="pp-child-avatar-fallback" hidden>' + initials + '</span>' : '<span class="pp-child-avatar-fallback">' + initials + '</span>';
       return '<div class="pp-child-grid-item"><div class="card border-0 shadow-sm rounded-4 child-card"><div class="card-body p-4">' +
         '<div class="d-flex align-items-center mb-3"><div class="pp-child-photo-wrap me-3">' + identity + '</div><div><h6 class="mb-0 fw-bold">' + P.esc(c.first_name + ' ' + c.last_name) + '</h6><small class="text-muted">' + P.esc(c.class_name || 'Admission in progress') + (c.admission_no ? ' · ' + P.esc(c.admission_no) : '') + '</small></div></div>' +
         '<div class="d-flex justify-content-between align-items-center mb-2"><span class="text-muted small">' + (registrationDue > 0 ? 'Total due' : 'Current balance') + '</span><span class="badge bg-' + bc + ' px-3 py-2">' + bt + '</span></div>' + stageSummary(application) +

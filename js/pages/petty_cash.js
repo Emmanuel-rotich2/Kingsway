@@ -126,7 +126,7 @@ const pettyCashController = {
         <td class="text-end text-muted small">KES ${Number(t.balance_after || 0).toLocaleString()}</td>
         <td>${this._esc(t.recorded_by_name || '—')}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-danger py-0" onclick="pettyCashController.delete(${t.id})"
+          <button class="btn btn-sm btn-outline-danger py-0" data-kw-onclick="pettyCashController.delete(${t.id})"
                   title="Delete" ${!this._canApprove ? 'style="display:none"' : ''} data-year-write>
             <i class="bi bi-trash3"></i>
           </button>
@@ -143,7 +143,7 @@ const pettyCashController = {
     if (pages <= 1) { pg.innerHTML = ''; return; }
     pg.innerHTML = Array.from({length: pages}, (_, i) =>
       `<li class="page-item ${i+1===this._page?'active':''}">
-         <button class="page-link" onclick="pettyCashController._goPage(${i+1})">${i+1}</button>
+         <button class="page-link" data-kw-onclick="pettyCashController._goPage(${i+1})">${i+1}</button>
        </li>`
     ).join('');
   },

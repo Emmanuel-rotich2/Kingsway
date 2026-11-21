@@ -96,7 +96,7 @@ const competencyChecklistController = (() => {
 
     const ratingButtons = [1, 2, 3, 4].map(n => `
       <button class="btn btn-sm ${selfRating == n ? 'btn-' + ratingColor(n) : 'btn-outline-' + ratingColor(n)} py-0 px-2"
-              onclick="competencyChecklistController.setRating(${item.id}, ${n})"
+              data-kw-onclick="competencyChecklistController.setRating(${item.id}, ${n})"
               title="${RATING_LABELS[n]}" data-year-write>
         ${n}
       </button>

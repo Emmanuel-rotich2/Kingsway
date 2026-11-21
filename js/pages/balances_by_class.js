@@ -249,7 +249,7 @@ const BalancesByClassController = {
           '<td><strong>KES ' + Number(s.balance || 0).toLocaleString() + '</strong></td>' +
           '<td><span class="badge bg-' + statusClass + '">' + (s.payment_status || 'pending') + '</span></td>' +
           '<td>' + (s.last_payment_date ? String(s.last_payment_date).substring(0, 10) : '—') + '</td>' +
-          '<td><button class="btn btn-sm btn-outline-primary" onclick="loadStudentHistory(' + s.id + ',\'' + safeName + '\')"><i class="fas fa-eye"></i></button></td>' +
+          '<td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="loadStudentHistory(' + s.id + ',\'' + safeName + '\')"><i class="fas fa-eye"></i></button></td>' +
           '</tr>';
       }).join('');
     }).catch(function(err) {
@@ -322,7 +322,7 @@ const BalancesByClassController = {
                     </div>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="BalancesByClassController.drillDownClass('${c.id}', '${self.esc(c.name)}')">
+                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="BalancesByClassController.drillDownClass('${c.id}', '${self.esc(c.name)}')">
                         <i class="fas fa-users me-1"></i>View Students
                     </button>
                 </td>

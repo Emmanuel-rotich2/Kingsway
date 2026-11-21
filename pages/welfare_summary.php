@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-heart-pulse text-danger me-2"></i>Welfare Summary</h4>
       <p class="text-muted small mb-0 mt-1">Student welfare case analytics by category, priority and status.</p>
     </div>
-    <button class="btn btn-outline-danger btn-sm" onclick="welfareSummaryController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-danger btn-sm" data-kw-onclick="welfareSummaryController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3 mb-4" id="wsKpis"></div>

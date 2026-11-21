@@ -170,9 +170,9 @@ var ActivitiesController = {
             <td><span class="status-badge ${this.statusClass(a.status)}">${this.escapeHtml(a.status || "-")}</span></td>
             <td>${this.escapeHtml(a.created_by_name || "System")}</td>
             <td class="admin-row-actions">
-                <button class="action-btn view-btn" onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">\uD83D\uDC41\uFE0F</button>
-                <button class="action-btn edit-btn" onclick="ActivitiesController.editActivity(${this.escapeHtml(a.id)})" title="Edit">\u270F\uFE0F</button>
-                <button class="action-btn delete-btn" onclick="ActivitiesController.deleteActivity(${this.escapeHtml(a.id)})" title="Delete">\uD83D\uDDD1\uFE0F</button>
+                <button class="action-btn view-btn" data-kw-onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">\uD83D\uDC41\uFE0F</button>
+                <button class="action-btn edit-btn" data-kw-onclick="ActivitiesController.editActivity(${this.escapeHtml(a.id)})" title="Edit">\u270F\uFE0F</button>
+                <button class="action-btn delete-btn" data-kw-onclick="ActivitiesController.deleteActivity(${this.escapeHtml(a.id)})" title="Delete">\uD83D\uDDD1\uFE0F</button>
             </td>
         `;
     },
@@ -186,8 +186,8 @@ var ActivitiesController = {
             <td>${this.escapeHtml(a.participant_count || 0)}</td>
             <td><span class="status-badge ${this.statusClass(a.status)}">${this.escapeHtml(a.status || "-")}</span></td>
             <td class="manager-row-actions">
-                <button class="action-btn view-btn" onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">\uD83D\uDC41\uFE0F</button>
-                <button class="action-btn edit-btn" onclick="ActivitiesController.editActivity(${this.escapeHtml(a.id)})" title="Edit">\u270F\uFE0F</button>
+                <button class="action-btn view-btn" data-kw-onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">\uD83D\uDC41\uFE0F</button>
+                <button class="action-btn edit-btn" data-kw-onclick="ActivitiesController.editActivity(${this.escapeHtml(a.id)})" title="Edit">\u270F\uFE0F</button>
             </td>
         `;
     },
@@ -198,7 +198,7 @@ var ActivitiesController = {
             <td><span class="badge">${this.escapeHtml(a.category || "-")}</span></td>
             <td>${this.escapeHtml(this.formatDate(a.start_date))}</td>
             <td class="operator-row-actions">
-                <button class="action-btn" onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">View</button>
+                <button class="action-btn" data-kw-onclick="ActivitiesController.viewActivity(${this.escapeHtml(a.id)})" title="View">View</button>
             </td>
         `;
     },

@@ -24,10 +24,10 @@
         <div class="d-flex gap-2">
             <button class="btn btn-outline-primary btn-sm" id="exportRubricsBtn"><i class="bi bi-download"></i> CSV</button>
             <button class="btn btn-outline-secondary btn-sm" id="printRubricsBtn"><i class="bi bi-printer"></i> Print / PDF</button>
-            <button class="btn btn-outline-primary btn-sm" data-curriculum-manage onclick="RubricsController.openToolModal()">
+            <button class="btn btn-outline-primary btn-sm" data-curriculum-manage data-kw-onclick="RubricsController.openToolModal()">
                 <i class="bi bi-wrench-adjustable"></i> New Assessment Tool
             </button>
-            <button class="btn btn-success btn-sm" data-curriculum-manage onclick="RubricsController.openModal()">
+            <button class="btn btn-success btn-sm" data-curriculum-manage data-kw-onclick="RubricsController.openModal()">
                 <i class="bi bi-plus-circle"></i> Add Rubric
             </button>
         </div>

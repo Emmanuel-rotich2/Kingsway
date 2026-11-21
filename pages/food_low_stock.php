@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-exclamation-diamond text-warning me-2"></i>Food Low Stock</h4>
       <p class="text-muted small mb-0 mt-1">Food items flagged as low, reorder or out of stock.</p>
     </div>
-    <button class="btn btn-outline-warning btn-sm" onclick="foodLowStockController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-warning btn-sm" data-kw-onclick="foodLowStockController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div id="flsStats" class="row g-3 mb-4"></div>

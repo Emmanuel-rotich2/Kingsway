@@ -205,10 +205,10 @@ const admissionDecisionsController = {
                             </div>
                             
                             <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="admissionDecisionsController.viewApplication(${app.id})">
+                                <button class="btn btn-sm btn-outline-primary flex-grow-1" data-kw-onclick="admissionDecisionsController.viewApplication(${app.id})">
                                     <i class="bi bi-eye me-1"></i>View
                                 </button>
-                                <button class="btn btn-sm btn-success flex-grow-1" onclick="admissionDecisionsController.makeDecision(${app.id})">
+                                <button class="btn btn-sm btn-success flex-grow-1" data-kw-onclick="admissionDecisionsController.makeDecision(${app.id})">
                                     <i class="bi bi-check-square me-1"></i>Decide
                                 </button>
                             </div>

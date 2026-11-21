@@ -24,8 +24,8 @@
       <p class="text-muted small mb-0 mt-1">Create or edit Day and Boarding fee amounts together for every grade and term.</p>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-success btn-sm" onclick="draftFeeStructureController.loadGrid()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-      <button class="btn btn-success btn-sm" onclick="draftFeeStructureController.newBundle()" data-year-write><i class="bi bi-plus-lg me-1"></i>New Structure</button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="draftFeeStructureController.loadGrid()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-success btn-sm" data-kw-onclick="draftFeeStructureController.newBundle()" data-year-write><i class="bi bi-plus-lg me-1"></i>New Structure</button>
     </div>
   </div>
 
@@ -42,7 +42,7 @@
     <div class="d-flex gap-2 mb-3 flex-wrap">
       <select id="dfsYearFilter" class="form-select form-select-sm" style="width:170px"><option value="">All years</option></select>
       <select id="dfsTypeFilter" class="form-select form-select-sm" style="width:180px"><option value="">All student types</option></select>
-      <button class="btn btn-outline-success btn-sm" onclick="draftFeeStructureController.loadGrid()"><i class="bi bi-arrow-clockwise"></i></button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="draftFeeStructureController.loadGrid()"><i class="bi bi-arrow-clockwise"></i></button>
     </div>
     <div class="table-responsive">
       <table class="table table-hover align-middle">
@@ -69,9 +69,9 @@
     <div class="modal-body" id="dfsModalBody"></div>
       <div class="modal-footer border-0">
       <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-outline-success" onclick="draftFeeStructureController.showPrintDialog()"><i class="bi bi-printer me-1"></i>Print</button>
-      <button class="btn btn-outline-primary" onclick="draftFeeStructureController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
-      <button class="btn btn-success" onclick="draftFeeStructureController.save('submit')" data-year-write><i class="bi bi-send me-1"></i>Submit for Review</button>
+      <button class="btn btn-outline-success" data-kw-onclick="draftFeeStructureController.showPrintDialog()"><i class="bi bi-printer me-1"></i>Print</button>
+      <button class="btn btn-outline-primary" data-kw-onclick="draftFeeStructureController.save('draft')" data-year-write><i class="bi bi-save me-1"></i>Save as Draft</button>
+      <button class="btn btn-success" data-kw-onclick="draftFeeStructureController.save('submit')" data-year-write><i class="bi bi-send me-1"></i>Submit for Review</button>
     </div>
   </div></div>
 </div>
@@ -147,7 +147,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success" onclick="draftFeeStructureController.executePrint()"><i class="bi bi-printer me-1"></i>Print</button>
+      <button class="btn btn-success" data-kw-onclick="draftFeeStructureController.executePrint()"><i class="bi bi-printer me-1"></i>Print</button>
     </div>
   </div></div>
 </div>

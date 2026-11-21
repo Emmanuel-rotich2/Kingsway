@@ -7,7 +7,7 @@
       <h3 class="mb-0"><i class="bi bi-graph-down me-2 text-secondary"></i>Asset Depreciation</h3>
       <small class="text-muted">Straight-line depreciation schedules for all fixed assets</small>
     </div>
-    <button class="btn btn-sm btn-outline-secondary" onclick="depreciationController.exportCSV()">
+    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="depreciationController.exportCSV()">
       <i class="bi bi-download me-1"></i> Export
     </button>
   </div>
@@ -53,12 +53,12 @@
     <div class="card-body py-2">
       <div class="row g-2 align-items-center">
         <div class="col-md-3">
-          <select id="dpCategory" class="form-select form-select-sm" onchange="depreciationController.filter()">
+          <select id="dpCategory" class="form-select form-select-sm" data-kw-onchange="depreciationController.filter()">
             <option value="">All Categories</option>
           </select>
         </div>
         <div class="col-md-2">
-          <select id="dpYear" class="form-select form-select-sm" onchange="depreciationController.filter()">
+          <select id="dpYear" class="form-select form-select-sm" data-kw-onchange="depreciationController.filter()">
             <option value="">All Years</option>
           </select>
         </div>

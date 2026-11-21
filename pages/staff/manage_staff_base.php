@@ -21,25 +21,25 @@
             <h4 class="mb-0"><i class="bi bi-person-workspace"></i> Staff Management</h4>
             <div class="btn-group">
                 <!-- Add Existing Staff - HR Manager, Headteacher, Admin only -->
-                <button class="btn btn-light btn-sm" onclick="staffManagementController.showStaffModal()"
+                <button class="btn btn-light btn-sm" data-kw-onclick="staffManagementController.showStaffModal()"
                     data-permission="staff_create"
                     data-role="hr_manager,headteacher,school_administrator,admin,director">
                     <i class="bi bi-plus-circle"></i> Add Existing Staff
                 </button>
                 <!-- Bulk Import - HR Manager, Admin only -->
-                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.showBulkImportModal()"
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="staffManagementController.showBulkImportModal()"
                     data-permission="staff_create"
                     data-role="hr_manager,school_administrator,admin">
                     <i class="bi bi-upload"></i> Bulk Import
                 </button>
                 <!-- Export - HR, Finance, Leadership -->
-                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.exportStaff()"
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="staffManagementController.exportStaff()"
                     data-permission="staff_export"
                     data-role="hr_manager,headteacher,accountant,bursar,director,admin">
                     <i class="bi bi-download"></i> Export
                 </button>
                 <!-- Leave Management - HR and Headteacher -->
-                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.showLeaveRequests()"
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="staffManagementController.showLeaveRequests()"
                     data-permission="staff_leave"
                     data-role="hr_manager,headteacher,admin">
                     <i class="bi bi-calendar-x"></i> Leave Requests
@@ -158,19 +158,19 @@
             </li>
             <!-- Assignments Tab - HR, Headteacher, Academic Deputy -->
             <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,admin,director">
-                <a class="nav-link" data-bs-toggle="tab" href="#assignmentsTab" onclick="staffManagementController.loadAssignmentsTab()">
+                <a class="nav-link" data-bs-toggle="tab" href="#assignmentsTab" data-kw-onclick="staffManagementController.loadAssignmentsTab()">
                     <i class="bi bi-diagram-3"></i> Assignments
                 </a>
             </li>
             <!-- Performance Tab - HR and Leadership -->
             <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,director,admin">
-                <a class="nav-link" data-bs-toggle="tab" href="#performanceTab" onclick="staffManagementController.loadPerformanceTab()">
+                <a class="nav-link" data-bs-toggle="tab" href="#performanceTab" data-kw-onclick="staffManagementController.loadPerformanceTab()">
                     <i class="bi bi-graph-up-arrow"></i> Performance
                 </a>
             </li>
             <!-- Schedule Tab -->
             <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,admin">
-                <a class="nav-link" data-bs-toggle="tab" href="#scheduleTab" onclick="staffManagementController.loadScheduleTab()">
+                <a class="nav-link" data-bs-toggle="tab" href="#scheduleTab" data-kw-onclick="staffManagementController.loadScheduleTab()">
                     <i class="bi bi-calendar-week"></i> Schedule
                 </a>
             </li>
@@ -187,18 +187,18 @@
                             <span class="input-group-text"><i class="bi bi-search"></i></span>
                             <input type="text" id="searchStaff" class="form-control"
                                 placeholder="Search by name, staff number, or ID..."
-                                onkeyup="staffManagementController.searchStaff(this.value)">
+                                data-kw-onkeyup="staffManagementController.searchStaff(this.value)">
                         </div>
                     </div>
                     <div class="col-md-2">
                         <select id="departmentFilter" class="form-select"
-                            onchange="staffManagementController.filterByDepartment(this.value)">
+                            data-kw-onchange="staffManagementController.filterByDepartment(this.value)">
                             <option value="">All Departments</option>
                         </select>
                     </div>
                     <div class="col-md-2">
                         <select id="staffTypeFilter" class="form-select"
-                            onchange="staffManagementController.filterByType(this.value)">
+                            data-kw-onchange="staffManagementController.filterByType(this.value)">
                             <option value="">All Types</option>
                             <option value="teaching">Teaching</option>
                             <option value="non-teaching">Non-Teaching</option>
@@ -207,7 +207,7 @@
                     </div>
                     <div class="col-md-2">
                         <select id="staffStatusFilter" class="form-select"
-                            onchange="staffManagementController.filterByStatus(this.value)">
+                            data-kw-onchange="staffManagementController.filterByStatus(this.value)">
                             <option value="">All Status</option>
                             <option value="active">Active</option>
                             <option value="on_leave">On Leave</option>
@@ -216,7 +216,7 @@
                     </div>
                     <div class="col-md-2">
                         <select id="roleFilter" class="form-select"
-                            onchange="staffManagementController.filterByRole(this.value)">
+                            data-kw-onchange="staffManagementController.filterByRole(this.value)">
                             <option value="">All Roles</option>
                         </select>
                     </div>
@@ -319,20 +319,20 @@
                     <!-- Payroll Actions -->
                     <div class="d-flex justify-content-between mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-outline-primary" onclick="staffManagementController.runPayroll()"
+                            <button class="btn btn-outline-primary" data-kw-onclick="staffManagementController.runPayroll()"
                                     data-role="hr_manager,bursar,admin">
                                 <i class="bi bi-calculator"></i> Run Payroll
                             </button>
-                            <button class="btn btn-outline-success" onclick="staffManagementController.exportPayroll()"
+                            <button class="btn btn-outline-success" data-kw-onclick="staffManagementController.exportPayroll()"
                                     data-role="accountant,bursar,director,admin">
                                 <i class="bi bi-file-earmark-excel"></i> Export Payroll
                             </button>
-                            <button class="btn btn-outline-info" onclick="staffManagementController.showPayslips()">
+                            <button class="btn btn-outline-info" data-kw-onclick="staffManagementController.showPayslips()">
                                 <i class="bi bi-receipt"></i> View Payslips
                             </button>
                         </div>
                         <div data-role="bursar,director,admin">
-                            <button class="btn btn-success" onclick="staffManagementController.approvePayroll()" data-year-write>
+                            <button class="btn btn-success" data-kw-onclick="staffManagementController.approvePayroll()" data-year-write>
                                 <i class="bi bi-check-circle"></i> Approve Payroll
                             </button>
                         </div>
@@ -408,14 +408,14 @@
                     <!-- Contract Actions -->
                     <div class="d-flex justify-content-between mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-primary" onclick="staffManagementController.showContractModal()">
+                            <button class="btn btn-primary" data-kw-onclick="staffManagementController.showContractModal()">
                                 <i class="bi bi-plus-circle"></i> New Contract
                             </button>
-                            <button class="btn btn-outline-warning" onclick="staffManagementController.showRenewalQueue()">
+                            <button class="btn btn-outline-warning" data-kw-onclick="staffManagementController.showRenewalQueue()">
                                 <i class="bi bi-arrow-repeat"></i> Renewal Queue
                             </button>
                         </div>
-                        <button class="btn btn-outline-secondary" onclick="staffManagementController.exportContracts()">
+                        <button class="btn btn-outline-secondary" data-kw-onclick="staffManagementController.exportContracts()">
                             <i class="bi bi-download"></i> Export
                         </button>
                     </div>
@@ -489,18 +489,18 @@
                     <!-- Attendance Actions -->
                     <div class="d-flex justify-content-between mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-primary" onclick="staffManagementController.markAttendance()"
+                            <button class="btn btn-primary" data-kw-onclick="staffManagementController.markAttendance()"
                                     data-role="hr_manager,admin" data-year-write>
                                 <i class="bi bi-check2-square"></i> Mark Attendance
                             </button>
-                            <button class="btn btn-outline-info" onclick="staffManagementController.showAttendanceReport()">
+                            <button class="btn btn-outline-info" data-kw-onclick="staffManagementController.showAttendanceReport()">
                                 <i class="bi bi-graph-up"></i> View Report
                             </button>
                         </div>
                         <div class="input-group" style="width: 250px;">
                             <input type="date" class="form-control" id="attendanceDate" 
                                    value="<?php echo date('Y-m-d'); ?>" data-kw-validate="not_future">
-                            <button class="btn btn-outline-secondary" onclick="staffManagementController.loadAttendance()">
+                            <button class="btn btn-outline-secondary" data-kw-onclick="staffManagementController.loadAttendance()">
                                 <i class="bi bi-search"></i>
                             </button>
                         </div>
@@ -539,19 +539,19 @@
                     <!-- Assignment Actions -->
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-primary" onclick="staffManagementController.showAssignClassModal()" data-role="hr_manager,headteacher,admin" data-year-write>
+                            <button class="btn btn-primary" data-kw-onclick="staffManagementController.showAssignClassModal()" data-role="hr_manager,headteacher,admin" data-year-write>
                                 <i class="bi bi-plus-circle"></i> Assign to Class
                             </button>
-                            <button class="btn btn-outline-primary" onclick="staffManagementController.showAssignSubjectModal()" data-role="hr_manager,headteacher,admin" data-year-write>
+                            <button class="btn btn-outline-primary" data-kw-onclick="staffManagementController.showAssignSubjectModal()" data-role="hr_manager,headteacher,admin" data-year-write>
                                 <i class="bi bi-book"></i> Assign Subject
                             </button>
                         </div>
                         <div class="d-flex gap-2">
                             <select id="assignmentStaffFilter" class="form-select" style="width:220px"
-                                    onchange="staffManagementController.filterAssignments(this.value)">
+                                    data-kw-onchange="staffManagementController.filterAssignments(this.value)">
                                 <option value="">All Staff</option>
                             </select>
-                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportAssignments()">
+                            <button class="btn btn-outline-secondary" data-kw-onclick="staffManagementController.exportAssignments()">
                                 <i class="bi bi-download"></i> Export
                             </button>
                         </div>
@@ -627,15 +627,15 @@
                     <!-- Performance Actions -->
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div class="btn-group">
-                            <button class="btn btn-outline-info" onclick="staffManagementController.goToPerformancePage()">
+                            <button class="btn btn-outline-info" data-kw-onclick="staffManagementController.goToPerformancePage()">
                                 <i class="bi bi-graph-up"></i> Detailed Reports
                             </button>
-                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportPerformance()">
+                            <button class="btn btn-outline-secondary" data-kw-onclick="staffManagementController.exportPerformance()">
                                 <i class="bi bi-download"></i> Export
                             </button>
                         </div>
                         <select id="performanceStaffFilter" class="form-select" style="width:220px"
-                                onchange="staffManagementController.loadStaffPerformance(this.value)">
+                                data-kw-onchange="staffManagementController.loadStaffPerformance(this.value)">
                             <option value="">Select Staff Member</option>
                         </select>
                     </div>
@@ -675,15 +675,15 @@
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <div>
                             <select id="scheduleStaffSelect" class="form-select" style="width:250px"
-                                    onchange="staffManagementController.loadStaffSchedule(this.value)">
+                                    data-kw-onchange="staffManagementController.loadStaffSchedule(this.value)">
                                 <option value="">Select Staff Member</option>
                             </select>
                         </div>
                         <div class="btn-group">
-                            <button class="btn btn-outline-primary" onclick="staffManagementController.printSchedule()">
+                            <button class="btn btn-outline-primary" data-kw-onclick="staffManagementController.printSchedule()">
                                 <i class="bi bi-printer"></i> Print
                             </button>
-                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportSchedule()">
+                            <button class="btn btn-outline-secondary" data-kw-onclick="staffManagementController.exportSchedule()">
                                 <i class="bi bi-download"></i> Export
                             </button>
                         </div>
@@ -726,7 +726,7 @@
                 <h5 class="modal-title">Assign Staff to Class</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="assignClassForm" onsubmit="staffManagementController.saveClassAssignment(event)">
+            <form id="assignClassForm" data-kw-onsubmit="staffManagementController.saveClassAssignment(event)">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Staff Member <span class="text-danger">*</span></label>
@@ -772,7 +772,7 @@
                 <h5 class="modal-title">Assign Subject to Staff</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="assignSubjectForm" onsubmit="staffManagementController.saveSubjectAssignment(event)">
+            <form id="assignSubjectForm" data-kw-onsubmit="staffManagementController.saveSubjectAssignment(event)">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Staff Member <span class="text-danger">*</span></label>
@@ -821,7 +821,7 @@
                 <!-- Dynamic payslip content -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-outline-primary" onclick="staffManagementController.printPayslip()">
+                <button type="button" class="btn btn-outline-primary" data-kw-onclick="staffManagementController.printPayslip()">
                     <i class="bi bi-printer"></i> Print
                 </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -838,7 +838,7 @@
                 <h5 class="modal-title" id="staffModalLabel">Add Staff Member</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="staffForm" enctype="multipart/form-data" onsubmit="staffManagementController.saveStaff(event)">
+            <form id="staffForm" enctype="multipart/form-data" data-kw-onsubmit="staffManagementController.saveStaff(event)">
                 <div class="modal-body">
                     <div class="alert alert-info small">Use this form for a person already employed by the school whose staff record needs to be added or completed. For a new online applicant or walk-in candidate, use Staff Appointments so the school assigns employment details, the Director approves, and the School Administrator creates the account and invitation.</div>
                     <input type="hidden" id="staffId">
@@ -1042,7 +1042,7 @@
                 <!-- Dynamic content loaded here -->
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-warning" id="viewStaffEditBtn" onclick="staffManagementController.editFromView()">
+                <button type="button" class="btn btn-warning" id="viewStaffEditBtn" data-kw-onclick="staffManagementController.editFromView()">
                     <i class="bi bi-pencil"></i> Edit
                 </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -1059,7 +1059,7 @@
                 <h5 class="modal-title">Bulk Import Staff</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="bulkImportStaffForm" onsubmit="staffManagementController.bulkImport(event)">
+            <form id="bulkImportStaffForm" data-kw-onsubmit="staffManagementController.bulkImport(event)">
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> Upload a CSV or Excel file with staff data.
@@ -1121,7 +1121,7 @@
                         <h5 class="modal-title">Staff Contract</h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                     </div>
-                    <form id="contractForm" onsubmit="staffManagementController.saveContract(event)">
+                    <form id="contractForm" data-kw-onsubmit="staffManagementController.saveContract(event)">
                         <div class="modal-body">
                             <input type="hidden" id="contractId">
                             <div class="row">

@@ -350,11 +350,11 @@ const placementTestsController = {
                         ` : ''}
                         <div class="d-flex gap-2 mt-3">
                             ${test.status === 'pending' ? `
-                                <button class="btn btn-sm btn-primary flex-grow-1" onclick="window.placementTestsController.showRecordResultsModal(${test.id})">
+                                <button class="btn btn-sm btn-primary flex-grow-1" data-kw-onclick="window.placementTestsController.showRecordResultsModal(${test.id})">
                                     <i class="bi bi-clipboard-check me-1"></i>Record Results
                                 </button>
                             ` : `
-                                <button class="btn btn-sm btn-outline-secondary flex-grow-1" onclick="window.placementTestsController.viewTestDetails(${test.id})">
+                                <button class="btn btn-sm btn-outline-secondary flex-grow-1" data-kw-onclick="window.placementTestsController.viewTestDetails(${test.id})">
                                     <i class="bi bi-eye me-1"></i>View Details
                                 </button>
                             `}

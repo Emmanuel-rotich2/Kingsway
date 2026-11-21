@@ -89,7 +89,7 @@
           <option value="archived">Archived</option>
         </select>
       </div>
-      <button class="btn btn-success btn-sm rounded-pill px-3" onclick="wsOpenNewsModal()">
+      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenNewsModal()">
         <i class="bi bi-plus-lg me-1"></i>New Article
       </button>
     </div>
@@ -109,7 +109,7 @@
       <div class="d-flex gap-2">
         <label class="d-flex align-items-center gap-2 small"><input type="checkbox" id="eventsUpcomingOnly"> Upcoming only</label>
       </div>
-      <button class="btn btn-success btn-sm rounded-pill px-3" onclick="wsOpenEventModal()">
+      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenEventModal()">
         <i class="bi bi-plus-lg me-1"></i>New Event
       </button>
     </div>
@@ -127,7 +127,7 @@
   <div id="tab-gallery" class="ws-tab-panel" style="display:none">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <p class="text-muted small mb-0">Add image URLs (Unsplash, school CDN, etc.) to display in the homepage gallery.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" onclick="wsOpenGalleryModal()">
+      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenGalleryModal()">
         <i class="bi bi-plus-lg me-1"></i>Add Image
       </button>
     </div>
@@ -140,7 +140,7 @@
   <div id="tab-downloads" class="ws-tab-panel" style="display:none">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <p class="text-muted small mb-0">Manage downloadable files shown on the public Downloads page.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" onclick="wsOpenDownloadModal()">
+      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenDownloadModal()">
         <i class="bi bi-plus-lg me-1"></i>Add File
       </button>
     </div>
@@ -158,7 +158,7 @@
   <div id="tab-jobs" class="ws-tab-panel" style="display:none">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <p class="text-muted small mb-0">Post and manage job vacancies shown on the public Careers page.</p>
-      <button class="btn btn-success btn-sm rounded-pill px-3" onclick="wsOpenJobModal()">
+      <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="wsOpenJobModal()">
         <i class="bi bi-plus-lg me-1"></i>Post Vacancy
       </button>
     </div>
@@ -192,7 +192,7 @@
           <option value="enrolled">Enrolled</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <button class="btn btn-outline-success btn-sm" onclick="wsLoadApplications()">
+        <button class="btn btn-outline-success btn-sm" data-kw-onclick="wsLoadApplications()">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
       </div>
@@ -242,7 +242,7 @@
         <div class="bg-white border rounded-3 p-4">
           <h6 class="fw-bold mb-3"><i class="bi bi-list-ul text-success me-2"></i>News Categories</h6>
           <div id="categoriesList"></div>
-          <button class="btn btn-outline-success btn-sm mt-3 w-100" onclick="wsAddCategory()">
+          <button class="btn btn-outline-success btn-sm mt-3 w-100" data-kw-onclick="wsAddCategory()">
             <i class="bi bi-plus me-1"></i>Add Category
           </button>
         </div>
@@ -334,7 +334,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" id="newsSubmitBtn" onclick="wsSaveNews()">
+      <button class="btn btn-success btn-sm px-4" id="newsSubmitBtn" data-kw-onclick="wsSaveNews()">
         <i class="bi bi-send-fill me-1"></i>Publish Article
       </button>
     </div>
@@ -376,7 +376,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="wsSaveEvent()"><i class="bi bi-calendar-check me-1"></i>Save Event</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveEvent()"><i class="bi bi-calendar-check me-1"></i>Save Event</button>
     </div>
   </div></div>
 </div>
@@ -411,7 +411,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="wsSaveGallery()"><i class="bi bi-images me-1"></i>Add to Gallery</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveGallery()"><i class="bi bi-images me-1"></i>Add to Gallery</button>
     </div>
   </div></div>
 </div>
@@ -449,7 +449,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="wsSaveDownload()"><i class="bi bi-cloud-download me-1"></i>Save</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveDownload()"><i class="bi bi-cloud-download me-1"></i>Save</button>
     </div>
   </div></div>
 </div>
@@ -483,7 +483,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" onclick="wsSaveJob()"><i class="bi bi-briefcase me-1"></i>Post Vacancy</button>
+      <button class="btn btn-success btn-sm px-4" data-kw-onclick="wsSaveJob()"><i class="bi bi-briefcase me-1"></i>Post Vacancy</button>
     </div>
   </div></div>
 </div>
@@ -517,16 +517,16 @@
           <label class="form-label fw-semibold mb-2">Person *</label>
           <div class="d-flex gap-3 mb-2">
             <div class="form-check">
-              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonExisting" value="existing" checked onchange="wsLeadershipPersonMode('existing')">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonExisting" value="existing" checked data-kw-onchange="wsLeadershipPersonMode('existing')">
               <label class="form-check-label" for="leadPersonExisting">Existing Staff / Student</label>
             </div>
             <div class="form-check">
-              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonNew" value="new" onchange="wsLeadershipPersonMode('new')">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonNew" value="new" data-kw-onchange="wsLeadershipPersonMode('new')">
               <label class="form-check-label" for="leadPersonNew">New External Person</label>
             </div>
           </div>
           <div id="leadPersonSearchWrap">
-            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name..." autocomplete="off" oninput="wsLeadershipPersonSearch(this.value)">
+            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name..." autocomplete="off" data-kw-oninput="wsLeadershipPersonSearch(this.value)">
             <input type="hidden" id="leadPersonId">
             <div id="leadPersonSearchResults" class="list-group mt-1" style="max-height:180px;overflow-y:auto;display:none"></div>
             <div id="leadPersonSelected" class="d-none mt-1">
@@ -557,7 +557,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" id="leadSubmitBtn" onclick="wsSaveLeadership()">
+      <button class="btn btn-success btn-sm px-4" id="leadSubmitBtn" data-kw-onclick="wsSaveLeadership()">
         <i class="bi bi-check-lg me-1"></i>Save
       </button>
     </div>

@@ -238,10 +238,10 @@ const assessmentOverviewCtrl = {
       </td>
       <td><span class="badge bg-${statCls[status]||'secondary'}">${status.replace('_',' ')}</span></td>
       <td class="text-end">
-        <button class="btn btn-sm btn-primary me-1" onclick="assessmentOverviewCtrl.showMarksModal(${a.id})">
+        <button class="btn btn-sm btn-primary me-1" data-kw-onclick="assessmentOverviewCtrl.showMarksModal(${a.id})">
           <i class="bi bi-pencil"></i> Marks
         </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="assessmentOverviewCtrl.computeScores(${a.id})">
+        <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="assessmentOverviewCtrl.computeScores(${a.id})">
           <i class="bi bi-calculator"></i>
         </button>
       </td>
@@ -440,7 +440,7 @@ const assessmentOverviewCtrl = {
           <input type="number" class="form-control form-control-sm ao-score-input" min="0"
                  max="${this._marksMaxMarks}" step="0.5" value="${score}"
                  data-student-id="${s.id}"
-                 oninput="assessmentOverviewCtrl.onScoreInput(this, ${this._marksMaxMarks})" data-year-write>
+                 data-kw-oninput="assessmentOverviewCtrl.onScoreInput(this, ${this._marksMaxMarks})" data-year-write>
         </td>
         <td class="text-center small fw-semibold" id="aoMrkPct_${s.id}">${pct ? pct + '%' : '—'}</td>
         <td class="text-center" id="aoMrkGrade_${s.id}">
@@ -549,3 +549,6 @@ const assessmentOverviewCtrl = {
 };
 
 document.addEventListener('DOMContentLoaded', () => assessmentOverviewCtrl.init());
+
+// Inline actions (data-kw-on*) resolve handler targets on window.
+window.assessmentOverviewCtrl = assessmentOverviewCtrl;

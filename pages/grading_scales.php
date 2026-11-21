@@ -23,7 +23,7 @@
             </small>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary btn-sm no-print" onclick="window.print()" title="Print / PDF">
+            <button class="btn btn-outline-secondary btn-sm no-print" data-kw-onclick="window.print()" title="Print / PDF">
                 <i class="bi bi-printer me-1"></i> Print
             </button>
         </div>
@@ -67,10 +67,10 @@
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <h6 class="mb-0"><i class="bi bi-sliders me-1"></i> Formative + Summative Profiles</h6>
                                 <div class="d-flex gap-2">
-                                    <button class="btn btn-outline-success btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.exportProfilesCsv()">
+                                    <button class="btn btn-outline-success btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.exportProfilesCsv()">
                                         <i class="bi bi-filetype-csv me-1"></i> CSV
                                     </button>
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer"></i></button>
+                                    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="window.print()"><i class="bi bi-printer"></i></button>
                                 </div>
                             </div>
                             <div class="table-responsive">
@@ -94,10 +94,10 @@
                     <div class="card">
                         <div class="card-body">
                             <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i> Create / Update a Profile</h6>
-                            <form id="profileForm" onsubmit="return GradingScalesCtrl.saveProfile(event)">
+                            <form id="profileForm" data-kw-onsubmit="return GradingScalesCtrl.saveProfile(event)">
                                 <div class="mb-2">
                                     <label class="form-label small mb-1">Scope</label>
-                                    <select class="form-select form-select-sm" id="pfScope" onchange="GradingScalesCtrl.scopeChanged()">
+                                    <select class="form-select form-select-sm" id="pfScope" data-kw-onchange="GradingScalesCtrl.scopeChanged()">
                                         <option value="school_default">School Default (all years/terms)</option>
                                         <option value="academic_year">Academic Year</option>
                                         <option value="term">Academic Term</option>
@@ -119,11 +119,11 @@
                                 <div class="row g-2 mb-2">
                                     <div class="col-6">
                                         <label class="form-label small mb-1">Formative %</label>
-                                        <input type="number" class="form-control form-control-sm" id="pfFormative" value="40" min="0" max="100" step="0.5" oninput="GradingScalesCtrl.rebalance('formative')">
+                                        <input type="number" class="form-control form-control-sm" id="pfFormative" value="40" min="0" max="100" step="0.5" data-kw-oninput="GradingScalesCtrl.rebalance('formative')">
                                     </div>
                                     <div class="col-6">
                                         <label class="form-label small mb-1">Summative %</label>
-                                        <input type="number" class="form-control form-control-sm" id="pfSummative" value="60" min="0" max="100" step="0.5" oninput="GradingScalesCtrl.rebalance('summative')">
+                                        <input type="number" class="form-control form-control-sm" id="pfSummative" value="60" min="0" max="100" step="0.5" data-kw-oninput="GradingScalesCtrl.rebalance('summative')">
                                     </div>
                                 </div>
                                 <div class="mb-2">
@@ -173,7 +173,7 @@
                                 <label class="form-label small mb-1">CSV File</label>
                                 <input type="file" class="form-control form-control-sm" id="nrFile" accept=".csv,text/csv">
                             </div>
-                            <button class="btn btn-primary btn-sm" data-curriculum-manage onclick="GradingScalesCtrl.importNational(event)">
+                            <button class="btn btn-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.importNational(event)">
                                 <i class="bi bi-upload me-1"></i> Import
                             </button>
                             <div id="nrImportFeedback" class="small mt-2"></div>
@@ -186,16 +186,16 @@
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <h6 class="mb-0"><i class="bi bi-table me-1"></i> Imported National Results</h6>
                                 <div class="d-flex gap-2">
-                                    <select class="form-select form-select-sm" style="width:auto;" id="nrStatusFilter" onchange="GradingScalesCtrl.loadNationalResults()">
+                                    <select class="form-select form-select-sm" style="width:auto;" id="nrStatusFilter" data-kw-onchange="GradingScalesCtrl.loadNationalResults()">
                                         <option value="">All statuses</option>
                                         <option value="pending_review">Pending review</option>
                                         <option value="approved">Approved</option>
                                         <option value="rejected">Rejected</option>
                                     </select>
-                                    <button class="btn btn-outline-success btn-sm" onclick="GradingScalesCtrl.exportNationalCsv()">
+                                    <button class="btn btn-outline-success btn-sm" data-kw-onclick="GradingScalesCtrl.exportNationalCsv()">
                                         <i class="bi bi-filetype-csv me-1"></i> CSV
                                     </button>
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer"></i></button>
+                                    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="window.print()"><i class="bi bi-printer"></i></button>
                                 </div>
                             </div>
                             <div class="table-responsive">
@@ -216,7 +216,7 @@
     <!-- Band modal -->
     <div class="modal fade" id="bandModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
-            <form class="modal-content" id="bandForm" onsubmit="return GradingScalesCtrl.saveBand(event)">
+            <form class="modal-content" id="bandForm" data-kw-onsubmit="return GradingScalesCtrl.saveBand(event)">
                 <div class="modal-header py-2">
                     <h6 class="modal-title"><i class="bi bi-toggles me-1"></i> <span id="bandModalTitle">Add Band</span></h6>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>

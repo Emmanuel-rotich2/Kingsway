@@ -114,7 +114,7 @@
       return '<span class="store-swatch" style="background:' + esc(color) + '" title="' + esc(v.name || v.color_name || 'Variant') + '"></span>';
     }).join('');
     return '<article class="store-card">' +
-      '<div class="store-media"><img src="' + esc(versionedImage(img)) + '" alt="' + esc(p.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
+      '<div class="store-media"><img src="' + esc(versionedImage(img)) + '" alt="' + esc(p.title) + '" loading="lazy" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
       '<span class="store-state">' + (available > 0 ? 'In stock' : 'Coming soon') + '</span></div>' +
       '<div class="store-info">' +
       '<span class="store-category">' + esc(CATEGORY_LABELS[p.category_slug] || p.category_slug || 'School uniform') + '</span>' +
@@ -222,7 +222,7 @@
     document.getElementById('storeProductTitle').textContent = p.title;
     var body = '';
     if (p.image_url) {
-      body += '<div class="col-md-5"><div class="border rounded-3 overflow-hidden"><img src="' + esc(versionedImage(p.image_url)) + '" class="w-100" alt="' + esc(p.title) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'"></div>' +
+      body += '<div class="col-md-5"><div class="border rounded-3 overflow-hidden"><img src="' + esc(versionedImage(p.image_url)) + '" class="w-100" alt="' + esc(p.title) + '" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'"></div>' +
         ((p.variants || []).length ? '<small class="text-muted d-block mt-2">' + esc(p.description || '') + '</small>' : '') + '</div>';
     }
     body += '<div class="' + (p.image_url ? 'col-md-7' : 'col-12') + '">' +
@@ -313,7 +313,7 @@
 
   function cartItemRow(it) {
     return '<div class="d-flex gap-3 align-items-start border-bottom pb-3 mb-3">' +
-      '<img src="' + esc(fallbackImage(it)) + '" class="rounded-2" style="width:64px;height:64px;object-fit:cover" alt="' + esc(it.title) + '" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
+      '<img src="' + esc(fallbackImage(it)) + '" class="rounded-2" style="width:64px;height:64px;object-fit:cover" alt="' + esc(it.title) + '" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
       '<div class="flex-fill">' +
       '<strong class="d-block">' + esc(it.title) + '</strong>' +
       '<small class="text-muted d-block">' + esc(it.size_label || it.size || '') + (it.variant_name ? ' · ' + esc(it.variant_name) : '') + '</small>' +

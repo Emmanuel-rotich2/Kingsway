@@ -92,10 +92,10 @@ const transactionApprovalsController = {
         <td class="text-muted small" style="max-width:150px;">${this._esc((t.notes||'—').substring(0,60))}</td>
         <td class="text-end">
           ${canApprove ? `
-            <button class="btn btn-sm btn-success me-1" onclick="transactionApprovalsController.approve(${t.id})" data-year-write>
+            <button class="btn btn-sm btn-success me-1" data-kw-onclick="transactionApprovalsController.approve(${t.id})" data-year-write>
               <i class="bi bi-check2"></i> Approve
             </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="transactionApprovalsController.reject(${t.id})" data-year-write>
+            <button class="btn btn-sm btn-outline-danger" data-kw-onclick="transactionApprovalsController.reject(${t.id})" data-year-write>
               <i class="bi bi-x"></i> Reject
             </button>` : '<span class="text-muted small">Awaiting approval</span>'}
         </td>

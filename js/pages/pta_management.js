@@ -57,8 +57,8 @@ const PTAManagementController = (() => {
                 '<td><span class="badge bg-' + (roleColors[role.toLowerCase()] || 'secondary') + '">' + escapeHtml(role) + '</span></td>' +
                 '<td>' + escapeHtml(item.phone || '--') + '</td><td>' + escapeHtml(item.email || '--') + '</td>' +
                 '<td><span class="badge bg-' + statusColor + '">' + escapeHtml(status) + '</span></td>' +
-                '<td><button class="btn btn-sm btn-outline-primary me-1" onclick="PTAManagementController.editRecord(' + index + ')" title="Edit" data-year-write><i class="fas fa-edit"></i></button>' +
-                '<button class="btn btn-sm btn-outline-danger" onclick="PTAManagementController.deleteRecord(' + Number(item.id) + ')" title="Remove" data-year-write><i class="fas fa-trash"></i></button></td></tr>';
+                '<td><button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="PTAManagementController.editRecord(' + index + ')" title="Edit" data-year-write><i class="fas fa-edit"></i></button>' +
+                '<button class="btn btn-sm btn-outline-danger" data-kw-onclick="PTAManagementController.deleteRecord(' + Number(item.id) + ')" title="Remove" data-year-write><i class="fas fa-trash"></i></button></td></tr>';
         }).join('');
     }
     function filterData() {

@@ -136,7 +136,7 @@
       return '<article class="catalog-product-card reveal">' +
         '<a href="' + href + '" class="text-decoration-none d-block">' +
         '<div class="catalog-product-media">' +
-        '<img src="' + S(versionedImage(img, '20260831-3')) + '" alt="' + S(p.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
+        '<img src="' + S(versionedImage(img, '20260831-3')) + '" alt="' + S(p.title) + '" loading="lazy" data-kw-onerror="this.onerror=null;this.src=\'' + FALLBACK_IMG + '\'">' +
         '<span class="catalog-product-number">' + String(index + 1).padStart(2, '0') + '</span>' +
         '<span class="catalog-product-state">' + (available > 0 ? 'In stock' : 'Coming Soon') + '</span>' +
         '</div></a>' +

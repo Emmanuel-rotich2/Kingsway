@@ -263,7 +263,7 @@ const gradeEntryCtrl = (() => {
                                data-student-id="${student.id}"
                                data-max-marks="${maxMarks}"
                                data-year-write
-                               onchange="gradeEntryCtrl.calculateGrade(this)">
+                               data-kw-onchange="gradeEntryCtrl.calculateGrade(this)">
                     </td>
                     <td>
                         <span class="badge bg-secondary grade-display" data-student-id="${student.id}">

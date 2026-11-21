@@ -65,8 +65,8 @@ const managePublicEventsController = {
         <td class="text-muted small">${this.esc(ev.location || '\u2014')}</td>
         <td>${this.badgeStatus(ev.status)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="publicEventsOpenModal(${ev.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="publicEventsDelete(${ev.id},'${this.esc(ev.title).replace(/'/g, '')}')"><i class="bi bi-trash"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="publicEventsOpenModal(${ev.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="publicEventsDelete(${ev.id},'${this.esc(ev.title).replace(/'/g, '')}')"><i class="bi bi-trash"></i></button>
         </td>
       </tr>`).join('');
   },

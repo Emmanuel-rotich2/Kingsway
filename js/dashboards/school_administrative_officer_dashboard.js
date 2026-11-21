@@ -1000,7 +1000,7 @@ window.schoolAdminDashboardController = {
                     </span>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="schoolAdminDashboardController.handlePendingItemAction('${
+                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="schoolAdminDashboardController.handlePendingItemAction('${
                       item.type
                     }')">
                         <i class="fas fa-arrow-right"></i> View

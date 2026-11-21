@@ -15,8 +15,8 @@
 
 <!-- Header Actions -->
 <div class="header-actions" style="margin-bottom: 1rem;">
-    <button class="btn btn-outline" onclick="DisciplineController.exportCases()">📥 Export</button>
-    <button class="btn btn-primary" onclick="DisciplineController.showNewCaseModal()">➕ New Case</button>
+    <button class="btn btn-outline" data-kw-onclick="DisciplineController.exportCases()">📥 Export</button>
+    <button class="btn btn-primary" data-kw-onclick="DisciplineController.showNewCaseModal()">➕ New Case</button>
 </div>
 
 <!-- Stats Row - 4 cards -->

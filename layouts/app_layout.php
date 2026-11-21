@@ -108,7 +108,7 @@ $sidebar_items = [];
                         Page not found:
                         <?= htmlspecialchars($route, ENT_QUOTES, 'UTF-8') ?>
                     </div>
-                    <script>
+                    <script nonce="<?= csp_nonce() ?>">
                     (async function() {
                         try {
                             if (window.AuthContext?.ready) await window.AuthContext.ready();
@@ -123,7 +123,7 @@ $sidebar_items = [];
                     <div class="alert alert-info border-0 shadow-sm">
                         Redirecting to dashboard...
                     </div>
-                    <script>
+                    <script nonce="<?= csp_nonce() ?>">
                     (async function() {
                         try {
                             if (window.AuthContext?.ready) await window.AuthContext.ready();

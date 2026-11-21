@@ -171,10 +171,10 @@
                     <i class="bi bi-lightning me-1"></i>Quick Actions
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.bulkEnterResults()"><i class="bi bi-pencil-square me-2"></i>Bulk Grade Entry</a></li>
-                    <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.exportGradebook()"><i class="bi bi-download me-2"></i>Export Gradebook</a></li>
+                    <li><a class="dropdown-item" href="#" data-kw-onclick="assessExamsCtrl.bulkEnterResults()"><i class="bi bi-pencil-square me-2"></i>Bulk Grade Entry</a></li>
+                    <li><a class="dropdown-item" href="#" data-kw-onclick="assessExamsCtrl.exportGradebook()"><i class="bi bi-download me-2"></i>Export Gradebook</a></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="#" onclick="assessExamsCtrl.goToReports()"><i class="bi bi-file-earmark-text me-2"></i>Report Cards</a></li>
+                    <li><a class="dropdown-item" href="#" data-kw-onclick="assessExamsCtrl.goToReports()"><i class="bi bi-file-earmark-text me-2"></i>Report Cards</a></li>
                 </ul>
             </div>
         </div>
@@ -296,7 +296,7 @@
                         <select class="form-select form-select-sm bg-white text-dark" id="assessClassFilter" style="width:160px">
                             <option value="">All Classes</option>
                         </select>
-                        <button class="btn btn-light btn-sm" onclick="assessExamsCtrl.loadAssessments()">
+                        <button class="btn btn-light btn-sm" data-kw-onclick="assessExamsCtrl.loadAssessments()">
                             <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                         </button>
                     </div>
@@ -411,10 +411,10 @@
                             </select>
                         </div>
                         <div class="ms-auto">
-                            <button class="btn btn-ex-primary btn-sm" onclick="assessExamsCtrl.loadGradingResults()">
+                            <button class="btn btn-ex-primary btn-sm" data-kw-onclick="assessExamsCtrl.loadGradingResults()">
                                 <i class="bi bi-search me-1"></i>Filter
                             </button>
-                            <button class="btn btn-ex-outline btn-sm ms-1" onclick="assessExamsCtrl.exportGradebook()">
+                            <button class="btn btn-ex-outline btn-sm ms-1" data-kw-onclick="assessExamsCtrl.exportGradebook()">
                                 <i class="bi bi-download me-1"></i>Export
                             </button>
                         </div>
@@ -478,7 +478,7 @@
                     </select>
                 </div>
                 <div class="col-md-3 d-flex align-items-end">
-                    <button class="btn btn-ex-primary btn-sm w-100" onclick="assessExamsCtrl.runAnalysis()">
+                    <button class="btn btn-ex-primary btn-sm w-100" data-kw-onclick="assessExamsCtrl.runAnalysis()">
                         <i class="bi bi-graph-up me-1"></i>Run Analysis
                     </button>
                 </div>
@@ -567,10 +567,10 @@
                                 <span class="ms-auto badge bg-secondary">Pending</span>
                             </div>
                             <div class="mt-3 d-flex gap-2">
-                                <button class="btn btn-ex-primary btn-sm" onclick="assessExamsCtrl.advanceWorkflow()">
+                                <button class="btn btn-ex-primary btn-sm" data-kw-onclick="assessExamsCtrl.advanceWorkflow()">
                                     <i class="bi bi-arrow-right-circle me-1"></i>Advance Workflow
                                 </button>
-                                <button class="btn btn-ex-outline btn-sm" onclick="assessExamsCtrl.viewWorkflowLogs()">
+                                <button class="btn btn-ex-outline btn-sm" data-kw-onclick="assessExamsCtrl.viewWorkflowLogs()">
                                     <i class="bi bi-list-ul me-1"></i>View Log
                                 </button>
                             </div>
@@ -589,10 +589,10 @@
                             </div>
                             <hr>
                             <div class="d-flex gap-2 flex-wrap">
-                                <button class="btn btn-ex-outline btn-sm" onclick="assessExamsCtrl.startExamWorkflow()">
+                                <button class="btn btn-ex-outline btn-sm" data-kw-onclick="assessExamsCtrl.startExamWorkflow()">
                                     <i class="bi bi-play-circle me-1"></i>Start New Exam Workflow
                                 </button>
-                                <button class="btn btn-ex-outline btn-sm" onclick="assessExamsCtrl.startAssessmentWorkflow()">
+                                <button class="btn btn-ex-outline btn-sm" data-kw-onclick="assessExamsCtrl.startAssessmentWorkflow()">
                                     <i class="bi bi-clipboard-plus me-1"></i>Start Assessment Workflow
                                 </button>
                             </div>
@@ -616,7 +616,7 @@
                 <h5 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>Create Assessment</h5>
                 <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="createAssessmentForm" onsubmit="assessExamsCtrl.submitAssessment(event)">
+            <form id="createAssessmentForm" data-kw-onsubmit="assessExamsCtrl.submitAssessment(event)">
                 <div class="modal-body">
                     <div class="row g-3">
                         <div class="col-md-8">
@@ -728,10 +728,10 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-ex-outline" onclick="assessExamsCtrl.saveDraftResults()" data-year-write>
+                <button class="btn btn-ex-outline" data-kw-onclick="assessExamsCtrl.saveDraftResults()" data-year-write>
                     <i class="bi bi-save me-1"></i>Save Draft
                 </button>
-                <button class="btn btn-ex-primary" onclick="assessExamsCtrl.submitResults()" data-year-write>
+                <button class="btn btn-ex-primary" data-kw-onclick="assessExamsCtrl.submitResults()" data-year-write>
                     <i class="bi bi-send me-1"></i>Submit Results
                 </button>
             </div>
@@ -749,7 +749,7 @@
                 <h5 class="modal-title"><i class="bi bi-clipboard2-check me-2"></i>Start Exam Workflow</h5>
                 <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="startExamWorkflowForm" onsubmit="assessExamsCtrl.startExamWorkflow(event)">
+            <form id="startExamWorkflowForm" data-kw-onsubmit="assessExamsCtrl.startExamWorkflow(event)">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>

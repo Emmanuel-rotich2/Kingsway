@@ -743,7 +743,7 @@
     ]);
     ?>
 
-    <script>
+    <script nonce="<?= csp_nonce() ?>">
     // CEO Toolbox Navigation Handler (follows sidebar pattern)
     document.addEventListener('DOMContentLoaded', function() {
         const toolboxCards = document.querySelectorAll('.toolbox-card[data-route]');

@@ -18,13 +18,13 @@ function renderQRCodeModal() {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" onclick="printQRCode()">Print</button>
+                <button type="button" class="btn btn-primary" data-kw-onclick="printQRCode()">Print</button>
             </div>
         </div>
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function printQRCode() {
     const printWindow = window.open('', '', 'width=600,height=600');
     const qrCode = document.getElementById('studentQRCode').src;
@@ -34,6 +34,8 @@ function printQRCode() {
     // Use school config if available
     const schoolName = window.SCHOOL_CONFIG?.name || 'Kingsway Preparatory School';
     const schoolMotto = window.SCHOOL_CONFIG?.motto || 'In God We Soar';
+    // Everything written into the pop-up is escaped: names come from records.
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     
     printWindow.document.write(`
         <!DOCTYPE html>
@@ -72,18 +74,31 @@ function printQRCode() {
         </head>
         <body>
             <div class="header">
-                <h2>${schoolName}</h2>
-                <p>${schoolMotto}</p>
+                <h2>${esc(schoolName)}</h2>
+                <p>${esc(schoolMotto)}</p>
             </div>
-            <img src="${qrCode}" onload="window.opener?.PrintManager?.printElement?.('qrCodeModal'); window.close();">
+            <img id="qrPrintImage" src="${esc(qrCode)}">
             <div class="details">
-                <h3>${studentName}</h3>
-                <p>${admNo}</p>
+                <h3>${esc(studentName)}</h3>
+                <p>${esc(admNo)}</p>
             </div>
         </body>
         </html>
     `);
     printWindow.document.close();
+    // Strict CSP: the pop-up has no inline handlers; listen from here.
+    const image = printWindow.document.getElementById('qrPrintImage');
+    let printed = false;
+    const printAndClose = () => {
+        if (printed) return;
+        printed = true;
+        window.PrintManager?.printElement?.('qrCodeModal');
+        printWindow.close();
+    };
+    if (image) {
+        image.addEventListener('load', printAndClose, { once: true });
+        if (image.complete && image.naturalWidth > 0) printAndClose();
+    }
 }
 </script>
 <?php

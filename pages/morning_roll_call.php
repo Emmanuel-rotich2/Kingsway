@@ -12,7 +12,7 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
       <input type="date" class="form-control form-control-sm" id="mrcDate" value="<?= date('Y-m-d') ?>">
-      <button class="btn btn-outline-warning btn-sm" onclick="morningRollCallController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-warning btn-sm" data-kw-onclick="morningRollCallController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
   </div>
 

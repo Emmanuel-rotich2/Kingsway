@@ -15,13 +15,13 @@
             <p class="mb-0 opacity-75">Your earnings, deductions, payment status and annual tax records in one place.</p>
         </div>
         <div>
-            <button class="btn btn-light btn-sm" onclick="detailedPayslipController.downloadP9()">
+            <button class="btn btn-light btn-sm" data-kw-onclick="detailedPayslipController.downloadP9()">
                 <i class="bi bi-file-earmark-pdf me-1"></i> P9 Form
             </button>
-            <button class="btn btn-outline-light btn-sm" onclick="detailedPayslipController.downloadPayslip()" disabled id="downloadPayslipButton">
+            <button class="btn btn-outline-light btn-sm" data-kw-onclick="detailedPayslipController.downloadPayslip()" disabled id="downloadPayslipButton">
                 <i class="bi bi-download"></i> Download PDF
             </button>
-            <button class="btn btn-outline-light btn-sm" onclick="detailedPayslipController.printPayslip()" disabled id="printPayslipButton">
+            <button class="btn btn-outline-light btn-sm" data-kw-onclick="detailedPayslipController.printPayslip()" disabled id="printPayslipButton">
                 <i class="bi bi-printer"></i> Print
             </button>
         </div>
@@ -41,7 +41,7 @@
     <div class="card shadow payroll-panel">
     <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
         <div><h4 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Payslip history</h4><small class="opacity-75">Select a month to view the full statement.</small></div>
-        <div class="d-flex gap-2"><button class="btn btn-light btn-sm" onclick="detailedPayslipController.loadHistory()"><i class="bi bi-arrow-clockwise"></i></button></div>
+        <div class="d-flex gap-2"><button class="btn btn-light btn-sm" data-kw-onclick="detailedPayslipController.loadHistory()"><i class="bi bi-arrow-clockwise"></i></button></div>
     </div>
     <div class="card-body">
         <div class="table-responsive">
@@ -73,7 +73,7 @@
                     <option value="12">December</option>
                 </select>
             </div><div class="col-md-3 d-flex align-items-end">
-                <button class="btn btn-success w-100" onclick="detailedPayslipController.generatePayslip()" data-year-write>
+                <button class="btn btn-success w-100" data-kw-onclick="detailedPayslipController.generatePayslip()" data-year-write>
                     <i class="bi bi-file-earmark-text"></i> View payslip
                 </button>
             </div>
@@ -107,7 +107,7 @@
             <div class="payslip-header-glow"></div>
             <div class="payslip-header-main">
                 <div class="payslip-logo-wrap">
-                    <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" class="payslip-school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+                    <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" class="payslip-school-logo" data-kw-onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
                 </div>
                 <div class="payslip-school-info">
                     <div class="payslip-school-kicker">Official Staff Payroll Statement</div>

@@ -120,14 +120,14 @@
                     <td>${currency(totalVal)}</td>
                     <td>${statusBadge(req.status)}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-info me-1" onclick="ManageRequisitionsController.viewRequisition('${esc(req.id)}')" title="View">
+                        <button class="btn btn-sm btn-outline-info me-1" data-kw-onclick="ManageRequisitionsController.viewRequisition('${esc(req.id)}')" title="View">
                             <i class="bi bi-eye"></i>
                         </button>
                         ${req.status === "pending" ? `
-                        <button class="btn btn-sm btn-outline-success me-1" onclick="ManageRequisitionsController.approveRequisition('${esc(req.id)}')" title="Approve" data-year-write>
+                        <button class="btn btn-sm btn-outline-success me-1" data-kw-onclick="ManageRequisitionsController.approveRequisition('${esc(req.id)}')" title="Approve" data-year-write>
                             <i class="bi bi-check-lg"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="ManageRequisitionsController.rejectRequisition('${esc(req.id)}')" title="Reject" data-year-write>
+                        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="ManageRequisitionsController.rejectRequisition('${esc(req.id)}')" title="Reject" data-year-write>
                             <i class="bi bi-x-lg"></i>
                         </button>` : ""}
                     </td>
@@ -145,13 +145,13 @@
 
             let html = '<ul class="pagination pagination-sm mb-0">';
             html += `<li class="page-item ${currentPage === 1 ? "disabled" : ""}">
-                <a class="page-link" href="#" onclick="ManageRequisitionsController.goPage(${currentPage - 1});return false;">&laquo;</a></li>`;
+                <a class="page-link" href="#" data-kw-onclick="ManageRequisitionsController.goPage(${currentPage - 1});return false;">&laquo;</a></li>`;
             for (let p = 1; p <= pages; p++) {
                 html += `<li class="page-item ${p === currentPage ? "active" : ""}">
-                    <a class="page-link" href="#" onclick="ManageRequisitionsController.goPage(${p});return false;">${p}</a></li>`;
+                    <a class="page-link" href="#" data-kw-onclick="ManageRequisitionsController.goPage(${p});return false;">${p}</a></li>`;
             }
             html += `<li class="page-item ${currentPage === pages ? "disabled" : ""}">
-                <a class="page-link" href="#" onclick="ManageRequisitionsController.goPage(${currentPage + 1});return false;">&raquo;</a></li>`;
+                <a class="page-link" href="#" data-kw-onclick="ManageRequisitionsController.goPage(${currentPage + 1});return false;">&raquo;</a></li>`;
             html += "</ul>";
             container.innerHTML = html;
         },
@@ -246,7 +246,7 @@
                 </div>
                 <div class="col-md-1">
                     <label class="form-label small fw-semibold d-block">&nbsp;</label>
-                    <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="ManageRequisitionsController.removeItemRow(this)" title="Remove" data-year-write>
+                    <button type="button" class="btn btn-sm btn-outline-danger w-100" data-kw-onclick="ManageRequisitionsController.removeItemRow(this)" title="Remove" data-year-write>
                         <i class="bi bi-dash-circle"></i>
                     </button>
                 </div>

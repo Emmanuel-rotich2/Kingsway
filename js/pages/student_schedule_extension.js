@@ -36,7 +36,7 @@ const studentScheduleExtensionController = {
       <td class="small">${this.fmtDate(e.start_date)}</td>
       <td class="small">${this.fmtDate(e.end_date)}</td>
       <td class="small"><span class="badge bg-${e.status === 'active' ? 'success' : e.status === 'pending' ? 'warning' : 'secondary'}">${this.esc(e.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="studentScheduleExtensionController.viewDetails(${e.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="studentScheduleExtensionController.viewDetails(${e.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 

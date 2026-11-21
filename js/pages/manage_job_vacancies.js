@@ -54,8 +54,8 @@ const manageJobVacanciesController = {
         <td class="text-muted small">${this.fmtDate(j.deadline)}</td>
         <td>${this.badgeStatus(j.status)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="vacanciesOpenModal(${j.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="vacanciesClose(${j.id},'${this.esc(j.title).replace(/'/g, '')}')"><i class="bi bi-x-circle"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="vacanciesOpenModal(${j.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="vacanciesClose(${j.id},'${this.esc(j.title).replace(/'/g, '')}')"><i class="bi bi-x-circle"></i></button>
         </td>
       </tr>`).join('');
   },

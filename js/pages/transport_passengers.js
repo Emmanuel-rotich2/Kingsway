@@ -148,7 +148,7 @@ const transportPassengersController = {
           <td class="small">${this.esc(student.dropoff_point || '—')}</td>
           <td class="small">${this.esc(student.guardian_phone || '—')}</td>
           <td class="small"><span class="badge bg-${status === 'picked_up' || status === 'dropped_off' ? 'success' : status === 'absent' ? 'danger' : 'secondary'}">${this.esc(statusNames[status] || status)}</span></td>
-          <td><button class="btn btn-sm btn-outline-primary" type="button" onclick="transportPassengersController.openPassenger(${Number(student.student_id)})" aria-label="View passenger"><i class="bi bi-eye"></i></button></td>
+          <td><button class="btn btn-sm btn-outline-primary" type="button" data-kw-onclick="transportPassengersController.openPassenger(${Number(student.student_id)})" aria-label="View passenger"><i class="bi bi-eye"></i></button></td>
         </tr>`;
       }).join('');
       this.show('passengersCard');

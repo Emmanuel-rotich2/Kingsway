@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-bar-chart text-success me-2"></i>Stock Reports</h4>
       <p class="text-muted small mb-0 mt-1">Inventory valuation by category and item usage rates.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="stockReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="stockReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3 mb-4">

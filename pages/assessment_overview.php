@@ -8,12 +8,12 @@
       <p class="text-muted mb-0 small">All formative &amp; summative assessments — create, grade, and track completion.</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-      <select class="form-select form-select-sm" id="aoClassFilter" style="width:auto;" onchange="assessmentOverviewCtrl.reload()">
+      <select class="form-select form-select-sm" id="aoClassFilter" style="width:auto;" data-kw-onchange="assessmentOverviewCtrl.reload()">
         <option value="">All My Classes</option>
       </select>
       <select class="form-select form-select-sm" id="aoYearFilter" style="width:auto;" aria-label="Academic year"></select>
       <select class="form-select form-select-sm" id="aoTermFilter" style="width:auto;" aria-label="Term"></select>
-      <button class="btn btn-primary btn-sm" onclick="assessmentOverviewCtrl.showCreateModal()" data-year-write>
+      <button class="btn btn-primary btn-sm" data-kw-onclick="assessmentOverviewCtrl.showCreateModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Create Assessment
       </button>
     </div>
@@ -193,13 +193,13 @@
           </div>
           <div class="col-md-6">
             <label class="form-label fw-semibold">Class <span class="text-danger">*</span></label>
-            <select id="aoClass" class="form-select" onchange="assessmentOverviewCtrl.onClassChange()">
+            <select id="aoClass" class="form-select" data-kw-onchange="assessmentOverviewCtrl.onClassChange()">
               <option value="">— Select class —</option>
             </select>
           </div>
           <div class="col-md-6">
             <label class="form-label fw-semibold">Learning Area <span class="text-danger">*</span></label>
-            <select id="aoLearningArea" class="form-select" onchange="assessmentOverviewCtrl.onLAChange()">
+            <select id="aoLearningArea" class="form-select" data-kw-onchange="assessmentOverviewCtrl.onLAChange()">
               <option value="">— Select learning area —</option>
             </select>
           </div>
@@ -238,7 +238,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="assessmentOverviewCtrl.saveAssessment()" data-year-write>
+        <button type="button" class="btn btn-primary" data-kw-onclick="assessmentOverviewCtrl.saveAssessment()" data-year-write>
           <i class="bi bi-check-circle me-1"></i> Create Assessment
         </button>
       </div>
@@ -289,7 +289,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-        <button type="button" class="btn btn-success" onclick="assessmentOverviewCtrl.saveMarks()" data-year-write>
+        <button type="button" class="btn btn-success" data-kw-onclick="assessmentOverviewCtrl.saveMarks()" data-year-write>
           <i class="bi bi-save me-1"></i> Save All Marks
         </button>
       </div>

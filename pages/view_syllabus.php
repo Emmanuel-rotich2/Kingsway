@@ -16,10 +16,10 @@
                 <i class="bi bi-journal-text"></i> Curriculum Syllabus
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="ViewSyllabusController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="ViewSyllabusController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="ViewSyllabusController.exportSyllabus()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="ViewSyllabusController.exportSyllabus()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>

@@ -385,7 +385,7 @@ const admissionsWorkspaceController = {
                                     const applicantInitials = applicantName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
                                     const applicantPhotoUrl = window.KingswayFileLifecycle?.resolveUrl?.(app.passport_photo_url);
                                     const applicantPhoto = applicantPhotoUrl && !/^\d+$/.test(applicantPhotoUrl)
-                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="" class="rounded-circle border" style="width:38px;height:38px;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="" class="rounded-circle border" style="width:38px;height:38px;object-fit:cover" data-kw-onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
                                         : '';
                                     
                                     // Mock documents array for communication helper
@@ -419,7 +419,7 @@ const admissionsWorkspaceController = {
                                             <td>
                                                 <div class="btn-group btn-group-sm">
                                                     ${this.renderWorkflowActionButton(app, workflowComm)}
-                                                    <button class="btn btn-sm btn-outline-primary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -455,7 +455,7 @@ const admissionsWorkspaceController = {
         }
         
         return `
-            <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.${actionMethod}(${app.id})">
+            <button class="btn btn-sm btn-outline-success" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.${actionMethod}(${app.id})">
                 <i class="bi bi-arrow-right"></i> ${this.escapeHtml(actionLabel)}
             </button>
         `;
@@ -510,7 +510,7 @@ const admissionsWorkspaceController = {
                                             <td>${docStatus}</td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
-                                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -547,14 +547,14 @@ const admissionsWorkspaceController = {
         const uniqueApplications = Array.from(new Map(applications.map(app => [String(app.id), app])).values());
         
         if (applications.length === 0) {
-            contentDiv.innerHTML = '<div class="card border-0 shadow-sm"><div class="card-body text-center py-4"><p class="text-muted">No applicants are currently waiting for interview assignment.</p><button class="btn btn-primary" type="button" onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-plus me-1"></i>Manage Interview Sessions</button></div></div>';
+            contentDiv.innerHTML = '<div class="card border-0 shadow-sm"><div class="card-body text-center py-4"><p class="text-muted">No applicants are currently waiting for interview assignment.</p><button class="btn btn-primary" type="button" data-kw-onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-plus me-1"></i>Manage Interview Sessions</button></div></div>';
             loadingDiv.style.display = 'none';
             contentDiv.style.display = 'block';
             return;
         }
         
         const html = `
-            <div class="d-flex justify-content-end mb-3"><button class="btn btn-primary" type="button" onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-plus me-1"></i>Manage Interview Sessions</button></div><div class="card border-0 shadow-sm">
+            <div class="d-flex justify-content-end mb-3"><button class="btn btn-primary" type="button" data-kw-onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-plus me-1"></i>Manage Interview Sessions</button></div><div class="card border-0 shadow-sm">
                 <div class="card-body p-0">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
@@ -579,16 +579,16 @@ const admissionsWorkspaceController = {
                                             <td>
                                                 <div class="btn-group btn-group-sm">
                                                     ${app.current_stage === 'interview_scheduling' ? `
-                                                        <button class="btn btn-sm btn-outline-primary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.scheduleInterview(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.scheduleInterview(${app.id})">
                                                             <i class="bi bi-calendar-plus"></i> Schedule
                                                         </button>
                                                     ` : ''}
                                                     ${app.current_stage === 'interview_results' ? `
-                                                        <button class="btn btn-sm btn-outline-info" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.conductInterview(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-info" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.conductInterview(${app.id})">
                                                             <i class="bi bi-clipboard-check"></i> Record
                                                         </button>
                                                     ` : ''}
-                                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -646,11 +646,11 @@ const admissionsWorkspaceController = {
                                             <td>
                                                 <div class="btn-group btn-group-sm">
                                                     ${app.current_stage === 'student_admission_number' ? `
-                                                        <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.createStudentAdmissionNumber(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-success" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.createStudentAdmissionNumber(${app.id})">
                                                             <i class="bi bi-person-plus"></i> Create Admission No.
                                                         </button>
                                                     ` : ''}
-                                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -733,26 +733,26 @@ const admissionsWorkspaceController = {
                                             <td>
                                                 <div class="btn-group btn-group-sm">
                                                     ${app.current_stage === 'class_placement' ? `
-                                                        <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.completeEnrollment(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-success" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.completeEnrollment(${app.id})">
                                                             <i class="bi bi-diagram-3"></i> Place student
                                                         </button>
                                                     ` : ''}
                                                     ${app.current_stage === 'fees_payment' ? `
-                                                        <button class="btn btn-sm btn-outline-primary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.recordPayment(${app.id}, ${Number(app.registration_fee_due || 0)})">
+                                                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.recordPayment(${app.id}, ${Number(app.registration_fee_due || 0)})">
                                                             <i class="bi bi-cash-coin"></i> Payment
                                                         </button>
                                                     ` : ''}
                                                     ${app.current_stage === 'student_id_generation' ? `
-                                                        <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.generateStudentIdCard(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-success" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.generateStudentIdCard(${app.id})">
                                                             <i class="bi bi-person-vcard"></i> Generate ID
                                                         </button>
                                                     ` : ''}
                                                     ${app.current_stage === 'final_enrollment' ? `
-                                                        <button class="btn btn-sm btn-outline-danger" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.finalApproval(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.finalApproval(${app.id})">
                                                             <i class="bi bi-check-circle"></i> Final Approval
                                                         </button>
                                                     ` : ''}
-                                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -809,7 +809,7 @@ const admissionsWorkspaceController = {
                                     const applicantInitials = applicantName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
                                     const applicantPhotoUrl = window.KingswayFileLifecycle?.resolveUrl?.(app.passport_photo_url);
                                     const applicantPhoto = applicantPhotoUrl && !/^\d+$/.test(applicantPhotoUrl)
-                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="${this.escapeHtml(applicantName)}" class="rounded-circle border" style="width:42px;height:42px;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+                                        ? `<img src="${this.escapeHtml(applicantPhotoUrl)}" alt="${this.escapeHtml(applicantName)}" class="rounded-circle border" style="width:42px;height:42px;object-fit:cover" data-kw-onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
                                         : '';
                                     return `
                                         <tr>
@@ -819,12 +819,12 @@ const admissionsWorkspaceController = {
                                             <td>
                                                 <div class="btn-group btn-group-sm">
                                                     ${app.current_stage === 'final_enrollment' ? `
-                                                        <button class="btn btn-sm btn-outline-success" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.finalApproval(${app.id})">
+                                                        <button class="btn btn-sm btn-outline-success" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.finalApproval(${app.id})">
                                                             <i class="bi bi-person-check"></i> Final Enrollment
                                                         </button>
                                                     ` : ''}
                                                     ${app.current_stage === 'enrolled' ? this.getStatusBadge('enrolled') : ''}
-                                                    <button class="btn btn-sm btn-outline-secondary" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
+                                                    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewApplication(${app.id})">
                                                         <i class="bi bi-eye"></i> View
                                                     </button>
                                                 </div>
@@ -881,9 +881,9 @@ const admissionsWorkspaceController = {
             <td><strong>${this.escapeHtml(row.title || '')}</strong><br><small class="text-muted">${this.escapeHtml(row.description || '')}</small></td>
             <td>${Number(row.display_order || 0)}</td>
             <td>${Number(row.is_active) === 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'}</td>
-            <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="admissionsWorkspaceController.editRequirement(${Number(row.id)})"><i class="bi bi-pencil"></i> Edit</button></td>
+            <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="admissionsWorkspaceController.editRequirement(${Number(row.id)})"><i class="bi bi-pencil"></i> Edit</button></td>
         </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No admission requirements configured.</td></tr>';
-        contentDiv.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center"><div><h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2 text-success"></i>Admission Requirements</h6><small class="text-muted">Configure requirements by grade, gender, and day/boarding category.</small></div><div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" onclick="admissionsWorkspaceController.exportRequirements()"><i class="bi bi-download me-1"></i>CSV</button><button class="btn btn-outline-secondary btn-sm" onclick="window.PrintManager?.printPage({title:'Admission Requirements',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer me-1"></i>Print / PDF</button><button class="btn btn-success" onclick="admissionsWorkspaceController.editRequirement()"><i class="bi bi-plus-circle me-1"></i>Add requirement</button></div></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Grade</th><th>Gender</th><th>Category</th><th>Requirement</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div></div><div class="modal fade" id="admissionRequirementModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="admissionRequirementForm"><div class="modal-header bg-success text-white"><h5 class="modal-title">Admission Requirement</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" name="id" id="admissionRequirementId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Grade / class</label><select class="form-select" name="grade_code" id="admissionRequirementGrade">${gradeOptions.map(g => `<option value="${g}">${g || 'All grades'}</option>`).join('')}</select></div><div class="col-md-3"><label class="form-label">Gender</label><select class="form-select" name="gender_code" id="admissionRequirementGender"><option value="all">All</option><option value="female">Girls</option><option value="male">Boys</option></select></div><div class="col-md-3"><label class="form-label">Category</label><select class="form-select" name="student_type_code" id="admissionRequirementType"><option value="all">All</option><option value="day">Day scholar</option><option value="weekly">Weekly boarder</option><option value="boarder">Full boarder</option></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" id="admissionRequirementTitle" required></div><div class="col-12"><label class="form-label">Instructions</label><textarea class="form-control" name="description" id="admissionRequirementDescription" rows="4" required></textarea></div><div class="col-md-6"><label class="form-label">Display order</label><input class="form-control" type="number" min="0" name="display_order" id="admissionRequirementOrder" value="0"></div><div class="col-md-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="admissionRequirementActive" checked><label class="form-check-label" for="admissionRequirementActive">Active</label></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save requirement</button></div></form></div></div>`;
+        contentDiv.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center"><div><h6 class="mb-0 fw-semibold"><i class="bi bi-list-check me-2 text-success"></i>Admission Requirements</h6><small class="text-muted">Configure requirements by grade, gender, and day/boarding category.</small></div><div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" data-kw-onclick="admissionsWorkspaceController.exportRequirements()"><i class="bi bi-download me-1"></i>CSV</button><button class="btn btn-outline-secondary btn-sm" data-kw-onclick="window.PrintManager?.printPage({title:'Admission Requirements',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer me-1"></i>Print / PDF</button><button class="btn btn-success" data-kw-onclick="admissionsWorkspaceController.editRequirement()"><i class="bi bi-plus-circle me-1"></i>Add requirement</button></div></div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead class="table-light"><tr><th>Grade</th><th>Gender</th><th>Category</th><th>Requirement</th><th>Order</th><th>Status</th><th></th></tr></thead><tbody>${tableRows}</tbody></table></div></div><div class="modal fade" id="admissionRequirementModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><form class="modal-content" id="admissionRequirementForm"><div class="modal-header bg-success text-white"><h5 class="modal-title">Admission Requirement</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" name="id" id="admissionRequirementId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Grade / class</label><select class="form-select" name="grade_code" id="admissionRequirementGrade">${gradeOptions.map(g => `<option value="${g}">${g || 'All grades'}</option>`).join('')}</select></div><div class="col-md-3"><label class="form-label">Gender</label><select class="form-select" name="gender_code" id="admissionRequirementGender"><option value="all">All</option><option value="female">Girls</option><option value="male">Boys</option></select></div><div class="col-md-3"><label class="form-label">Category</label><select class="form-select" name="student_type_code" id="admissionRequirementType"><option value="all">All</option><option value="day">Day scholar</option><option value="weekly">Weekly boarder</option><option value="boarder">Full boarder</option></select></div><div class="col-12"><label class="form-label">Title</label><input class="form-control" name="title" id="admissionRequirementTitle" required></div><div class="col-12"><label class="form-label">Instructions</label><textarea class="form-control" name="description" id="admissionRequirementDescription" rows="4" required></textarea></div><div class="col-md-6"><label class="form-label">Display order</label><input class="form-control" type="number" min="0" name="display_order" id="admissionRequirementOrder" value="0"></div><div class="col-md-6 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="admissionRequirementActive" checked><label class="form-check-label" for="admissionRequirementActive">Active</label></div></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-success">Save requirement</button></div></form></div></div>`;
         this.requirementRows = rows;
         loadingDiv.style.display = 'none';
         contentDiv.style.display = 'block';
@@ -1026,10 +1026,10 @@ const admissionsWorkspaceController = {
                             ? '<span class="badge bg-success">Yes</span>'
                             : '<span class="badge bg-danger">No</span>'}</td>
                         <td class="text-nowrap">
-                            <button class="btn btn-sm btn-outline-primary me-1" title="View intake window" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewAdmissionWindow(${Number(w.id)})"><i class="bi bi-eye"></i> View</button>
-                            <button class="btn btn-sm btn-outline-warning me-1" title="Edit intake window" onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.editAdmissionWindow(${Number(w.id)})"><i class="bi bi-pencil"></i> Edit</button>
+                            <button class="btn btn-sm btn-outline-primary me-1" title="View intake window" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.viewAdmissionWindow(${Number(w.id)})"><i class="bi bi-eye"></i> View</button>
+                            <button class="btn btn-sm btn-outline-warning me-1" title="Edit intake window" data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.editAdmissionWindow(${Number(w.id)})"><i class="bi bi-pencil"></i> Edit</button>
                             <button class="btn btn-sm ${isOpen ? 'btn-outline-secondary' : 'btn-outline-success'}"
-                                onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.toggleAdmissionWindow(${Number(w.id)}, ${isOpen ? "'closed'" : "'open'"})">
+                                data-kw-onclick="event.preventDefault(); event.stopPropagation(); admissionsWorkspaceController.toggleAdmissionWindow(${Number(w.id)}, ${isOpen ? "'closed'" : "'open'"})">
                                 <i class="bi ${isOpen ? 'bi-x-circle' : 'bi-check-circle'}"></i>
                                 ${isOpen ? 'Close' : 'Open'}
                             </button>
@@ -1043,7 +1043,7 @@ const admissionsWorkspaceController = {
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <div><h6 class="mb-0 fw-semibold"><i class="bi bi-door-open me-2 text-success"></i>Admission Intake Windows</h6><span class="text-muted small">History of configured application periods.</span></div>
-                    <button type="button" class="btn btn-success" onclick="admissionsWorkspaceController.createAdmissionWindow()"><i class="bi bi-plus-circle me-1"></i>Create Window</button>
+                    <button type="button" class="btn btn-success" data-kw-onclick="admissionsWorkspaceController.createAdmissionWindow()"><i class="bi bi-plus-circle me-1"></i>Create Window</button>
                 </div>
                 <div class="modal fade" id="admissionWindowModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -1720,7 +1720,7 @@ const admissionsWorkspaceController = {
         };
         const label = stageLabels[stage] || this.formatLabel(stage);
         const button = (method, text, icon, tone = 'primary') =>
-            `<button type="button" class="btn btn-${tone} btn-sm" onclick="admissionsWorkspaceController.${method}(${id})"><i class="bi bi-${icon} me-1"></i>${this.escapeHtml(text)}</button>`;
+            `<button type="button" class="btn btn-${tone} btn-sm" data-kw-onclick="admissionsWorkspaceController.${method}(${id})"><i class="bi bi-${icon} me-1"></i>${this.escapeHtml(text)}</button>`;
         const skipButton = button('openStageSkipModal', 'Skip stage with reason', 'skip-forward', 'outline-warning');
 
         if (['application_received', 'application_review'].includes(stage)) {
@@ -1769,7 +1769,7 @@ const admissionsWorkspaceController = {
         const index = stages.indexOf(current);
         const destinations = stages.slice(index + 1);
         if (!destinations.length) return this.notify('error', 'There is no later stage to skip to.');
-        this.showWorkspaceChildModal('<i class="bi bi-skip-forward me-2"></i>Skip admission stage', `<form id="stageSkipForm" class="row g-3"><input type="hidden" name="application_id" value="${Number(applicationId)}"><div class="col-12 alert alert-warning small mb-0"><strong>Current stage:</strong> ${this.escapeHtml(this.formatLabel(current))}<br>The workflow exception and any financial relief will be saved now and carried into later fee generation.</div><div class="col-md-6"><label class="form-label">Continue at</label><select name="destination_stage" class="form-select" required>${destinations.map((stage) => `<option value="${stage}">${this.escapeHtml(this.formatLabel(stage))}</option>`).join('')}</select></div><div class="col-md-6"><label class="form-label">Exception type</label><select name="reason_code" class="form-select" required><option value="sponsored">Sponsored learner</option><option value="exempted">Exempted</option><option value="special_case">Special case</option><option value="administrative_exception">Administrative exception</option><option value="other">Other</option></select></div><div class="col-md-6"><label class="form-label">Admission / registration fee</label><select name="registration_fee_waived" class="form-select"><option value="0">Keep due</option><option value="1">Waive completely</option></select></div><div class="col-md-6"><label class="form-label">School-fee relief</label><select name="school_fee_waiver_type" id="schoolFeeWaiverType" class="form-select"><option value="none">Keep full school fees due</option><option value="percentage">Waive percentage</option><option value="fixed">Waive fixed amount</option><option value="full">Waive all school fees</option></select></div><div class="col-md-6" id="schoolFeeWaiverValueWrap"><label class="form-label">Relief value</label><input type="number" name="school_fee_waiver_value" class="form-control" min="0" step="0.01" placeholder="Percentage or KES amount"><div class="form-text">For percentage, enter 50 for half. For fixed, enter the KES amount.</div></div><div class="col-12"><label class="form-label">Reason and authorization note</label><textarea name="reason" class="form-control" rows="4" required placeholder="Explain the sponsorship/exception, approval authority and any conditions."></textarea></div></form>`, '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button><button type="submit" form="stageSkipForm" class="btn btn-warning">Save exception and return</button>');
+        this.showWorkspaceChildModal('<i class="bi bi-skip-forward me-2"></i>Skip admission stage', `<form id="stageSkipForm" class="row g-3"><input type="hidden" name="application_id" value="${Number(applicationId)}"><div class="col-12 alert alert-warning small mb-0"><strong>Current stage:</strong> ${this.escapeHtml(this.formatLabel(current))}<br>The workflow exception and any financial relief will be saved now and carried into later fee generation.</div><div class="col-md-6"><label class="form-label">Continue at</label><select name="destination_stage" class="form-select" required>${destinations.map((stage) => `<option value="${stage}">${this.escapeHtml(this.formatLabel(stage))}</option>`).join('')}</select></div><div class="col-md-6"><label class="form-label">Exception type</label><select name="reason_code" class="form-select" required><option value="sponsored">Sponsored learner</option><option value="exempted">Exempted</option><option value="special_case">Special case</option><option value="administrative_exception">Administrative exception</option><option value="other">Other</option></select></div><div class="col-md-6"><label class="form-label">Admission / registration fee</label><select name="registration_fee_waived" class="form-select"><option value="0">Keep due</option><option value="1">Waive completely</option></select></div><div class="col-md-6"><label class="form-label">School-fee relief</label><select name="school_fee_waiver_type" id="schoolFeeWaiverType" class="form-select"><option value="none">Keep full school fees due</option><option value="percentage">Waive percentage</option><option value="fixed">Waive fixed amount</option><option value="full">Waive all school fees</option></select></div><div class="col-md-6" id="schoolFeeWaiverValueWrap"><label class="form-label">Relief value</label><input type="number" name="school_fee_waiver_value" class="form-control" min="0" step="0.01" placeholder="Percentage or KES amount"><div class="form-text">For percentage, enter 50 for half. For fixed, enter the KES amount.</div></div><div class="col-12"><label class="form-label">Reason and authorization note</label><textarea name="reason" class="form-control" rows="4" required placeholder="Explain the sponsorship/exception, approval authority and any conditions."></textarea></div></form>`, '<button type="button" class="btn btn-secondary" data-kw-onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button><button type="submit" form="stageSkipForm" class="btn btn-warning">Save exception and return</button>');
         const skipForm = document.getElementById('stageSkipForm');
         if (skipForm) {
             const registration = skipForm.elements.registration_fee_waived;
@@ -1815,7 +1815,7 @@ const admissionsWorkspaceController = {
     },
 
     executeSkipOrchestration: async function(request) {
-        this.showWorkspaceChildModal('<i class="bi bi-shuffle me-2"></i>Running skip transaction', '<div id="skipOrchestrationProgress" class="small">Preparing workflow operations…</div>', '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
+        this.showWorkspaceChildModal('<i class="bi bi-shuffle me-2"></i>Running skip transaction', '<div id="skipOrchestrationProgress" class="small">Preparing workflow operations…</div>', '<button type="button" class="btn btn-secondary" data-kw-onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
         const render = (payload) => {
             const target = document.getElementById('skipOrchestrationProgress');
             if (!target) return;
@@ -2136,7 +2136,7 @@ const admissionsWorkspaceController = {
             }
         };
         modalElement.addEventListener('hidden.bs.modal', restoreOnHidden, { once: true });
-        this.showWorkspaceModal(title, bodyHtml, footerHtml || '<button type="button" class="btn btn-secondary" onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
+        this.showWorkspaceModal(title, bodyHtml, footerHtml || '<button type="button" class="btn btn-secondary" data-kw-onclick="admissionsWorkspaceController.restoreWorkspaceModal()">Back to Application Details</button>');
         return modalElement;
     },
 
@@ -2516,7 +2516,7 @@ const admissionsWorkspaceController = {
         
         const footer = showAction ? `
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            <button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${actionMethod}(${applicationId})">${this.escapeHtml(actionLabel)}</button>
+            <button type="button" class="btn btn-primary" data-kw-onclick="admissionsWorkspaceController.${actionMethod}(${applicationId})">${this.escapeHtml(actionLabel)}</button>
         ` : `
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
         `;
@@ -2528,19 +2528,19 @@ const admissionsWorkspaceController = {
         const closeBtn = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>';
         const applications = this.getAllQueueApplications();
         const currentIndex = applications.findIndex((application) => Number(application.id) === Number(applicationId));
-        const previousBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex <= 0 ? 'disabled' : ''} onclick="admissionsWorkspaceController.navigateApplication(-1)"><i class="bi bi-chevron-left me-1"></i>Previous</button>`;
-        const nextBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex < 0 || currentIndex >= applications.length - 1 ? 'disabled' : ''} onclick="admissionsWorkspaceController.navigateApplication(1)">Next<i class="bi bi-chevron-right ms-1"></i></button>`;
+        const previousBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex <= 0 ? 'disabled' : ''} data-kw-onclick="admissionsWorkspaceController.navigateApplication(-1)"><i class="bi bi-chevron-left me-1"></i>Previous</button>`;
+        const nextBtn = `<button type="button" class="btn btn-outline-secondary" ${currentIndex < 0 || currentIndex >= applications.length - 1 ? 'disabled' : ''} data-kw-onclick="admissionsWorkspaceController.navigateApplication(1)">Next<i class="bi bi-chevron-right ms-1"></i></button>`;
         const navigation = `<span class="small text-muted me-auto">${currentIndex >= 0 ? currentIndex + 1 : 0} of ${applications.length}</span>${previousBtn}${nextBtn}`;
         const stage = app.current_stage || "application_received";
         if (app.status === 'enrolled' || stage === 'enrolled') {
             return `${navigation}${closeBtn}`;
         }
         const aiBtn = ['application_received', 'application_review'].includes(stage)
-            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" data-kw-onclick="admissionsWorkspaceController.queueFollowupDraft(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Draft follow-up</button>` : '';
         const aiInterviewBtn = ['interview_scheduling', 'interview_results'].includes(stage)
-            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Prepare interview</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" data-kw-onclick="admissionsWorkspaceController.queueInterviewPreparation(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Prepare interview</button>` : '';
         const aiPlacementBtn = stage === 'class_placement'
-            ? `<button type="button" class="btn btn-outline-success" onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Review placement</button>` : '';
+            ? `<button type="button" class="btn btn-outline-success" data-kw-onclick="admissionsWorkspaceController.queuePlacementReview(${Number(applicationId)})"><i class="bi bi-stars me-1"></i>Review placement</button>` : '';
 
         if (['application_received', 'application_review'].includes(stage)) {
             const nextStage = stage === 'application_received'
@@ -2550,13 +2550,13 @@ const admissionsWorkspaceController = {
                     : 'student_admission_number');
             return `${navigation}${closeBtn}
                 ${aiBtn}${aiInterviewBtn}${aiPlacementBtn}
-                <button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.saveApplicationReviewDraftFromModal()">
+                <button type="button" class="btn btn-outline-primary" data-kw-onclick="admissionsWorkspaceController.saveApplicationReviewDraftFromModal()">
                     <i class="bi bi-save me-1"></i>Save review
                 </button>
-                <button type="button" class="btn btn-outline-danger" onclick="admissionsWorkspaceController.rejectApplicationReview(document.getElementById('applicationReviewForm'))">
+                <button type="button" class="btn btn-outline-danger" data-kw-onclick="admissionsWorkspaceController.rejectApplicationReview(document.getElementById('applicationReviewForm'))">
                     <i class="bi bi-x-circle me-1"></i>Reject
                 </button>
-                <button type="button" class="btn btn-success" id="reviewSaveBtn" onclick="admissionsWorkspaceController.saveApplicationReview(document.getElementById('applicationReviewForm'), '${nextStage}')">
+                <button type="button" class="btn btn-success" id="reviewSaveBtn" data-kw-onclick="admissionsWorkspaceController.saveApplicationReview(document.getElementById('applicationReviewForm'), '${nextStage}')">
                     <i class="bi bi-check-circle me-1"></i>Save &amp; Continue
                 </button>`;
         }
@@ -2570,13 +2570,13 @@ const admissionsWorkspaceController = {
         if (contractAction) {
             const method = this.methodForStageAction(contractAction.code);
             if (method && typeof this[method] === 'function') {
-                const btn = `<button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${method}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(contractAction.label)}</button>`;
+                const btn = `<button type="button" class="btn btn-primary" data-kw-onclick="admissionsWorkspaceController.${method}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(contractAction.label)}</button>`;
                 return navigation + closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn + btn;
             }
         }
         const comm = this.getApplicationWorkflowCommunication(app, documents, workflowData);
         if (comm && comm.nextActionMethod && comm.nextActionLabel) {
-            const btn = `<button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.${comm.nextActionMethod}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(comm.nextActionLabel)}</button>`;
+            const btn = `<button type="button" class="btn btn-primary" data-kw-onclick="admissionsWorkspaceController.${comm.nextActionMethod}(${Number(applicationId)})"><i class="bi bi-arrow-right-circle me-1"></i>${this.escapeHtml(comm.nextActionLabel)}</button>`;
             return navigation + closeBtn + aiBtn + aiInterviewBtn + aiPlacementBtn + btn;
         }
 
@@ -2584,7 +2584,7 @@ const admissionsWorkspaceController = {
     },
 
     queueInterviewPreparation: async function(applicationId) {
-        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueInterviewPreparation"]');
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[data-kw-onclick*="queueInterviewPreparation"]');
         if (button) button.disabled = true;
         try {
             const response = await window.API.admission.queueAiInterviewPreparation({ application_id: Number(applicationId) });
@@ -2595,7 +2595,7 @@ const admissionsWorkspaceController = {
     },
 
     queuePlacementReview: async function(applicationId) {
-        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queuePlacementReview"]');
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[data-kw-onclick*="queuePlacementReview"]');
         if (button) button.disabled = true;
         try {
             const response = await window.API.admission.queueAiPlacementReview({ application_id: Number(applicationId) });
@@ -2606,7 +2606,7 @@ const admissionsWorkspaceController = {
     },
 
     queueFollowupDraft: async function(applicationId) {
-        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[onclick*="queueFollowupDraft"]');
+        const button = document.querySelector('#admissionsWorkspaceApplicationModal button[data-kw-onclick*="queueFollowupDraft"]');
         if (button) button.disabled = true;
         try {
             const response = await window.API.admission.queueAiFollowupDraft({
@@ -2732,7 +2732,7 @@ const admissionsWorkspaceController = {
                             <div class="d-flex justify-content-between gap-2"><strong>${this.escapeHtml(body.title || 'Untitled draft')}</strong><span class="badge text-bg-secondary">${this.escapeHtml(draft.status || '')}</span></div>
                             <p class="small mb-2 mt-2">${this.escapeHtml(body.body || '')}</p>
                             ${Array.isArray(body.next_steps) && body.next_steps.length ? `<ul class="small mb-2">${body.next_steps.map((step) => `<li>${this.escapeHtml(step)}</li>`).join('')}</ul>` : ''}
-                            ${canApprove && approvalKind ? `<button type="button" class="btn btn-sm btn-success" onclick="admissionsWorkspaceController.approveAiDraft(${Number(draft.id)}, ${Number(applicationId)}, '${approvalKind}')">Approve draft</button>` : ''}
+                            ${canApprove && approvalKind ? `<button type="button" class="btn btn-sm btn-success" data-kw-onclick="admissionsWorkspaceController.approveAiDraft(${Number(draft.id)}, ${Number(applicationId)}, '${approvalKind}')">Approve draft</button>` : ''}
                         </div>
                     </article>`;
                 }).join('')}
@@ -2822,7 +2822,7 @@ const admissionsWorkspaceController = {
 
                     <div class="d-flex justify-content-between align-items-center mt-3">
                         <button type="button" class="btn btn-outline-secondary btn-sm"
-                            onclick="admissionsWorkspaceController.addAdmissionDocumentUploadRow()">
+                            data-kw-onclick="admissionsWorkspaceController.addAdmissionDocumentUploadRow()">
                             <i class="bi bi-plus-circle me-1"></i>Add Another Row
                         </button>
 
@@ -2846,7 +2846,7 @@ const admissionsWorkspaceController = {
             `
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
 
-                <button type="button" class="btn btn-success" onclick="admissionsWorkspaceController.previewAdmissionDocumentUploads(${Number(applicationId)})">
+                <button type="button" class="btn btn-success" data-kw-onclick="admissionsWorkspaceController.previewAdmissionDocumentUploads(${Number(applicationId)})">
                     Preview Files
                 </button>
 
@@ -3161,7 +3161,7 @@ const admissionsWorkspaceController = {
                                     <i class="bi bi-eye me-1"></i>View inside system
                                 </button>
                                 ${doc.document_type === 'passport_photo' ? `
-                                    <div><img src="${this.escapeHtml(window.KingswayFileLifecycle?.resolveUrl?.(doc.file_url || doc.download_url || doc.document_path))}" alt="Passport photo" class="rounded border mt-2" style="width:72px;height:88px;object-fit:cover;" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></div>
+                                    <div><img src="${this.escapeHtml(window.KingswayFileLifecycle?.resolveUrl?.(doc.file_url || doc.download_url || doc.document_path))}" alt="Passport photo" class="rounded border mt-2" style="width:72px;height:88px;object-fit:cover;" data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></div>
                                 ` : ''}
                             ` : '<small class="text-muted">Path recorded</small>'}
                         </div>
@@ -3183,7 +3183,7 @@ const admissionsWorkspaceController = {
                     '<div class="alert alert-warning mb-0">No documents have been uploaded for this application. Upload documents first, then verify them.</div>',
                     `
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.uploadDocuments(${Number(applicationId)})">
+                        <button type="button" class="btn btn-primary" data-kw-onclick="admissionsWorkspaceController.uploadDocuments(${Number(applicationId)})">
                             <i class="bi bi-upload me-1"></i>Upload Documents
                         </button>
                     `
@@ -3214,10 +3214,10 @@ const admissionsWorkspaceController = {
                                     </div>
                                     <div class="btn-group btn-group-sm" id="document-verification-actions-${Number(doc.id)}">
                                         ${doc.verification_status === "verified" ? '<span class="badge bg-success">Verified</span>' : doc.verification_status === "rejected" ? '<span class="badge bg-danger">Rejected</span>' : `
-                                            <button class="btn btn-outline-success" onclick="admissionsWorkspaceController.setDocumentVerification(${Number(doc.id)}, 'verified', ${Number(applicationId)})">
+                                            <button class="btn btn-outline-success" data-kw-onclick="admissionsWorkspaceController.setDocumentVerification(${Number(doc.id)}, 'verified', ${Number(applicationId)})">
                                                 Verify
                                             </button>
-                                            <button class="btn btn-outline-danger" onclick="admissionsWorkspaceController.setDocumentVerification(${Number(doc.id)}, 'rejected', ${Number(applicationId)})">
+                                            <button class="btn btn-outline-danger" data-kw-onclick="admissionsWorkspaceController.setDocumentVerification(${Number(doc.id)}, 'rejected', ${Number(applicationId)})">
                                                 Reject
                                             </button>
                                         `}
@@ -3338,7 +3338,7 @@ const admissionsWorkspaceController = {
             `,
             `
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-outline-primary" onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-week me-1"></i>Manage sessions</button>
+                <button type="button" class="btn btn-outline-primary" data-kw-onclick="admissionsWorkspaceController.manageInterviewSessions()"><i class="bi bi-calendar2-week me-1"></i>Manage sessions</button>
                 <button type="submit" form="workspaceScheduleInterviewForm" class="btn btn-primary">Schedule</button>
             `
         );
@@ -3776,11 +3776,11 @@ const admissionsWorkspaceController = {
                 `
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     ${spaceAvailable ? `
-                        <button type="button" class="btn btn-success" onclick="admissionsWorkspaceController.confirmClassSpaceAvailability(${applicationId}, ${classId}, ${availableSpaces})">
+                        <button type="button" class="btn btn-success" data-kw-onclick="admissionsWorkspaceController.confirmClassSpaceAvailability(${applicationId}, ${classId}, ${availableSpaces})">
                             ${this.escapeHtml(actionLabel)}
                         </button>
                     ` : `
-                        <button type="button" class="btn btn-primary" onclick="admissionsWorkspaceController.viewApplication(${applicationId})">
+                        <button type="button" class="btn btn-primary" data-kw-onclick="admissionsWorkspaceController.viewApplication(${applicationId})">
                             ${this.escapeHtml(actionLabel)}
                         </button>
                     `}
@@ -4053,8 +4053,8 @@ const admissionsWorkspaceController = {
                 <p>There is a conflict between your offline changes and the server data.</p>
                 <p><strong>Entity:</strong> ${conflict.entity_type} #${conflict.entity_id}</p>
                 <div class="mt-3">
-                    <button class="btn btn-primary btn-sm" onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_server')">Keep Server Version</button>
-                    <button class="btn btn-success btn-sm" onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_local')">Keep Your Changes</button>
+                    <button class="btn btn-primary btn-sm" data-kw-onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_server')">Keep Server Version</button>
+                    <button class="btn btn-success btn-sm" data-kw-onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_local')">Keep Your Changes</button>
                 </div>
             </div>
         `;

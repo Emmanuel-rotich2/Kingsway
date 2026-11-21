@@ -86,10 +86,10 @@ const InternAssignedClassesController = {
           <td>${statusBadge}</td>
           <td>
             <div class="btn-group btn-group-sm">
-              <button class="btn btn-outline-primary" onclick="InternAssignedClassesController.viewSchedule(${classData.class_id})" title="View Schedule">
+              <button class="btn btn-outline-primary" data-kw-onclick="InternAssignedClassesController.viewSchedule(${classData.class_id})" title="View Schedule">
                 <i class="bi bi-calendar3"></i>
               </button>
-              <button class="btn btn-outline-info" onclick="InternAssignedClassesController.viewObservations(${classData.class_id})" title="View Observations">
+              <button class="btn btn-outline-info" data-kw-onclick="InternAssignedClassesController.viewObservations(${classData.class_id})" title="View Observations">
                 <i class="bi bi-eye"></i>
               </button>
             </div>

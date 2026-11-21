@@ -67,7 +67,7 @@ const paymentReconciliationController = {
         <td class="text-end">${this.money(c.amount || 0)}</td>
         <td><span class="badge ${c.status === 'resolved' ? 'bg-success' : (c.status === 'rejected' ? 'bg-secondary' : 'bg-warning')}">${this.esc(c.status || 'unmatched')}</span></td>
         <td>${c.status === 'unmatched'
-          ? `<button class="btn btn-sm btn-outline-primary" onclick="paymentReconciliationController.openResolve(${c.id})">Resolve</button>`
+          ? `<button class="btn btn-sm btn-outline-primary" data-kw-onclick="paymentReconciliationController.openResolve(${c.id})">Resolve</button>`
           : '—'}</td>
       </tr>
     `).join('') || '<tr><td colspan="7" class="text-center text-muted py-4">No routing cases.</td></tr>';

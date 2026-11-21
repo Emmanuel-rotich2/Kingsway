@@ -66,9 +66,9 @@
     </select>
     <input type="date" class="form-input" id="dateFromFilter" placeholder="From">
     <input type="date" class="form-input" id="dateToFilter" placeholder="To">
-    <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
-    <button class="btn btn-outline" onclick="exportTransactions()">📥 Export</button>
-    <button class="btn btn-primary" data-hide-for-director="true" onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="clearFilters()">Clear</button>
+    <button class="btn btn-outline" data-kw-onclick="exportTransactions()">📥 Export</button>
+    <button class="btn btn-primary" data-hide-for-director="true" data-kw-onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
 </div>
 
 <!-- Data Table - Limited columns -->
@@ -103,7 +103,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Add Transaction</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('transactionModal')">×</button>
             </div>
             <div class="modal-body">
                 <form id="transactionForm">
@@ -150,15 +150,15 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTransaction()" data-year-write>Save Transaction</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('transactionModal')">Cancel</button>
+                <button class="btn btn-primary" data-kw-onclick="saveTransaction()" data-year-write>Save Transaction</button>
             </div>
         </div>
     </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'manager' });

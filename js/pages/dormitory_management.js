@@ -104,9 +104,9 @@ const DormitoryManagementController = {
                     </div>
                     <div class="card-footer bg-transparent">
                         <div class="btn-group btn-group-sm w-100">
-                            <button class="btn btn-outline-primary" onclick="DormitoryManagementController.viewDorm(${dorm.id})"><i class="fas fa-eye me-1"></i>View</button>
-                            <button class="btn btn-outline-info" onclick="DormitoryManagementController.viewOccupants(${dorm.id})"><i class="fas fa-users me-1"></i>Occupants</button>
-                            <button class="btn btn-outline-warning" onclick="DormitoryManagementController.editDorm(${dorm.id})" data-year-write><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-outline-primary" data-kw-onclick="DormitoryManagementController.viewDorm(${dorm.id})"><i class="fas fa-eye me-1"></i>View</button>
+                            <button class="btn btn-outline-info" data-kw-onclick="DormitoryManagementController.viewOccupants(${dorm.id})"><i class="fas fa-users me-1"></i>Occupants</button>
+                            <button class="btn btn-outline-warning" data-kw-onclick="DormitoryManagementController.editDorm(${dorm.id})" data-year-write><i class="fas fa-edit"></i></button>
                         </div>
                     </div>
                 </div>

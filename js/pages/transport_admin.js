@@ -63,7 +63,7 @@ const transportAdminController = {
       <td class="small">${this.esc(r.vehicle_registration || '—')}${r.driver_name ? `<div class="text-muted">${this.esc(r.driver_name)}</div>` : ''}</td>
       <td class="small">${Number(r.stop_count) || 0} stops</td>
       <td class="small"><span class="badge bg-${r.status === 'active' ? 'success' : 'secondary'}">${r.status === 'active' ? 'Active' : 'Inactive'}</span></td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editRoute(${Number(r.id)})"><i class="bi bi-pencil"></i></button></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportAdminController.editRoute(${Number(r.id)})"><i class="bi bi-pencil"></i></button></td>
     </tr>`;
     }).join('');
   },
@@ -83,7 +83,7 @@ const transportAdminController = {
       <td class="small">${this.esc(this.fmtDate(v.insurance_expiry))}</td>
       <td class="small">${this.esc(this.fmtDate(v.service_due_date))}</td>
       <td class="small"><span class="badge bg-${statusClass}">${this.esc(v.status || '—')}</span></td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editVehicle(${Number(v.id)})"><i class="bi bi-pencil"></i></button></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportAdminController.editVehicle(${Number(v.id)})"><i class="bi bi-pencil"></i></button></td>
     </tr>`;
     }).join('');
   },
@@ -101,7 +101,7 @@ const transportAdminController = {
       <td class="small">${this.esc(d.phone || '—')}</td>
       <td class="small">${this.esc(d.license_number || '—')}</td>
       <td class="small"><span class="badge bg-${d.status === 'active' ? 'success' : 'secondary'}">${this.esc(d.status || '—')}</span></td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editDriver(${Number(d.id)})"><i class="bi bi-pencil"></i></button></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportAdminController.editDriver(${Number(d.id)})"><i class="bi bi-pencil"></i></button></td>
     </tr>`;
     }).join('');
   },
@@ -118,7 +118,7 @@ const transportAdminController = {
       <td class="small">${Number(s.sequence) || 0}</td>
       <td class="small">${this.esc(s.location || '—')}</td>
       <td class="small"><span class="badge bg-${s.status === 'active' ? 'success' : 'secondary'}">${s.status === 'active' ? 'Active' : 'Inactive'}</span></td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="transportAdminController.editStop(${Number(s.id)})"><i class="bi bi-pencil"></i></button></td>
+      <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="transportAdminController.editStop(${Number(s.id)})"><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

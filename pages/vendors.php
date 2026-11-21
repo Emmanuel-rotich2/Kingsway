@@ -18,7 +18,7 @@
                     <h4 class="mb-1"><i class="bi bi-shop me-2"></i>Vendors</h4>
                     <p class="text-muted mb-0">Manage supplier and vendor records</p>
                 </div>
-                <button class="btn btn-primary" onclick="VendorsController.showAddModal()" data-year-write>
+                <button class="btn btn-primary" data-kw-onclick="VendorsController.showAddModal()" data-year-write>
                     <i class="bi bi-plus-lg me-1"></i> Add Vendor
                 </button>
             </div>
@@ -103,7 +103,7 @@
                         <option value="inactive">Inactive</option>
                     </select></div>
                 <div class="col-md-2"><button class="btn btn-outline-secondary w-100"
-                        onclick="VendorsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                        data-kw-onclick="VendorsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -111,7 +111,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Vendor List</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="VendorsController.exportCSV()"><i
+            <button class="btn btn-sm btn-outline-success" data-kw-onclick="VendorsController.exportCSV()"><i
                     class="bi bi-file-csv me-1"></i> Export</button>
         </div>
         <div class="card-body p-0">
@@ -188,7 +188,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="VendorsController.saveVendor()" data-year-write><i
+                <button type="button" class="btn btn-primary" data-kw-onclick="VendorsController.saveVendor()" data-year-write><i
                         class="bi bi-check-lg me-1"></i> Save</button>
             </div>
         </div>
@@ -199,7 +199,7 @@
 <div class="card shadow-sm mt-4">
   <div class="card-header bg-white d-flex justify-content-between align-items-center">
     <h6 class="mb-0"><i class="bi bi-receipt me-2"></i>Purchase Orders</h6>
-    <button class="btn btn-sm btn-outline-secondary" onclick="VendorsController.refresh()">
+    <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="VendorsController.refresh()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

@@ -76,7 +76,7 @@ const termTransitionController = {
       const rolloverBtn = document.getElementById('ttRolloverBtn');
       if (rolloverBtn) rolloverBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable' + (this._nextTerm ? ` to ${kwEscapeHtml(this._nextTerm.name)}` : '');
 
-      const proceed = document.querySelector('#ttStep1 button[onclick*="goStep(2)"]');
+      const proceed = document.querySelector('#ttStep1 button[data-kw-onclick*="goStep(2)"]');
       if (proceed) {
         proceed.disabled = !this._currentTerm || !this._nextTerm;
         proceed.title = this._nextTerm ? '' : 'There is no upcoming term configured for this academic year';

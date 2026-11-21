@@ -18,6 +18,7 @@ require_once __DIR__ . '/config/asset_helpers.php';
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <?= csp_bootstrap_script(isset($appBase) ? $appBase : null) ?>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">

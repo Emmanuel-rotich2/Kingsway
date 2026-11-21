@@ -268,7 +268,7 @@ $roleCategory = 'admin';
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         console.log('Admin Boarding Dashboard loaded');
         if (typeof boardingController !== 'undefined') {

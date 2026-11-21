@@ -144,7 +144,7 @@ const pastPapersController = {
         <td>${this._esc(p.uploaded_by_name || p.uploaded_by || '—')}</td>
         <td>${date}</td>
         <td>
-          <button class="btn btn-sm btn-outline-success" onclick="pastPapersController.download(${p.id})">
+          <button class="btn btn-sm btn-outline-success" data-kw-onclick="pastPapersController.download(${p.id})">
             <i class="bi bi-download"></i> Download
           </button>
         </td>

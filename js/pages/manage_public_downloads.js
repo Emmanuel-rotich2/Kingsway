@@ -43,8 +43,8 @@ const managePublicDownloadsController = {
         <td class="text-muted small">${this.esc(d.file_size || '\u2014')}</td>
         <td>${d.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Hidden</span>'}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="downloadsOpenModal(${d.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="downloadsHide(${d.id})"><i class="bi bi-eye-slash"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="downloadsOpenModal(${d.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="downloadsHide(${d.id})"><i class="bi bi-eye-slash"></i></button>
         </td>
       </tr>`).join('');
   },

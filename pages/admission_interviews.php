@@ -16,10 +16,10 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
       <small class="text-muted">Schedule and record headteacher admission interviews with workflow tracking</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-primary" onclick="admissionInterviewsController.loadInterviews()">
+      <button class="btn btn-outline-primary" data-kw-onclick="admissionInterviewsController.loadInterviews()">
         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
       </button>
-          <button class="btn btn-primary" onclick="admissionInterviewsController.manageSessions()">
+          <button class="btn btn-primary" data-kw-onclick="admissionInterviewsController.manageSessions()">
             <i class="bi bi-calendar2-week me-1"></i> Manage Interview Sessions
       </button>
     </div>
@@ -148,7 +148,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="admissionInterviewsController.saveSchedule()">
+        <button type="button" class="btn btn-primary" data-kw-onclick="admissionInterviewsController.saveSchedule()">
           <i class="bi bi-calendar-check me-1"></i>Assign to session
         </button>
       </div>
@@ -163,7 +163,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
     <div class="col-md-2"><label class="form-label">Date</label><input type="date" id="aiSessionDate" class="form-control"></div><div class="col-md-2"><label class="form-label">Start</label><input type="time" id="aiSessionStart" class="form-control"></div><div class="col-md-2"><label class="form-label">End</label><input type="time" id="aiSessionEnd" class="form-control"></div><div class="col-md-2"><label class="form-label">Capacity</label><input type="number" id="aiSessionCapacity" class="form-control" min="1" value="20"></div>
     <div class="col-md-6"><label class="form-label" for="aiSessionInterviewer">Supervisors / invigilators <span class="text-danger">*</span></label><select id="aiSessionInterviewer" name="supervisor_ids[]" class="form-select" multiple="multiple" size="6" aria-multiselectable="true" style="min-height: 9rem;"></select><small class="text-muted">Click each teacher to select or deselect them.</small></div><div class="col-md-6"><label class="form-label">Venue</label><input type="text" id="aiSessionVenue" class="form-control" value="Main Office"></div>
   </div><div id="aiSessionError" class="alert alert-danger mt-3 d-none"></div></div>
-  <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" onclick="admissionInterviewsController.saveSession()">Save session</button></div>
+  <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" data-kw-onclick="admissionInterviewsController.saveSession()">Save session</button></div>
 </div></div></div>
 
 <!-- RECORD OUTCOME MODAL -->
@@ -232,7 +232,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="admissionInterviewsController.saveOutcome()">
+        <button type="button" class="btn btn-success" data-kw-onclick="admissionInterviewsController.saveOutcome()">
           <i class="bi bi-check2-circle me-1"></i>Save Assessment
         </button>
       </div>
@@ -267,7 +267,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
 <?php asset_script($appBase, 'js/pages/admission_interviews.js'); ?>
 <?php asset_script($appBase, 'js/utils/detail_modal.js'); ?>
 <?php asset_script($appBase, 'js/utils/document_preview.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {
         if (typeof admissionInterviewsController !== 'undefined' && admissionInterviewsController.init) {

@@ -131,10 +131,10 @@
                     '<td class="text-center">' + statusBadge + '<div class="small text-muted mt-1" title="' + self.escapeHtml(settlement.status_reason || '') + '">' + self.escapeHtml(self.shortReason(settlement.status_reason)) + '</div></td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
-                            '<button class="btn btn-outline-primary" onclick="MpesaSettlementsController.viewDetails(' + settlement.id + ')" title="View Details"><i class="fas fa-eye"></i></button>' +
-                            (settlement.can_reconcile ? '<button class="btn btn-outline-warning" onclick="MpesaSettlementsController.openReconciliation()" title="Reconcile / allocate"><i class="fas fa-link"></i></button>' : '') +
-                            (settlement.checkout_request_id && settlement.settlement_status === 'pending_callback' ? '<button class="btn btn-outline-info" onclick="MpesaSettlementsController.queryStatus(' + settlement.id + ')" title="Query provider status"><i class="fas fa-sync"></i></button>' : '') +
-                            '<button class="btn btn-outline-secondary" onclick="MpesaSettlementsController.exportSettlement(' + settlement.id + ')" title="Export"><i class="fas fa-download"></i></button>' +
+                            '<button class="btn btn-outline-primary" data-kw-onclick="MpesaSettlementsController.viewDetails(' + settlement.id + ')" title="View Details"><i class="fas fa-eye"></i></button>' +
+                            (settlement.can_reconcile ? '<button class="btn btn-outline-warning" data-kw-onclick="MpesaSettlementsController.openReconciliation()" title="Reconcile / allocate"><i class="fas fa-link"></i></button>' : '') +
+                            (settlement.checkout_request_id && settlement.settlement_status === 'pending_callback' ? '<button class="btn btn-outline-info" data-kw-onclick="MpesaSettlementsController.queryStatus(' + settlement.id + ')" title="Query provider status"><i class="fas fa-sync"></i></button>' : '') +
+                            '<button class="btn btn-outline-secondary" data-kw-onclick="MpesaSettlementsController.exportSettlement(' + settlement.id + ')" title="Export"><i class="fas fa-download"></i></button>' +
                         '</div>' +
                     '</td>' +
                     '</tr>';
@@ -334,19 +334,19 @@
 
             var html = "";
             html += '<li class="page-item ' + (this.currentPage === 1 ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="MpesaSettlementsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="MpesaSettlementsController.goToPage(' + (this.currentPage - 1) + '); return false;">&laquo;</a></li>';
 
             for (var i = 1; i <= totalPages; i++) {
                 if (i === 1 || i === totalPages || (i >= this.currentPage - 2 && i <= this.currentPage + 2)) {
                     html += '<li class="page-item ' + (i === this.currentPage ? "active" : "") + '">' +
-                        '<a class="page-link" href="#" onclick="MpesaSettlementsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
+                        '<a class="page-link" href="#" data-kw-onclick="MpesaSettlementsController.goToPage(' + i + '); return false;">' + i + '</a></li>';
                 } else if (i === this.currentPage - 3 || i === this.currentPage + 3) {
                     html += '<li class="page-item disabled"><a class="page-link">...</a></li>';
                 }
             }
 
             html += '<li class="page-item ' + (this.currentPage === totalPages ? "disabled" : "") + '">' +
-                '<a class="page-link" href="#" onclick="MpesaSettlementsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
+                '<a class="page-link" href="#" data-kw-onclick="MpesaSettlementsController.goToPage(' + (this.currentPage + 1) + '); return false;">&raquo;</a></li>';
 
             pagination.innerHTML = html;
         },

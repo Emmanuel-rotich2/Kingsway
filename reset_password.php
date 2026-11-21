@@ -284,7 +284,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
   document.addEventListener('DOMContentLoaded', async function () {
     const form = document.getElementById('resetPasswordForm');
     const token = document.getElementById('resetToken').value.trim();

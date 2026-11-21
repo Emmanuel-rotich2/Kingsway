@@ -28,7 +28,7 @@
         <option value="">— Select teacher —</option>
       </select>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="teacherTimetablesController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="teacherTimetablesController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

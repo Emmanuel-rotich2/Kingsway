@@ -191,7 +191,7 @@ const internalProductsCatalogController = {
         `<span class="catalog-swatch" style="background:${this.esc(v.swatch_hex || v.swatch || '#0b5d3b')}" title="${this.esc(v.name || v.color_name || 'Variant')}"></span>`).join('');
       return `<article class="internal-product-card">
         <div class="internal-product-image">
-          <img src="${this.esc(image)}" alt="${this.esc(p.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
+          <img src="${this.esc(image)}" alt="${this.esc(p.title)}" loading="lazy" data-kw-onerror="this.onerror=null;this.src='${fallback}'">
           <div class="internal-product-badges"><span class="${statusBadge}">${this.esc(p.status || '—')}</span>${Number(p.published) === 1 ? '<span class="bg-success text-white">Published</span>' : '<span class="bg-light text-dark">Internal only</span>'}</div>
         </div>
         <div class="internal-product-content">
@@ -257,7 +257,7 @@ const internalProductsCatalogController = {
       const href = `${base}/index.php?route=r468ffeac30cf&id=${encodeURIComponent(p.id)}`;
       return `<article class="catalog-product-card">
         <a href="${href}" class="text-decoration-none d-block"><div class="catalog-product-media">
-          <img src="${this.esc(this.versionedImage(image, '20260831-3'))}" alt="${this.esc(p.title)}" loading="lazy" onerror="this.onerror=null;this.src='${fallback}'">
+          <img src="${this.esc(this.versionedImage(image, '20260831-3'))}" alt="${this.esc(p.title)}" loading="lazy" data-kw-onerror="this.onerror=null;this.src='${fallback}'">
           <span class="catalog-product-number">${String(index + 1).padStart(2, '0')}</span>
           <span class="catalog-product-state">${available > 0 ? 'In stock' : 'Coming Soon'}</span>
         </div></a>

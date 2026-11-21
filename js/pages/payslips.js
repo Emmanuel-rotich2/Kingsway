@@ -150,7 +150,7 @@ const payslipsController = {
       const id = Number(row.id || row.payslip_id);
       const status = row.status || row.payslip_status || 'issued';
       return `<tr>
-        <td class="text-center"><input type="checkbox" class="ps-employee-check" value="${id}" onchange="payslipsController.toggleEmployee(${id}, this.checked)" ${this._selectedEmployeeIds.has(id) ? 'checked' : ''}></td>
+        <td class="text-center"><input type="checkbox" class="ps-employee-check" value="${id}" data-kw-onchange="payslipsController.toggleEmployee(${id}, this.checked)" ${this._selectedEmployeeIds.has(id) ? 'checked' : ''}></td>
         <td><strong>${this._esc(row.staff_name || '—')}</strong><div class="small text-muted">${this._esc(row.staff_no || row.staff_number || '')}</div></td>
         <td>${this._esc(row.period_display || row.payroll_period || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`)}</td>
         <td class="text-end">${fmt(row.gross_salary || row.gross_pay)}</td>
@@ -299,7 +299,7 @@ const payslipsController = {
         <td class="text-end fw-semibold text-success">${fmt(s.net_pay ?? s.net_salary)}</td>
         <td><span class="badge bg-${(s.status ?? s.payslip_status) === 'paid' || (s.status ?? s.payslip_status) === 'disbursed' ? 'success' : (s.status ?? s.payslip_status) === 'pending' ? 'warning' : 'secondary'}">${this._esc(s.status ?? s.payslip_status ?? 'issued')}</span></td>
         <td>
-          <button class="btn btn-sm btn-outline-primary" onclick="payslipsController.viewSlip(${s.id ?? s.payslip_id ?? s.payroll_id ?? 'null'}, '${this._esc(s.month ?? s.payroll_month ?? '')}', ${s.year ?? s.payroll_year ?? new Date().getFullYear()})">
+          <button class="btn btn-sm btn-outline-primary" data-kw-onclick="payslipsController.viewSlip(${s.id ?? s.payslip_id ?? s.payroll_id ?? 'null'}, '${this._esc(s.month ?? s.payroll_month ?? '')}', ${s.year ?? s.payroll_year ?? new Date().getFullYear()})">
             <i class="bi bi-eye"></i>
           </button>
         </td>

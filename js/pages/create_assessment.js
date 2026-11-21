@@ -158,10 +158,10 @@ const createAssessmentCtrl = (() => {
                     <td><span class="badge bg-${statusClass}">${statusText}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="createAssessmentCtrl.viewAssessment(${assessment.id})" data-year-write>
+                            <button class="btn btn-outline-primary" data-kw-onclick="createAssessmentCtrl.viewAssessment(${assessment.id})" data-year-write>
                                 <i class="bi bi-eye"></i> View
                             </button>
-                            <button class="btn btn-outline-success" onclick="createAssessmentCtrl.enterMarks(${assessment.id})" data-year-write>
+                            <button class="btn btn-outline-success" data-kw-onclick="createAssessmentCtrl.enterMarks(${assessment.id})" data-year-write>
                                 <i class="bi bi-pencil"></i> Marks
                             </button>
                         </div>

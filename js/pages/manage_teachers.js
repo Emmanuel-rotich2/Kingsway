@@ -439,10 +439,10 @@ const manageTeachersController = {
                   <i class="bi bi-three-dots-vertical"></i>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                  <li><a class="dropdown-item" href="#" onclick="manageTeachersController.viewTeacher(${s.id}); return false;"><i class="bi bi-eye me-2"></i>View</a></li>
-                  <li><a class="dropdown-item" href="#" onclick="manageTeachersController.showEditForm(${s.id}); return false;"><i class="bi bi-pencil me-2"></i>Edit</a></li>
+                  <li><a class="dropdown-item" href="#" data-kw-onclick="manageTeachersController.viewTeacher(${s.id}); return false;"><i class="bi bi-eye me-2"></i>View</a></li>
+                  <li><a class="dropdown-item" href="#" data-kw-onclick="manageTeachersController.showEditForm(${s.id}); return false;"><i class="bi bi-pencil me-2"></i>Edit</a></li>
                   <li><hr class="dropdown-divider"></li>
-                  <li><a class="dropdown-item text-danger" href="#" onclick="manageTeachersController.deleteTeacher(${s.id}); return false;"><i class="bi bi-trash me-2"></i>Delete</a></li>
+                  <li><a class="dropdown-item text-danger" href="#" data-kw-onclick="manageTeachersController.deleteTeacher(${s.id}); return false;"><i class="bi bi-trash me-2"></i>Delete</a></li>
                 </ul>
               </div>
             </td>
@@ -474,7 +474,7 @@ const manageTeachersController = {
     }
 
     let html = `<li class="page-item ${this.pagination.page <= 1 ? "disabled" : ""}">
-      <a class="page-link" href="#" onclick="manageTeachersController.goToPage(${this.pagination.page - 1}); return false;">&laquo;</a></li>`;
+      <a class="page-link" href="#" data-kw-onclick="manageTeachersController.goToPage(${this.pagination.page - 1}); return false;">&laquo;</a></li>`;
 
     for (let i = 1; i <= totalPages; i++) {
       if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - this.pagination.page) > 1) {
@@ -484,11 +484,11 @@ const manageTeachersController = {
         continue;
       }
       html += `<li class="page-item ${i === this.pagination.page ? "active" : ""}">
-        <a class="page-link" href="#" onclick="manageTeachersController.goToPage(${i}); return false;">${i}</a></li>`;
+        <a class="page-link" href="#" data-kw-onclick="manageTeachersController.goToPage(${i}); return false;">${i}</a></li>`;
     }
 
     html += `<li class="page-item ${this.pagination.page >= totalPages ? "disabled" : ""}">
-      <a class="page-link" href="#" onclick="manageTeachersController.goToPage(${this.pagination.page + 1}); return false;">&raquo;</a></li>`;
+      <a class="page-link" href="#" data-kw-onclick="manageTeachersController.goToPage(${this.pagination.page + 1}); return false;">&raquo;</a></li>`;
 
     container.innerHTML = html;
   },

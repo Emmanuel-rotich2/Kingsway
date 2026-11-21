@@ -146,7 +146,7 @@
                 <div class="card-img-wrap" style="aspect-ratio:16/9;height:100%;min-height:280px">
                   <img src="${this.imgFor(f, 800, 500, col)}" alt="${S(f.title)}"
                        style="height:100%;object-fit:cover"
-                       onerror="this.src='https://placehold.co/800x500/198754/ffffff?text=Kingsway+News'">
+                       data-kw-onerror="this.src='https://placehold.co/800x500/198754/ffffff?text=Kingsway+News'">
                 </div>
               </div>
               <div class="col-lg-6 p-4 p-lg-5 d-flex flex-column justify-content-center">
@@ -186,7 +186,7 @@
               <div class="card-img-wrap">
                 <img src="${this.imgFor(n, 600, 380, col)}" alt="${S(n.title)}"
                      style="object-fit:cover"
-                     onerror="this.src='https://placehold.co/600x380/198754/ffffff?text=News'">
+                     data-kw-onerror="this.src='https://placehold.co/600x380/198754/ffffff?text=News'">
               </div>
               <div class="p-4 d-flex flex-column h-100">
                 <div class="d-flex align-items-center justify-content-between mb-2">
@@ -218,7 +218,7 @@
       const btn = (label, page, disabled, active) => `
         <li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
           <a class="page-link ${active ? 'bg-success border-success' : 'text-success'}"
-             data-page="${page}" href="javascript:void(0)" ${disabled ? 'tabindex="-1" aria-disabled="true"' : ''}>${label}</a>
+             data-page="${page}" href="#" ${disabled ? 'tabindex="-1" aria-disabled="true"' : ''}>${label}</a>
         </li>`;
       let html = btn('&laquo;', state.page - 1, state.page <= 1, false);
       for (let p = 1; p <= totalPages; p++) {

@@ -116,7 +116,7 @@ const SportsController = {
             <td>${this.escapeHtml(r.opponent || "--")}</td>
             <td><strong>${r.our_score ?? 0} - ${r.opponent_score ?? 0}</strong></td>
             <td><span class="badge bg-${won ? "success" : lost ? "danger" : "secondary"}">${won ? "Won" : lost ? "Lost" : "Draw"}</span></td>
-            <td><button class="btn btn-sm btn-outline-info" onclick="SportsController.viewResult(${r.id})"><i class="fas fa-eye"></i></button></td>
+            <td><button class="btn btn-sm btn-outline-info" data-kw-onclick="SportsController.viewResult(${r.id})"><i class="fas fa-eye"></i></button></td>
           </tr>`;
         })
         .join("");
@@ -203,8 +203,8 @@ const SportsController = {
             </div>
             <div class="card-footer bg-transparent">
               <div class="btn-group btn-group-sm w-100">
-                <button class="btn btn-outline-primary" onclick="SportsController.viewTeam(${team.id})"><i class="fas fa-eye me-1"></i>View</button>
-                <button class="btn btn-outline-info" onclick="SportsController.viewRoster(${team.id})"><i class="fas fa-users me-1"></i>Roster</button>
+                <button class="btn btn-outline-primary" data-kw-onclick="SportsController.viewTeam(${team.id})"><i class="fas fa-eye me-1"></i>View</button>
+                <button class="btn btn-outline-info" data-kw-onclick="SportsController.viewRoster(${team.id})"><i class="fas fa-users me-1"></i>Roster</button>
               </div>
             </div>
           </div>

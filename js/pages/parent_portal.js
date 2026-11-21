@@ -340,7 +340,7 @@ const parentPortalController = {
         this.showView('dashboard');
         document.getElementById('portalPageTitle').textContent = 'Parent account';
         document.getElementById('childrenHeading').textContent = 'Profile and account security';
-        document.getElementById('childrenCards').innerHTML = '<div class="col-lg-7"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold mb-3">Contact details</h5><dl class="row mb-0"><dt class="col-sm-4">Name</dt><dd class="col-sm-8">' + this.esc([parent.first_name,parent.last_name].filter(Boolean).join(' ')) + '</dd><dt class="col-sm-4">Email</dt><dd class="col-sm-8">' + this.esc(parent.email || 'Not provided') + '</dd><dt class="col-sm-4">Phone</dt><dd class="col-sm-8">' + this.esc(parent.phone_1 || parent.phone || 'Not provided') + '</dd></dl><div class="alert alert-light border mt-3 mb-0 small">For safeguarding, identity and contact changes are verified by the school office.</div></div></div></div><div class="col-lg-5 mt-3 mt-lg-0"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold">Security</h5><p class="text-muted small">This portal uses a time-limited family session. Sign out on shared devices.</p><button class="btn btn-outline-danger" onclick="parentPortalController.logout()"><i class="bi bi-box-arrow-right me-1"></i>Sign out securely</button></div></div></div>';
+        document.getElementById('childrenCards').innerHTML = '<div class="col-lg-7"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold mb-3">Contact details</h5><dl class="row mb-0"><dt class="col-sm-4">Name</dt><dd class="col-sm-8">' + this.esc([parent.first_name,parent.last_name].filter(Boolean).join(' ')) + '</dd><dt class="col-sm-4">Email</dt><dd class="col-sm-8">' + this.esc(parent.email || 'Not provided') + '</dd><dt class="col-sm-4">Phone</dt><dd class="col-sm-8">' + this.esc(parent.phone_1 || parent.phone || 'Not provided') + '</dd></dl><div class="alert alert-light border mt-3 mb-0 small">For safeguarding, identity and contact changes are verified by the school office.</div></div></div></div><div class="col-lg-5 mt-3 mt-lg-0"><div class="card portal-kpi"><div class="card-body p-4"><h5 class="fw-bold">Security</h5><p class="text-muted small">This portal uses a time-limited family session. Sign out on shared devices.</p><button class="btn btn-outline-danger" data-kw-onclick="parentPortalController.logout()"><i class="bi bi-box-arrow-right me-1"></i>Sign out securely</button></div></div></div>';
     },
 
     showCommunity() {
@@ -367,7 +367,7 @@ const parentPortalController = {
             var bc = balance <= 0 ? 'success' : (balance < 5000 ? 'warning' : 'danger');
             var balTxt = balance <= 0 ? 'Fees Cleared' : 'KES ' + balance.toLocaleString() + ' Due';
             return '<div class="col-md-6 col-lg-4 mb-3">' +
-                '<div class="card border-0 shadow-sm rounded-4 child-card h-100" onclick="parentPortalController.openStudent(' + c.id + ',\'' + parentPortalController.esc(c.first_name + ' ' + c.last_name) + '\',\'' + parentPortalController.esc(c.class_name || '') + '\')">' +
+                '<div class="card border-0 shadow-sm rounded-4 child-card h-100" data-kw-onclick="parentPortalController.openStudent(' + c.id + ',\'' + parentPortalController.esc(c.first_name + ' ' + c.last_name) + '\',\'' + parentPortalController.esc(c.class_name || '') + '\')">' +
                 '<div class="card-body p-4">' +
                 '<div class="d-flex align-items-center mb-3">' +
                 '<div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center me-3" style="width:48px;height:48px;font-size:1.4rem;font-weight:700">' +
@@ -903,7 +903,7 @@ const parentPortalController = {
         var html = '<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">' +
             '<h6 class="mb-0 text-muted">' + self.esc(portfolio.title || 'Portfolio') + '</h6>' +
             '<div>' +
-            '<button class="btn btn-outline-primary btn-sm me-1" onclick="parentPortalController.printPortfolio()"><i class="bi bi-printer me-1"></i>Print</button>' +
+            '<button class="btn btn-outline-primary btn-sm me-1" data-kw-onclick="parentPortalController.printPortfolio()"><i class="bi bi-printer me-1"></i>Print</button>' +
             '<span class="badge bg-secondary">' + (portfolio.portfolio_type || 'digital') + '</span></div></div>';
         if (portfolio.description) {
             html += '<p class="small text-muted mb-3">' + self.esc(portfolio.description) + '</p>';

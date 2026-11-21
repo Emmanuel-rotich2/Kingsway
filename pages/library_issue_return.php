@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-book-half text-info me-2"></i>Library Issue &amp; Return</h4>
       <p class="text-muted small mb-0 mt-1">Issue library books to students or staff and process returns.</p>
     </div>
-    <button class="btn btn-outline-info btn-sm" onclick="libraryIssueReturnController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-info btn-sm" data-kw-onclick="libraryIssueReturnController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3">
@@ -21,7 +21,7 @@
           <select class="form-select form-select-sm" id="lirBook"><option value="">Select book…</option></select>
         </div>
         <div class="mb-2"><label class="form-label small fw-semibold">Borrower Type</label>
-          <select class="form-select form-select-sm" id="lirType" onchange="libraryIssueReturnController.onTypeChange()">
+          <select class="form-select form-select-sm" id="lirType" data-kw-onchange="libraryIssueReturnController.onTypeChange()">
             <option value="student">Student</option>
             <option value="staff">Staff</option>
           </select>
@@ -32,7 +32,7 @@
         <div class="mb-3"><label class="form-label small fw-semibold">Due Date</label>
           <input type="date" class="form-control form-control-sm" id="lirDue">
         </div>
-        <button class="btn btn-primary btn-sm w-100" onclick="libraryIssueReturnController.issue()" data-year-write><i class="bi bi-arrow-right-circle me-1"></i>Issue Book</button>
+        <button class="btn btn-primary btn-sm w-100" data-kw-onclick="libraryIssueReturnController.issue()" data-year-write><i class="bi bi-arrow-right-circle me-1"></i>Issue Book</button>
       </div>
     </div>
     <div class="col-lg-8">

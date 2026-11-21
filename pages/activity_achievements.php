@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-trophy text-warning me-2"></i>Activity Achievements</h4>
       <p class="text-muted small mb-0 mt-1">Sports team standings and completed match results.</p>
     </div>
-    <button class="btn btn-outline-warning btn-sm" onclick="activityAchievementsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-warning btn-sm" data-kw-onclick="activityAchievementsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden mb-4">

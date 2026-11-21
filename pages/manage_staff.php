@@ -15,7 +15,7 @@ if (!isset($staffPageIcon)) {
     $staffPageIcon = 'bi bi-person-workspace';
 }
 if (isset($staffPageContext) && is_array($staffPageContext)) {
-    echo '<script>window.STAFF_PAGE_CONTEXT = ' .
+    echo '<script nonce="' . csp_nonce() . '">window.STAFF_PAGE_CONTEXT = ' .
         json_encode($staffPageContext, JSON_UNESCAPED_SLASHES) .
         ';</script>' . PHP_EOL;
 }
@@ -393,7 +393,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
       </div></div></div>
     </div>
 </section>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 (() => {
     const tabs = [...document.querySelectorAll('[data-staff-workspace]')];
     const panels = [...document.querySelectorAll('[data-staff-workspace-panel]')];

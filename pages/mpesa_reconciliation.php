@@ -16,7 +16,7 @@
             <p class="text-muted mb-0">Match unmatched M-Pesa transactions to student fee accounts</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-success" onclick="MpesaReconciliationController.refresh()">
+            <button class="btn btn-outline-success" data-kw-onclick="MpesaReconciliationController.refresh()">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
@@ -62,7 +62,7 @@
                     <input type="date" class="form-control" id="filterDateTo">
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" onclick="MpesaReconciliationController.clearFilters()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="MpesaReconciliationController.clearFilters()">
                         <i class="bi bi-x-lg"></i> Clear
                     </button>
                 </div>

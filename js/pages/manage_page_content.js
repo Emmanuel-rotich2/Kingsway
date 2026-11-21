@@ -43,7 +43,7 @@ const pageContentController = {
         <div>
           <textarea class="ws-content-input" data-key="${this.esc(b.content_key)}"
             style="width:100%;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;resize:vertical;min-height:60px"
-            onblur="pageContentSave('${this.esc(b.content_key)}',this.value)">${this.esc(b.content_value || '')}</textarea>
+            data-kw-onblur="pageContentSave('${this.esc(b.content_key)}',this.value)">${this.esc(b.content_value || '')}</textarea>
         </div>
       </div>`).join('') || '<div class="text-muted small">No content blocks found.</div>';
 
@@ -51,7 +51,7 @@ const pageContentController = {
       <div class="d-flex align-items-center gap-2 mb-2">
         <span class="ws-tag-chip" style="background:${this.esc(c.color)}22;color:${this.esc(c.color)};border-color:${this.esc(c.color)}44">${this.esc(c.name)}</span>
         <span class="flex-grow-1"></span>
-        <button class="btn btn-sm btn-outline-danger rounded-pill" style="padding:1px 8px;font-size:.72rem" onclick="pageContentDeleteCategory(${c.id},'${this.esc(c.name).replace(/'/g, '')}')">Remove</button>
+        <button class="btn btn-sm btn-outline-danger rounded-pill" style="padding:1px 8px;font-size:.72rem" data-kw-onclick="pageContentDeleteCategory(${c.id},'${this.esc(c.name).replace(/'/g, '')}')">Remove</button>
       </div>`).join('') || '<div class="text-muted small">No categories found.</div>';
   },
 

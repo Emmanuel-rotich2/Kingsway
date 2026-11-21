@@ -17,8 +17,8 @@
     </div>
     <div class="d-flex gap-2">
       <input type="date" id="sbDateFilter" class="form-control form-control-sm"
-             onchange="sickBayController.loadVisits()" style="width:auto">
-      <button class="btn btn-primary" onclick="sickBayController.showAdmitModal()">
+             data-kw-onchange="sickBayController.loadVisits()" style="width:auto">
+      <button class="btn btn-primary" data-kw-onclick="sickBayController.showAdmitModal()">
         <i class="bi bi-plus-circle me-1"></i> Admit Student
       </button>
     </div>
@@ -134,7 +134,7 @@
           <div class="col-md-6">
             <div class="form-check mt-4">
               <input class="form-check-input" type="checkbox" id="sbReferred"
-                     onchange="document.getElementById('sbRefHospital').closest('.col-md-6').style.display=this.checked?'block':'none'">
+                     data-kw-onchange="document.getElementById('sbRefHospital').closest('.col-md-6').style.display=this.checked?'block':'none'">
               <label class="form-check-label fw-semibold" for="sbReferred">Referred to hospital</label>
             </div>
           </div>
@@ -165,7 +165,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="sickBayController.saveVisit()" data-year-write>Save Visit</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="sickBayController.saveVisit()" data-year-write>Save Visit</button>
       </div>
     </div>
   </div>
@@ -173,4 +173,4 @@
 
 <?php asset_script($appBase, 'js/pages/sick_bay.js'); ?>
 <?php asset_script($appBase, 'js/pages/ai_health_welfare.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => sickBayController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => sickBayController.init());</script>

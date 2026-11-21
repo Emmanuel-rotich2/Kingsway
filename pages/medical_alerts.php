@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-exclamation-triangle text-danger me-2"></i>Medical Alerts</h4>
       <p class="text-muted small mb-0 mt-1">Active student health alerts and current sick bay visits.</p>
     </div>
-    <button class="btn btn-outline-danger btn-sm" onclick="medicalAlertsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-danger btn-sm" data-kw-onclick="medicalAlertsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3 mb-4">

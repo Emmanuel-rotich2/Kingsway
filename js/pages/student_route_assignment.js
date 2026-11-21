@@ -95,7 +95,7 @@ const routeAssignController = {
         <td class="fw-semibold small">${this.esc(`${a.first_name || ''} ${a.last_name || ''}`.trim() || '\u2014')}</td>
         <td class="small text-muted">${this.esc(a.stop_name || '\u2014')}</td>
         <td class="small">${this.esc(a.assigned_at || '—')}</td>
-        <td><button class="btn btn-sm btn-outline-danger" onclick="routeAssignController.unassign(${Number(a.id)})"><i class="bi bi-x-lg"></i></button></td>
+        <td><button class="btn btn-sm btn-outline-danger" data-kw-onclick="routeAssignController.unassign(${Number(a.id)})"><i class="bi bi-x-lg"></i></button></td>
       </tr>
     `).join('');
   },

@@ -313,14 +313,14 @@ var DisciplineController = {
             <td><span class="status-badge ${this.statusClass(c.status)}">${this.escapeHtml(c.status || "-")}</span></td>
             <td>${this.escapeHtml(c.reported_by_name || "-")}</td>
             <td class="admin-row-actions">
-                <button class="action-btn" onclick="DisciplineController.viewCase(${this.escapeHtml(c.id)})" title="View">\uD83D\uDC41</button>
-                <button class="action-btn" onclick="DisciplineController.editCase(${this.escapeHtml(c.id)})" title="Edit">\u270F\uFE0F</button>
+                <button class="action-btn" data-kw-onclick="DisciplineController.viewCase(${this.escapeHtml(c.id)})" title="View">\uD83D\uDC41</button>
+                <button class="action-btn" data-kw-onclick="DisciplineController.editCase(${this.escapeHtml(c.id)})" title="Edit">\u270F\uFE0F</button>
                 <button class="action-btn dropdown-toggle" data-bs-toggle="dropdown">\u22EE</button>
                 <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" onclick="DisciplineController.escalateCase(${this.escapeHtml(c.id)})">\u26A0\uFE0F Escalate</a></li>
-                    <li><a class="dropdown-item" onclick="DisciplineController.resolveCase(${this.escapeHtml(c.id)})">\u2705 Resolve</a></li>
+                    <li><a class="dropdown-item" data-kw-onclick="DisciplineController.escalateCase(${this.escapeHtml(c.id)})">\u26A0\uFE0F Escalate</a></li>
+                    <li><a class="dropdown-item" data-kw-onclick="DisciplineController.resolveCase(${this.escapeHtml(c.id)})">\u2705 Resolve</a></li>
                     <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item text-danger" onclick="DisciplineController.deleteCase(${this.escapeHtml(c.id)})">\uD83D\uDDD1\uFE0F Delete</a></li>
+                    <li><a class="dropdown-item text-danger" data-kw-onclick="DisciplineController.deleteCase(${this.escapeHtml(c.id)})">\uD83D\uDDD1\uFE0F Delete</a></li>
                 </ul>
             </td>
         `;
@@ -335,8 +335,8 @@ var DisciplineController = {
             <td><span class="severity-badge ${this.severityClass(c.severity)}">${this.escapeHtml(c.severity || "-")}</span></td>
             <td><span class="status-badge ${this.statusClass(c.status)}">${this.escapeHtml(c.status || "-")}</span></td>
             <td class="manager-row-actions">
-                <button class="action-btn" onclick="DisciplineController.viewCase(${this.escapeHtml(c.id)})">\uD83D\uDC41</button>
-                <button class="action-btn" onclick="DisciplineController.editCase(${this.escapeHtml(c.id)})">\u270F\uFE0F</button>
+                <button class="action-btn" data-kw-onclick="DisciplineController.viewCase(${this.escapeHtml(c.id)})">\uD83D\uDC41</button>
+                <button class="action-btn" data-kw-onclick="DisciplineController.editCase(${this.escapeHtml(c.id)})">\u270F\uFE0F</button>
             </td>
         `;
     },

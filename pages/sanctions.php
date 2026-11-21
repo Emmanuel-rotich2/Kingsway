@@ -13,7 +13,7 @@
         <h2 class="mb-0"><i class="bi bi-shield-exclamation me-2 text-danger"></i>Student Discipline Cases</h2>
         <small class="text-muted">Record and resolve learner discipline incidents</small>
     </div>
-    <button class="btn btn-danger" onclick="sanctionsController.showLogModal()">
+    <button class="btn btn-danger" data-kw-onclick="sanctionsController.showLogModal()">
       <i class="bi bi-plus-circle me-1"></i> Record Case
     </button>
   </div>
@@ -57,19 +57,19 @@
   <!-- Filter Tabs -->
   <ul class="nav nav-tabs mb-3" id="saTabs">
     <li class="nav-item">
-      <button class="nav-link active" data-filter="all" onclick="sanctionsController.filterByType('all', this)">All</button>
+      <button class="nav-link active" data-filter="all" data-kw-onclick="sanctionsController.filterByType('all', this)">All</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" data-filter="Detention" onclick="sanctionsController.filterByType('Detention', this)">Detention</button>
+      <button class="nav-link" data-filter="Detention" data-kw-onclick="sanctionsController.filterByType('Detention', this)">Detention</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" data-filter="Suspension" onclick="sanctionsController.filterByType('Suspension', this)">Suspension</button>
+      <button class="nav-link" data-filter="Suspension" data-kw-onclick="sanctionsController.filterByType('Suspension', this)">Suspension</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" data-filter="Expulsion" onclick="sanctionsController.filterByType('Expulsion', this)">Expulsion</button>
+      <button class="nav-link" data-filter="Expulsion" data-kw-onclick="sanctionsController.filterByType('Expulsion', this)">Expulsion</button>
     </li>
     <li class="nav-item">
-      <button class="nav-link" data-filter="Community Service" onclick="sanctionsController.filterByType('Community Service', this)">Community Service</button>
+      <button class="nav-link" data-filter="Community Service" data-kw-onclick="sanctionsController.filterByType('Community Service', this)">Community Service</button>
     </li>
   </ul>
 
@@ -158,7 +158,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-danger" onclick="sanctionsController.logSanction()">Record Case</button>
+        <button type="button" class="btn btn-danger" data-kw-onclick="sanctionsController.logSanction()">Record Case</button>
       </div>
     </div>
   </div>
@@ -182,7 +182,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-success" onclick="sanctionsController.confirmLift()" data-year-write>Resolve Case</button>
+        <button type="button" class="btn btn-success" data-kw-onclick="sanctionsController.confirmLift()" data-year-write>Resolve Case</button>
       </div>
     </div>
   </div>

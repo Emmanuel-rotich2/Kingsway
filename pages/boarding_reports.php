@@ -11,8 +11,8 @@
       <p class="text-muted small mb-0 mt-1">Boarding KPIs and dormitory occupancy summary.</p>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-success btn-sm" onclick="boardingReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-      <button class="btn btn-outline-success btn-sm" onclick="boardingReportsController.exportCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="boardingReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+      <button class="btn btn-outline-success btn-sm" data-kw-onclick="boardingReportsController.exportCSV()"><i class="bi bi-download me-1"></i>Export CSV</button>
       <button class="btn btn-outline-secondary btn-sm" id="brPrint" type="button"><i class="bi bi-printer me-1"></i>Print</button>
     </div>
   </div>

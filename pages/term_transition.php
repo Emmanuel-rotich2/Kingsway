@@ -51,7 +51,7 @@
       </div>
     </div>
     <div class="d-flex justify-content-end">
-      <button class="btn btn-primary" onclick="termTransitionController.goStep(2)">
+      <button class="btn btn-primary" data-kw-onclick="termTransitionController.goStep(2)">
         Proceed to Close Term <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
@@ -74,10 +74,10 @@
       </div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(1)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(1)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()" data-year-write>
+        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" data-kw-onclick="termTransitionController.closeTerm()" data-year-write>
         <i class="bi bi-arrow-right me-1"></i> Confirm and Continue
       </button>
     </div>
@@ -129,13 +129,13 @@
       </div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(2)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(2)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-primary ms-auto" id="ttRolloverBtn" onclick="termTransitionController.rolloverTimetable()">
+      <button class="btn btn-primary ms-auto" id="ttRolloverBtn" data-kw-onclick="termTransitionController.rolloverTimetable()">
         <i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable to Next Term
       </button>
-      <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(4)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(4)">
         Skip (no timetable yet) <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
@@ -172,10 +172,10 @@
       </div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(3)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(3)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-        <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()" data-year-write>
+        <button class="btn btn-success ms-auto" data-kw-onclick="termTransitionController.saveTerm2Setup()" data-year-write>
         Save Setup and Review Activation <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
@@ -201,10 +201,10 @@
       </div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(4)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="termTransitionController.goStep(4)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" onclick="termTransitionController.activateTerm2()" data-year-write>
+      <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" data-kw-onclick="termTransitionController.activateTerm2()" data-year-write>
         <i class="bi bi-play-fill me-1"></i> Close Current &amp; Activate Next Term
       </button>
     </div>

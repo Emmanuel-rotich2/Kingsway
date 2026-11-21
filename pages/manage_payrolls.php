@@ -186,25 +186,25 @@
             </div>
             <div class="col-lg-5">
                 <div class="payroll-actions">
-                    <button class="payroll-action-btn ghost" onclick="PayrollManagerController.exportCsv()">
+                    <button class="payroll-action-btn ghost" data-kw-onclick="PayrollManagerController.exportCsv()">
                         <i class="bi bi-file-csv me-1"></i> Export CSV
                     </button>
-                    <button class="payroll-action-btn ghost" onclick="PayrollManagerController.printPayrollReport()">
+                    <button class="payroll-action-btn ghost" data-kw-onclick="PayrollManagerController.printPayrollReport()">
                         <i class="bi bi-printer me-1"></i> Print PDF
                     </button>
-                    <button class="payroll-action-btn ghost" onclick="PayrollManagerController.refresh()">
+                    <button class="payroll-action-btn ghost" data-kw-onclick="PayrollManagerController.refresh()">
                         <i class="bi bi-arrow-clockwise me-1"></i> Refresh
                     </button>
-                    <button class="payroll-action-btn primary" id="paySelectedPayrollBtn" data-payment-control hidden disabled onclick="PayrollManagerController.paySelected()">
+                    <button class="payroll-action-btn primary" id="paySelectedPayrollBtn" data-payment-control hidden disabled data-kw-onclick="PayrollManagerController.paySelected()">
                         <i class="bi bi-signpost-split me-1"></i> Plan Payout
                     </button>
-                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showBulkPayrollModal()">
+                    <button class="payroll-action-btn primary" data-kw-onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
-                    <button class="payroll-action-btn ghost" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showCompensationModal()">
+                    <button class="payroll-action-btn ghost" data-permission="staff.payroll.manage" data-kw-onclick="PayrollManagerController.showCompensationModal()">
                         <i class="bi bi-sliders me-1"></i> Salary &amp; Awards
                     </button>
-                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showProcessPayrollModal()">
+                    <button class="payroll-action-btn primary" data-kw-onclick="PayrollManagerController.showProcessPayrollModal()">
                         <i class="bi bi-plus-lg-circle me-1"></i> Single Payroll
                     </button>
                 </div>
@@ -245,7 +245,7 @@
         <div class="filter-row">
             <div class="filter-group">
                 <label class="form-label">Month</label>
-                <select id="filterMonth" class="form-select" onchange="PayrollManagerController.applyFilters()">
+                <select id="filterMonth" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
                     <option value="">All Months</option>
                     <option value="1">January</option>
                     <option value="2">February</option>
@@ -263,13 +263,13 @@
             </div>
             <div class="filter-group">
                 <label class="form-label">Year</label>
-                <select id="filterYear" class="form-select" onchange="PayrollManagerController.applyFilters()">
+                <select id="filterYear" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
                     <option value="">All Years</option>
                 </select>
             </div>
             <div class="filter-group">
                 <label class="form-label">Status</label>
-                <select id="filterStatus" class="form-select" onchange="PayrollManagerController.applyFilters()">
+                <select id="filterStatus" class="form-select" data-kw-onchange="PayrollManagerController.applyFilters()">
                     <option value="">All Status</option>
                     <option value="pending">Pending</option>
                     <option value="processing">Processing</option>
@@ -281,7 +281,7 @@
             <div class="filter-group">
                 <label class="form-label">Search Staff</label>
                 <input type="text" id="searchStaff" class="form-control" placeholder="Name or ID..."
-                       oninput="PayrollManagerController.applyFilters()">
+                       data-kw-oninput="PayrollManagerController.applyFilters()">
             </div>
         </div>
     </div>
@@ -336,10 +336,10 @@
                 <div class="small text-muted" id="payoutLedgerScope">Monthly provider and cash movements</div>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <button type="button" class="payroll-action-btn" onclick="PayrollManagerController.exportPayoutLedgerCsv()">
+                <button type="button" class="payroll-action-btn" data-kw-onclick="PayrollManagerController.exportPayoutLedgerCsv()">
                     <i class="bi bi-file-csv me-1"></i> Export CSV
                 </button>
-                <button type="button" class="payroll-action-btn" onclick="PayrollManagerController.printPayrollReport()">
+                <button type="button" class="payroll-action-btn" data-kw-onclick="PayrollManagerController.printPayrollReport()">
                     <i class="bi bi-printer me-1"></i> Print Monthly Roll
                 </button>
             </div>
@@ -385,7 +385,7 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Staff Member <span class="text-danger">*</span></label>
-                            <select id="payrollStaffSelect" class="form-select" onchange="PayrollManagerController.onStaffSelected()">
+                            <select id="payrollStaffSelect" class="form-select" data-kw-onchange="PayrollManagerController.onStaffSelected()">
                                 <option value="">-- Select Staff --</option>
                             </select>
                         </div>
@@ -447,7 +447,7 @@
                         <label class="statutory-choice" data-statutory-card="paye">
                             <span class="statutory-choice-head">
                                 <span class="statutory-choice-label">PAYE</span>
-                                <input type="checkbox" class="form-check-input" id="statutoryPayeToggle" data-statutory-key="paye" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                                <input type="checkbox" class="form-check-input" id="statutoryPayeToggle" data-statutory-key="paye" data-kw-onchange="PayrollManagerController.onStatutoryOptionChanged()">
                             </span>
                             <span class="statutory-choice-amount" id="statutoryPayeAmount">KES 0.00</span>
                             <span class="statutory-choice-note">Employee income tax</span>
@@ -455,7 +455,7 @@
                         <label class="statutory-choice" data-statutory-card="nssf">
                             <span class="statutory-choice-head">
                                 <span class="statutory-choice-label">NSSF</span>
-                                <input type="checkbox" class="form-check-input" id="statutoryNssfToggle" data-statutory-key="nssf" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                                <input type="checkbox" class="form-check-input" id="statutoryNssfToggle" data-statutory-key="nssf" data-kw-onchange="PayrollManagerController.onStatutoryOptionChanged()">
                             </span>
                             <span class="statutory-choice-amount" id="statutoryNssfAmount">KES 0.00</span>
                             <span class="statutory-choice-note">Employee contribution</span>
@@ -463,7 +463,7 @@
                         <label class="statutory-choice" data-statutory-card="shif">
                             <span class="statutory-choice-head">
                                 <span class="statutory-choice-label">SHIF</span>
-                                <input type="checkbox" class="form-check-input" id="statutoryShifToggle" data-statutory-key="shif" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                                <input type="checkbox" class="form-check-input" id="statutoryShifToggle" data-statutory-key="shif" data-kw-onchange="PayrollManagerController.onStatutoryOptionChanged()">
                             </span>
                             <span class="statutory-choice-amount" id="statutoryShifAmount">KES 0.00</span>
                             <span class="statutory-choice-note">Employee contribution</span>
@@ -471,7 +471,7 @@
                         <label class="statutory-choice" data-statutory-card="housing_levy">
                             <span class="statutory-choice-head">
                                 <span class="statutory-choice-label">Housing levy</span>
-                                <input type="checkbox" class="form-check-input" id="statutoryHousingToggle" data-statutory-key="housing_levy" onchange="PayrollManagerController.onStatutoryOptionChanged()">
+                                <input type="checkbox" class="form-check-input" id="statutoryHousingToggle" data-statutory-key="housing_levy" data-kw-onchange="PayrollManagerController.onStatutoryOptionChanged()">
                             </span>
                             <span class="statutory-choice-amount" id="statutoryHousingAmount">KES 0.00</span>
                             <span class="statutory-choice-note">Employee and school contribution</span>
@@ -533,28 +533,28 @@
                                     <td style="color: #6b7a8d;">House Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="houseAllowance" class="form-control form-control-sm text-end"
-                                               value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                               value="0" step="0.01" data-kw-onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr data-review-only>
                                     <td style="color: #6b7a8d;">Transport Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="transportAllowance" class="form-control form-control-sm text-end"
-                                               value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                               value="0" step="0.01" data-kw-onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr data-review-only>
                                     <td style="color: #6b7a8d;">Other Allowances</td>
                                     <td class="text-end">
                                         <input type="number" id="otherAllowances" class="form-control form-control-sm text-end"
-                                               value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                               value="0" step="0.01" data-kw-onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr data-review-only>
                                     <td style="color: #6b7a8d;">One-off Bonus</td>
                                     <td class="text-end">
                                         <input type="number" id="bonusAllowance" class="form-control form-control-sm text-end"
-                                               value="0" min="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                               value="0" min="0" step="0.01" data-kw-onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr style="background: rgba(26, 122, 76, 0.06);">
@@ -601,7 +601,7 @@
                                     <td style="color: #6b7a8d;">Other Deductions</td>
                                     <td class="text-end">
                                         <input type="number" id="otherDeductions" class="form-control form-control-sm text-end"
-                                               value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                               value="0" step="0.01" data-kw-onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr style="background: rgba(192, 57, 43, 0.06);">
@@ -621,7 +621,7 @@
             </div>
             <div class="modal-footer" style="border-top: 1px solid var(--payroll-line); padding: 16px 28px;">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 600;">Cancel</button>
-                <button type="button" class="btn" id="processPayrollBtn" onclick="PayrollManagerController.submitPayroll()" disabled
+                <button type="button" class="btn" id="processPayrollBtn" data-kw-onclick="PayrollManagerController.submitPayroll()" disabled
                         style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700; padding: 10px 24px;" data-year-write>
                     <i class="bi bi-check-lg-circle me-1"></i><span id="processPayrollButtonLabel">Prepare Draft</span>
                 </button>
@@ -642,7 +642,7 @@
                 <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label">Month</label>
-                        <select id="bulkPayrollMonth" class="form-select" onchange="PayrollManagerController.prepareBulkPayrollRows()">
+                        <select id="bulkPayrollMonth" class="form-select" data-kw-onchange="PayrollManagerController.prepareBulkPayrollRows()">
                             <option value="1">January</option>
                             <option value="2">February</option>
                             <option value="3">March</option>
@@ -659,7 +659,7 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Year</label>
-                        <input type="number" id="bulkPayrollYear" class="form-control" value="<?= date('Y') ?>" onchange="PayrollManagerController.prepareBulkPayrollRows()">
+                        <input type="number" id="bulkPayrollYear" class="form-control" value="<?= date('Y') ?>" data-kw-onchange="PayrollManagerController.prepareBulkPayrollRows()">
                     </div>
                     <div class="col-md-6 d-flex align-items-end">
                         <div class="alert alert-info mb-0 w-100" style="font-size: 0.85rem;">
@@ -671,8 +671,8 @@
 
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div>
-                        <button type="button" class="btn btn-sm btn-outline-dark" onclick="PayrollManagerController.toggleBulkStaffSelection(true)">Select All</button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PayrollManagerController.toggleBulkStaffSelection(false)">Clear</button>
+                        <button type="button" class="btn btn-sm btn-outline-dark" data-kw-onclick="PayrollManagerController.toggleBulkStaffSelection(true)">Select All</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-kw-onclick="PayrollManagerController.toggleBulkStaffSelection(false)">Clear</button>
                     </div>
                     <strong id="bulkPayrollSummary">0 selected · KES 0.00 net</strong>
                 </div>
@@ -699,7 +699,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn" onclick="PayrollManagerController.submitBulkPayroll()"
+                <button type="button" class="btn" data-kw-onclick="PayrollManagerController.submitBulkPayroll()"
                         style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700;" data-year-write>
                     <i class="bi bi-check-lg-circle me-1"></i> Process Selected Payrolls
                 </button>
@@ -720,11 +720,11 @@
                 <!-- Payslip content loaded here -->
             </div>
             <div class="modal-footer" style="border-top: 1px solid var(--payroll-line); padding: 16px 28px;">
-                <button type="button" class="btn" onclick="PayrollManagerController.printPayslip()"
+                <button type="button" class="btn" data-kw-onclick="PayrollManagerController.printPayslip()"
                         style="background: transparent; border: 1px solid var(--payroll-navy); color: var(--payroll-navy); border-radius: 10px; font-weight: 600;">
                     <i class="bi bi-printer me-1"></i> Print
                 </button>
-                <button type="button" class="btn" onclick="PayrollManagerController.downloadPayslip()"
+                <button type="button" class="btn" data-kw-onclick="PayrollManagerController.downloadPayslip()"
                         style="background: transparent; border: 1px solid var(--payroll-success); color: var(--payroll-success); border-radius: 10px; font-weight: 600;">
                     <i class="bi bi-download me-1"></i> Download PDF
                 </button>
@@ -779,10 +779,10 @@
             </div>
             <div class="modal-footer border-0" style="background: var(--pr-wash);">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-outline-primary" id="savePayrollPayoutPlansBtn" onclick="PayrollManagerController.savePayoutPlans()">
+                <button type="button" class="btn btn-outline-primary" id="savePayrollPayoutPlansBtn" data-kw-onclick="PayrollManagerController.savePayoutPlans()">
                     <i class="bi bi-check2-square me-1"></i> Save payout routes
                 </button>
-                <button type="button" class="btn btn-primary" id="releasePayrollPayoutsBtn" onclick="PayrollManagerController.releaseSelectedPayouts()">
+                <button type="button" class="btn btn-primary" id="releasePayrollPayoutsBtn" data-kw-onclick="PayrollManagerController.releaseSelectedPayouts()">
                     <i class="bi bi-send-check me-1"></i> Release selected payouts
                 </button>
             </div>
@@ -806,7 +806,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="cashConfirmSubmitBtn" onclick="PayrollManagerController.confirmCashPayout()">
+                <button type="button" class="btn btn-primary" id="cashConfirmSubmitBtn" data-kw-onclick="PayrollManagerController.confirmCashPayout()">
                     Confirm receipt
                 </button>
             </div>

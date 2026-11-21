@@ -244,12 +244,12 @@ const FinanceApprovalsController = (() => {
   }
 
   function renderActions(record) {
-    const view = `<button class="btn btn-sm btn-outline-primary me-1" onclick="FinanceApprovalsController.viewRequest('${record.uid}')"><i class="bi bi-eye"></i></button>`;
+    const view = `<button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="FinanceApprovalsController.viewRequest('${record.uid}')"><i class="bi bi-eye"></i></button>`;
     if (record.status !== "pending") {
       return `${view}<span class="text-muted small">—</span>`;
     }
-    const approve = `<button class="btn btn-sm btn-outline-success me-1" onclick="FinanceApprovalsController.quickApprove('${record.uid}')" data-year-write><i class="bi bi-check"></i></button>`;
-    const reject = `<button class="btn btn-sm btn-outline-danger" onclick="FinanceApprovalsController.quickReject('${record.uid}')" data-year-write><i class="bi bi-x"></i></button>`;
+    const approve = `<button class="btn btn-sm btn-outline-success me-1" data-kw-onclick="FinanceApprovalsController.quickApprove('${record.uid}')" data-year-write><i class="bi bi-check"></i></button>`;
+    const reject = `<button class="btn btn-sm btn-outline-danger" data-kw-onclick="FinanceApprovalsController.quickReject('${record.uid}')" data-year-write><i class="bi bi-x"></i></button>`;
     return `${view}${approve}${reject}`;
   }
 

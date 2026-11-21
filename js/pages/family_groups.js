@@ -193,7 +193,7 @@ const FamilyGroupsController = {
             <td><small>${this.escapeHtml(f.student_names || "None")}</small></td>
             <td><span class="badge bg-${f.parent_status === 'active' ? 'success' : 'secondary'}">${this.escapeHtml(f.parent_status || 'active')}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-success" onclick="FamilyGroupsController.viewFamily(${f.parent_id})">
+              <button class="btn btn-sm btn-outline-success" data-kw-onclick="FamilyGroupsController.viewFamily(${f.parent_id})">
                 <i class="bi bi-eye"></i> View
               </button>
             </td>

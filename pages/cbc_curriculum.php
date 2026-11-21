@@ -63,7 +63,7 @@
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0">Sub-Strands</h5>
                         <div>
-                            <button class="btn btn-success btn-sm" onclick="CBCController.openSubStrandModal()">
+                            <button class="btn btn-success btn-sm" data-kw-onclick="CBCController.openSubStrandModal()">
                                 <i class="bi bi-plus-circle"></i> Add Sub-Strand
                             </button>
                         </div>
@@ -128,7 +128,7 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0">Learning Outcomes</h5>
-                        <button class="btn btn-success btn-sm" onclick="CBCController.openLearningOutcomeModal()">
+                        <button class="btn btn-success btn-sm" data-kw-onclick="CBCController.openLearningOutcomeModal()">
                             <i class="bi bi-plus-circle"></i> Add Outcome
                         </button>
                     </div>
@@ -184,7 +184,7 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0">Strand-Competency Crosswalk</h5>
-                        <button class="btn btn-success btn-sm" onclick="CBCController.openCrosswalkModal()">
+                        <button class="btn btn-success btn-sm" data-kw-onclick="CBCController.openCrosswalkModal()">
                             <i class="bi bi-plus-circle"></i> Add Mapping
                         </button>
                     </div>
@@ -224,7 +224,7 @@
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0">Curriculum Structure Tree</h5>
-                        <button class="btn btn-outline-primary btn-sm" onclick="CBCController.loadCurriculumTree()">
+                        <button class="btn btn-outline-primary btn-sm" data-kw-onclick="CBCController.loadCurriculumTree()">
                             <i class="bi bi-arrow-clockwise"></i> Refresh
                         </button>
                     </div>
