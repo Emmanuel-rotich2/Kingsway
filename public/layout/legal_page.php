@@ -55,7 +55,7 @@ include __DIR__ . '/header.php';
                 <?php if ($key === $activePage): ?>
                   <strong><?= htmlspecialchars($label) ?></strong>
                 <?php else: ?>
-                  <a href="<?= htmlspecialchars($appBase . '/' . public_route_url($key)) ?>"><?= htmlspecialchars($label) ?></a>
+                  <a href="<?= htmlspecialchars($appBase . '/' . public_clean_url($key)) ?>"><?= htmlspecialchars($label) ?></a>
                 <?php endif; ?>
               </li>
             <?php endforeach; ?>
@@ -80,13 +80,13 @@ include __DIR__ . '/header.php';
           <?php if ($schoolPhone !== ''): ?>
             <p class="mb-1">Phone: <?= htmlspecialchars($schoolPhone) ?></p>
           <?php endif; ?>
-          <p class="mb-0">Or use the <a href="<?= htmlspecialchars($appBase . '/' . public_route_url('contact')) ?>">contact page</a>.</p>
+          <p class="mb-0">Or use the <a href="<?= htmlspecialchars($appBase . '/' . public_clean_url('contact')) ?>">contact page</a>.</p>
         </div>
 
         <p class="small text-muted mt-4 d-lg-none">
           <?php foreach ($legalLinks as $key => $label): ?>
             <?php if ($key !== $activePage): ?>
-              <a href="<?= htmlspecialchars($appBase . '/' . public_route_url($key)) ?>"><?= htmlspecialchars($label) ?></a> &nbsp;
+              <a href="<?= htmlspecialchars($appBase . '/' . public_clean_url($key)) ?>"><?= htmlspecialchars($label) ?></a> &nbsp;
             <?php endif; ?>
           <?php endforeach; ?>
         </p>

@@ -47,6 +47,37 @@ function public_route_url(string $routeKey, array $query = [], string $fragment 
     return $url;
 }
 
+/**
+ * Indexable public pages that have a clean, crawlable URL (/about, /news …).
+ * .htaccess rewrites each to index.php?route=<key>; canonical tags, the
+ * sitemap and the site navigation all use these so search engines see one
+ * URL per page instead of opaque route tokens.
+ */
+function public_clean_route_keys(): array
+{
+    return [
+        'about', 'admissions', 'news', 'events', 'careers', 'contact',
+        'downloads', 'gallery', 'uniform-catalog',
+        'privacy-policy', 'terms-of-use', 'cookie-policy',
+    ];
+}
+
+/** Relative clean URL for an indexable page; other routes keep their token URL. */
+function public_clean_url(string $routeKey, array $query = [], string $fragment = ''): string
+{
+    if ($routeKey === 'home') {
+        $url = '';
+    } elseif (in_array($routeKey, public_clean_route_keys(), true)) {
+        $url = $routeKey;
+    } else {
+        return public_route_url($routeKey, $query, $fragment);
+    }
+    if ($query !== []) {
+        $url .= '?' . http_build_query($query);
+    }
+    return $fragment !== '' ? $url . '#' . $fragment : $url;
+}
+
 function public_route_map(): array
 {
     static $map = null;

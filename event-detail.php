@@ -3,6 +3,7 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 
 $pageTitle  = 'Event Details';
 $activePage = 'events';
+$canonicalRouteKey = 'event-detail';
 $pageScript = 'event-detail';
 $eventId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
 if ($eventId && defined('BASE_URL')) {
@@ -14,6 +15,7 @@ if ($eventId && defined('BASE_URL')) {
 // events.php client-side.
 require_once __DIR__ . '/public/layout/public_data.php';
 ?>
+<?php require __DIR__ . '/public/layout/detail_seo.php'; ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
 <div class="page-header">

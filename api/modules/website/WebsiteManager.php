@@ -293,7 +293,10 @@ class WebsiteManager extends BaseAPI
                     $this->db->prepare("UPDATE news_articles SET views = views + 1 WHERE id = ?")
                         ->execute([(int) $id]);
                 }
-                $stmt = $this->db->prepare("SELECT * FROM news_articles WHERE id=? AND deleted_at IS NULL");
+                $stmt = $this->db->prepare(
+                    "SELECT * FROM news_articles WHERE id=? AND deleted_at IS NULL"
+                    . (!empty($data['published_only']) ? " AND status = 'published'" : '')
+                );
                 $stmt->execute([$id]);
                 $row = $stmt->fetch(\PDO::FETCH_ASSOC);
                 return $row
@@ -331,6 +334,43 @@ class WebsiteManager extends BaseAPI
             \App\API\Services\Logger::legacyError('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Public items for sitemap.xml: published articles, current/upcoming
+     * events (one entry per event, as the events page groups them) and open
+     * vacancies. Ids and dates only; each list degrades to empty on error so
+     * the static pages are always listed.
+     *
+     * @return array{news: list<array>, events: list<array>, jobs: list<array>}
+     */
+    public function sitemapEntries(): array
+    {
+        $queries = [
+            'news' => "SELECT id, COALESCE(updated_at, created_at) AS lastmod
+                         FROM news_articles
+                        WHERE status = 'published' AND deleted_at IS NULL
+                        ORDER BY created_at DESC LIMIT 1000",
+            'events' => "SELECT MIN(id) AS id, MIN(start_at) AS lastmod
+                           FROM school_events
+                          WHERE end_at >= CURDATE() - INTERVAL 30 DAY AND status != 'cancelled'
+                          GROUP BY title, YEAR(start_at)
+                          ORDER BY MIN(start_at) ASC LIMIT 500",
+            'jobs' => "SELECT id, created_at AS lastmod
+                         FROM job_vacancies
+                        WHERE status = 'open'
+                        ORDER BY created_at DESC LIMIT 200",
+        ];
+        $entries = [];
+        foreach ($queries as $kind => $sql) {
+            try {
+                $entries[$kind] = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                \App\API\Services\Logger::legacyError('[WebsiteManager] sitemap ' . $kind . ': ' . $e->getMessage());
+                $entries[$kind] = [];
+            }
+        }
+        return $entries;
     }
 
     public function createNews(array $data, string $author = 'Admin')
