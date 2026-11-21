@@ -660,7 +660,7 @@ const StaffChildrenController = {
         staff.children.length > 1 ? "ren" : ""
       }</span>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="staffChildrenController.viewStaffDeductions(${escapeHtml(
+                        <button class="btn btn-sm btn-primary" data-kw-onclick="staffChildrenController.viewStaffDeductions(${escapeHtml(
                           staff.staff_id
                         )})">
                             <i class="bi bi-calculator"></i> View Deductions
@@ -718,12 +718,12 @@ const StaffChildrenController = {
                             </span>
                         </td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="staffChildrenController.showEditModal(${escapeHtml(
+                            <button class="btn btn-sm btn-outline-primary" data-kw-onclick="staffChildrenController.showEditModal(${escapeHtml(
                               child.id
                             )})" title="Edit">
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="staffChildrenController.removeStaffChild(${escapeHtml(
+                            <button class="btn btn-sm btn-outline-danger" data-kw-onclick="staffChildrenController.removeStaffChild(${escapeHtml(
                               child.id
                             )})" title="Remove">
                                 <i class="bi bi-trash"></i>

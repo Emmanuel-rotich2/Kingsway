@@ -48,7 +48,7 @@ const lessonPlansByClassController = {
       <td class="small">${this.esc(p.topic || '—')}</td>
       <td class="small">${this.fmtDate(p.week_start)} - ${this.fmtDate(p.week_end)}</td>
       <td class="small"><span class="badge bg-${p.status === 'approved' ? 'success' : p.status === 'draft' ? 'warning' : 'secondary'}">${this.esc(p.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="lessonPlansByClassController.viewPlan(${p.id})"><i class="bi bi-eye"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="lessonPlansByClassController.viewPlan(${p.id})"><i class="bi bi-eye"></i></button></td>
     </tr>`).join('');
   },
 

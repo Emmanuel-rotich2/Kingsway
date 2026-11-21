@@ -25,7 +25,7 @@
                     <h4 class="mb-1"><i class="bi bi-people me-2"></i>Staff Meetings</h4>
                     <p class="text-muted mb-0">Internal meetings - appear on the academic calendar with venue / online link, attendee RSVP and reminders</p>
                 </div>
-                <button class="btn btn-primary" onclick="StaffMeetingsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Schedule Meeting</button>
+                <button class="btn btn-primary" data-kw-onclick="StaffMeetingsController.showAddModal()" data-year-write><i class="bi bi-plus-lg me-1"></i> Schedule Meeting</button>
             </div>
         </div>
     </div>
@@ -64,8 +64,8 @@
                 <div class="col-md-2"><select class="form-select" id="statusFilter"><option value="">All Status</option><option value="upcoming">Upcoming</option><option value="ongoing">Ongoing</option><option value="completed">Past / Held</option><option value="cancelled">Cancelled</option></select></div>
                 <div class="col-md-2"><select class="form-select" id="typeFilter"><option value="">All Types</option></select></div>
                 <div class="col-md-2"><select class="form-select" id="departmentFilter"><option value="">All Departments</option></select></div>
-                <div class="col-md-1"><button class="btn btn-outline-secondary w-100" onclick="StaffMeetingsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
-                <div class="col-md-2"><button class="btn btn-outline-success w-100" onclick="StaffMeetingsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
+                <div class="col-md-1"><button class="btn btn-outline-secondary w-100" data-kw-onclick="StaffMeetingsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-success w-100" data-kw-onclick="StaffMeetingsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
             </div>
         </div>
     </div>
@@ -116,7 +116,7 @@
         <div class="mb-3"><label class="form-label">Agenda</label><textarea class="form-control" id="recordAgenda" rows="2" placeholder="1. ..."></textarea></div>
         <div class="mb-3"><label class="form-label">Description / Notes</label><textarea class="form-control" id="recordDescription" rows="2"></textarea></div>
     </form></div>
-    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="StaffMeetingsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save Meeting</button></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" data-kw-onclick="StaffMeetingsController.saveRecord()" data-year-write><i class="bi bi-check-lg me-1"></i> Save Meeting</button></div>
 </div></div></div>
 
 <div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">

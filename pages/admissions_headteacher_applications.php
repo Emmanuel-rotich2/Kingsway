@@ -78,7 +78,7 @@
                 <h4 class="mb-1">Headteacher Applications</h4>
                 <p class="mb-0 text-muted">Review applications and conduct admission interviews</p>
             </div>
-            <button class="btn btn-light btn-lg" onclick="headteacherApplicationsController.refreshData()">
+            <button class="btn btn-light btn-lg" data-kw-onclick="headteacherApplicationsController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-2"></i>Refresh
             </button>
         </div>
@@ -282,6 +282,6 @@
 
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_headteacher_applications.js"
-    onload="console.log('admissions_headteacher_applications.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load admissions_headteacher_applications.js. Check path:', this.src)">
+    data-kw-onload="console.log('admissions_headteacher_applications.js script tag loaded successfully')"
+    data-kw-onerror="console.error('FAILED to load admissions_headteacher_applications.js. Check path:', this.src)">
 </script>

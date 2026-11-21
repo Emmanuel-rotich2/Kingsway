@@ -138,7 +138,7 @@ const LessonPlanApprovalController = (() => {
                     <td><span class="badge bg-${statusColor}">${lp.status || "pending"}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-primary btn-sm" onclick="LessonPlanApprovalController.review(${lp.id})" title="Review">
+                            <button class="btn btn-primary btn-sm" data-kw-onclick="LessonPlanApprovalController.review(${lp.id})" title="Review">
                                 <i class="bi bi-eye"></i> Review
                             </button>
                         </div>
@@ -170,7 +170,7 @@ const LessonPlanApprovalController = (() => {
     let html = "";
     for (let i = 1; i <= totalPages; i++) {
       html += `<li class="page-item ${i === pagination.page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="LessonPlanApprovalController.loadPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-kw-onclick="LessonPlanApprovalController.loadPage(${i}); return false;">${i}</a>
             </li>`;
     }
     container.innerHTML = html;

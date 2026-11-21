@@ -10,7 +10,7 @@
         <div class="d-flex gap-2">
             <a class="btn btn-light btn-sm" href="home.php?route=curriculum_proposals"><i class="bi bi-lightbulb me-1"></i>Curriculum Proposals</a>
             <button class="btn btn-outline-light btn-sm" id="printSubjects" type="button"><i class="bi bi-printer me-1"></i>Print</button>
-            <button class="btn btn-outline-light btn-sm" onclick="ManageSubjectsController.exportSubjects()" type="button"><i class="bi bi-download me-1"></i>Export CSV</button>
+            <button class="btn btn-outline-light btn-sm" data-kw-onclick="ManageSubjectsController.exportSubjects()" type="button"><i class="bi bi-download me-1"></i>Export CSV</button>
         </div>
     </div>
     <div class="card-body">

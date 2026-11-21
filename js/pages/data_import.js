@@ -74,7 +74,7 @@ const dataImportController = {
       const meta = this.CATEGORIES[cat] || { icon: 'bi-grid', color: 'secondary', label: cat };
       const typeButtons = types.map(t => `
         <div class="p-2 border rounded mb-1 di-type-btn" id="diType_${t.type}"
-             onclick="dataImportController.selectType('${t.type}','${this._esc(t.label)}')">
+             data-kw-onclick="dataImportController.selectType('${t.type}','${this._esc(t.label)}')">
           <div class="d-flex justify-content-between align-items-center">
             <span class="small fw-semibold">${this._esc(t.label)}</span>
             <i class="bi bi-chevron-right text-muted small"></i>

@@ -19,7 +19,7 @@
                     <h4 class="mb-1"><i class="bi bi-question-circle me-2"></i>Unmatched Payments</h4>
                     <p class="text-muted mb-0">Review and match unidentified payments to student accounts</p>
                 </div>
-                <button class="btn btn-success" onclick="UnmatchedPaymentsController.exportCSV()">
+                <button class="btn btn-success" data-kw-onclick="UnmatchedPaymentsController.exportCSV()">
                     <i class="bi bi-file-csv me-1"></i> Export
                 </button>
             </div>
@@ -116,7 +116,7 @@
                     </select>
                 </div>
                 <div class="col-md-1">
-                    <button class="btn btn-outline-secondary w-100" onclick="UnmatchedPaymentsController.refresh()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="UnmatchedPaymentsController.refresh()">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
                 </div>
@@ -182,7 +182,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="UnmatchedPaymentsController.confirmMatch()">
+                <button type="button" class="btn btn-primary" data-kw-onclick="UnmatchedPaymentsController.confirmMatch()">
                     <i class="bi bi-check-lg me-1"></i> Match Payment
                 </button>
             </div>

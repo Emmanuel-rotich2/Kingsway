@@ -21,7 +21,7 @@
       <option value="received">Received</option>
       <option value="cancelled">Cancelled</option>
     </select></div>
-    <button class="btn btn-outline-warning btn-sm" onclick="goodsReceivedController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-warning btn-sm" data-kw-onclick="goodsReceivedController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

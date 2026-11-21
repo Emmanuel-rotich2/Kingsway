@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-door-open text-primary me-2"></i>Room Assignments</h4>
       <p class="text-muted small mb-0 mt-1">Dormitory occupancy and student bed assignments.</p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="roomAssignmentsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="roomAssignmentsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div id="raDorms" class="row g-3"></div>

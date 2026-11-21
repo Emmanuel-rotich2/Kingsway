@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-speedometer text-success me-2"></i>Budget vs Actuals</h4>
       <p class="text-muted small mb-0 mt-1">Compare budgeted amounts against allocated, committed and actual spend.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="budgetActualsController.load()"><i class="bi bi-arrow-clockwise"></i></button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="budgetActualsController.load()"><i class="bi bi-arrow-clockwise"></i></button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden">

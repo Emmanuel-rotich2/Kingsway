@@ -20,8 +20,8 @@
         <p class="text-muted mb-0">Review submitted structures and monitor active fees.</p>
     </div>
     <div class="d-flex gap-2">
-        <button class="btn btn-outline-secondary btn-sm" onclick="exportReport()"><i class="bi bi-download me-1"></i>Export</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="printSummary()"><i class="bi bi-printer me-1"></i>Print</button>
+        <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="exportReport()"><i class="bi bi-download me-1"></i>Export</button>
+        <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="printSummary()"><i class="bi bi-printer me-1"></i>Print</button>
     </div>
 </div>
 
@@ -90,7 +90,7 @@
 <div class="card shadow-sm mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <strong><i class="bi bi-filter me-1"></i>Active fee structures</strong>
-        <button class="btn btn-sm btn-link text-decoration-none" onclick="clearFilters()">Reset filters</button>
+        <button class="btn btn-sm btn-link text-decoration-none" data-kw-onclick="clearFilters()">Reset filters</button>
     </div>
     <div class="card-body">
         <div class="row g-2 align-items-center">
@@ -145,15 +145,15 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('viewFeeStructureModal')">×</button>
             </div>
             <div class="modal-body" id="viewModalBody">
                 <!-- Read-only details -->
                 <div id="structureDetails"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('viewFeeStructureModal')">Close</button>
-                <button class="btn btn-outline" onclick="printStructure()">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('viewFeeStructureModal')">Close</button>
+                <button class="btn btn-outline" data-kw-onclick="printStructure()">
                     <i class="bi bi-printer"></i> Print
                 </button>
             </div>
@@ -167,7 +167,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Export Fee Structures</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('exportModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('exportModal')">×</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -189,8 +189,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" data-bs-dismiss="modal" onclick="closeModal('exportModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="confirmExport()">
+                <button class="btn btn-secondary" data-bs-dismiss="modal" data-kw-onclick="closeModal('exportModal')">Cancel</button>
+                <button class="btn btn-primary" data-kw-onclick="confirmExport()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>

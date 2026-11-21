@@ -77,16 +77,16 @@ const goodsReceivedController = {
           <td class="small">${this.esc(o.item_count ?? '\u2014')}</td>
           <td class="small fw-semibold">KES ${total.toLocaleString()}</td>
           <td><span class="badge ${this.badgeClass(o.status)}">${this.esc(o.status || 'pending')}</span></td>
-          <td class="text-end">${received ? '<span class="text-muted small">\u2014</span>' : `<button class="btn btn-sm btn-outline-success" onclick="goodsReceivedController.receive(${o.id})">Mark Received</button>`}</td>
+          <td class="text-end">${received ? '<span class="text-muted small">\u2014</span>' : `<button class="btn btn-sm btn-outline-success" data-kw-onclick="goodsReceivedController.receive(${o.id})">Mark Received</button>`}</td>
         </tr>`;
       }).join('');
     }
     document.getElementById('grInfo').textContent = `Showing ${this.state.orders.length} of ${this.state.total} orders`;
     const pages = document.getElementById('grPages');
     let html = '';
-    if (this.state.page > 1) html += `<button class="btn btn-outline-secondary" onclick="goodsReceivedController.load(${this.state.page - 1})">&laquo; Prev</button>`;
+    if (this.state.page > 1) html += `<button class="btn btn-outline-secondary" data-kw-onclick="goodsReceivedController.load(${this.state.page - 1})">&laquo; Prev</button>`;
     html += `<span class="btn btn-light disabled">Page ${this.state.page}${this.state.pages ? ` / ${this.state.pages}` : ''}</span>`;
-    if (this.state.page < this.state.pages) html += `<button class="btn btn-outline-secondary" onclick="goodsReceivedController.load(${this.state.page + 1})">Next &raquo;</button>`;
+    if (this.state.page < this.state.pages) html += `<button class="btn btn-outline-secondary" data-kw-onclick="goodsReceivedController.load(${this.state.page + 1})">Next &raquo;</button>`;
     pages.innerHTML = html;
   },
 

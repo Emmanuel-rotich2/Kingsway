@@ -135,8 +135,8 @@ const SupervisionRosterController = (() => {
                     <td><span class="badge bg-${statusClass}">${esc(r.status || 'assigned')}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-warning btn-sm" onclick="SupervisionRosterController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-danger btn-sm" onclick="SupervisionRosterController.remove(${r.id})" title="Delete" data-year-write><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-warning btn-sm" data-kw-onclick="SupervisionRosterController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-danger btn-sm" data-kw-onclick="SupervisionRosterController.remove(${r.id})" title="Delete" data-year-write><i class="bi bi-trash"></i></button>
                         </div>
                     </td>
                 </tr>
@@ -159,7 +159,7 @@ const SupervisionRosterController = (() => {
         let html = '';
         for (let i = 1; i <= totalPages; i++) {
             html += `<li class="page-item ${i === pagination.page ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="SupervisionRosterController.loadPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-kw-onclick="SupervisionRosterController.loadPage(${i}); return false;">${i}</a>
             </li>`;
         }
         container.innerHTML = html;

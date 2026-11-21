@@ -68,8 +68,8 @@ const pendingExeatRequestsController = {
       <td class="small text-muted">${this.esc(r.reason || '\u2014')}</td>
       <td class="small">${this.esc(r.dormitory_name || '\u2014')}</td>
       <td class="text-end text-nowrap">
-        <button class="btn btn-sm btn-outline-success" onclick="pendingExeatRequestsController.approve(${r.id})" data-year-write><i class="bi bi-check-lg"></i></button>
-        <button class="btn btn-sm btn-outline-danger" onclick="pendingExeatRequestsController.reject(${r.id})" data-year-write><i class="bi bi-x-lg"></i></button>
+        <button class="btn btn-sm btn-outline-success" data-kw-onclick="pendingExeatRequestsController.approve(${r.id})" data-year-write><i class="bi bi-check-lg"></i></button>
+        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="pendingExeatRequestsController.reject(${r.id})" data-year-write><i class="bi bi-x-lg"></i></button>
       </td>
     </tr>`).join('');
   },

@@ -265,7 +265,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
                             placeholder="Type your message..." required></textarea>
                         <div class="d-flex justify-content-between mt-1">
                             <small class="text-muted">Characters: <span id="charCount">0</span>/160 (SMS)</small>
-                            <button type="button" class="btn btn-link btn-sm" onclick="insertVariable()">Insert
+                            <button type="button" class="btn btn-link btn-sm" data-kw-onclick="insertVariable()">Insert
                                 Variable</button>
                         </div>
                     </div>
@@ -296,7 +296,7 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     const initializeAdminCommunications = function () {
         loadMessages();
         initCharts();
@@ -346,9 +346,9 @@ $whatsappSendingEnabled = filter_var(\App\Config\Config::get('WHATSAPP_ENABLED',
             <td>${escapeHtml(msg.sent_by_name || 'System')}</td>
             <td>${msg.cost ? 'KES ' + msg.cost : '-'}</td>
             <td class="admin-row-actions">
-                <button class="action-btn view-btn" onclick="viewMessage(${msg.id})">👁️</button>
-                <button class="action-btn edit-btn" onclick="resendMessage(${msg.id})">🔄</button>
-                <button class="action-btn delete-btn" onclick="deleteMessage(${msg.id})">🗑️</button>
+                <button class="action-btn view-btn" data-kw-onclick="viewMessage(${msg.id})">👁️</button>
+                <button class="action-btn edit-btn" data-kw-onclick="resendMessage(${msg.id})">🔄</button>
+                <button class="action-btn delete-btn" data-kw-onclick="deleteMessage(${msg.id})">🗑️</button>
             </td>
         `;
             tbody.appendChild(row);

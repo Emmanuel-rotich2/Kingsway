@@ -15,10 +15,10 @@
           <div class="col-md-5">
             <input type="text" id="sgSearchInput" class="form-control form-control-lg"
                    placeholder="Search by name or admission number…"
-                   oninput="studentGrowthCtrl.search(this.value)">
+                   data-kw-oninput="studentGrowthCtrl.search(this.value)">
           </div>
           <div class="col-md-3">
-            <select class="form-control form-control-lg" id="sgClassFilter" onchange="studentGrowthCtrl.filterByClass()">
+            <select class="form-control form-control-lg" id="sgClassFilter" data-kw-onchange="studentGrowthCtrl.filterByClass()">
               <option value="">All Classes</option>
             </select>
           </div>
@@ -57,7 +57,7 @@
           <div class="col-auto d-flex gap-2">
             <span class="badge fs-6 py-2 px-3" id="sgOverallGradeBadge">—</span>
             <span class="badge fs-6 py-2 px-3" id="sgPathwayBadge">—</span>
-            <button class="btn btn-outline-secondary btn-sm" onclick="studentGrowthCtrl.backToSearch()">
+            <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="studentGrowthCtrl.backToSearch()">
               <i class="bi bi-arrow-left me-1"></i> Back
             </button>
           </div>
@@ -87,7 +87,7 @@
           <div class="card-header bg-transparent fw-semibold d-flex justify-content-between">
             <span>Learning Area Performance — Term <span id="sgPerfTerm">—</span></span>
             <select class="form-select form-select-sm" style="width:auto;" id="sgPerfTermFilter"
-                    onchange="studentGrowthCtrl.loadPerformance()">
+                    data-kw-onchange="studentGrowthCtrl.loadPerformance()">
               <option value="">Current Term</option>
             </select>
           </div>
@@ -126,7 +126,7 @@
                 <div id="sgGrowthChart" class="text-center py-3 text-muted">Select learning area to plot trend.</div>
                 <div class="mt-3">
                   <select id="sgGrowthLASelect" class="form-select form-select-sm" style="max-width:300px;"
-                          onchange="studentGrowthCtrl.plotGrowth()">
+                          data-kw-onchange="studentGrowthCtrl.plotGrowth()">
                     <option value="">— Select learning area —</option>
                   </select>
                 </div>

@@ -120,8 +120,8 @@ const enterResultsController = (() => {
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0"><i class="fas fa-users me-2"></i>${students.length} Students</h5>
             <div>
-                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-year-write onclick="enterResultsController.fillAll()"><i class="fas fa-fill me-1"></i>Auto-fill</button>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="enterResultsController.clearAll()"><i class="fas fa-eraser me-1"></i>Clear</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-year-write data-kw-onclick="enterResultsController.fillAll()"><i class="fas fa-fill me-1"></i>Auto-fill</button>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-kw-onclick="enterResultsController.clearAll()"><i class="fas fa-eraser me-1"></i>Clear</button>
             </div>
         </div>
         <div class="table-responsive"><table class="table table-bordered table-hover" id="marksTable">
@@ -132,7 +132,7 @@ const enterResultsController = (() => {
                 <td>${i + 1}</td>
                 <td>${esc(s.admission_no || s.admission_number || s.reg_no || "--")}</td>
                 <td><strong>${esc(s.name || s.student_name || ((s.first_name || "") + " " + (s.last_name || "")).trim())}</strong></td>
-                <td><input type="number" class="form-control form-control-sm mi" data-year-write data-sid="${s.id}" min="0" max="100" step="0.5" placeholder="0-100" oninput="enterResultsController.onMark(this)"></td>
+                <td><input type="number" class="form-control form-control-sm mi" data-year-write data-sid="${s.id}" min="0" max="100" step="0.5" placeholder="0-100" data-kw-oninput="enterResultsController.onMark(this)"></td>
                 <td><span class="badge bg-secondary gb" data-sid="${s.id}">--</span></td>
                 <td><input type="text" class="form-control form-control-sm ri" data-year-write data-sid="${s.id}" placeholder="Optional"></td>
             </tr>`,

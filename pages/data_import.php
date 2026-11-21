@@ -9,7 +9,7 @@
         <small>Supports: Students · Staff · Fees · Payments · Expenses · Results · Attendance · Inventory · and more.</small>
       </p>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="dataImportController.showLogs()">
+    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="dataImportController.showLogs()">
       <i class="bi bi-clock-history me-1"></i> Import History
     </button>
   </div>
@@ -55,7 +55,7 @@
               <p class="fw-semibold text-muted mb-1">Drag &amp; drop your file here</p>
               <p class="text-muted small mb-3">Supports CSV and Excel (.xlsx / .xls)</p>
               <input type="file" id="diFileInput" class="d-none" accept=".csv,.xlsx,.xls">
-              <button type="button" class="btn btn-outline-primary" onclick="document.getElementById('diFileInput').click()">
+              <button type="button" class="btn btn-outline-primary" data-kw-onclick="document.getElementById('diFileInput').click()">
                 <i class="bi bi-folder2-open me-1"></i> Browse File
               </button>
             </div>
@@ -67,7 +67,7 @@
                   <div class="fw-semibold" id="diFileName">—</div>
                   <div class="text-muted small" id="diFileSize">—</div>
                 </div>
-                <button class="btn btn-sm btn-outline-danger" onclick="dataImportController.clearFile()">
+                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="dataImportController.clearFile()">
                   <i class="bi bi-x-lg"></i>
                 </button>
               </div>
@@ -75,10 +75,10 @@
             <div id="diUploadError" class="alert alert-danger mt-3 d-none"></div>
           </div>
           <div class="card-footer bg-transparent d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="dataImportController.goStep(1)">
+            <button class="btn btn-outline-secondary" data-kw-onclick="dataImportController.goStep(1)">
               <i class="bi bi-arrow-left me-1"></i> Back
             </button>
-            <button class="btn btn-primary ms-auto" id="diPreviewBtn" disabled onclick="dataImportController.runPreview()">
+            <button class="btn btn-primary ms-auto" id="diPreviewBtn" disabled data-kw-onclick="dataImportController.runPreview()">
               <i class="bi bi-eye me-1"></i> Preview & Validate
             </button>
           </div>
@@ -91,7 +91,7 @@
           </div>
           <div class="card-body">
             <p class="text-muted small mb-3">Download the template for your selected type, fill it in, then upload.</p>
-            <button class="btn btn-success w-100 mb-3" id="diDownloadTemplateBtn" onclick="dataImportController.downloadTemplate()">
+            <button class="btn btn-success w-100 mb-3" id="diDownloadTemplateBtn" data-kw-onclick="dataImportController.downloadTemplate()">
               <i class="bi bi-download me-1"></i> Download CSV Template
             </button>
             <div id="diRequiredCols">
@@ -175,7 +175,7 @@
       <div class="card border-0 shadow-sm border-start border-danger border-3">
         <div class="card-header bg-transparent d-flex justify-content-between">
           <span class="fw-semibold text-danger"><i class="bi bi-x-circle me-2"></i>Validation Errors</span>
-          <button class="btn btn-sm btn-outline-secondary" onclick="dataImportController.downloadErrorReport()">
+          <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="dataImportController.downloadErrorReport()">
             <i class="bi bi-download me-1"></i> Download Error Report
           </button>
         </div>
@@ -189,13 +189,13 @@
     </div>
 
     <div class="d-flex gap-2 mt-4">
-      <button class="btn btn-outline-secondary" onclick="dataImportController.goStep(2)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="dataImportController.goStep(2)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-warning" id="diProceedWithErrors" onclick="dataImportController.goStep(4)" style="display:none;">
+      <button class="btn btn-warning" id="diProceedWithErrors" data-kw-onclick="dataImportController.goStep(4)" style="display:none;">
         <i class="bi bi-exclamation-triangle me-1"></i> Proceed (skip error rows)
       </button>
-      <button class="btn btn-primary ms-auto" id="diConfirmBtn" onclick="dataImportController.goStep(4)">
+      <button class="btn btn-primary ms-auto" id="diConfirmBtn" data-kw-onclick="dataImportController.goStep(4)">
         <i class="bi bi-check-circle me-1"></i> Looks Good — Continue
       </button>
     </div>
@@ -215,10 +215,10 @@
       </div>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary" onclick="dataImportController.goStep(3)">
+      <button class="btn btn-outline-secondary" data-kw-onclick="dataImportController.goStep(3)">
         <i class="bi bi-arrow-left me-1"></i> Back to Preview
       </button>
-      <button class="btn btn-success ms-auto btn-lg" id="diRunImportBtn" onclick="dataImportController.runImport()">
+      <button class="btn btn-success ms-auto btn-lg" id="diRunImportBtn" data-kw-onclick="dataImportController.runImport()">
         <i class="bi bi-cloud-upload me-2"></i> Run Import Now
       </button>
     </div>
@@ -233,10 +233,10 @@
       </div>
     </div>
     <div class="d-flex gap-2 justify-content-center mt-3">
-      <button class="btn btn-primary" onclick="dataImportController.reset()">
+      <button class="btn btn-primary" data-kw-onclick="dataImportController.reset()">
         <i class="bi bi-plus-circle me-1"></i> Import More Data
       </button>
-      <button class="btn btn-outline-secondary" onclick="dataImportController.showLogs()">
+      <button class="btn btn-outline-secondary" data-kw-onclick="dataImportController.showLogs()">
         <i class="bi bi-clock-history me-1"></i> View Import History
       </button>
     </div>

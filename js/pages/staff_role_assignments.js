@@ -65,7 +65,7 @@ const StaffRoleAssignmentsController = {
     renderStaff() {
         const q = (document.getElementById('roleStaffSearch')?.value || '').toLowerCase();
         const rows = this.staff.filter(s => `${s.staff_no || ''} ${s.first_name || ''} ${s.last_name || ''} ${s.position || ''}`.toLowerCase().includes(q));
-        document.getElementById('roleStaffList').innerHTML = rows.length ? rows.map(s => `<button class="list-group-item list-group-item-action ${this.selected?.id == s.id ? 'active' : ''}" onclick="StaffRoleAssignmentsController.select(${s.id})"><div class="fw-semibold">${this.esc((s.first_name || '') + ' ' + (s.last_name || ''))}</div><small>${this.esc(s.staff_no || '')} · ${this.esc(s.position || '')}</small></button>`).join('') : '<div class="p-4 text-center text-muted">No staff found.</div>';
+        document.getElementById('roleStaffList').innerHTML = rows.length ? rows.map(s => `<button class="list-group-item list-group-item-action ${this.selected?.id == s.id ? 'active' : ''}" data-kw-onclick="StaffRoleAssignmentsController.select(${s.id})"><div class="fw-semibold">${this.esc((s.first_name || '') + ' ' + (s.last_name || ''))}</div><small>${this.esc(s.staff_no || '')} · ${this.esc(s.position || '')}</small></button>`).join('') : '<div class="p-4 text-center text-muted">No staff found.</div>';
     },
 
     renderRoleSelect() {
@@ -90,7 +90,7 @@ const StaffRoleAssignmentsController = {
 
     renderAssigned() {
         const box = document.getElementById('assignedRoles');
-        box.innerHTML = this.assigned.length ? this.assigned.map(r => `<span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle p-2">${this.esc(r.name)} <button class="btn btn-link btn-sm p-0 ms-1 text-danger" title="Remove" onclick="StaffRoleAssignmentsController.revoke(${r.role_id})"><i class="bi bi-x-circle"></i></button></span>`).join('') : '<span class="text-muted">No roles assigned.</span>';
+        box.innerHTML = this.assigned.length ? this.assigned.map(r => `<span class="badge rounded-pill bg-primary-subtle text-primary border border-primary-subtle p-2">${this.esc(r.name)} <button class="btn btn-link btn-sm p-0 ms-1 text-danger" title="Remove" data-kw-onclick="StaffRoleAssignmentsController.revoke(${r.role_id})"><i class="bi bi-x-circle"></i></button></span>`).join('') : '<span class="text-muted">No roles assigned.</span>';
         this.renderRoleSelect();
     },
 

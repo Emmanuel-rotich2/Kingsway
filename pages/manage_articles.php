@@ -60,7 +60,7 @@
         <option value="archived">Archived</option>
       </select>
     </div>
-    <button class="btn btn-success btn-sm rounded-pill px-3" onclick="articlesOpenModal()">
+    <button class="btn btn-success btn-sm rounded-pill px-3" data-kw-onclick="articlesOpenModal()">
       <i class="bi bi-plus-lg me-1"></i>New Article
     </button>
   </div>
@@ -104,7 +104,7 @@
         </div>
         <div class="col-12 ws-form-group">
           <label>Cover photo *</label>
-          <div class="cover-drop" id="newsCoverDrop" onclick="document.getElementById('newsCoverFile').click()">
+          <div class="cover-drop" id="newsCoverDrop" data-kw-onclick="document.getElementById('newsCoverFile').click()">
             <i class="bi bi-cloud-arrow-up fs-4 text-success"></i>
             <div class="fw-semibold">Choose the listing and story cover image</div>
             <small class="text-muted">JPG, PNG, GIF or WebP. This appears on news.php.</small>
@@ -144,7 +144,7 @@
     </div>
     <div class="modal-footer border-0">
       <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-      <button class="btn btn-success btn-sm px-4" id="newsSubmitBtn" onclick="articlesSave()">
+      <button class="btn btn-success btn-sm px-4" id="newsSubmitBtn" data-kw-onclick="articlesSave()">
         <i class="bi bi-send-fill me-1"></i>Publish Article
       </button>
     </div>

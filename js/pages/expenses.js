@@ -185,17 +185,17 @@ const expensesController = {
   },
 
   _buildActions: function (e, st) {
-    let btns = `<button class="btn btn-sm btn-outline-secondary py-0" onclick="expensesController.edit(${e.id})" title="View/Edit"><i class="bi bi-pencil"></i></button>`;
+    let btns = `<button class="btn btn-sm btn-outline-secondary py-0" data-kw-onclick="expensesController.edit(${e.id})" title="View/Edit"><i class="bi bi-pencil"></i></button>`;
 
     if (st === 'draft' && this._canCreate) {
-      btns += ` <button class="btn btn-sm btn-outline-warning py-0" onclick="expensesController.submitForApproval(${e.id})" title="Submit for approval"><i class="bi bi-send"></i></button>`;
+      btns += ` <button class="btn btn-sm btn-outline-warning py-0" data-kw-onclick="expensesController.submitForApproval(${e.id})" title="Submit for approval"><i class="bi bi-send"></i></button>`;
     }
     if (st === 'pending_approval' && this._canApprove) {
-      btns += ` <button class="btn btn-sm btn-success py-0" onclick="expensesController.openApproval(${e.id},'approve')" title="Approve"><i class="bi bi-check-lg"></i></button>`;
-      btns += ` <button class="btn btn-sm btn-danger py-0" onclick="expensesController.openApproval(${e.id},'reject')" title="Reject"><i class="bi bi-x-lg"></i></button>`;
+      btns += ` <button class="btn btn-sm btn-success py-0" data-kw-onclick="expensesController.openApproval(${e.id},'approve')" title="Approve"><i class="bi bi-check-lg"></i></button>`;
+      btns += ` <button class="btn btn-sm btn-danger py-0" data-kw-onclick="expensesController.openApproval(${e.id},'reject')" title="Reject"><i class="bi bi-x-lg"></i></button>`;
     }
     if (st === 'approved' && this._canPay) {
-      btns += ` <button class="btn btn-sm btn-primary py-0" onclick="expensesController.openApproval(${e.id},'pay')" title="Mark as Paid"><i class="bi bi-wallet2"></i></button>`;
+      btns += ` <button class="btn btn-sm btn-primary py-0" data-kw-onclick="expensesController.openApproval(${e.id},'pay')" title="Mark as Paid"><i class="bi bi-wallet2"></i></button>`;
     }
     return btns;
   },
@@ -221,7 +221,7 @@ const expensesController = {
     if (pages <= 1) { pg.innerHTML = ''; return; }
     pg.innerHTML = Array.from({length: pages}, (_, i) =>
       `<li class="page-item ${i+1===this._page?'active':''}">
-         <button class="page-link" onclick="expensesController._goPage(${i+1})">${i+1}</button>
+         <button class="page-link" data-kw-onclick="expensesController._goPage(${i+1})">${i+1}</button>
        </li>`
     ).join('');
   },

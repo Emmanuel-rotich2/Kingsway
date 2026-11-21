@@ -117,7 +117,7 @@ $roleCategory = 'operator';
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         console.log('Operator Boarding Dashboard loaded');
         if (typeof boardingController !== 'undefined') {

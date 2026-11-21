@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-eyedropper text-primary me-2"></i>Vaccination Records</h4>
       <p class="text-muted small mb-0 mt-1">Immunisation history and doses due within 30 days.</p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="vaccinationRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="vaccinationRecordsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="bg-white border rounded-3 overflow-hidden mb-4">

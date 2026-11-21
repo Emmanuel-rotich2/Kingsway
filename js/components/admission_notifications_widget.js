@@ -187,7 +187,7 @@ const AdmissionNotificationsWidget = {
                 <div class="card-body text-center py-4">
                     <i class="bi bi-exclamation-triangle display-6 text-warning"></i>
                     <p class="small text-muted mb-0 mt-2">Could not load admission tasks</p>
-                    <button class="btn btn-sm btn-outline-primary mt-2" onclick="AdmissionNotificationsWidget.reload()">
+                    <button class="btn btn-sm btn-outline-primary mt-2" data-kw-onclick="AdmissionNotificationsWidget.reload()">
                         <i class="bi bi-arrow-clockwise me-1"></i> Retry
                     </button>
                 </div>

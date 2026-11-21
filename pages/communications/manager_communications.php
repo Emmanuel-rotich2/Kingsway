@@ -141,7 +141,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     const initializeManagerCommunications = function () {
         loadMessages();
         initCharts();
@@ -187,8 +187,8 @@
             <td><span class="status-badge status-${msg.status}">${msg.status}</span></td>
             <td>${formatDateTime(msg.sent_at)}</td>
             <td class="manager-row-actions">
-                <button class="action-btn view-btn" onclick="viewMessage(${msg.id})">👁️</button>
-                <button class="action-btn edit-btn" onclick="resendMessage(${msg.id})">🔄</button>
+                <button class="action-btn view-btn" data-kw-onclick="viewMessage(${msg.id})">👁️</button>
+                <button class="action-btn edit-btn" data-kw-onclick="resendMessage(${msg.id})">🔄</button>
             </td>
         `;
             tbody.appendChild(row);

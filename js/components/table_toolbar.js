@@ -124,7 +124,7 @@
     const found = { export: false, print: false };
     scope.querySelectorAll('button, a.btn, [role="button"]').forEach((el) => {
       if (el.closest('.kw-table-toolbar')) return;
-      const text = [el.textContent, el.id, el.title, el.getAttribute('aria-label'), el.getAttribute('onclick'), el.dataset.action]
+      const text = [el.textContent, el.id, el.title, el.getAttribute('aria-label'), el.getAttribute('data-kw-onclick'), el.dataset.action]
         .filter(Boolean).join(' ');
       if (NOT_TABLE.test(text)) return;
       if (EXPORT_WORDS.test(text)) found.export = true;

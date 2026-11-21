@@ -330,7 +330,7 @@ const fAssCtrl = {
           <td class="text-center">${a.class_average_pct != null ? `<span class="badge bg-${gc}">${a.class_average_pct}%</span>` : '—'}</td>
           <td>${a.assessment_date || '—'}</td>
           <td>
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="fAssCtrl._openMarksTab(${a.id})" title="Enter Marks">
+            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="fAssCtrl._openMarksTab(${a.id})" title="Enter Marks">
               <i class="bi bi-pencil-square"></i>
             </button>
           </td>
@@ -501,7 +501,7 @@ const fAssCtrl = {
             <input type="number" class="form-control form-control-sm text-center marks-input"
               data-student="${m.student_id}" value="${m.score ?? ''}"
               min="0" max="${maxMarks}" step="0.5"
-              onchange="fAssCtrl._onMarkChange(this, ${maxMarks})"
+              data-kw-onchange="fAssCtrl._onMarkChange(this, ${maxMarks})"
               placeholder="/${maxMarks}" data-year-write>
           </td>
           <td class="text-center pct-cell">${pct ? pct + '%' : '—'}</td>
@@ -517,7 +517,7 @@ const fAssCtrl = {
             <strong>${marks.length} students</strong>
             <span class="text-muted ms-2">Max marks: ${maxMarks}</span>
           </div>
-          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
+          <button class="btn btn-success" data-kw-onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save All Marks
           </button>
         </div>
@@ -534,7 +534,7 @@ const fAssCtrl = {
           </table>
         </div>
         <div class="mt-3">
-          <button class="btn btn-success" onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
+          <button class="btn btn-success" data-kw-onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save All Marks
           </button>
         </div>`;
@@ -752,3 +752,6 @@ const fAssCtrl = {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   },
 };
+
+// Inline actions (data-kw-on*) resolve handler targets on window.
+window.fAssCtrl = fAssCtrl;

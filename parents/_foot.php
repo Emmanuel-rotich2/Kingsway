@@ -219,14 +219,14 @@ try {
     $parentRealtimeBase = '';
 }
 if ($parentRealtimeBase !== '') {
-    echo '<script>window.KINGSWAY_REALTIME_SSE_ENABLED = true;</script>';
-    echo '<script>document.addEventListener("DOMContentLoaded", function () { window.RealtimeSSE?.initialize?.(); });</script>';
+    echo '<script nonce="' . csp_nonce() . '">window.KINGSWAY_REALTIME_SSE_ENABLED = true;</script>';
+    echo '<script nonce="' . csp_nonce() . '">document.addEventListener("DOMContentLoaded", function () { window.RealtimeSSE?.initialize?.(); });</script>';
 }
 ?>
 <?php asset_script($appBase, 'js/core/parent_common.js'); ?>
 <?php asset_script($appBase, 'js/components/learner_record.js'); ?>
 <?php asset_script($appBase, 'js/pages/' . ltrim($parentPageScript, '/') . '.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
   window.AppLogger?.init?.();
   if (window.FormValidation) {
     document.addEventListener('DOMContentLoaded', function () {

@@ -108,7 +108,7 @@ const timetableController = (() => {
         const el = document.getElementById(id);
         if (el) el.classList.add('d-none');
       });
-      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"],[onclick*="saveCell"],[onclick*="removeCell"]').forEach((el) => el.classList.add('d-none'));
+      document.querySelectorAll('[data-kw-onclick*="enterEditMode"],[data-kw-onclick*="generateTimetable"],[data-kw-onclick*="saveCell"],[data-kw-onclick*="removeCell"]').forEach((el) => el.classList.add('d-none'));
     }
     await loadReferencesComposed();
     await Promise.all([loadFilters(), loadTimeSlots(), loadDraftStreams()]);
@@ -117,7 +117,7 @@ const timetableController = (() => {
     applyTimetableView();
     if (lowerPrimaryClassTeacher) await loadClassTeacherDraft();
     if (isClassTeacher && !isAcademicLeader) {
-      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
+      document.querySelectorAll('[data-kw-onclick*="enterEditMode"],[data-kw-onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
       document.querySelector('[data-bs-target="#generateTimetableModal"]')?.classList.add('d-none');
       document.getElementById("subjectFilter")?.closest("[data-role]")?.classList.add("d-none");
     }
@@ -133,7 +133,7 @@ const timetableController = (() => {
     }
     // After load, re-hide edit controls in case they are rendered dynamically
     if (!canEdit) {
-      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
+      document.querySelectorAll('[data-kw-onclick*="enterEditMode"],[data-kw-onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
     }
   }
 
@@ -146,11 +146,11 @@ const timetableController = (() => {
   function applyTimetableView() {
     const management = [
       '[data-bs-target="#generateTimetableModal"]',
-      '[onclick*="printMasterTimetable"]',
-      '[onclick*="showConflictReportModal"]',
-      '[onclick*="checkConflicts"]',
-      '[onclick*="showTeacherWorkload"]',
-      '[onclick*="showRoomUtilization"]',
+      '[data-kw-onclick*="printMasterTimetable"]',
+      '[data-kw-onclick*="showConflictReportModal"]',
+      '[data-kw-onclick*="checkConflicts"]',
+      '[data-kw-onclick*="showTeacherWorkload"]',
+      '[data-kw-onclick*="showRoomUtilization"]',
     ];
     if (isTeacherView()) {
       management.forEach((selector) => document.querySelectorAll(selector).forEach((el) => el.classList.add('d-none')));
@@ -173,7 +173,7 @@ const timetableController = (() => {
       document.querySelector('#classFilter')?.closest('.col-md-3')?.classList.add('d-none');
       document.querySelector('#teacherFilter')?.closest('[data-role]')?.classList.add('d-none');
       document.querySelector('#subjectFilter')?.closest('[data-role]')?.classList.add('d-none');
-      const matrixButton = document.querySelector('[onclick*="openMatrixDraft"]');
+      const matrixButton = document.querySelector('[data-kw-onclick*="openMatrixDraft"]');
       if (matrixButton) matrixButton.innerHTML = '<i class="bi bi-pencil-square me-1"></i>Draft My Class Timetable';
       document.getElementById('classTeacherSummaryCards')?.classList.remove('d-none');
       document.getElementById('timetableQuickActions')?.classList.add('d-none');
@@ -207,10 +207,10 @@ const timetableController = (() => {
       const detailResponse = await API.schedules.getTimetableDraft(candidate.id);
       const detail = detailResponse?.data || detailResponse || candidate;
       activeClassTeacherDraft = detail;
-      const draftButton = document.querySelector('[onclick*="openMatrixDraft"]');
+      const draftButton = document.querySelector('[data-kw-onclick*="openMatrixDraft"]');
       if (draftButton) {
         draftButton.innerHTML = '<i class="bi bi-pencil-square me-1"></i>Continue Draft';
-        draftButton.setAttribute('onclick', `timetableController.openMatrixDraft(${Number(detail.id)})`);
+        draftButton.setAttribute('data-kw-onclick', `timetableController.openMatrixDraft(${Number(detail.id)})`);
         draftButton.title = 'Continue editing the saved timetable draft';
       }
       const areaNames = new Map();
@@ -554,14 +554,14 @@ const timetableController = (() => {
           const teacherName = lowerPrimaryClassTeacher ? "Class teacher" : (entry.teacher_name || "");
           const roomName = entry.room_name ? `<br><small class="text-info"><i class="bi bi-door-open"></i> ${entry.room_name}</small>` : "";
           if (editMode) {
-            html += `<td class="timetable-cell" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" data-entry-id="${entry.id}" data-subject-id="${entry.subject_id || ""}" data-teacher-id="${entry.teacher_id || ""}" data-room-id="${entry.room_id || ""}" onclick="timetableController.editCell(this)" style="cursor:pointer;">
+            html += `<td class="timetable-cell" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" data-entry-id="${entry.id}" data-subject-id="${entry.subject_id || ""}" data-teacher-id="${entry.teacher_id || ""}" data-room-id="${entry.room_id || ""}" data-kw-onclick="timetableController.editCell(this)" style="cursor:pointer;">
               <span class="fw-bold text-primary">${subName}</span><br><small>${teacherName}</small>${roomName}</td>`;
           } else {
             html += `<td><span class="fw-bold text-primary">${subName}</span><br><small>${teacherName}</small>${roomName}</td>`;
           }
         } else {
           if (editMode) {
-            html += `<td class="timetable-cell text-muted" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" onclick="timetableController.editCell(this)" style="cursor:pointer;"><i class="bi bi-plus-circle"></i></td>`;
+            html += `<td class="timetable-cell text-muted" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" data-kw-onclick="timetableController.editCell(this)" style="cursor:pointer;"><i class="bi bi-plus-circle"></i></td>`;
           } else {
             html += "<td></td>";
           }
@@ -656,7 +656,7 @@ const timetableController = (() => {
     }
     editMode = !editMode;
     renderTimetable();
-    const btn = document.querySelector('[onclick*="enterEditMode"]');
+    const btn = document.querySelector('[data-kw-onclick*="enterEditMode"]');
     if (btn) {
       btn.classList.toggle("btn-success", editMode);
       btn.classList.toggle("btn-outline-primary", !editMode);
@@ -692,9 +692,9 @@ const timetableController = (() => {
       <select class="form-select form-select-sm mb-1 edit-teacher">${teachOpts}</select>
       <select class="form-select form-select-sm mb-1 edit-room">${roomOpts}</select>
       <div class="d-flex gap-1 mt-1">
-        <button class="btn btn-sm btn-primary flex-fill" onclick="timetableController.saveCell('${day}','${startTime}','${endTime}',this.closest('td'))" data-year-write><i class="bi bi-check"></i></button>
-        <button class="btn btn-sm btn-danger flex-fill" onclick="timetableController.removeCell('${day}','${startTime}','${entryId}',this.closest('td'))" data-year-write><i class="bi bi-trash"></i></button>
-        <button class="btn btn-sm btn-secondary flex-fill" onclick="timetableController.loadTimetable()"><i class="bi bi-x"></i></button>
+        <button class="btn btn-sm btn-primary flex-fill" data-kw-onclick="timetableController.saveCell('${day}','${startTime}','${endTime}',this.closest('td'))" data-year-write><i class="bi bi-check"></i></button>
+        <button class="btn btn-sm btn-danger flex-fill" data-kw-onclick="timetableController.removeCell('${day}','${startTime}','${entryId}',this.closest('td'))" data-year-write><i class="bi bi-trash"></i></button>
+        <button class="btn btn-sm btn-secondary flex-fill" data-kw-onclick="timetableController.loadTimetable()"><i class="bi bi-x"></i></button>
       </div>`;
   }
 
@@ -886,9 +886,9 @@ const timetableController = (() => {
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-primary" onclick="timetableController.saveMatrixDraft()" data-year-write>Save Draft</button>
-      <button class="btn btn-outline-secondary" onclick="timetableController.cancelMatrixDraft()" data-year-write>Cancel</button>
-      ${lowerPrimaryClassTeacher ? '' : `<button class="btn btn-success" onclick="timetableController.submitMatrixDraft()" data-year-write>Submit for Review</button>`}
+      <button class="btn btn-primary" data-kw-onclick="timetableController.saveMatrixDraft()" data-year-write>Save Draft</button>
+      <button class="btn btn-outline-secondary" data-kw-onclick="timetableController.cancelMatrixDraft()" data-year-write>Cancel</button>
+      ${lowerPrimaryClassTeacher ? '' : `<button class="btn btn-success" data-kw-onclick="timetableController.submitMatrixDraft()" data-year-write>Submit for Review</button>`}
     </div>
   </div></div>`;
     document.body.appendChild(modal);
@@ -1643,3 +1643,6 @@ const timetableController = (() => {
     showConflictReportModal: () => window.TimetableDrafting?.reportConflict?.(),
   };
 })();
+
+// Inline actions (data-kw-on*) resolve handler targets on window.
+window.timetableController = timetableController;

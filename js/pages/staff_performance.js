@@ -206,7 +206,7 @@ const StaffPerformanceController = {
                 <td>${studentResults}%</td>
                 <td>${rating}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="StaffPerformanceController.showReport(${latest.review_id})">
+                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="StaffPerformanceController.showReport(${latest.review_id})">
                         <i class="bi bi-file-earmark-text"></i>
                     </button>
                 </td>
@@ -253,7 +253,7 @@ const StaffPerformanceController = {
                         <td>${r.overall_score || "-"}</td>
                         <td>${r.performance_grade || "-"}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="StaffPerformanceController.showReport(${r.review_id})">
+                            <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="StaffPerformanceController.showReport(${r.review_id})">
                                 <i class="bi bi-eye"></i>
                             </button>
                         </td>

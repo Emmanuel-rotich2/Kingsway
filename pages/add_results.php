@@ -38,7 +38,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Class</label>
-                                <select id="classSelect" class="form-select" required onchange="addResultsController.loadStudents()">
+                                <select id="classSelect" class="form-select" required data-kw-onchange="addResultsController.loadStudents()">
                                     <option value="">-- Select Class --</option>
                                 </select>
                             </div>
@@ -62,7 +62,7 @@
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Marks (0-100)</label>
-                                <input type="number" id="marksInput" class="form-control" min="0" max="100" step="0.5" required placeholder="0-100" oninput="addResultsController.previewGrade()" data-year-write>
+                                <input type="number" id="marksInput" class="form-control" min="0" max="100" step="0.5" required placeholder="0-100" data-kw-oninput="addResultsController.previewGrade()" data-year-write>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Auto Grade</label>

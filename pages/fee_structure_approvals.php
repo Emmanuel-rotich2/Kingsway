@@ -26,7 +26,7 @@
       </select>
       <input type="text" id="bundleYearFilter" class="form-control form-control-sm" placeholder="Year e.g. 2026" style="width:120px">
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="feeApprovalsController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="feeApprovalsController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

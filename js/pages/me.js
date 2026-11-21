@@ -110,10 +110,10 @@ var ProfileController = (() => {
 
         const avatar = document.getElementById('profileAvatar');
         const photo = window.KingswayFileLifecycle?.resolveUrl?.(s.photo_url) || window.KingswayFileLifecycle?.avatarUrl?.();
-        avatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="profile" style="width:100%;height:100%;object-fit:cover" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
+        avatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="profile" style="width:100%;height:100%;object-fit:cover" data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
         const accountAvatar = document.getElementById('settings-avatar');
         if (accountAvatar) {
-            accountAvatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="${escapeHtml(name)}" onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
+            accountAvatar.innerHTML = `<img src="${escapeHtml(photo)}" alt="${escapeHtml(name)}" data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()">`;
         }
 
         document.getElementById('profileName').textContent = name;

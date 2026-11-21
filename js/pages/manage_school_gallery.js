@@ -43,12 +43,12 @@ const manageSchoolGalleryController = {
         <div class="ws-gallery-item">
           ${badge}
           ${isVideo
-            ? `<video src="${this.esc(src)}" poster="${this.esc(g.image_url || '')}" onerror="this.style.display='none'" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000" muted playsinline onclick="galleryViewMedia('${this.esc(g.video_url || g.image_url)}', '${g.media_type}')"></video>`
+            ? `<video src="${this.esc(src)}" poster="${this.esc(g.image_url || '')}" data-kw-onerror="this.style.display='none'" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000" muted playsinline data-kw-onclick="galleryViewMedia('${this.esc(g.video_url || g.image_url)}', '${g.media_type}')"></video>`
             : `<img src="${this.esc(g.image_url)}" alt="${this.esc(g.caption || '')}"
-                 onerror="this.src='https://placehold.co/300x200/198754/fff?text=Image'"
-                 onclick="galleryViewMedia('${this.esc(g.image_url)}', 'image')" style="cursor:pointer">`}
+                 data-kw-onerror="this.src='https://placehold.co/300x200/198754/fff?text=Image'"
+                 data-kw-onclick="galleryViewMedia('${this.esc(g.image_url)}', 'image')" style="cursor:pointer">`}
           <div class="ws-overlay">
-            <button class="btn btn-sm btn-danger rounded-circle" style="width:32px;height:32px;padding:0" onclick="galleryDelete(${g.id})" title="Remove"><i class="bi bi-trash-fill"></i></button>
+            <button class="btn btn-sm btn-danger rounded-circle" style="width:32px;height:32px;padding:0" data-kw-onclick="galleryDelete(${g.id})" title="Remove"><i class="bi bi-trash-fill"></i></button>
           </div>
           <div class="caption">${this.esc(g.caption || '\u2014')} <span class="text-muted">(${this.esc(g.category || '')})</span></div>
         </div>`;

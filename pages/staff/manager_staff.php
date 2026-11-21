@@ -60,8 +60,8 @@
         <option value="active">Active</option>
         <option value="on_leave">On Leave</option>
     </select>
-    <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
-    <button class="btn btn-outline" onclick="exportStaff()">📥 Export</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="clearFilters()">Clear</button>
+    <button class="btn btn-outline" data-kw-onclick="exportStaff()">📥 Export</button>
 </div>
 
 <!-- Data Table -->
@@ -98,19 +98,19 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Staff Details</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('staffModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('staffModal')">×</button>
             </div>
             <div class="modal-body" id="staffModalBody">
                 <!-- Dynamic content -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('staffModal')">Close</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('staffModal')">Close</button>
             </div>
         </div>
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         function boot() {
             if (typeof StaffController !== 'undefined') {

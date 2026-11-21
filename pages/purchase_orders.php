@@ -20,10 +20,10 @@
             <p class="text-muted mb-0">Create and manage purchase orders for vendors and suppliers</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="PurchaseOrdersController.exportCSV()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="PurchaseOrdersController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
-            <button class="btn btn-primary" onclick="PurchaseOrdersController.showCreateModal()" data-year-write>
+            <button class="btn btn-primary" data-kw-onclick="PurchaseOrdersController.showCreateModal()" data-year-write>
                 <i class="bi bi-plus-lg me-1"></i> New Purchase Order
             </button>
         </div>
@@ -99,11 +99,11 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small text-muted">Search</label>
-                    <input type="text" class="form-control" id="poSearch" placeholder="Search PO number, vendor, description..." oninput="PurchaseOrdersController.filterData()">
+                    <input type="text" class="form-control" id="poSearch" placeholder="Search PO number, vendor, description..." data-kw-oninput="PurchaseOrdersController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
-                    <select class="form-select" id="poStatusFilter" onchange="PurchaseOrdersController.filterData()">
+                    <select class="form-select" id="poStatusFilter" data-kw-onchange="PurchaseOrdersController.filterData()">
                         <option value="">All Statuses</option>
                         <option value="Draft">Draft</option>
                         <option value="Pending">Pending</option>
@@ -114,20 +114,20 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Vendor</label>
-                    <select class="form-select" id="poVendorFilter" onchange="PurchaseOrdersController.filterData()">
+                    <select class="form-select" id="poVendorFilter" data-kw-onchange="PurchaseOrdersController.filterData()">
                         <option value="">All Vendors</option>
                     </select>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Date From</label>
-                    <input type="date" class="form-control" id="poDateFrom" onchange="PurchaseOrdersController.filterData()">
+                    <input type="date" class="form-control" id="poDateFrom" data-kw-onchange="PurchaseOrdersController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Date To</label>
-                    <input type="date" class="form-control" id="poDateTo" onchange="PurchaseOrdersController.filterData()">
+                    <input type="date" class="form-control" id="poDateTo" data-kw-onchange="PurchaseOrdersController.filterData()">
                 </div>
                 <div class="col-md-1">
-                    <button class="btn btn-outline-secondary w-100" onclick="PurchaseOrdersController.clearFilters()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="PurchaseOrdersController.clearFilters()">
                         <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
@@ -211,22 +211,22 @@
                                         <input type="text" class="form-control form-control-sm" placeholder="Item name" name="item_name[]" required>
                                     </div>
                                     <div class="col-md-2">
-                                        <input type="number" class="form-control form-control-sm" placeholder="Qty" name="item_qty[]" min="1" value="1" required onchange="PurchaseOrdersController.recalcTotal()">
+                                        <input type="number" class="form-control form-control-sm" placeholder="Qty" name="item_qty[]" min="1" value="1" required data-kw-onchange="PurchaseOrdersController.recalcTotal()">
                                     </div>
                                     <div class="col-md-3">
-                                        <input type="number" class="form-control form-control-sm" placeholder="Unit Price" name="item_price[]" step="0.01" min="0" required onchange="PurchaseOrdersController.recalcTotal()">
+                                        <input type="number" class="form-control form-control-sm" placeholder="Unit Price" name="item_price[]" step="0.01" min="0" required data-kw-onchange="PurchaseOrdersController.recalcTotal()">
                                     </div>
                                     <div class="col-md-2">
                                         <input type="text" class="form-control form-control-sm" placeholder="Total" name="item_total[]" readonly>
                                     </div>
                                     <div class="col-md-1">
-                                        <button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove" data-year-write>
+                                        <button type="button" class="btn btn-outline-danger btn-sm" data-kw-onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove" data-year-write>
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                            <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="PurchaseOrdersController.addItemRow()" data-year-write>
+                            <button type="button" class="btn btn-outline-primary btn-sm mt-2" data-kw-onclick="PurchaseOrdersController.addItemRow()" data-year-write>
                                 <i class="bi bi-plus-lg me-1"></i> Add Item
                             </button>
                         </div>
@@ -245,7 +245,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="PurchaseOrdersController.savePO()" data-year-write>
+                <button type="button" class="btn btn-primary" data-kw-onclick="PurchaseOrdersController.savePO()" data-year-write>
                     <i class="bi bi-check-lg me-1"></i> Save Purchase Order
                 </button>
             </div>
@@ -254,7 +254,7 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/purchase_orders.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof PurchaseOrdersController !== 'undefined') {
             PurchaseOrdersController.init();

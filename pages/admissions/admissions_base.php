@@ -523,7 +523,7 @@ $showNewApplicationButton = $showNewApplicationButton ?? true;
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 // Grade-specific document fields and interview note
 (function () {
     const gradeSelect = document.getElementById('gradeSelect');

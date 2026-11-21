@@ -158,7 +158,7 @@ const ViewPastPapersController = {
           <td>${this.escapeHtml(paper.uploaded_by_name || paper.uploaded_by || '—')}</td>
           <td>${date}</td>
           <td>
-            <button class="btn btn-sm btn-outline-success" onclick="ViewPastPapersController.download(${paper.id})">
+            <button class="btn btn-sm btn-outline-success" data-kw-onclick="ViewPastPapersController.download(${paper.id})">
               <i class="bi bi-download"></i> Download
             </button>
           </td>

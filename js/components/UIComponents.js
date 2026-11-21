@@ -103,10 +103,10 @@ class UIComponents {
                         <small class="text-muted">${(document.size / 1024).toFixed(2)} KB • Uploaded ${new Date(document.uploadedAt).toLocaleDateString()}</small>
                     </div>
                     <div class="document-actions">
-                        <button class="btn btn-sm btn-outline-primary" onclick="downloadDocument('${document.id}')">
+                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="downloadDocument('${document.id}')">
                             <i class="bi bi-download"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteDocument('${document.id}')">
+                        <button class="btn btn-sm btn-outline-danger" data-kw-onclick="deleteDocument('${document.id}')">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -125,10 +125,10 @@ class UIComponents {
                 <p class="mb-0"><strong>${studentName}</strong></p>
                 <small class="text-muted">Scan this code to view student information</small>
                 <div class="mt-3">
-                    <button class="btn btn-sm btn-primary" onclick="downloadQRCode('${qrData}')">
+                    <button class="btn btn-sm btn-primary" data-kw-onclick="downloadQRCode('${qrData}')">
                         <i class="bi bi-download"></i> Download
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="printQRCode('${qrData}')">
+                    <button class="btn btn-sm btn-secondary" data-kw-onclick="printQRCode('${qrData}')">
                         <i class="bi bi-printer"></i> Print
                     </button>
                 </div>

@@ -14,7 +14,7 @@
       <h2 class="mb-0"><i class="bi bi-journal-plus me-2 text-primary"></i>Intervention Plans</h2>
       <small class="text-muted">Formal support plans with goals, timeline, and responsible staff</small>
     </div>
-    <button class="btn btn-primary" onclick="interventionPlansController.showModal()">
+    <button class="btn btn-primary" data-kw-onclick="interventionPlansController.showModal()">
       <i class="bi bi-plus-circle me-1"></i> Create Plan
     </button>
   </div>
@@ -125,7 +125,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="interventionPlansController.save()" data-year-write>Save Plan</button>
+        <button type="button" class="btn btn-primary" data-kw-onclick="interventionPlansController.save()" data-year-write>Save Plan</button>
       </div>
     </div>
   </div>

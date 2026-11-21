@@ -412,14 +412,16 @@ const accountSettings = {
                  style="letter-spacing:0.1em">
                 ${codes.map(c => `<div>${c}</div>`).join('')}
             </div>
-            <button class="btn btn-sm btn-outline-secondary mt-2" onclick="
-                navigator.clipboard.writeText('${codes.join('\\n')}');
-                showNotification('Backup codes copied to clipboard', 'success');
-            ">
+            <button class="btn btn-sm btn-outline-secondary mt-2" id="copyBackupCodes">
                 <i class="bi bi-clipboard me-1"></i>Copy to clipboard
             </button>
             <button class="btn btn-sm btn-outline-secondary mt-2 ms-2" id="downloadBackupCodes"><i class="bi bi-download me-1"></i>Download</button>
         `;
+        container.querySelector('#copyBackupCodes')?.addEventListener('click', () => {
+            navigator.clipboard?.writeText(codes.join('\n'))
+                .then(() => window.showNotification?.('Backup codes copied to clipboard', 'success'))
+                .catch(() => window.showNotification?.('Could not copy the codes; use Download instead.', 'warning'));
+        });
         container.querySelector('#downloadBackupCodes')?.addEventListener('click', () => {
             const blob = new Blob([`Kingsway recovery codes\nGenerated: ${new Date().toISOString()}\n\n${codes.join('\n')}\n`], { type: 'text/plain' });
             const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'kingsway-recovery-codes.txt'; link.click(); URL.revokeObjectURL(link.href);

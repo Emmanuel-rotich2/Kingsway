@@ -166,7 +166,7 @@ const staffOnboardingController = {
               ${ob.mentor_name ? `<div class="col-auto"><i class="bi bi-person-fill me-1"></i>Mentor: ${this._esc(ob.mentor_name)}</div>` : ''}
               ${daysLeft !== null && daysLeft >= 0 ? `<div class="col-auto ms-auto text-${daysLeft<14?'danger':'success'} fw-semibold">${daysLeft}d left</div>` : ''}
             </div>
-            <button class="btn btn-sm btn-outline-success w-100" onclick="staffOnboardingController.openDetail(${ob.onboarding_id})">
+            <button class="btn btn-sm btn-outline-success w-100" data-kw-onclick="staffOnboardingController.openDetail(${ob.onboarding_id})">
               <i class="bi bi-list-check me-1"></i>View Tasks & Progress
             </button>
           </div>
@@ -235,7 +235,7 @@ const staffOnboardingController = {
           return `<div class="d-flex align-items-center gap-2 py-2 border-bottom ${overdue?'bg-danger bg-opacity-10 rounded px-2':''}">
             <input type="checkbox" class="form-check-input flex-shrink-0" style="width:18px;height:18px"
                    ${t.status==='completed'?'checked':''} ${t.status==='completed'?'disabled':''}
-                   onchange="staffOnboardingController.toggleTask(${t.id}, this.checked)">
+                   data-kw-onchange="staffOnboardingController.toggleTask(${t.id}, this.checked)">
             <div class="flex-grow-1">
               <div class="fw-semibold small ${t.status==='completed'?'text-decoration-line-through text-muted':''}">${this._esc(t.task_name)}</div>
               <div class="text-muted" style="font-size:.75rem">${this._esc(t.description||'')} · Due: ${t.due_date||'—'} ${overdue?'<span class="text-danger">OVERDUE</span>':''}</div>

@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-graph-up text-success me-2"></i>Payment Reports</h4>
       <p class="text-muted small mb-0 mt-1">Collection statistics, trends and revenue sources.</p>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="paymentReportsController.load()"><i class="bi bi-arrow-clockwise"></i></button>
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="paymentReportsController.load()"><i class="bi bi-arrow-clockwise"></i></button>
   </div>
 
   <div class="row g-3 mb-4" id="prStatsCards"></div>

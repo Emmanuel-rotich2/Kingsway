@@ -19,7 +19,7 @@
             <p class="text-muted mb-0">View the school bank accounts that have been added and their balances</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" onclick="BankAccountsController.exportCSV()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="BankAccountsController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
             </button>
         </div>
@@ -95,17 +95,17 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-4">
                     <label class="form-label small text-muted">Search</label>
-                    <input type="text" class="form-control" id="baSearch" placeholder="Search bank, account name, number..." oninput="BankAccountsController.filterData()">
+                    <input type="text" class="form-control" id="baSearch" placeholder="Search bank, account name, number..." data-kw-oninput="BankAccountsController.filterData()">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Bank</label>
-                    <select class="form-select" id="baBankFilter" onchange="BankAccountsController.filterData()">
+                    <select class="form-select" id="baBankFilter" data-kw-onchange="BankAccountsController.filterData()">
                         <option value="">All Banks</option>
                     </select>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
-                    <select class="form-select" id="baStatusFilter" onchange="BankAccountsController.filterData()">
+                    <select class="form-select" id="baStatusFilter" data-kw-onchange="BankAccountsController.filterData()">
                         <option value="">All Statuses</option>
                         <option value="Active">Active</option>
                         <option value="Pending_verification">Pending verification</option>
@@ -114,7 +114,7 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" onclick="BankAccountsController.clearFilters()">
+                    <button class="btn btn-outline-secondary w-100" data-kw-onclick="BankAccountsController.clearFilters()">
                         <i class="bi bi-x-lg me-1"></i> Clear
                     </button>
                 </div>

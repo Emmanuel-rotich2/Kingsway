@@ -89,7 +89,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     const initializeOperatorCommunications = function () {
         loadMyMessages();
         loadMyClasses();
@@ -151,7 +151,7 @@
             <td class="text-truncate" style="max-width:200px;">${escapeHtml(msg.message)}</td>
             <td><span class="status-badge status-${msg.status}">${msg.status}</span></td>
             <td class="operator-row-actions">
-                <button class="action-btn" onclick="viewMessage(${msg.id})">View</button>
+                <button class="action-btn" data-kw-onclick="viewMessage(${msg.id})">View</button>
             </td>
         `;
             tbody.appendChild(row);

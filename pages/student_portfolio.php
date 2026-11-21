@@ -123,16 +123,16 @@
             <small>Cumulative CBC competency evidence — all academic years</small>
         </div>
         <div class="d-flex gap-2" id="pfActionBtns" style="display:none">
-            <button class="btn btn-light btn-sm" onclick="PortfolioController.openPortfolioModal()">
+            <button class="btn btn-light btn-sm" data-kw-onclick="PortfolioController.openPortfolioModal()">
                 <i class="bi bi-folder-plus me-1"></i>New Portfolio
             </button>
-            <button class="btn btn-light btn-sm" onclick="PortfolioController.openArtifactModal()">
+            <button class="btn btn-light btn-sm" data-kw-onclick="PortfolioController.openArtifactModal()">
                 <i class="bi bi-upload me-1"></i>Add Artifact
             </button>
-            <button class="btn btn-light btn-sm" id="printPortfolioBtn" onclick="PortfolioController.printPortfolio()">
+            <button class="btn btn-light btn-sm" id="printPortfolioBtn" data-kw-onclick="PortfolioController.printPortfolio()">
                 <i class="bi bi-printer me-1"></i>Print
             </button>
-            <button class="btn btn-light btn-sm" id="exportPortfolioBtn" onclick="PortfolioController.exportPortfolioPdf()">
+            <button class="btn btn-light btn-sm" id="exportPortfolioBtn" data-kw-onclick="PortfolioController.exportPortfolioPdf()">
                 <i class="bi bi-filetype-pdf me-1"></i>Export PDF
             </button>
         </div>
@@ -205,7 +205,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="pfSavePortfolioBtn" onclick="PortfolioController.savePortfolio()" data-year-write>Create Portfolio</button>
+                <button type="button" class="btn btn-primary btn-sm" id="pfSavePortfolioBtn" data-kw-onclick="PortfolioController.savePortfolio()" data-year-write>Create Portfolio</button>
             </div>
         </div>
     </div>
@@ -310,7 +310,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="pfSaveArtifactBtn" onclick="PortfolioController.saveArtifact()" data-year-write>Save Artifact</button>
+                <button type="button" class="btn btn-primary btn-sm" id="pfSaveArtifactBtn" data-kw-onclick="PortfolioController.saveArtifact()" data-year-write>Save Artifact</button>
             </div>
         </div>
     </div>

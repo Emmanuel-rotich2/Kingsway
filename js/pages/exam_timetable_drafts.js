@@ -101,7 +101,7 @@ const ExamTimetableDraftsController = {
     if (!tbody) return;
     const inTerm = (draft) => !this.state.termId || Number(draft.academic_year_term_id || 0) === this.state.termId;
     tbody.innerHTML = this.state.drafts.filter(inTerm).map((draft) => {
-      const actions = [`<button class="btn btn-sm btn-outline-secondary" onclick="ExamTimetableDraftsController.open(${Number(draft.id)})">${["draft", "changes_requested"].includes(draft.status) ? "Edit" : "View"}</button>`];
+      const actions = [`<button class="btn btn-sm btn-outline-secondary" data-kw-onclick="ExamTimetableDraftsController.open(${Number(draft.id)})">${["draft", "changes_requested"].includes(draft.status) ? "Edit" : "View"}</button>`];
       if (draft.status === "draft" || draft.status === "changes_requested") actions.push(this.actionButton(draft.id, "submit", "Submit", "primary"));
       if (draft.status === "submitted") {
         actions.push(this.actionButton(draft.id, "approve", "Approve", "success"));
@@ -116,7 +116,7 @@ const ExamTimetableDraftsController = {
   },
 
   actionButton(id, action, label, colour) {
-    return `<button class="btn btn-sm btn-outline-${colour}" onclick="ExamTimetableDraftsController.transition(${Number(id)}, '${action}')">${label}</button>`;
+    return `<button class="btn btn-sm btn-outline-${colour}" data-kw-onclick="ExamTimetableDraftsController.transition(${Number(id)}, '${action}')">${label}</button>`;
   },
 
   streamOptions(selected) {

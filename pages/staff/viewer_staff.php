@@ -124,7 +124,7 @@
     }
 </style>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         function boot() {
             RoleBasedUI.applyLayout();

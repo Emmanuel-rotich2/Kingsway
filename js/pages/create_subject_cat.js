@@ -43,7 +43,7 @@ const createSubjectCatController = {
       <td class="small">${this.esc(c.name || '—')}</td>
       <td class="small">${this.esc(c.description || '—')}</td>
       <td class="small">${c.subjects_count || 0} subjects</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="createSubjectCatController.editCategory(${c.id})"><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="createSubjectCatController.editCategory(${c.id})"><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

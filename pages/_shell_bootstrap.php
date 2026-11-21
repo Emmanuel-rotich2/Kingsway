@@ -51,3 +51,12 @@ if (!isset($GLOBALS['appBase']) || $GLOBALS['appBase'] === '') {
     $GLOBALS['appBase'] = app_base_path();
 }
 $appBase = $GLOBALS['appBase'];
+
+// Role templates are fetched as HTML fragments: send the staff CSP and this
+// response's nonce (X-CSP-Nonce), which PageShell checks before running the
+// template's inline scripts. Skipped when included through home.php, which
+// has already sent its headers.
+if (function_exists('csp_send') && !headers_sent() && !defined('KINGSWAY_SHELL_CSP_SENT')) {
+    define('KINGSWAY_SHELL_CSP_SENT', 1);
+    csp_send('staff');
+}

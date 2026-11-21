@@ -10,7 +10,7 @@ if (!isset($staffAppointmentsDescription)) {
     $staffAppointmentsDescription = 'Manage existing-staff appointments and new-staff recruitment appointments separately.';
 }
 if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
-    echo '<script>window.STAFF_APPOINTMENTS_CONTEXT = ' .
+    echo '<script nonce="' . csp_nonce() . '">window.STAFF_APPOINTMENTS_CONTEXT = ' .
         json_encode($staffAppointmentsContext, JSON_UNESCAPED_SLASHES) .
         ';</script>' . PHP_EOL;
 }

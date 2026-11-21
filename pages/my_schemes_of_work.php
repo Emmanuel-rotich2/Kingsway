@@ -16,13 +16,13 @@
                 <i class="bi bi-book"></i> My Schemes of Work
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="MySchemesOfWorkController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="MySchemesOfWorkController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="MySchemesOfWorkController.createScheme()" data-year-write>
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="MySchemesOfWorkController.createScheme()" data-year-write>
                     <i class="bi bi-plus-circle"></i> Create Scheme
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="MySchemesOfWorkController.exportSchemes()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="MySchemesOfWorkController.exportSchemes()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>

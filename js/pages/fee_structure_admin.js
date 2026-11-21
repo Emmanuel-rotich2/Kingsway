@@ -535,14 +535,14 @@ class FeeStructureAdminController {
                 <td>${this.renderStatusBadge(structure.status)}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="window.adminController.viewStructure('${structure.group_key}')" title="View">
+                        <button class="btn btn-outline-primary" data-kw-onclick="window.adminController.viewStructure('${structure.group_key}')" title="View">
                             <i class="bi bi-eye"></i>
                         </button>
                         ${
                           structure.status === "draft" ||
                           structure.status === "pending_review"
                             ? `
-                        <button class="btn btn-outline-warning" onclick="window.adminController.editStructure('${structure.group_key}')" title="Edit">
+                        <button class="btn btn-outline-warning" data-kw-onclick="window.adminController.editStructure('${structure.group_key}')" title="Edit">
                             <i class="bi bi-pencil"></i>
                         </button>
                         `
@@ -552,7 +552,7 @@ class FeeStructureAdminController {
                           structure.status === "draft" ||
                           structure.status === "pending_review"
                             ? `
-                        <button class="btn btn-outline-info" onclick="window.adminController.reviewStructure('${structure.group_key}')" title="Review">
+                        <button class="btn btn-outline-info" data-kw-onclick="window.adminController.reviewStructure('${structure.group_key}')" title="Review">
                             <i class="bi bi-check2-circle"></i>
                         </button>
                         `
@@ -561,7 +561,7 @@ class FeeStructureAdminController {
                         ${
                           structure.status === "reviewed"
                             ? `
-                        <button class="btn btn-outline-success" onclick="window.adminController.approveStructure('${structure.group_key}')" title="Approve">
+                        <button class="btn btn-outline-success" data-kw-onclick="window.adminController.approveStructure('${structure.group_key}')" title="Approve">
                             <i class="bi bi-check-circle"></i>
                         </button>
                         `
@@ -570,7 +570,7 @@ class FeeStructureAdminController {
                         ${
                           structure.status === "approved"
                             ? `
-                        <button class="btn btn-outline-success" onclick="window.adminController.activateStructure('${structure.group_key}')" title="Activate">
+                        <button class="btn btn-outline-success" data-kw-onclick="window.adminController.activateStructure('${structure.group_key}')" title="Activate">
                             <i class="bi bi-lightning-charge"></i>
                         </button>
                         `
@@ -579,7 +579,7 @@ class FeeStructureAdminController {
                         ${
                           structure.status === "draft"
                             ? `
-                        <button class="btn btn-outline-danger" onclick="window.adminController.deleteStructure('${structure.group_key}')" title="Delete">
+                        <button class="btn btn-outline-danger" data-kw-onclick="window.adminController.deleteStructure('${structure.group_key}')" title="Delete">
                             <i class="bi bi-trash"></i>
                         </button>
                         `
@@ -651,7 +651,7 @@ class FeeStructureAdminController {
 
     let html = "";
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === 1 ? "disabled" : ""} 
-                         onclick="window.adminController.loadFeeStructures(${current_page - 1})">Previous</button>`;
+                         data-kw-onclick="window.adminController.loadFeeStructures(${current_page - 1})">Previous</button>`;
 
     const range = 5;
     let start_page = Math.max(1, current_page - Math.floor(range / 2));
@@ -663,11 +663,11 @@ class FeeStructureAdminController {
 
     for (let i = start_page; i <= end_page; i++) {
       html += `<button class="btn btn-sm ${i === current_page ? "btn-primary" : "btn-outline-primary"}" 
-                             onclick="window.adminController.loadFeeStructures(${i})">${i}</button>`;
+                             data-kw-onclick="window.adminController.loadFeeStructures(${i})">${i}</button>`;
     }
 
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === total_pages ? "disabled" : ""} 
-                         onclick="window.adminController.loadFeeStructures(${current_page + 1})">Next</button>`;
+                         data-kw-onclick="window.adminController.loadFeeStructures(${current_page + 1})">Next</button>`;
 
     container.innerHTML = html;
   }
@@ -1807,16 +1807,16 @@ class FeeStructureAdminController {
           <td>${b.submitted_by_name || '—'}</td>
           <td><span class="badge text-bg-warning">${b.status || 'submitted'}</span></td>
           <td>
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.viewBundleMatrix('${this._esc(b.key)}')">
+            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="window.adminController && window.adminController.viewBundleMatrix('${this._esc(b.key)}')">
               <i class="bi bi-eye"></i> View matrix
             </button>
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.reviewBundle('${this._esc(b.key)}')">
+            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="window.adminController && window.adminController.reviewBundle('${this._esc(b.key)}')">
               <i class="bi bi-search"></i> Review
             </button>
-            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle('${this._esc(b.key)}')">
+            <button class="btn btn-sm btn-success me-1" data-kw-onclick="window.adminController && window.adminController.approveBundle('${this._esc(b.key)}')">
               <i class="bi bi-check-lg"></i> Approve
             </button>
-            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle('${this._esc(b.key)}')">
+            <button class="btn btn-sm btn-danger" data-kw-onclick="window.adminController && window.adminController.rejectBundle('${this._esc(b.key)}')">
               <i class="bi bi-x-lg"></i> Reject
             </button>
           </td>
@@ -1905,10 +1905,10 @@ class FeeStructureAdminController {
           <td><span class="badge text-bg-warning">${this._esc(c.status || 'submitted')}</span></td>
           <td class="text-end">
             ${canApprove ? `
-            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveExtraChargeRow(${Number(c.id)})">
+            <button class="btn btn-sm btn-success me-1" data-kw-onclick="window.adminController && window.adminController.approveExtraChargeRow(${Number(c.id)})">
               <i class="bi bi-check-lg"></i> Approve
             </button>
-            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectExtraChargeRow(${Number(c.id)})">
+            <button class="btn btn-sm btn-danger" data-kw-onclick="window.adminController && window.adminController.rejectExtraChargeRow(${Number(c.id)})">
               <i class="bi bi-x-lg"></i> Reject
             </button>` : '<span class="text-muted small">Awaiting Director / School Administrator</span>'}
           </td>

@@ -122,28 +122,28 @@
                 data-role="deputy_head_academic,headteacher,admin">
             <i class="bi bi-gear me-1"></i>Generate
         </button>
-        <button id="matrixDraftBtn" class="btn btn-warning btn-sm" onclick="timetableController.openMatrixDraft()"
+        <button id="matrixDraftBtn" class="btn btn-warning btn-sm" data-kw-onclick="timetableController.openMatrixDraft()"
                 data-role="school_admin,deputy_head_academic,headteacher,class_teacher,admin">
             <i class="bi bi-grid-3x3-gap me-1"></i>Matrix Draft
         </button>
-        <button class="btn btn-light btn-sm" onclick="timetableController.exportTimetable()"
+        <button class="btn btn-light btn-sm" data-kw-onclick="timetableController.exportTimetable()"
                 data-permission="schedules_view"
                 data-role="deputy_head_academic,headteacher,class_teacher,admin">
             <i class="bi bi-download me-1"></i>Export
         </button>
-        <button class="btn btn-light btn-sm" onclick="timetableController.printMyTimetable()"
+        <button class="btn btn-light btn-sm" data-kw-onclick="timetableController.printMyTimetable()"
                 data-role="subject_teacher,class_teacher,intern">
             <i class="bi bi-printer me-1"></i>Print
         </button>
-        <button class="btn btn-light btn-sm" onclick="timetableController.printMasterTimetable()"
+        <button class="btn btn-light btn-sm" data-kw-onclick="timetableController.printMasterTimetable()"
                 data-permission="schedules_view" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
             <i class="bi bi-printer-fill me-1"></i>Print Master
         </button>
-        <button id="reviewTimetableDraftsBtn" class="btn btn-light btn-sm" onclick="timetableController.openDraftReview()"
+        <button id="reviewTimetableDraftsBtn" class="btn btn-light btn-sm" data-kw-onclick="timetableController.openDraftReview()"
                 data-role="school_admin,deputy_head_academic,headteacher,admin,director">
             <i class="bi bi-clipboard-check me-1"></i>Review Drafts
         </button>
-        <button class="btn btn-light btn-sm" onclick="timetableController.showConflictReportModal()"
+        <button class="btn btn-light btn-sm" data-kw-onclick="timetableController.showConflictReportModal()"
                 data-role="subject_teacher,class_teacher,hod,intern">
             <i class="bi bi-exclamation-triangle me-1"></i>Report Conflict
         </button>
@@ -252,13 +252,13 @@
     <div class="d-flex align-items-center flex-wrap gap-2">
         <i class="bi bi-lightning-fill text-warning me-1"></i>
         <strong>Quick Actions:</strong>
-        <button class="btn btn-sm btn-outline-success ms-2" onclick="timetableController.checkConflicts()">
+        <button class="btn btn-sm btn-outline-success ms-2" data-kw-onclick="timetableController.checkConflicts()">
             <i class="bi bi-check-circle me-1"></i>Check Conflicts
         </button>
-        <button class="btn btn-sm btn-outline-success ms-1" onclick="timetableController.showTeacherWorkload()">
+        <button class="btn btn-sm btn-outline-success ms-1" data-kw-onclick="timetableController.showTeacherWorkload()">
             <i class="bi bi-person-lines-fill me-1"></i>Teacher Workload
         </button>
-        <button class="btn btn-sm btn-outline-success ms-1" onclick="timetableController.showRoomUtilization()">
+        <button class="btn btn-sm btn-outline-success ms-1" data-kw-onclick="timetableController.showRoomUtilization()">
             <i class="bi bi-door-open me-1"></i>Room Utilization
         </button>
         <span class="badge bg-warning ms-auto" id="pendingConflictsCount" style="display:none;">

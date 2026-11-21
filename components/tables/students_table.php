@@ -9,14 +9,14 @@ if (!function_exists('renderStudentsTable')) {
         $actionOptions = ['View Profile', 'Generate QR', 'Edit', 'Delete'];
     ?>
         <div class="mb-3">
-            <button class="btn btn-primary" onclick="window.location.href='?route=new_admission'">
+            <button class="btn btn-primary" data-kw-onclick="window.location.href='?route=new_admission'">
                 <i class="bi bi-plus-lg"></i> New Admission
             </button>
         </div>
         <?php
         renderTable('Students List', $headers, $rows, true, $actionOptions);
         ?>
-        <script>
+        <script nonce="<?= csp_nonce() ?>">
         document.addEventListener('DOMContentLoaded', function() {
             function reloadStudentsTable() {
                 StudentsAPI.list().then(data => {
@@ -27,7 +27,7 @@ if (!function_exists('renderStudentsTable')) {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${student.admission_no}</td>
-                            <td><img src='${KingswayFileLifecycle.resolveUrl(student.photo_url || student.photo)}' class='rounded-circle' width='40' alt='Student Photo' onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></td>
+                            <td><img src='${KingswayFileLifecycle.resolveUrl(student.photo_url || student.photo)}' class='rounded-circle' width='40' alt='Student Photo' data-kw-onerror="this.onerror=null;this.src=KingswayFileLifecycle.avatarUrl()"></td>
                             <td>${student.name}</td>
                             <td>${student.class}</td>
                             <td>${student.parent_contact}</td>

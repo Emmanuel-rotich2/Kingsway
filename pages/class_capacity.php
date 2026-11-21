@@ -61,7 +61,7 @@
                     </select>
                 </div>
                 <div class="col-md-3"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="ClassCapacityController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="ClassCapacityController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -69,7 +69,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Class Capacity</h6>
-            <button class="btn btn-sm btn-outline-success" onclick="ClassCapacityController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
+            <button class="btn btn-sm btn-outline-success" data-kw-onclick="ClassCapacityController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">

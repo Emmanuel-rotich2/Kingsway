@@ -105,7 +105,7 @@ const ViewSyllabusController = {
           <td><small>${this.escapeHtml((entry.indicators || '').substring(0, 80))}${(entry.indicators || '').length > 80 ? '...' : ''}</small></td>
           <td><small>${this.escapeHtml((entry.assessment_criteria || '').substring(0, 80))}${(entry.assessment_criteria || '').length > 80 ? '...' : ''}</small></td>
           <td>
-            <button class="btn btn-sm btn-outline-primary" onclick="ViewSyllabusController.viewDetails(${entry.id})" title="View Details">
+            <button class="btn btn-sm btn-outline-primary" data-kw-onclick="ViewSyllabusController.viewDetails(${entry.id})" title="View Details">
               <i class="bi bi-eye"></i>
             </button>
           </td>
@@ -175,7 +175,7 @@ const ViewSyllabusController = {
           <td><small>${this.escapeHtml((entry.indicators || '').substring(0, 80))}${(entry.indicators || '').length > 80 ? '...' : ''}</small></td>
           <td><small>${this.escapeHtml((entry.assessment_criteria || '').substring(0, 80))}${(entry.assessment_criteria || '').length > 80 ? '...' : ''}</small></td>
           <td>
-            <button class="btn btn-sm btn-outline-primary" onclick="ViewSyllabusController.viewDetails(${entry.id})" title="View Details">
+            <button class="btn btn-sm btn-outline-primary" data-kw-onclick="ViewSyllabusController.viewDetails(${entry.id})" title="View Details">
               <i class="bi bi-eye"></i>
             </button>
           </td>

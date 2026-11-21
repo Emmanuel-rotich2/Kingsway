@@ -104,11 +104,11 @@ const salaryAdvancesController = {
     tbody.innerHTML = page.map(a => {
       const actions = [];
       if (a.status === 'pending' && this._canApprove) {
-        actions.push(`<button class="btn btn-xs btn-outline-success py-0 px-1" onclick="salaryAdvancesController.showApproval(${a.id},'approve')">Approve</button>`);
-        actions.push(`<button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="salaryAdvancesController.showApproval(${a.id},'reject')">Reject</button>`);
+        actions.push(`<button class="btn btn-xs btn-outline-success py-0 px-1" data-kw-onclick="salaryAdvancesController.showApproval(${a.id},'approve')">Approve</button>`);
+        actions.push(`<button class="btn btn-xs btn-outline-danger py-0 px-1" data-kw-onclick="salaryAdvancesController.showApproval(${a.id},'reject')">Reject</button>`);
       }
       if (a.status === 'active' && this._canApprove) {
-        actions.push(`<button class="btn btn-xs btn-outline-warning py-0 px-1" onclick="salaryAdvancesController.recordDeduction(${a.id})" data-year-write>Deduct</button>`);
+        actions.push(`<button class="btn btn-xs btn-outline-warning py-0 px-1" data-kw-onclick="salaryAdvancesController.recordDeduction(${a.id})" data-year-write>Deduct</button>`);
       }
 
       return `<tr>
@@ -138,7 +138,7 @@ const salaryAdvancesController = {
     if (pages <= 1) { pg.innerHTML = ''; return; }
     pg.innerHTML = Array.from({length: pages}, (_, i) =>
       `<li class="page-item ${i+1===this._page?'active':''}">
-         <button class="page-link" onclick="salaryAdvancesController._goPage(${i+1})">${i+1}</button>
+         <button class="page-link" data-kw-onclick="salaryAdvancesController._goPage(${i+1})">${i+1}</button>
        </li>`
     ).join('');
   },

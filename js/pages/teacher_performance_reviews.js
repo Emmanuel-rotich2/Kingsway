@@ -169,7 +169,7 @@ const TeacherPerformanceReviewsController = {
                     <td>${this.escapeHtml(review.category || '-')}</td>
                     <td><small>${this.escapeHtml(review.remarks || '-')}</small></td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="TeacherPerformanceReviewsController.viewDetails(${review.id})" title="View Details">
+                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="TeacherPerformanceReviewsController.viewDetails(${review.id})" title="View Details">
                             <i class="bi bi-eye"></i>
                         </button>
                     </td>

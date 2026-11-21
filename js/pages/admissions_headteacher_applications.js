@@ -188,7 +188,7 @@ const headteacherApplicationsController = {
             const docStatus = this.getDocumentStatus(app);
             
             const actionButton = ['interview_scheduling', 'interview_results'].includes(app.current_stage)
-                ? `<button class="btn btn-outline-success" onclick="headteacherApplicationsController.conductInterview(${app.id})" title="Open Interview">
+                ? `<button class="btn btn-outline-success" data-kw-onclick="headteacherApplicationsController.conductInterview(${app.id})" title="Open Interview">
                                 <i class="bi bi-clipboard-check"></i>
                             </button>`
                 : '';
@@ -204,7 +204,7 @@ const headteacherApplicationsController = {
                     <td>${docStatus}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="headteacherApplicationsController.viewApplication(${app.id})" title="View">
+                            <button class="btn btn-outline-primary" data-kw-onclick="headteacherApplicationsController.viewApplication(${app.id})" title="View">
                                 <i class="bi bi-eye"></i>
                             </button>
                             ${actionButton}

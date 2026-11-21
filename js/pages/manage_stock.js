@@ -186,13 +186,13 @@
 
             let html = '<ul class="pagination pagination-sm mb-0">';
             html += `<li class="page-item ${currentPage === 1 ? "disabled" : ""}">
-                <a class="page-link" href="#" onclick="ManageStockController.goPage(${currentPage - 1});return false;">&laquo;</a></li>`;
+                <a class="page-link" href="#" data-kw-onclick="ManageStockController.goPage(${currentPage - 1});return false;">&laquo;</a></li>`;
             for (let p = 1; p <= pages; p++) {
                 html += `<li class="page-item ${p === currentPage ? "active" : ""}">
-                    <a class="page-link" href="#" onclick="ManageStockController.goPage(${p});return false;">${p}</a></li>`;
+                    <a class="page-link" href="#" data-kw-onclick="ManageStockController.goPage(${p});return false;">${p}</a></li>`;
             }
             html += `<li class="page-item ${currentPage === pages ? "disabled" : ""}">
-                <a class="page-link" href="#" onclick="ManageStockController.goPage(${currentPage + 1});return false;">&raquo;</a></li>`;
+                <a class="page-link" href="#" data-kw-onclick="ManageStockController.goPage(${currentPage + 1});return false;">&raquo;</a></li>`;
             html += "</ul>";
             container.innerHTML = html;
         },

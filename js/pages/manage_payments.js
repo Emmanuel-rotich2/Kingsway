@@ -272,7 +272,7 @@ const managePaymentsController = {
             <td>${this.escapeHtml(this.formatMethod(payment.payment_method))}</td>
             <td><span class="badge bg-${statusClass}">${this.escapeHtml(status)}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="managePaymentsController.viewPayment(${Number(payment.id)})" data-permission="finance_view">
+              <button class="btn btn-sm btn-outline-primary" data-kw-onclick="managePaymentsController.viewPayment(${Number(payment.id)})" data-permission="finance_view">
                 <i class="bi bi-eye"></i>
               </button>
             </td>
@@ -301,7 +301,7 @@ const managePaymentsController = {
     const addPageItem = (label, targetPage, disabled = false, active = false) => {
       html += `
         <li class="page-item ${disabled ? "disabled" : ""} ${active ? "active" : ""}">
-          <a class="page-link" href="#" onclick="return managePaymentsController.goToPage(${targetPage}, ${disabled})">${label}</a>
+          <a class="page-link" href="#" data-kw-onclick="return managePaymentsController.goToPage(${targetPage}, ${disabled})">${label}</a>
         </li>
       `;
     };

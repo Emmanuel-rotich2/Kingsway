@@ -306,7 +306,7 @@ const SpecialNeedsController = {
             <td>${this.escapeHtml(i.academic_year || "-")}</td>
             <td>${this.escapeHtml(i.created_at || "-")}</td>
             <td>
-              <button class="btn btn-sm btn-outline-info" onclick="SpecialNeedsController.viewIep(${this.escapeHtml(i.id)})">
+              <button class="btn btn-sm btn-outline-info" data-kw-onclick="SpecialNeedsController.viewIep(${this.escapeHtml(i.id)})">
                 <i class="bi bi-eye me-1"></i> View
               </button>
             </td>

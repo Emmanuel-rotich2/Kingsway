@@ -10,7 +10,7 @@
       <h4 class="fw-bold mb-0"><i class="bi bi-sign-turn-right text-primary me-2"></i>Exeat Reports</h4>
       <p class="text-muted small mb-0 mt-1">Leave request summary by status and dormitory.</p>
     </div>
-    <button class="btn btn-outline-primary btn-sm" onclick="exeatReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    <button class="btn btn-outline-primary btn-sm" data-kw-onclick="exeatReportsController.load()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
   </div>
 
   <div class="row g-3 mb-4" id="xrKpis"></div>

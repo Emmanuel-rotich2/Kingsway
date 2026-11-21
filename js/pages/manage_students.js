@@ -75,7 +75,7 @@ window.studentsManagementController = window.studentsManagementController || {
             <div class="card-body d-flex gap-2 align-items-center">
               <img src="${this.escapeHtml(photo.file_url || this.avatarUrl())}" alt="" style="width:52px;height:64px;object-fit:cover" class="rounded border">
               <div class="flex-grow-1"><strong>${this.escapeHtml([photo.first_name, photo.middle_name, photo.last_name].filter(Boolean).join(' '))}</strong><small class="d-block text-muted">${this.escapeHtml(photo.admission_no || '')}</small>
-                <div class="btn-group btn-group-sm mt-2"><button class="btn btn-success" onclick="studentsManagementController.approvePhoto(${Number(photo.id)})">Approve</button><button class="btn btn-outline-danger" onclick="studentsManagementController.rejectPhoto(${Number(photo.id)})">Reject</button></div>
+                <div class="btn-group btn-group-sm mt-2"><button class="btn btn-success" data-kw-onclick="studentsManagementController.approvePhoto(${Number(photo.id)})">Approve</button><button class="btn btn-outline-danger" data-kw-onclick="studentsManagementController.rejectPhoto(${Number(photo.id)})">Reject</button></div>
               </div>
             </div>
           </div>
@@ -774,14 +774,14 @@ window.studentsManagementController = window.studentsManagementController || {
         const studentName = this.escapeHtml(`${s.first_name || ""} ${s.middle_name || ""} ${s.last_name || ""}`.replace(/\s+/g, " ").trim() || "Unnamed learner");
 
         const menuActions = [];
-        if (this.canPerformAction("view")) menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.viewStudent(${Number(s.id)})"><i class="bi bi-eye me-2"></i>View</button>`);
-        if (this.canPerformAction("edit")) menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.editStudent(${Number(s.id)})"><i class="bi bi-pencil me-2"></i>Edit</button>`);
+        if (this.canPerformAction("view")) menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.viewStudent(${Number(s.id)})"><i class="bi bi-eye me-2"></i>View</button>`);
+        if (this.canPerformAction("edit")) menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.editStudent(${Number(s.id)})"><i class="bi bi-pencil me-2"></i>Edit</button>`);
         if (this.canPerformAction("edit") && s.status === "active") {
-          menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.deactivateStudent(${Number(s.id)})"><i class="bi bi-person-x me-2"></i>Deactivate</button>`);
-          menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.transferStudent(${Number(s.id)})"><i class="bi bi-arrow-left-right me-2"></i>Transfer</button>`);
+          menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.deactivateStudent(${Number(s.id)})"><i class="bi bi-person-x me-2"></i>Deactivate</button>`);
+          menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.transferStudent(${Number(s.id)})"><i class="bi bi-arrow-left-right me-2"></i>Transfer</button>`);
         }
-        if (this.canPerformAction("edit") && s.status !== "active") menuActions.push(`<button class="dropdown-item" type="button" onclick="studentsManagementController.activateStudent(${Number(s.id)})"><i class="bi bi-person-check me-2"></i>Activate</button>`);
-        if (this.canPerformAction("delete")) menuActions.push(`<div class="dropdown-divider"></div><button class="dropdown-item text-danger" type="button" onclick="studentsManagementController.deleteStudent(${Number(s.id)})"><i class="bi bi-trash me-2"></i>Delete</button>`);
+        if (this.canPerformAction("edit") && s.status !== "active") menuActions.push(`<button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.activateStudent(${Number(s.id)})"><i class="bi bi-person-check me-2"></i>Activate</button>`);
+        if (this.canPerformAction("delete")) menuActions.push(`<div class="dropdown-divider"></div><button class="dropdown-item text-danger" type="button" data-kw-onclick="studentsManagementController.deleteStudent(${Number(s.id)})"><i class="bi bi-trash me-2"></i>Delete</button>`);
         const actionsHtml = menuActions.length
           ? `<div class="dropdown"><button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for ${studentName}"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button><div class="dropdown-menu dropdown-menu-end">${menuActions.join("")}</div></div>`
           : '<span class="text-muted">No actions</span>';
@@ -795,7 +795,7 @@ window.studentsManagementController = window.studentsManagementController || {
                 <td>${s.admission_no || "-"}</td>
                 <td>
                   <div class="d-flex align-items-center gap-2">
-                    <img src="${studentPhoto}" alt="" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover" onerror="this.onerror=null;this.src='${this.escapeHtml(this.avatarUrl())}'">
+                    <img src="${studentPhoto}" alt="" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover" data-kw-onerror="this.onerror=null;this.src='${this.escapeHtml(this.avatarUrl())}'">
                     <span>${studentName}</span>
                   </div>
                 </td>
@@ -834,14 +834,14 @@ window.studentsManagementController = window.studentsManagementController || {
       <div class="students-page-navigation">
         <button type="button" class="btn btn-outline-secondary btn-sm"
                 ${currentPage <= 1 ? "disabled" : ""}
-                onclick="studentsManagementController.loadStudents(${currentPage - 1})"
+                data-kw-onclick="studentsManagementController.loadStudents(${currentPage - 1})"
                 aria-label="Previous page">
           <i class="bi bi-chevron-left" aria-hidden="true"></i><span>Previous</span>
         </button>
         <span class="students-page-indicator" aria-live="polite">Page ${currentPage} of ${totalPages}</span>
         <button type="button" class="btn btn-outline-secondary btn-sm"
                 ${currentPage >= totalPages || total === 0 ? "disabled" : ""}
-                onclick="studentsManagementController.loadStudents(${currentPage + 1})"
+                data-kw-onclick="studentsManagementController.loadStudents(${currentPage + 1})"
                 aria-label="Next page">
           <span>Next</span><i class="bi bi-chevron-right" aria-hidden="true"></i>
         </button>
@@ -1543,7 +1543,7 @@ window.studentsManagementController = window.studentsManagementController || {
             <img src="${this.photoUrl(student.photo_url)}"
                  class="kw-detail-photo" style="width:96px;height:116px;"
                  alt="Learner photo"
-                 onerror="this.onerror=null; this.src='${this.avatarUrl()}'">
+                 data-kw-onerror="this.onerror=null; this.src='${this.avatarUrl()}'">
             <div>
               <div class="kw-detail-eyebrow">Learner profile</div>
               <h4>${student.first_name || ""} ${student.middle_name || ""} ${student.last_name || ""}</h4>
@@ -2106,7 +2106,7 @@ window.studentsManagementController = window.studentsManagementController || {
               <input type="hidden" id="transferStudentId" value="${id}">
               <div class="mb-3">
                 <label class="form-label">Transfer To Class <span class="text-danger">*</span></label>
-                <select id="transferTargetClass" class="form-select" required onchange="studentsManagementController.loadTransferStreams(this.value)">
+                <select id="transferTargetClass" class="form-select" required data-kw-onchange="studentsManagementController.loadTransferStreams(this.value)">
                   <option value="">Select Class</option>
                   ${classOptions}
                 </select>
@@ -2124,7 +2124,7 @@ window.studentsManagementController = window.studentsManagementController || {
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-              <button type="button" class="btn btn-info" onclick="studentsManagementController.executeTransfer()">
+              <button type="button" class="btn btn-info" data-kw-onclick="studentsManagementController.executeTransfer()">
                 <i class="bi bi-arrow-left-right"></i> Transfer
               </button>
             </div>

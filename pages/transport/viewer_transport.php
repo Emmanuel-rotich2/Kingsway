@@ -16,7 +16,7 @@
     <!-- Loaded dynamically -->
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     var initializeViewerTransport = function () {
         loadTransportInfo();
     };

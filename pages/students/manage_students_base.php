@@ -21,12 +21,12 @@
             <h4 class="mb-0"><i class="bi bi-people-fill"></i> Student Management</h4>
             <div class="btn-group">
                 <!-- Only users with create permission can add students -->
-                <button class="btn btn-light btn-sm" onclick="studentsManagementController.showStudentModal()" 
+                <button class="btn btn-light btn-sm" data-kw-onclick="studentsManagementController.showStudentModal()" 
                         data-permission="students_create">
                     <i class="bi bi-plus-circle"></i> Add Student
                 </button>
                 <!-- Bulk import only for registrar/admin -->
-                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.showBulkImportModal()" 
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="studentsManagementController.showBulkImportModal()" 
                         data-permission="students_create"
                         data-role="registrar,school_administrator,admin">
                     <i class="bi bi-upload"></i> Add Multiple Students
@@ -115,22 +115,22 @@
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
                     <input type="text" id="searchStudents" class="form-control" 
                            placeholder="Search by name, admission number, or ID..." 
-                           onkeyup="studentsManagementController.searchStudents(this.value)">
+                           data-kw-onkeyup="studentsManagementController.searchStudents(this.value)">
                 </div>
             </div>
             <!-- Class filter - hidden for class teachers (locked to their class) -->
             <div class="col-md-2" data-role-exclude="class_teacher">
-                <select id="classFilter" class="form-select" onchange="studentsManagementController.filterByClass(this.value)">
+                <select id="classFilter" class="form-select" data-kw-onchange="studentsManagementController.filterByClass(this.value)">
                     <option value="">All Classes</option>
                 </select>
             </div>
             <div class="col-md-2">
-                <select id="streamFilter" class="form-select" onchange="studentsManagementController.filterByStream(this.value)">
+                <select id="streamFilter" class="form-select" data-kw-onchange="studentsManagementController.filterByStream(this.value)">
                     <option value="">All Streams</option>
                 </select>
             </div>
             <div class="col-md-2">
-                <select id="genderFilter" class="form-select" onchange="studentsManagementController.filterByGender(this.value)">
+                <select id="genderFilter" class="form-select" data-kw-onchange="studentsManagementController.filterByGender(this.value)">
                     <option value="">All Genders</option>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
@@ -138,7 +138,7 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <select id="statusFilter" class="form-select" onchange="studentsManagementController.filterByStatus(this.value)">
+                <select id="statusFilter" class="form-select" data-kw-onchange="studentsManagementController.filterByStatus(this.value)">
                     <option value="">All Status</option>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
@@ -151,7 +151,7 @@
         <!-- Fee Balance Filter - Only for finance roles -->
         <div class="row mb-3" data-role="accountant,bursar,director,admin" data-permission="fees_view">
             <div class="col-md-3">
-                <select id="feeStatusFilter" class="form-select" onchange="studentsManagementController.filterByFeeStatus(this.value)">
+                <select id="feeStatusFilter" class="form-select" data-kw-onchange="studentsManagementController.filterByFeeStatus(this.value)">
                     <option value="">All Fee Status</option>
                     <option value="fully_paid">Fully Paid</option>
                     <option value="partial">Partial Payment</option>
@@ -199,7 +199,7 @@
                 <label class="students-page-size" for="studentsPageSize">
                     Rows per page
                     <select class="form-select form-select-sm" id="studentsPageSize"
-                            onchange="studentsManagementController.changePageSize(this.value)"
+                            data-kw-onchange="studentsManagementController.changePageSize(this.value)"
                             aria-label="Rows per page">
                         <option value="10" selected>10</option>
                         <option value="25">25</option>
@@ -221,7 +221,7 @@
                 <h5 class="modal-title" id="studentModalLabel">Add Existing Student</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="studentForm" enctype="multipart/form-data" onsubmit="studentsManagementController.saveStudent(event)">
+            <form id="studentForm" enctype="multipart/form-data" data-kw-onsubmit="studentsManagementController.saveStudent(event)">
                 <div class="modal-body">
                     <input type="hidden" id="studentId">
                     
@@ -236,7 +236,7 @@
                         <div class="col-md-6 d-flex align-items-center">
                             <img id="studentPhotoPreview" src="<?= htmlspecialchars(defined('UPLOAD_URL') ? rtrim((string) UPLOAD_URL, '/') . '/students/avatar.jpg' : $appBase . '/uploads/students/avatar.jpg', ENT_QUOTES, 'UTF-8') ?>"
                                 class="rounded-circle" width="80" height="80"
-                                onerror="this.onerror=null; this.src=window.KingswayFileLifecycle ? KingswayFileLifecycle.avatarUrl() : this.src"
+                                data-kw-onerror="this.onerror=null; this.src=window.KingswayFileLifecycle ? KingswayFileLifecycle.avatarUrl() : this.src"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
                         </div>
                     </div>
@@ -309,7 +309,7 @@
 
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Class <span class="text-danger">*</span></label>
-                            <select id="studentClass" class="form-select" required onchange="studentsManagementController.loadStreamsForClass(this.value)">
+                            <select id="studentClass" class="form-select" required data-kw-onchange="studentsManagementController.loadStreamsForClass(this.value)">
                                 <option value="">Select Class</option>
                             </select>
                         </div>
@@ -395,7 +395,7 @@
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">School sponsorship programme</label>
-                            <select id="schoolSponsorshipProgram" class="form-select" onchange="studentsManagementController.updateSchoolSponsorshipFields()">
+                            <select id="schoolSponsorshipProgram" class="form-select" data-kw-onchange="studentsManagementController.updateSchoolSponsorshipFields()">
                                 <option value="">No school sponsorship</option>
                             </select>
                             <div class="form-text" id="schoolSponsorshipDescription">Select a programme configured by the school.</div>
@@ -414,7 +414,7 @@
                         </div>
                         <div class="col-md-4" id="schoolSponsorshipPeriodWrap" style="display:none;">
                             <label class="form-label">Sponsorship period</label>
-                            <select id="schoolSponsorshipPeriodType" class="form-select" onchange="studentsManagementController.updateSchoolSponsorshipFields()">
+                            <select id="schoolSponsorshipPeriodType" class="form-select" data-kw-onchange="studentsManagementController.updateSchoolSponsorshipFields()">
                                 <option value="academic_year">Whole academic year</option><option value="term">One term</option><option value="custom">Custom dates</option>
                             </select>
                         </div>
@@ -431,7 +431,7 @@
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Fee-waiver type</label>
-                            <select id="schoolFeeWaiverType" class="form-select" onchange="studentsManagementController.updateSchoolFeeWaiverFields()">
+                            <select id="schoolFeeWaiverType" class="form-select" data-kw-onchange="studentsManagementController.updateSchoolFeeWaiverFields()">
                                 <option value="none">No fee waiver</option>
                             </select>
                             <div class="form-text">A waiver reduces a specific fee obligation; it is not a sponsorship programme.</div>
@@ -508,7 +508,7 @@
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="isNewParent" checked onchange="studentsManagementController.toggleParentType()">
+                                <input class="form-check-input" type="checkbox" id="isNewParent" checked data-kw-onchange="studentsManagementController.toggleParentType()">
                                 <label class="form-check-label" for="isNewParent">
                                     <strong>Add New Parent</strong> <small class="text-muted">(Uncheck to select existing parent)</small>
                                 </label>
@@ -610,7 +610,7 @@
                 <h5 class="modal-title">Add Multiple Existing Students</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="bulkImportForm" onsubmit="studentsManagementController.bulkImport(event)">
+            <form id="bulkImportForm" data-kw-onsubmit="studentsManagementController.bulkImport(event)">
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> Add learners who were already attending before this system.
@@ -618,9 +618,9 @@
                         <div class="dropdown d-inline-block ms-1">
                             <button class="btn btn-sm btn-link p-0 align-baseline dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Download template</button>
                             <ul class="dropdown-menu">
-                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('xlsx')">Excel (.xlsx)</button></li>
-                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('csv')">CSV (.csv)</button></li>
-                                <li><button class="dropdown-item" type="button" onclick="studentsManagementController.downloadTemplate('ods')">OpenDocument (.ods)</button></li>
+                                <li><button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.downloadTemplate('xlsx')">Excel (.xlsx)</button></li>
+                                <li><button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.downloadTemplate('csv')">CSV (.csv)</button></li>
+                                <li><button class="dropdown-item" type="button" data-kw-onclick="studentsManagementController.downloadTemplate('ods')">OpenDocument (.ods)</button></li>
                             </ul>
                         </div>
                     </div>
@@ -668,8 +668,8 @@
             </div>
             <div class="modal-footer">
                 <div class="me-auto small text-muted">Read-only profile · data shown from the school record</div>
-                <button type="button" class="btn btn-outline-secondary" onclick="studentsManagementController.printStudentDetails()"><i class="bi bi-printer" aria-hidden="true"></i> Print profile</button>
-                <button type="button" class="btn btn-primary" id="viewStudentEditButton" onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
+                <button type="button" class="btn btn-outline-secondary" data-kw-onclick="studentsManagementController.printStudentDetails()"><i class="bi bi-printer" aria-hidden="true"></i> Print profile</button>
+                <button type="button" class="btn btn-primary" id="viewStudentEditButton" data-kw-onclick="studentsManagementController.editViewedStudent()"><i class="bi bi-pencil" aria-hidden="true"></i> Edit record</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>

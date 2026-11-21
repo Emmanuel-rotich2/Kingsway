@@ -14,13 +14,13 @@
         </div>
         <a class="btn btn-outline-success" href="index.php?route=r39d07ccbcf8a" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
         <div class="d-flex gap-2">
-            <button class="btn btn-primary" onclick="UniformSalesController.showNewSaleModal()">
+            <button class="btn btn-primary" data-kw-onclick="UniformSalesController.showNewSaleModal()">
                 <i class="bi bi-cart-plus me-1"></i>New Sale
             </button>
-            <button class="btn btn-success" onclick="UniformSalesController.showRestockModal()">
+            <button class="btn btn-success" data-kw-onclick="UniformSalesController.showRestockModal()">
                 <i class="bi bi-boxes me-1"></i>Restock
             </button>
-            <button class="btn btn-outline-secondary" onclick="UniformSalesController.refresh()">
+            <button class="btn btn-outline-secondary" data-kw-onclick="UniformSalesController.refresh()">
                 <i class="bi bi-arrow-clockwise me-1"></i>Refresh
             </button>
         </div>
@@ -133,7 +133,7 @@
                         </div>
                         <div class="col-md-1">
                             <button class="btn btn-outline-primary w-100"
-                                    onclick="UniformSalesController.loadSales()">
+                                    data-kw-onclick="UniformSalesController.loadSales()">
                                 <i class="bi bi-search"></i>
                             </button>
                         </div>
@@ -168,7 +168,7 @@
             <div class="card dash-card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Low Stock Alert</h6>
-                    <button class="btn btn-success btn-sm" onclick="UniformSalesController.showRestockModal()">
+                    <button class="btn btn-success btn-sm" data-kw-onclick="UniformSalesController.showRestockModal()">
                         <i class="bi bi-boxes me-1"></i>Restock Items
                     </button>
                 </div>
@@ -384,7 +384,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button class="btn btn-success" id="upSaveBtn"
-                        onclick="UniformSalesController.saveUniformPayment()">
+                        data-kw-onclick="UniformSalesController.saveUniformPayment()">
                     <i class="bi bi-check me-1"></i>Record Payment
                 </button>
             </div>

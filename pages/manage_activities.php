@@ -15,10 +15,10 @@
       <small class="text-muted">Manage school activities, participants, schedules and categories</small>
     </div>
     <div class="d-flex gap-2">
-      <button class="btn btn-outline-secondary btn-sm" onclick="activitiesController.loadAll()">
+      <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="activitiesController.loadAll()">
         <i class="bi bi-arrow-clockwise"></i> Refresh
       </button>
-      <button class="btn btn-primary" onclick="activitiesController.showAddModal()" data-year-write>
+      <button class="btn btn-primary" data-kw-onclick="activitiesController.showAddModal()" data-year-write>
         <i class="bi bi-plus-circle me-1"></i> Add Activity
       </button>
     </div>
@@ -96,7 +96,7 @@
               </select>
             </div>
             <div class="col-md-2">
-              <button class="btn btn-outline-secondary btn-sm w-100" onclick="activitiesController.clearFilters()">Clear</button>
+              <button class="btn btn-outline-secondary btn-sm w-100" data-kw-onclick="activitiesController.clearFilters()">Clear</button>
             </div>
           </div>
           <div id="activitiesTableContainer">
@@ -112,7 +112,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between mb-3">
             <h6 class="mb-0">Activity Categories</h6>
-            <button class="btn btn-sm btn-primary" onclick="activitiesController.showCategoryModal()">
+            <button class="btn btn-sm btn-primary" data-kw-onclick="activitiesController.showCategoryModal()">
               <i class="bi bi-plus"></i> Add Category
             </button>
           </div>
@@ -147,7 +147,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between mb-3">
             <h6 class="mb-0">Activity Schedules</h6>
-            <button class="btn btn-sm btn-primary" onclick="activitiesController.showScheduleModal()">
+            <button class="btn btn-sm btn-primary" data-kw-onclick="activitiesController.showScheduleModal()">
               <i class="bi bi-plus"></i> Add Schedule
             </button>
           </div>
@@ -164,7 +164,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between mb-3">
             <h6 class="mb-0">Activity Resources</h6>
-            <button class="btn btn-sm btn-primary" onclick="activitiesController.showResourceModal()">
+            <button class="btn btn-sm btn-primary" data-kw-onclick="activitiesController.showResourceModal()">
               <i class="bi bi-plus"></i> Add Resource
             </button>
           </div>
@@ -237,7 +237,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveActivity()" data-year-write>Save Activity</button>
+        <button class="btn btn-primary" data-kw-onclick="activitiesController.saveActivity()" data-year-write>Save Activity</button>
       </div>
     </div>
   </div>
@@ -264,7 +264,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveCategory()" data-year-write>Save Category</button>
+        <button class="btn btn-primary" data-kw-onclick="activitiesController.saveCategory()" data-year-write>Save Category</button>
       </div>
     </div>
   </div>
@@ -294,7 +294,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveParticipant()" data-year-write>Register</button>
+        <button class="btn btn-primary" data-kw-onclick="activitiesController.saveParticipant()" data-year-write>Register</button>
       </div>
     </div>
   </div>
@@ -335,7 +335,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveSchedule()" data-year-write>Save</button>
+        <button class="btn btn-primary" data-kw-onclick="activitiesController.saveSchedule()" data-year-write>Save</button>
       </div>
     </div>
   </div>
@@ -382,7 +382,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="activitiesController.saveResource()" data-year-write>Save</button>
+        <button class="btn btn-primary" data-kw-onclick="activitiesController.saveResource()" data-year-write>Save</button>
       </div>
     </div>
   </div>

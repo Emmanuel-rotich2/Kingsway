@@ -327,10 +327,10 @@ var SchemesOfWorkController = (() => {
             <td>${escapeHtml(lastUpdated)}</td>
             <td>
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-info" onclick="SchemesOfWorkController.viewScheme(${s.id}, ${s.scheme_workbook_id || 0})" title="Review complete workbook">
+                <button class="btn btn-outline-info" data-kw-onclick="SchemesOfWorkController.viewScheme(${s.id}, ${s.scheme_workbook_id || 0})" title="Review complete workbook">
                   <i class="bi bi-eye"></i>
                 </button>
-                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook" data-year-write><i class="bi bi-check2-circle"></i></button>` : ''}
+                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" data-kw-onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook" data-year-write><i class="bi bi-check2-circle"></i></button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -349,7 +349,7 @@ var SchemesOfWorkController = (() => {
     for (let i = 1; i <= totalPages; i++) {
       html += `
         <li class="page-item ${i === page ? "active" : ""}">
-          <a class="page-link" href="#" onclick="SchemesOfWorkController.loadPage(${i}); return false;">${i}</a>
+          <a class="page-link" href="#" data-kw-onclick="SchemesOfWorkController.loadPage(${i}); return false;">${i}</a>
         </li>`;
     }
     container.innerHTML = html;

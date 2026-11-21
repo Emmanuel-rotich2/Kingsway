@@ -59,7 +59,7 @@
                 <div class="col-md-2"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
                 <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All</option></select></div>
                 <div class="col-md-3"><input type="date" class="form-control" id="dateFilter"></div>
-                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="ComparativeReportsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
+                <div class="col-md-2"><button class="btn btn-outline-secondary w-100" data-kw-onclick="ComparativeReportsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
@@ -67,7 +67,7 @@
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-table me-2"></i>Comparative Reports</h6>
-            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" onclick="ComparativeReportsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" onclick="ComparativeReportsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" data-kw-onclick="ComparativeReportsController.print()"><i class="bi bi-printer me-1"></i> Print</button><button class="btn btn-sm btn-outline-success" data-kw-onclick="ComparativeReportsController.exportCSV()"><i class="bi bi-file-csv me-1"></i> Export</button></div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">

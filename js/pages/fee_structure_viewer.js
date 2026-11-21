@@ -131,7 +131,7 @@ class FeeStructureViewerController {
         <td>${this.escapeHtml(group.terms.join(', '))}</td>
         <td>${this.escapeHtml(group.types.join(', '))}</td>
         <td>${group.classes ? `${group.classes} classes` : 'All configured classes'}</td>
-        <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="window.viewerController.reviewFeeBundle('${this.escapeHtml(group.key)}')"><i class="bi bi-chat-square-text"></i> Review</button></td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-primary" data-kw-onclick="window.viewerController.reviewFeeBundle('${this.escapeHtml(group.key)}')"><i class="bi bi-chat-square-text"></i> Review</button></td>
       </tr>`).join('');
     } catch (e) {
       body.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">${this.escapeHtml(e.message || 'Failed to load review queue')}</td></tr>`;
@@ -541,7 +541,7 @@ class FeeStructureViewerController {
                 <td class="text-end">${this.formatCurrency(structure.total_expected_revenue)}</td>
                 <td>${structure.status || "-"}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewStructure('${structure.group_key}')" title="View Details">
+                    <button class="btn btn-sm btn-outline-primary" data-kw-onclick="viewStructure('${structure.group_key}')" title="View Details">
                         <i class="bi bi-eye"></i> View
                     </button>
                 </td>
@@ -554,7 +554,7 @@ class FeeStructureViewerController {
   renderLoadError(message) {
     const body = document.getElementById("activeFeeMatrix");
     if (body) {
-      body.innerHTML = `<div class="text-center text-danger py-4"><i class="bi bi-exclamation-triangle me-1"></i>${this.escapeHtml(message)} <button class="btn btn-sm btn-outline-danger ms-2" onclick="window.viewerController.loadFeeStructures(1)">Retry</button></div>`;
+      body.innerHTML = `<div class="text-center text-danger py-4"><i class="bi bi-exclamation-triangle me-1"></i>${this.escapeHtml(message)} <button class="btn btn-sm btn-outline-danger ms-2" data-kw-onclick="window.viewerController.loadFeeStructures(1)">Retry</button></div>`;
     }
     const info = document.getElementById("paginationInfo");
     if (info) info.textContent = "Unable to load fee structures";
@@ -642,7 +642,7 @@ class FeeStructureViewerController {
 
     let html = "";
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === 1 ? "disabled" : ""} 
-                         onclick="window.viewerController.loadFeeStructures(${current_page - 1})">Previous</button>`;
+                         data-kw-onclick="window.viewerController.loadFeeStructures(${current_page - 1})">Previous</button>`;
 
     const range = 5;
     let start_page = Math.max(1, current_page - Math.floor(range / 2));
@@ -654,11 +654,11 @@ class FeeStructureViewerController {
 
     for (let i = start_page; i <= end_page; i++) {
       html += `<button class="btn btn-sm ${i === current_page ? "btn-primary" : "btn-outline-primary"}" 
-                             onclick="window.viewerController.loadFeeStructures(${i})">${i}</button>`;
+                             data-kw-onclick="window.viewerController.loadFeeStructures(${i})">${i}</button>`;
     }
 
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === total_pages ? "disabled" : ""} 
-                         onclick="window.viewerController.loadFeeStructures(${current_page + 1})">Next</button>`;
+                         data-kw-onclick="window.viewerController.loadFeeStructures(${current_page + 1})">Next</button>`;
 
     container.innerHTML = html;
   }

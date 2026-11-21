@@ -51,11 +51,11 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Allowances</label>
-                            <input type="number" id="allowances" class="form-control" min="0" step="0.01" value="0" onchange="payrollController.calculateNetSalary()">
+                            <input type="number" id="allowances" class="form-control" min="0" step="0.01" value="0" data-kw-onchange="payrollController.calculateNetSalary()">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Deductions</label>
-                            <input type="number" id="deductions" class="form-control" min="0" step="0.01" value="0" onchange="payrollController.calculateNetSalary()">
+                            <input type="number" id="deductions" class="form-control" min="0" step="0.01" value="0" data-kw-onchange="payrollController.calculateNetSalary()">
                         </div>
                     </div>
 
@@ -75,7 +75,7 @@
                 <div class="alert alert-info mb-3">
                     This ledger displays only payroll records returned from the database. Payroll preparation, approval, and disbursement are handled in the Finance payroll workflow.
                 </div>
-                <button class="btn btn-secondary mb-3" onclick="payrollController.loadReport()">Load Report</button>
+                <button class="btn btn-secondary mb-3" data-kw-onclick="payrollController.loadReport()">Load Report</button>
                 <div id="reportContainer">
                     <p class="text-muted">Click Load Report to view payroll history</p>
                 </div>

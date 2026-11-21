@@ -45,10 +45,12 @@ function addLine() {
 }
 
 function printLabels(labels) {
-  const popup = window.open('', '_blank', 'noopener,noreferrer');
+  // Not 'noopener': with it window.open returns null and nothing can be written.
+  const popup = window.open('', '_blank');
   if (!popup) { msg('Allow pop-ups to print the generated labels.', 'warning'); return; }
-  popup.document.write(`<html><head><title>Uniform Unit Labels</title><style>body{font-family:Arial}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.label{border:1px dashed #444;padding:8px;text-align:center;break-inside:avoid}.label img{width:76px;height:76px}.label svg{width:100%;height:50px}small{display:block}@media print{button{display:none}}</style></head><body><button onclick="print()">Print labels</button><div class="grid">${labels.map(l => `<div class="label"><strong>Kingsway Preparatory School</strong><small>${esc(l.product_title)} · ${esc(l.variant_name||'Standard')} · ${esc(l.size_label)}</small><img src="${l.qr_data_uri}">${l.barcode_svg}<small>${esc(l.unit_code)}</small></div>`).join('')}</div></body></html>`);
+  popup.document.write(`<html><head><title>Uniform Unit Labels</title><style>body{font-family:Arial}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.label{border:1px dashed #444;padding:8px;text-align:center;break-inside:avoid}.label img{width:76px;height:76px}.label svg{width:100%;height:50px}small{display:block}@media print{button{display:none}}</style></head><body><button id="printLabelsButton">Print labels</button><div class="grid">${labels.map(l => `<div class="label"><strong>Kingsway Preparatory School</strong><small>${esc(l.product_title)} · ${esc(l.variant_name||'Standard')} · ${esc(l.size_label)}</small><img src="${l.qr_data_uri}">${l.barcode_svg}<small>${esc(l.unit_code)}</small></div>`).join('')}</div></body></html>`);
   popup.document.close();
+  popup.document.getElementById('printLabelsButton')?.addEventListener('click', () => popup.print());
 }
 
 function notify(t, type = 'success') {

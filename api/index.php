@@ -137,7 +137,8 @@ if (!headers_sent()) {
     header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
-    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke; connect-src \'self\'; frame-ancestors \'none\'');
+    // Strict CSP for any HTML an API route renders (print views, documents).
+    csp_send('api');
     if (($_ENV['APP_ENV'] ?? 'production') === 'production') {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }

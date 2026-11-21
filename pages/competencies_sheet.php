@@ -22,7 +22,7 @@
       <h2 class="mb-0"><i class="bi bi-stars me-2 text-warning"></i>Core Competencies</h2>
       <small class="text-muted">Rate each student on the 8 CBC core competencies per term</small>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="compCtrl.refresh()">
+    <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="compCtrl.refresh()">
       <i class="bi bi-arrow-clockwise"></i> Refresh
     </button>
   </div>
@@ -54,12 +54,12 @@
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold mb-1">Class <span class="text-danger">*</span></label>
-          <select id="compClassSelect" class="form-select form-select-sm" onchange="compCtrl.loadSheet()">
+          <select id="compClassSelect" class="form-select form-select-sm" data-kw-onchange="compCtrl.loadSheet()">
             <option value="">— Select class —</option>
           </select>
         </div>
         <div class="col-auto">
-          <button class="btn btn-success" onclick="compCtrl.saveAll()" data-year-write>
+          <button class="btn btn-success" data-kw-onclick="compCtrl.saveAll()" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save Ratings
           </button>
         </div>
@@ -80,4 +80,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/competencies_sheet.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => compCtrl.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => compCtrl.init());</script>

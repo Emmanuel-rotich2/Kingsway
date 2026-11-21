@@ -318,12 +318,12 @@
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/placement_tests.js"
-    onload="console.log('placement_tests.js script tag loaded successfully')",
-    onerror="console.error('FAILED to load placement_tests.js. Check path:', this.src)">
+    data-kw-onload="console.log('placement_tests.js script tag loaded successfully')",
+    data-kw-onerror="console.error('FAILED to load placement_tests.js. Check path:', this.src)">
 </script>

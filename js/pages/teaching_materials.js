@@ -138,7 +138,7 @@ const teachingMaterialsController = {
           </div>
           <div class="card-footer bg-transparent border-top-0 pt-0 pb-2 px-3">
             <button class="btn btn-sm btn-outline-primary w-100"
-                    onclick="teachingMaterialsController.download(${m.id}, ${JSON.stringify(m.file_name || m.title || 'file')})">
+                    data-kw-onclick="teachingMaterialsController.download(${m.id}, ${JSON.stringify(m.file_name || m.title || 'file')})">
               <i class="bi bi-download me-1"></i> Download
             </button>
           </div>

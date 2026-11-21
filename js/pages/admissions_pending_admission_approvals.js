@@ -220,10 +220,10 @@ const pendingApprovalsController = {
                             </div>
                             
                             <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="pendingApprovalsController.viewApplication(${app.id})">
+                                <button class="btn btn-sm btn-outline-primary flex-grow-1" data-kw-onclick="pendingApprovalsController.viewApplication(${app.id})">
                                     <i class="bi bi-eye me-1"></i>View
                                 </button>
-                                ${app.approval_status === 'final_approval' ? `<button class="btn btn-sm btn-success flex-grow-1" onclick="pendingApprovalsController.finalApproval(${app.id})">
+                                ${app.approval_status === 'final_approval' ? `<button class="btn btn-sm btn-success flex-grow-1" data-kw-onclick="pendingApprovalsController.finalApproval(${app.id})">
                                     <i class="bi bi-check-circle me-1"></i>Final Approval
                                 </button>` : ''}
                             </div>

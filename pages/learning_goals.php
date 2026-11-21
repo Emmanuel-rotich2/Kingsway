@@ -64,7 +64,7 @@
   <div id="lgEmpty" style="display:none;" class="text-center py-5">
     <i class="bi bi-bullseye fs-1 text-muted"></i>
     <p class="text-muted mt-2">No learning goals set yet. Add your first goal!</p>
-    <button class="btn btn-primary btn-sm" onclick="learningGoalsController.showAddModal()">
+    <button class="btn btn-primary btn-sm" data-kw-onclick="learningGoalsController.showAddModal()">
       <i class="bi bi-plus-circle me-1"></i> Add Goal
     </button>
   </div>

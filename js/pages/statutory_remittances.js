@@ -130,7 +130,7 @@ const statutoryRemittancesController = {
       const index = rows.indexOf(r);
       return '<tr><td class=\"fw-semibold\">' + label + '</td><td>' + pct(rules.employee_rate) + '</td><td>' + pct(rules.employer_rate) + '</td><td>' + application.join('') +
         '</td><td>' + deadline + '</td><td>' + this.esc(r.effective_from || '—') + '</td><td class=\"small\">' + this.esc(source) +
-        '</td><td class=\"text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary\" onclick=\"statutoryRemittancesController.updateRule(' + index + ')\"><i class=\"bi bi-pencil-square me-1\"></i>Update</button></td></tr>';
+        '</td><td class=\"text-end\"><button type=\"button\" class=\"btn btn-sm btn-outline-primary\" data-kw-onclick=\"statutoryRemittancesController.updateRule(' + index + ')\"><i class=\"bi bi-pencil-square me-1\"></i>Update</button></td></tr>';
     }).join('');
   },
 
@@ -359,9 +359,9 @@ const statutoryRemittancesController = {
         <td>${r.remittance_date || r.filed_date || '—'}</td>
         <td>${statusBadge(r.status)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-primary me-1" onclick="statutoryRemittancesController.viewDetail(${r.id})" title="View"><i class="bi bi-eye"></i></button>
-          ${bal > 0 ? `<button class="btn btn-sm btn-outline-success me-1" onclick="statutoryRemittancesController.initiatePayment(${r.id})" title="Submit bank payment"><i class="bi bi-bank"></i></button>` : ''}
-          <button class="btn btn-sm btn-outline-secondary" onclick="statutoryRemittancesController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="statutoryRemittancesController.viewDetail(${r.id})" title="View"><i class="bi bi-eye"></i></button>
+          ${bal > 0 ? `<button class="btn btn-sm btn-outline-success me-1" data-kw-onclick="statutoryRemittancesController.initiatePayment(${r.id})" title="Submit bank payment"><i class="bi bi-bank"></i></button>` : ''}
+          <button class="btn btn-sm btn-outline-secondary" data-kw-onclick="statutoryRemittancesController.edit(${r.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
         </td>
       </tr>`;
     }).join('');

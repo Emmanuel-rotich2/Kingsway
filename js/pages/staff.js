@@ -207,20 +207,20 @@ const staffManagementController = {
                         <td>${statusBadge}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-info" onclick="staffManagementController.viewStaff(${staff.id})" title="View">
+                                <button class="btn btn-info" data-kw-onclick="staffManagementController.viewStaff(${staff.id})" title="View">
                                     <i class="bi bi-eye"></i>
                                 </button>
-                                <button class="btn btn-warning" onclick="staffManagementController.editStaff(${staff.id})" title="Edit" data-permission="staff_edit">
+                                <button class="btn btn-warning" data-kw-onclick="staffManagementController.editStaff(${staff.id})" title="Edit" data-permission="staff_edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 ${staff.status === 'active' ? `
-                                <button class="btn btn-secondary" onclick="staffManagementController.deactivateStaff(${staff.id})" title="Deactivate" data-permission="staff_edit">
+                                <button class="btn btn-secondary" data-kw-onclick="staffManagementController.deactivateStaff(${staff.id})" title="Deactivate" data-permission="staff_edit">
                                     <i class="bi bi-person-x"></i>
                                 </button>` : `
-                                <button class="btn btn-success" onclick="staffManagementController.activateStaff(${staff.id})" title="Activate" data-permission="staff_edit">
+                                <button class="btn btn-success" data-kw-onclick="staffManagementController.activateStaff(${staff.id})" title="Activate" data-permission="staff_edit">
                                     <i class="bi bi-person-check"></i>
                                 </button>`}
-                                <button class="btn btn-danger" onclick="staffManagementController.deleteStaff(${staff.id})" title="Delete" data-permission="staff_delete">
+                                <button class="btn btn-danger" data-kw-onclick="staffManagementController.deleteStaff(${staff.id})" title="Delete" data-permission="staff_delete">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>
@@ -440,7 +440,7 @@ const staffManagementController = {
       const html = `
                 <div class="row">
                     <div class="col-md-4 text-center">
-                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
+                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" data-kw-onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
                         <h5>${staff.first_name || ""} ${staff.last_name || ""}</h5>
                         <p class="text-muted">${staff.staff_no || ""}</p>
                     </div>
@@ -629,8 +629,8 @@ const staffManagementController = {
                     <td><span class="badge bg-${leave.status === "approved" ? "success" : leave.status === "rejected" ? "danger" : "warning"}">${leave.status || "pending"}</span></td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-success" onclick="staffManagementController.updateLeaveStatus(${leave.id}, 'approved')">Approve</button>
-                            <button class="btn btn-outline-danger" onclick="staffManagementController.updateLeaveStatus(${leave.id}, 'rejected')">Reject</button>
+                            <button class="btn btn-outline-success" data-kw-onclick="staffManagementController.updateLeaveStatus(${leave.id}, 'approved')">Approve</button>
+                            <button class="btn btn-outline-danger" data-kw-onclick="staffManagementController.updateLeaveStatus(${leave.id}, 'rejected')">Reject</button>
                         </div>
                     </td>
                 </tr>
@@ -772,10 +772,10 @@ const staffManagementController = {
                     <td>${row.status || "-"}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-info" onclick="staffManagementController.viewPayslip(${row.staff_id || row.id}, ${row.month || new Date().getMonth() + 1}, ${row.year || new Date().getFullYear()})" title="View Payslip">
+                            <button class="btn btn-outline-info" data-kw-onclick="staffManagementController.viewPayslip(${row.staff_id || row.id}, ${row.month || new Date().getMonth() + 1}, ${row.year || new Date().getFullYear()})" title="View Payslip">
                                 <i class="bi bi-receipt"></i>
                             </button>
-                            <button class="btn btn-outline-success" onclick="staffManagementController.generatePayslip(${row.staff_id || row.id})" title="Generate Payslip" data-role="hr_manager,bursar,admin">
+                            <button class="btn btn-outline-success" data-kw-onclick="staffManagementController.generatePayslip(${row.staff_id || row.id})" title="Generate Payslip" data-role="hr_manager,bursar,admin">
                                 <i class="bi bi-file-earmark-plus"></i>
                             </button>
                         </div>
@@ -837,7 +837,7 @@ const staffManagementController = {
                     <td>${contract.end_date || "N/A"}</td>
                     <td>${contract.status || "-"}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="staffManagementController.openContractEditor(${contract.id})">Edit</button>
+                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="staffManagementController.openContractEditor(${contract.id})">Edit</button>
                     </td>
                 </tr>
             `;
@@ -1054,7 +1054,7 @@ const staffManagementController = {
           <td><span class="badge bg-${a.role === "class_teacher" ? "primary" : "secondary"}">${a.role || a.assignment_type || "-"}</span></td>
           <td>${a.workload_hours || a.hours_per_week || "-"}</td>
           <td>
-            <button class="btn btn-sm btn-outline-danger" onclick="staffManagementController.removeAssignment(${Number(a.id)}, '${a.assignment_scope === "stream" ? "stream" : "class"}')" data-role="hr_manager,headteacher,admin">
+            <button class="btn btn-sm btn-outline-danger" data-kw-onclick="staffManagementController.removeAssignment(${Number(a.id)}, '${a.assignment_scope === "stream" ? "stream" : "class"}')" data-role="hr_manager,headteacher,admin">
               <i class="bi bi-x-circle"></i>
             </button>
           </td>
@@ -1333,7 +1333,7 @@ const staffManagementController = {
             <td>${r.kpi_score || "-"}</td>
             <td><span class="badge bg-${r.status === "completed" ? "success" : "warning"}">${r.status || "-"}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-info" onclick="staffManagementController.viewPerformanceDetail(${r.id || r.review_id})">
+              <button class="btn btn-sm btn-outline-info" data-kw-onclick="staffManagementController.viewPerformanceDetail(${r.id || r.review_id})">
                 <i class="bi bi-eye"></i>
               </button>
             </td>
@@ -1525,7 +1525,7 @@ const staffManagementController = {
       const html = `
         <div class="row">
           <div class="col-md-3 text-center border-end">
-            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
+            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" data-kw-onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
             <h5 class="mb-0">${staff.first_name || ""} ${staff.middle_name || ""} ${staff.last_name || ""}</h5>
             <p class="text-muted mb-1">${staff.staff_no || ""}</p>
             ${this.getStatusBadge(staff.status)}
@@ -1595,7 +1595,7 @@ const staffManagementController = {
                       <td>${this.formatCurrency(p.allowances || 0)}</td>
                       <td>${this.formatCurrency(p.total_deductions || p.deductions || 0)}</td>
                       <td>${this.formatCurrency(p.net_salary || p.net_pay || 0)}</td>
-                      <td><button class="btn btn-sm btn-outline-info" onclick="staffManagementController.viewPayslip(${staff.id}, ${p.month || 0}, ${p.year || 0})"><i class="bi bi-receipt"></i></button></td>
+                      <td><button class="btn btn-sm btn-outline-info" data-kw-onclick="staffManagementController.viewPayslip(${staff.id}, ${p.month || 0}, ${p.year || 0})"><i class="bi bi-receipt"></i></button></td>
                     </tr>`).join("")}
                   </tbody></table>
                 ` : '<p class="text-muted">No payroll history available</p>'}

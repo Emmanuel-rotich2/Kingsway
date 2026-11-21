@@ -216,11 +216,11 @@ const admissionInterviewsController = {
         <td>${this._esc(data.recommendation || '—')}</td>
         <td class="text-end">
           <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-primary" onclick="admissionInterviewsController.viewApplication(${app.id})">View</button>
-            ${canSchedule && !app.interview_id ? `<button class="btn btn-outline-success" onclick="admissionInterviewsController.showScheduleModal(${app.id})">Assign session</button>` : ''}
-            ${app.interview_id ? `<button class="btn btn-outline-warning" onclick="admissionInterviewsController.showScheduleModal(${app.id})">Switch / reschedule</button>` : ''}
-            ${app.interview_id ? `<button class="btn btn-outline-info" onclick="admissionInterviewsController.notify(${app.id})">Notify parent</button>` : ''}
-            ${canRecord ? `<button class="btn btn-success" onclick="admissionInterviewsController.showOutcomeModal(${app.id})">Record</button>` : ''}
+            <button class="btn btn-outline-primary" data-kw-onclick="admissionInterviewsController.viewApplication(${app.id})">View</button>
+            ${canSchedule && !app.interview_id ? `<button class="btn btn-outline-success" data-kw-onclick="admissionInterviewsController.showScheduleModal(${app.id})">Assign session</button>` : ''}
+            ${app.interview_id ? `<button class="btn btn-outline-warning" data-kw-onclick="admissionInterviewsController.showScheduleModal(${app.id})">Switch / reschedule</button>` : ''}
+            ${app.interview_id ? `<button class="btn btn-outline-info" data-kw-onclick="admissionInterviewsController.notify(${app.id})">Notify parent</button>` : ''}
+            ${canRecord ? `<button class="btn btn-success" data-kw-onclick="admissionInterviewsController.showOutcomeModal(${app.id})">Record</button>` : ''}
           </div>
         </td>
       </tr>`;
@@ -324,7 +324,7 @@ const admissionInterviewsController = {
   manageSessions: async function () {
     await Promise.all([this._loadSessions(), this._loadWindows()]);
     const body = document.getElementById('aiSessionsBody');
-    if (body) body.innerHTML = this._sessions.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Intake</th><th>Date/time</th><th>Venue</th><th>Supervisors / invigilators</th><th>Assigned</th><th>Applicants</th><th>Actions</th></tr></thead><tbody>${this._sessions.map(s => `<tr><td>${this._esc(s.window_label)}</td><td>${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))}–${this._esc(String(s.end_time).slice(0,5))}</td><td>${this._esc(s.venue)}</td><td>${this._esc(s.supervisor_names || s.interviewer_name || '—')}<br><small class="text-muted">${this._esc(s.interviewer_phone || 'No phone')}</small></td><td>${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</td><td>${this._esc((s.assigned_applicants || '').split('||').filter(Boolean).join(', ') || 'None')}</td><td><button class="btn btn-sm btn-outline-primary" onclick="admissionInterviewsController.editSession(${s.id})">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="alert alert-info">No interview sessions have been configured.</div>';
+    if (body) body.innerHTML = this._sessions.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Intake</th><th>Date/time</th><th>Venue</th><th>Supervisors / invigilators</th><th>Assigned</th><th>Applicants</th><th>Actions</th></tr></thead><tbody>${this._sessions.map(s => `<tr><td>${this._esc(s.window_label)}</td><td>${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))}–${this._esc(String(s.end_time).slice(0,5))}</td><td>${this._esc(s.venue)}</td><td>${this._esc(s.supervisor_names || s.interviewer_name || '—')}<br><small class="text-muted">${this._esc(s.interviewer_phone || 'No phone')}</small></td><td>${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</td><td>${this._esc((s.assigned_applicants || '').split('||').filter(Boolean).join(', ') || 'None')}</td><td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="admissionInterviewsController.editSession(${s.id})">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="alert alert-info">No interview sessions have been configured.</div>';
     this._sessionsModal.show();
   },
 

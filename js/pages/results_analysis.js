@@ -203,7 +203,7 @@ const ResultsAnalysisController = (() => {
     let html = "";
     for (let i = 1; i <= totalPages; i++) {
       html += `<li class="page-item ${i === pagination.page ? "active" : ""}">
-                <a class="page-link" href="#" onclick="ResultsAnalysisController.loadPage(${i}); return false;">${i}</a>
+                <a class="page-link" href="#" data-kw-onclick="ResultsAnalysisController.loadPage(${i}); return false;">${i}</a>
             </li>`;
     }
     container.innerHTML = html;

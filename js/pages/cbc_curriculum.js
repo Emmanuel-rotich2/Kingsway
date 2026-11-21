@@ -46,7 +46,7 @@ const cbcCurriculumController = {
     body.innerHTML = strands.map(s => `<tr>
       <td class="small">${this.esc(s.name || '—')}</td>
       <td class="small">${this.esc(s.description || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="cbcCurriculumController.editStrand(${s.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="cbcCurriculumController.editStrand(${s.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 
@@ -58,7 +58,7 @@ const cbcCurriculumController = {
     body.innerHTML = competencies.map(c => `<tr>
       <td class="small">${this.esc(c.name || '—')}</td>
       <td class="small">${this.esc(c.description || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="cbcCurriculumController.editCompetency(${c.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="cbcCurriculumController.editCompetency(${c.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 
@@ -70,7 +70,7 @@ const cbcCurriculumController = {
     body.innerHTML = learningAreas.map(a => `<tr>
       <td class="small">${this.esc(a.name || '—')}</td>
       <td class="small">${this.esc(a.description || '—')}</td>
-      <td><button class="btn btn-sm btn-outline-primary" onclick="cbcCurriculumController.editLearningArea(${a.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
+      <td><button class="btn btn-sm btn-outline-primary" data-kw-onclick="cbcCurriculumController.editLearningArea(${a.id})" data-year-write><i class="bi bi-pencil"></i></button></td>
     </tr>`).join('');
   },
 

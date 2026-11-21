@@ -642,28 +642,28 @@ class FeeStructureAccountantController {
                     <td>${this.renderStatusBadge(structure.status)}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="window.accountantController.viewMatrix('${structure.group_key}')" title="View grade matrix">
+                            <button class="btn btn-outline-primary" data-kw-onclick="window.accountantController.viewMatrix('${structure.group_key}')" title="View grade matrix">
                                 <i class="bi bi-eye"></i>
                             </button>
                             ${structure.status === 'draft' ? `
-                                <button class="btn btn-outline-warning" onclick="window.accountantController.editStructure('${structure.group_key}')" title="Edit">
+                                <button class="btn btn-outline-warning" data-kw-onclick="window.accountantController.editStructure('${structure.group_key}')" title="Edit">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-outline-info" onclick="window.accountantController.submitBundleForReview('${structure.group_key}')" title="Submit for Review">
+                                <button class="btn btn-outline-info" data-kw-onclick="window.accountantController.submitBundleForReview('${structure.group_key}')" title="Submit for Review">
                                     <i class="bi bi-send"></i>
                                 </button>
                             ` : ''}
                             ${structure.status === 'approved' || structure.status === 'reviewed' ? `
-                                <button class="btn btn-outline-success" onclick="window.accountantController.activateStructure('${structure.group_key}')" title="Activate & Generate Obligations">
+                                <button class="btn btn-outline-success" data-kw-onclick="window.accountantController.activateStructure('${structure.group_key}')" title="Activate & Generate Obligations">
                                     <i class="bi bi-check-circle"></i>
                                 </button>
                             ` : ''}
                             ${structure.status === 'active' ? `
-                                <button class="btn btn-outline-danger" onclick="window.accountantController.deactivateStructure('${structure.group_key}')" title="Deactivate">
+                                <button class="btn btn-outline-danger" data-kw-onclick="window.accountantController.deactivateStructure('${structure.group_key}')" title="Deactivate">
                                     <i class="bi bi-archive"></i>
                                 </button>
                             ` : ''}
-                            <button class="btn btn-outline-secondary" onclick="window.accountantController.duplicateStructure('${structure.group_key}')" title="Duplicate for New Year">
+                            <button class="btn btn-outline-secondary" data-kw-onclick="window.accountantController.duplicateStructure('${structure.group_key}')" title="Duplicate for New Year">
                                 <i class="bi bi-copy"></i>
                             </button>
                         </div>
@@ -736,7 +736,7 @@ class FeeStructureAccountantController {
 
     let html = "";
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === 1 ? "disabled" : ""} 
-                         onclick="window.accountantController.loadFeeStructures(${current_page - 1})">Previous</button>`;
+                         data-kw-onclick="window.accountantController.loadFeeStructures(${current_page - 1})">Previous</button>`;
 
     const range = 5;
     let start_page = Math.max(1, current_page - Math.floor(range / 2));
@@ -748,11 +748,11 @@ class FeeStructureAccountantController {
 
     for (let i = start_page; i <= end_page; i++) {
       html += `<button class="btn btn-sm ${i === current_page ? "btn-primary" : "btn-outline-primary"}" 
-                             onclick="window.accountantController.loadFeeStructures(${i})">${i}</button>`;
+                             data-kw-onclick="window.accountantController.loadFeeStructures(${i})">${i}</button>`;
     }
 
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === total_pages ? "disabled" : ""} 
-                         onclick="window.accountantController.loadFeeStructures(${current_page + 1})">Next</button>`;
+                         data-kw-onclick="window.accountantController.loadFeeStructures(${current_page + 1})">Next</button>`;
 
     container.innerHTML = html;
   }

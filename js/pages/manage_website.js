@@ -166,15 +166,15 @@ const manageWebsiteController = {
     if (!this.state.newsItems.length) { body.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No articles found.</td></tr>'; return; }
     body.innerHTML = this.state.newsItems.map(n => `
       <tr>
-        <td><img src="${this.esc(n.image_url||'')}" class="ws-img-thumb" onerror="this.src='https://placehold.co/80x50/198754/fff?text=News'"></td>
+        <td><img src="${this.esc(n.image_url||'')}" class="ws-img-thumb" data-kw-onerror="this.src='https://placehold.co/80x50/198754/fff?text=News'"></td>
         <td><div class="fw-semibold small" style="max-width:260px">${this.esc(n.title)}</div><div class="text-muted" style="font-size:.72rem">${this.esc(n.author||'')}</div></td>
         <td><span class="ws-tag-chip" style="background:${this.catColor(n.category)}22;color:${this.catColor(n.category)};border-color:${this.catColor(n.category)}44">${this.esc(n.category)}</span></td>
         <td>${this.badgeStatus(n.status)}</td>
         <td class="text-muted small">${n.views||0}</td>
         <td class="text-muted small">${this.fmtDate(n.created_at)}</td>
         <td class="text-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" title="Edit" onclick="wsOpenNewsModal(${n.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Delete" onclick="wsDeleteNews(${n.id},'${this.esc(n.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" title="Edit" data-kw-onclick="wsOpenNewsModal(${n.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Delete" data-kw-onclick="wsDeleteNews(${n.id},'${this.esc(n.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
         </td>
       </tr>`).join('');
   },
@@ -271,8 +271,8 @@ const manageWebsiteController = {
           <td class="text-muted small">${this.esc(ev.location||'\u2014')}</td>
           <td>${this.badgeStatus(ev.status)}</td>
           <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="wsOpenEventModal(${ev.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsDeleteEvent(${ev.id},'${this.esc(ev.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenEventModal(${ev.id})"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsDeleteEvent(${ev.id},'${this.esc(ev.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
           </td>
         </tr>`).join('');
     } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
@@ -343,10 +343,10 @@ const manageWebsiteController = {
       grid.innerHTML = items.map(g => `
         <div class="ws-gallery-item">
           <img src="${this.esc(g.image_url)}" alt="${this.esc(g.caption||'')}"
-               onerror="this.src='https://placehold.co/300x200/198754/fff?text=Image'"
-               onclick="wsViewImg('${this.esc(g.image_url)}')" style="cursor:pointer">
+               data-kw-onerror="this.src='https://placehold.co/300x200/198754/fff?text=Image'"
+               data-kw-onclick="wsViewImg('${this.esc(g.image_url)}')" style="cursor:pointer">
           <div class="ws-overlay">
-            <button class="btn btn-sm btn-danger rounded-circle" style="width:32px;height:32px;padding:0" onclick="wsDeleteGallery(${g.id})" title="Remove"><i class="bi bi-trash-fill"></i></button>
+            <button class="btn btn-sm btn-danger rounded-circle" style="width:32px;height:32px;padding:0" data-kw-onclick="wsDeleteGallery(${g.id})" title="Remove"><i class="bi bi-trash-fill"></i></button>
           </div>
           <div class="caption">${this.esc(g.caption||'\u2014')} <span class="text-muted">(${this.esc(g.category||'')})</span></div>
         </div>`).join('');
@@ -412,8 +412,8 @@ const manageWebsiteController = {
           <td class="text-muted small">${this.esc(d.file_size||'\u2014')}</td>
           <td>${d.is_active ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Hidden</span>'}</td>
           <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="wsOpenDownloadModal(${d.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsDeleteDownload(${d.id})"><i class="bi bi-eye-slash"></i></button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenDownloadModal(${d.id})"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsDeleteDownload(${d.id})"><i class="bi bi-eye-slash"></i></button>
           </td>
         </tr>`).join('');
     } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
@@ -488,8 +488,8 @@ const manageWebsiteController = {
           <td class="text-muted small">${this.fmtDate(j.deadline)}</td>
           <td>${this.badgeStatus(j.status)}</td>
           <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" onclick="wsOpenJobModal(${j.id})"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsCloseJob(${j.id},'${this.esc(j.title).replace(/'/g,'')}')"><i class="bi bi-x-circle"></i></button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-2 me-1" data-kw-onclick="wsOpenJobModal(${j.id})"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" data-kw-onclick="wsCloseJob(${j.id},'${this.esc(j.title).replace(/'/g,'')}')"><i class="bi bi-x-circle"></i></button>
           </td>
         </tr>`).join('');
     } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
@@ -577,7 +577,7 @@ const manageWebsiteController = {
           <td>${this.badgeStatus(a.status)}</td>
           <td class="small text-muted">${this.fmtDate(a.created_at)}</td>
           <td class="text-end">
-            <select class="form-select form-select-sm" style="width:130px;display:inline-block" onchange="wsUpdateAppStatus(${a.id}, this.value)">
+            <select class="form-select form-select-sm" style="width:130px;display:inline-block" data-kw-onchange="wsUpdateAppStatus(${a.id}, this.value)">
               ${['submitted','documents_pending','documents_verified','placement_offered','fees_pending','placement_test_required','waitlisted','enrolled','cancelled'].map(s=>`<option value="${s}" ${a.status===s?'selected':''}>${s.replace(/_/g,' ')}</option>`).join('')}
             </select>
           </td>
@@ -629,8 +629,8 @@ const manageWebsiteController = {
           <td>${this.badgeStatus(q.status)}</td>
           <td class="small text-muted">${this.fmtDate(q.created_at)}</td>
           <td class="text-end">
-            <button class="btn btn-sm btn-outline-primary me-1" onclick="wsReplyInquiry(${q.id})" ${q.email ? '' : 'disabled'} title="Reply by email"><i class="bi bi-reply"></i></button>
-            <select class="form-select form-select-sm" style="width:100px;display:inline-block" onchange="wsUpdateInquiryStatus(${q.id},this.value)">
+            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="wsReplyInquiry(${q.id})" ${q.email ? '' : 'disabled'} title="Reply by email"><i class="bi bi-reply"></i></button>
+            <select class="form-select form-select-sm" style="width:100px;display:inline-block" data-kw-onchange="wsUpdateInquiryStatus(${q.id},this.value)">
               ${['new','read','replied'].map(s=>`<option value="${s}" ${q.status===s?'selected':''}>${s}</option>`).join('')}
             </select>
           </td>
@@ -669,7 +669,7 @@ const manageWebsiteController = {
           <div>
             <textarea class="ws-content-input" data-key="${this.esc(b.content_key)}"
               style="width:100%;padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;resize:vertical;min-height:60px"
-              onblur="wsSaveContent('${this.esc(b.content_key)}',this.value)">${this.esc(b.content_value||'')}</textarea>
+              data-kw-onblur="wsSaveContent('${this.esc(b.content_key)}',this.value)">${this.esc(b.content_value||'')}</textarea>
           </div>
         </div>`).join('') || '<div class="text-muted small">No content blocks found.</div>';
 
@@ -678,7 +678,7 @@ const manageWebsiteController = {
         <div class="d-flex align-items-center gap-2 mb-2">
           <span class="ws-tag-chip" style="background:${this.esc(c.color)}22;color:${this.esc(c.color)};border-color:${this.esc(c.color)}44">${this.esc(c.name)}</span>
           <span class="flex-grow-1"></span>
-          <button class="btn btn-sm btn-outline-danger rounded-pill" style="padding:1px 8px;font-size:.72rem" onclick="wsDeleteCategory(${c.id},'${this.esc(c.name).replace(/'/g,'')}')">Remove</button>
+          <button class="btn btn-sm btn-outline-danger rounded-pill" style="padding:1px 8px;font-size:.72rem" data-kw-onclick="wsDeleteCategory(${c.id},'${this.esc(c.name).replace(/'/g,'')}')">Remove</button>
         </div>`).join('') || '<div class="text-muted small">No categories found.</div>';
     } catch(e) { container.innerHTML = `<div class="text-danger small">${this.esc(e.message)}</div>`; }
   },
@@ -727,7 +727,7 @@ const manageWebsiteController = {
       const tag = isLong ? 'textarea' : 'input type="text"';
       const closeTag = isLong ? '</textarea>' : '';
       const val = this.esc(s.setting_value||'');
-      const attrs = `data-key="${this.esc(s.setting_key)}" style="width:100%;padding:5px 9px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem" onblur="wsSaveSetting('${this.esc(s.setting_key)}',this.value)"`;
+      const attrs = `data-key="${this.esc(s.setting_key)}" style="width:100%;padding:5px 9px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem" data-kw-onblur="wsSaveSetting('${this.esc(s.setting_key)}',this.value)"`;
       const input = isLong
         ? `<textarea ${attrs} rows="2">${val}${closeTag}`
         : `<${tag} ${attrs} value="${val}">`;
@@ -836,8 +836,8 @@ const manageWebsiteController = {
       <tr data-id="${it.id}">
         ${cfg.fields.map(f => `<td class="small">${this.stEscape(it[f.k] ?? '')}</td>`).join('')}
         <td class="text-end" style="white-space:nowrap">
-          <button class="btn btn-sm btn-outline-primary me-1" onclick="stEdit('${resource}',${it.id})"><i class="bi bi-pencil"></i></button>
-          <button class="btn btn-sm btn-outline-danger" onclick="stDelete('${resource}',${it.id})"><i class="bi bi-trash"></i></button>
+          <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="stEdit('${resource}',${it.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" data-kw-onclick="stDelete('${resource}',${it.id})"><i class="bi bi-trash"></i></button>
         </td>
       </tr>`).join('') || `<tr><td colspan="${cfg.fields.length+1}" class="text-muted text-center small py-3">No records yet.</td></tr>`;
 
@@ -846,7 +846,7 @@ const manageWebsiteController = {
       <div class="ws-stat-card mb-2">
         <div class="ws-stat-icon" style="background:#e9f7ef;color:#198754"><i class="bi bi-${icon}"></i></div>
         <div class="flex-grow-1"><h6 class="mb-0">${cfg.title}</h6><small class="text-muted">${items.length} record(s)</small></div>
-        <button class="btn btn-sm btn-success" onclick="stAdd('${resource}')"><i class="bi bi-plus-lg"></i> Add</button>
+        <button class="btn btn-sm btn-success" data-kw-onclick="stAdd('${resource}')"><i class="bi bi-plus-lg"></i> Add</button>
       </div>
       <div id="st-form-${resource}"></div>
       <div class="table-responsive"><table class="table table-sm ws-table align-middle mb-0">
@@ -862,8 +862,8 @@ const manageWebsiteController = {
       <h6 class="small fw-bold mb-2">New ${cfg.title.replace(/s$/, '')}</h6>
       ${cfg.fields.map(f => this.buildField(f)).join('')}
       <div class="mt-2">
-        <button class="btn btn-sm btn-success me-1" onclick="stSave('${resource}',null)">Save</button>
-        <button class="btn btn-sm btn-light" onclick="loadStaticTables()">Cancel</button>
+        <button class="btn btn-sm btn-success me-1" data-kw-onclick="stSave('${resource}',null)">Save</button>
+        <button class="btn btn-sm btn-light" data-kw-onclick="loadStaticTables()">Cancel</button>
       </div></div>`;
     box.scrollIntoView({behavior:'smooth',block:'nearest'});
   },
@@ -877,8 +877,8 @@ const manageWebsiteController = {
         <h6 class="small fw-bold mb-2">Edit #${id}</h6>
         ${cfg.fields.map(f => this.buildField(f, it[f.k] ?? '')).join('')}
         <div class="mt-2">
-          <button class="btn btn-sm btn-primary me-1" onclick="stSave('${resource}',${id})">Update</button>
-          <button class="btn btn-sm btn-light" onclick="loadStaticTables()">Cancel</button>
+          <button class="btn btn-sm btn-primary me-1" data-kw-onclick="stSave('${resource}',${id})">Update</button>
+          <button class="btn btn-sm btn-light" data-kw-onclick="loadStaticTables()">Cancel</button>
         </div></div>`;
       box.scrollIntoView({behavior:'smooth',block:'nearest'});
     } catch(e){ this.notify(e.message,'danger'); }
@@ -947,7 +947,7 @@ const manageWebsiteController = {
             <div id="${collapseId}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#${accId}">
               <div class="accordion-body pt-0">
                 <div class="d-flex justify-content-end mb-3">
-                  <button class="btn btn-sm btn-success rounded-pill px-3" onclick="wsOpenLeadershipModal(${lvl.category_id})">
+                  <button class="btn btn-sm btn-success rounded-pill px-3" data-kw-onclick="wsOpenLeadershipModal(${lvl.category_id})">
                     <i class="bi bi-plus-lg me-1"></i>Add Member
                   </button>
                 </div>
@@ -969,7 +969,7 @@ const manageWebsiteController = {
             <img src="${this.esc(m.avatar_url || 'https://placehold.co/80x80/198754/fff?text=No+Photo')}"
                  alt="${this.esc(m.name || '')}"
                  class="rounded-circle flex-shrink-0" style="width:64px;height:64px;object-fit:cover"
-                 onerror="this.src='https://placehold.co/80x80/198754/fff?text=No+Photo'">
+                 data-kw-onerror="this.src='https://placehold.co/80x80/198754/fff?text=No+Photo'">
             <div class="flex-grow-1 min-width-0">
               <h6 class="mb-0 fw-semibold text-truncate">${this.esc(m.name || 'Unknown')}</h6>
               <span class="badge bg-success bg-opacity-10 text-success mb-1">${this.esc(m.position_name || '')}</span>
@@ -978,9 +978,9 @@ const manageWebsiteController = {
           </div>
           <div class="card-footer bg-transparent border-0 pt-0 pb-2 d-flex justify-content-end gap-1">
             <button class="btn btn-sm btn-outline-primary rounded-pill px-2" title="Edit"
-                    onclick="wsOpenLeadershipModal(${m.category_id},${m.id})"><i class="bi bi-pencil"></i></button>
+                    data-kw-onclick="wsOpenLeadershipModal(${m.category_id},${m.id})"><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Remove"
-                    onclick="wsDeleteLeadership(${m.id},'${this.esc(m.name || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
+                    data-kw-onclick="wsDeleteLeadership(${m.id},'${this.esc(m.name || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
           </div>
         </div>
       </div>`).join('')}</div>`;
@@ -1161,7 +1161,7 @@ const manageWebsiteController = {
         } else {
           results.innerHTML = matches.slice(0, 10).map(p =>
             `<button type="button" class="list-group-item list-group-item-action small"
-                     onclick="wsSelectLeadershipPerson(${p.person_id},'${this.esc(p.name).replace(/'/g, "\\'")}')">${this.esc(p.name)}</button>`
+                     data-kw-onclick="wsSelectLeadershipPerson(${p.person_id},'${this.esc(p.name).replace(/'/g, "\\'")}')">${this.esc(p.name)}</button>`
           ).join('');
         }
         results.style.display = '';

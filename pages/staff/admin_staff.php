@@ -23,7 +23,7 @@ if ($navBase === '.') $navBase = '';
         <p class="page-subtitle">Manage all teaching and non-teaching staff</p>
     </div>
     <div class="header-actions">
-        <button class="btn btn-outline" onclick="exportStaff()">📥 Export</button>
+        <button class="btn btn-outline" data-kw-onclick="exportStaff()">📥 Export</button>
         <a href="<?= $navBase ?>/home.php?route=manage_staff" class="btn btn-primary">➕ Add Staff</a>
     </div>
 </header>
@@ -105,15 +105,15 @@ if ($navBase === '.') $navBase = '';
             <option value="inactive">Inactive</option>
         </select>
     </div>
-    <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="clearFilters()">Clear</button>
 </div>
 
 <!-- Bulk Actions -->
 <div class="admin-bulk-actions" id="bulkActions" style="display: none;">
     <span class="selected-count"><span id="selectedCount">0</span> selected</span>
-    <button class="btn btn-outline-sm" onclick="bulkExport()">📥 Export Selected</button>
-    <button class="btn btn-outline-sm" onclick="bulkEmail()" data-year-write>📧 Send Email</button>
-    <button class="btn btn-warning-sm" onclick="bulkDeactivate()" data-year-write>⏸️ Deactivate Selected</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="bulkExport()">📥 Export Selected</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="bulkEmail()" data-year-write>📧 Send Email</button>
+    <button class="btn btn-warning-sm" data-kw-onclick="bulkDeactivate()" data-year-write>⏸️ Deactivate Selected</button>
 </div>
 
 <!-- Data Table -->
@@ -121,7 +121,7 @@ if ($navBase === '.') $navBase = '';
     <table class="admin-data-table" id="staffTable">
         <thead>
             <tr>
-                <th scope="col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th scope="col"><input type="checkbox" id="selectAll" data-kw-onchange="toggleSelectAll()"></th>
                 <th scope="col">Photo</th>
                 <th scope="col">Staff ID</th>
                 <th scope="col">Name</th>
@@ -153,20 +153,20 @@ if ($navBase === '.') $navBase = '';
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Staff Details</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('staffModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('staffModal')">×</button>
             </div>
             <div class="modal-body" id="staffModalBody">
                 <!-- Dynamic content -->
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('staffModal')">Close</button>
-                <button class="btn btn-primary" id="editStaffBtn" onclick="editStaff()" data-year-write>Edit</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('staffModal')">Close</button>
+                <button class="btn btn-primary" id="editStaffBtn" data-kw-onclick="editStaff()" data-year-write>Edit</button>
             </div>
         </div>
     </div>
 </div>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
     (function () {
         function boot() {
             RoleBasedUI.applyLayout();

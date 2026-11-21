@@ -36,7 +36,7 @@
       <option value="read">Read</option>
       <option value="replied">Replied</option>
     </select>
-    <button class="btn btn-outline-success btn-sm" onclick="inquiriesController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="inquiriesController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

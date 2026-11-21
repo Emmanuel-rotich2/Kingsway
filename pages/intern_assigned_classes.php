@@ -16,10 +16,10 @@
                 <i class="bi bi-people"></i> Classes Assigned
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="InternAssignedClassesController.refresh()">
+                <button class="btn btn-light btn-sm" data-kw-onclick="InternAssignedClassesController.refresh()">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="InternAssignedClassesController.exportClasses()">
+                <button class="btn btn-outline-light btn-sm" data-kw-onclick="InternAssignedClassesController.exportClasses()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>

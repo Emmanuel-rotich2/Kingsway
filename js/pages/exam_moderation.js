@@ -119,10 +119,10 @@ const ModerationController = {
                     </div>
                     <div>
                         <small class="text-muted me-2">${a.assessment_date || ''}</small>
-                        <button class="btn btn-sm btn-outline-primary" onclick="ModerationController.openResults(${a.assessment_id})" title="Review">
+                        <button class="btn btn-sm btn-outline-primary" data-kw-onclick="ModerationController.openResults(${a.assessment_id})" title="Review">
                             <i class="bi bi-eye"></i> Review (${pending} pending)
                         </button>
-                        <button class="btn btn-sm btn-success" onclick="ModerationController.approveAssessment(${a.assessment_id})" title="Approve All" data-year-write>
+                        <button class="btn btn-sm btn-success" data-kw-onclick="ModerationController.approveAssessment(${a.assessment_id})" title="Approve All" data-year-write>
                             <i class="bi bi-check-all"></i>
                         </button>
                     </div>
@@ -158,8 +158,8 @@ const ModerationController = {
                     <td>${r.points || '-'}</td>
                     <td>${approved ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
                     <td>
-                        ${!approved ? `<button class="btn btn-sm btn-success me-1" onclick="ModerationController.approveResult(${a.assessment_id}, ${r.student_id})" title="Approve" data-year-write><i class="bi bi-check"></i></button>` : ''}
-                        <button class="btn btn-sm btn-danger" onclick="ModerationController.rejectResult(${a.assessment_id}, ${r.student_id})" title="Reject" data-year-write><i class="bi bi-x"></i></button>
+                        ${!approved ? `<button class="btn btn-sm btn-success me-1" data-kw-onclick="ModerationController.approveResult(${a.assessment_id}, ${r.student_id})" title="Approve" data-year-write><i class="bi bi-check"></i></button>` : ''}
+                        <button class="btn btn-sm btn-danger" data-kw-onclick="ModerationController.rejectResult(${a.assessment_id}, ${r.student_id})" title="Reject" data-year-write><i class="bi bi-x"></i></button>
                     </td>
                 </tr>`;
             }).join('');

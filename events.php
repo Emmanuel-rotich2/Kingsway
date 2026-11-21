@@ -76,7 +76,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<script>
+<script nonce="<?= csp_nonce() ?>">
 document.getElementById('subscribeForm')?.addEventListener('submit', async function(e) {
   e.preventDefault();
   const btn = document.getElementById('subBtn');

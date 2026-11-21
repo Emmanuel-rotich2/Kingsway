@@ -24,6 +24,7 @@ try {
 <!doctype html>
 <html lang="en">
 <head>
+    <?= csp_bootstrap_script($appBase) ?>
     <?php asset_script($appBase, 'js/core/console_logger.js'); ?>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -35,7 +36,7 @@ try {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
     <link rel="stylesheet" href="<?= htmlspecialchars($appBase) ?>/css/pages/sign-in.css?v=<?= asset_version('css/pages/sign-in.css') ?>">
-    <script>window.APP_BASE=<?= json_encode($appBase) ?>;</script>
+    <script nonce="<?= csp_nonce() ?>">window.APP_BASE=<?= json_encode($appBase) ?>;</script>
 </head>
 <body class="auth-page">
 <main class="auth-layout">

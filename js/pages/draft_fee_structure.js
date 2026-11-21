@@ -244,9 +244,9 @@ const draftFeeStructureController = {
                 <td>${escapeHtml(termLabel)}</td>
                 <td><span class="badge ${statusClass}">${escapeHtml(b.status)}</span></td>
                 <td class="text-end">
-                    ${canEdit ? `<button class="btn btn-outline-warning btn-sm me-1" onclick="draftFeeStructureController.editBundle(${Number(b.id)})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ''}
-                    <button class="btn btn-outline-primary btn-sm me-1" onclick="draftFeeStructureController.viewBundle(${Number(b.id)})" title="View"><i class="bi bi-eye"></i></button>
-                    <button class="btn btn-outline-success btn-sm" onclick="draftFeeStructureController.showPrintDialog(${Number(b.id)})" title="Print"><i class="bi bi-printer"></i></button>
+                    ${canEdit ? `<button class="btn btn-outline-warning btn-sm me-1" data-kw-onclick="draftFeeStructureController.editBundle(${Number(b.id)})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>` : ''}
+                    <button class="btn btn-outline-primary btn-sm me-1" data-kw-onclick="draftFeeStructureController.viewBundle(${Number(b.id)})" title="View"><i class="bi bi-eye"></i></button>
+                    <button class="btn btn-outline-success btn-sm" data-kw-onclick="draftFeeStructureController.showPrintDialog(${Number(b.id)})" title="Print"><i class="bi bi-printer"></i></button>
                 </td>
             </tr>`;
         }).join('');

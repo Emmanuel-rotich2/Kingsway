@@ -243,9 +243,9 @@ const CurriculumCBCController = (() => {
                 <td><span class="badge bg-warning-subtle text-warning">${Number(c.outcome_count) || 0} outcomes</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-info btn-sm" onclick="CurriculumCBCController.view(${c.id})" title="View"><i class="bi bi-eye"></i></button>
-                        ${canManage ? `<button class="btn btn-warning btn-sm" onclick="CurriculumCBCController.edit(${c.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-danger btn-sm" onclick="CurriculumCBCController.remove(${c.id})" title="Delete" data-year-write><i class="bi bi-trash"></i></button>` : ''}
+                        <button class="btn btn-info btn-sm" data-kw-onclick="CurriculumCBCController.view(${c.id})" title="View"><i class="bi bi-eye"></i></button>
+                        ${canManage ? `<button class="btn btn-warning btn-sm" data-kw-onclick="CurriculumCBCController.edit(${c.id})" title="Edit" data-year-write><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" data-kw-onclick="CurriculumCBCController.remove(${c.id})" title="Delete" data-year-write><i class="bi bi-trash"></i></button>` : ''}
                     </div>
                 </td>
             </tr>`;
@@ -267,7 +267,7 @@ const CurriculumCBCController = (() => {
         let html = '';
         const addPage = (page, label, disabled = false, active = false) => {
             html += `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
-                <a class="page-link" href="#" ${disabled ? 'tabindex="-1" aria-disabled="true"' : `onclick="CurriculumCBCController.loadPage(${page}); return false;"`}>${label}</a>
+                <a class="page-link" href="#" ${disabled ? 'tabindex="-1" aria-disabled="true"' : `data-kw-onclick="CurriculumCBCController.loadPage(${page}); return false;"`}>${label}</a>
             </li>`;
         };
         addPage(Math.max(1, pagination.page - 1), '&laquo;', pagination.page <= 1);

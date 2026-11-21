@@ -15,7 +15,7 @@
   <div class="row g-4">
     <div class="col-lg-5">
       <div class="bg-white border rounded-3 p-4">
-        <form id="caForm" onsubmit="createActivityController.save(event)">
+        <form id="caForm" data-kw-onsubmit="createActivityController.save(event)">
           <div class="mb-3">
             <label class="form-label">Activity Title *</label>
             <input type="text" class="form-control" id="caTitle" required maxlength="255">

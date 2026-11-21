@@ -692,7 +692,7 @@ const StudentFeesController = {
         ].filter(Boolean).map((t) => `<div>${t}</div>`).join("");
         return `
           <tr>
-            <td class="text-center"><input type="checkbox" class="fee-student-select" value="${studentId}" ${this.data.selectedStudentIds.has(studentId) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${studentId}, this.checked)" aria-label="Select ${this.escapeHtml(studentName)}"></td>
+            <td class="text-center"><input type="checkbox" class="fee-student-select" value="${studentId}" ${this.data.selectedStudentIds.has(studentId) ? "checked" : ""} data-kw-onchange="StudentFeesController.toggleStudent(${studentId}, this.checked)" aria-label="Select ${this.escapeHtml(studentName)}"></td>
             <td class="fl-who"><strong>${this.esc(studentName)}</strong><span>${this.esc(admissionNo)}</span></td>
             <td>${this.esc(className)}</td>
             ${opening ? `<td class="num ${opening > 0 ? "is-owed" : "is-credit"}">${opening < 0 ? "Credit " : ""}${money(opening)}</td>` : '<td class="num dim">—</td>'}
@@ -708,7 +708,7 @@ const StudentFeesController = {
                    : (row.leaving.clearance === "cleared" ? "Cleared" : "Clearance pending")}</div>`
               : `<span class="fl-state ${state.cls}">${state.label}</span>${sponsored}`}</td>
             <td class="text-nowrap text-end">
-              <button type="button" class="fl-toggle" aria-expanded="false" aria-controls="faDetail${studentId}" title="Show terms" onclick="StudentFeesController.toggleDetail(this, ${studentId})"><i class="bi bi-chevron-down"></i></button>
+              <button type="button" class="fl-toggle" aria-expanded="false" aria-controls="faDetail${studentId}" title="Show terms" data-kw-onclick="StudentFeesController.toggleDetail(this, ${studentId})"><i class="bi bi-chevron-down"></i></button>
               <div class="dropdown d-inline-block">
                 <button class="btn btn-sm btn-link text-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Actions for ${this.escapeHtml(studentName)}">
                   <i class="bi bi-three-dots-vertical"></i>
@@ -1560,7 +1560,7 @@ const StudentFeesController = {
 
     const status = this.formatPaymentStatus(row);
     tr.innerHTML = `
-      <td class="text-center"><input type="checkbox" class="fee-student-select" value="${Number(row.id)}" ${this.data.selectedStudentIds.has(Number(row.id)) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${Number(row.id)}, this.checked)" aria-label="Select ${this.escapeHtml(row.student_name || "student")}"></td>
+      <td class="text-center"><input type="checkbox" class="fee-student-select" value="${Number(row.id)}" ${this.data.selectedStudentIds.has(Number(row.id)) ? "checked" : ""} data-kw-onchange="StudentFeesController.toggleStudent(${Number(row.id)}, this.checked)" aria-label="Select ${this.escapeHtml(row.student_name || "student")}"></td>
       <td>${row.admission_no || "-"}</td>
       <td>${row.student_name || "-"}</td>
       <td>${row.class_name || row.level_name || "-"}</td>

@@ -20,8 +20,8 @@
                     <p class="text-muted mb-0">Plan and manage school events and activities (synced with the academic calendar)</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-outline-secondary" onclick="SchoolEventsController.syncNow()"><i class="bi bi-arrow-repeat me-1"></i> Sync Calendar</button>
-                    <button class="btn btn-primary" id="addEventBtn" onclick="SchoolEventsController.openAddModal()" data-year-write>
+                    <button class="btn btn-outline-secondary" data-kw-onclick="SchoolEventsController.syncNow()"><i class="bi bi-arrow-repeat me-1"></i> Sync Calendar</button>
+                    <button class="btn btn-primary" id="addEventBtn" data-kw-onclick="SchoolEventsController.openAddModal()" data-year-write>
                         <i class="bi bi-plus-lg me-1"></i> New Event
                     </button>
                 </div>

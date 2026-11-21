@@ -92,7 +92,7 @@
                 <h4 class="mb-1">Pending Admission Approvals</h4>
                 <p class="mb-0 text-muted">Final approval queue for placement and fee-paid applications</p>
             </div>
-            <button class="btn btn-light btn-lg" onclick="pendingApprovalsController.refreshData()">
+            <button class="btn btn-light btn-lg" data-kw-onclick="pendingApprovalsController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-2"></i>Refresh
             </button>
         </div>
@@ -289,10 +289,10 @@
 
 <script
     src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_pending_admission_approvals.js"
-    onload="console.log('admissions_pending_admission_approvals.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load admissions_pending_admission_approvals.js. Check path:', this.src)">
+    data-kw-onload="console.log('admissions_pending_admission_approvals.js script tag loaded successfully')"
+    data-kw-onerror="console.error('FAILED to load admissions_pending_admission_approvals.js. Check path:', this.src)">
 </script>
-<script>
+<script nonce="<?= csp_nonce() ?>">
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {
         if (typeof pendingApprovalsController !== 'undefined' && pendingApprovalsController.init) {

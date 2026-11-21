@@ -179,7 +179,7 @@ const PortfolioController = {
                 <div class="text-center text-muted py-5 bg-white rounded shadow-sm">
                     <i class="bi bi-folder-plus" style="font-size:3rem"></i>
                     <p class="mt-2">${this.esc(name)} has no portfolio artifacts yet.</p>
-                    <button class="btn btn-success btn-sm mt-2" onclick="PortfolioController.openArtifactModal()">
+                    <button class="btn btn-success btn-sm mt-2" data-kw-onclick="PortfolioController.openArtifactModal()">
                         <i class="bi bi-upload me-1"></i> Add the first artifact
                     </button>
                 </div>`;
@@ -268,10 +268,10 @@ const PortfolioController = {
                             ${a.description ? `<div class="desc">${this.esc(a.description)}</div>` : ''}
                             ${reflection}${feedback}
                             <div class="pf-artifact-actions">
-                                <button class="btn btn-sm btn-outline-primary" onclick="PortfolioController.editArtifact(${a.id})" data-year-write>
+                                <button class="btn btn-sm btn-outline-primary" data-kw-onclick="PortfolioController.editArtifact(${a.id})" data-year-write>
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="PortfolioController.deleteArtifact(${a.id})" data-year-write>
+                                <button class="btn btn-sm btn-outline-danger" data-kw-onclick="PortfolioController.deleteArtifact(${a.id})" data-year-write>
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>

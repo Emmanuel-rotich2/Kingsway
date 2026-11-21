@@ -197,7 +197,7 @@
                     <button
                         class="dropdown-item text-danger"
                         type="button"
-                        onclick="showLogoutModal()"
+                        data-kw-onclick="showLogoutModal()"
                     >
                         <i class="bi bi-box-arrow-right me-2"></i>
                         Sign out
@@ -262,7 +262,7 @@
                     width="28"
                     height="28"
                     class="assistant-sidebar-logo"
-                    onerror="this.onerror=null;this.src='<?= htmlspecialchars(($appBase ?? '') . '/images/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>';"
+                    data-kw-onerror="this.onerror=null;this.src='<?= htmlspecialchars(($appBase ?? '') . '/images/official_school_logo.png', ENT_QUOTES, 'UTF-8') ?>';"
                 >
                 <span class="assistant-sidebar-brand-copy">
                     <span class="assistant-sidebar-school-name">Kingsway Preparatory School</span>
@@ -546,7 +546,7 @@
                         type="button"
                         class="btn btn-danger"
                         id="confirmLogoutBtn"
-                        onclick="executeLogout()"
+                        data-kw-onclick="executeLogout()"
                     >
                         <span id="logoutBtnText">
                             <i class="bi bi-box-arrow-right me-1"></i>

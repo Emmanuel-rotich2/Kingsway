@@ -154,7 +154,7 @@ const ViewTeachingMaterialsController = {
             </div>
           </div>
           <div class="card-footer bg-transparent border-top-0 pt-0 pb-2 px-3">
-            <button class="btn btn-sm btn-outline-primary w-100" onclick="ViewTeachingMaterialsController.download(${material.id})">
+            <button class="btn btn-sm btn-outline-primary w-100" data-kw-onclick="ViewTeachingMaterialsController.download(${material.id})">
               <i class="bi bi-download me-1"></i> Download
             </button>
           </div>

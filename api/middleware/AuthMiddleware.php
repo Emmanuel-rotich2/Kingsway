@@ -147,6 +147,8 @@ class AuthMiddleware
             'public/ai-faq',
             // Optional anonymous survey answers from the public assistant.
             'public/ai-feedback',
+            // Browser CSP violation reports (write-only, journalled).
+            'public/csp-report',
             // Provider callbacks are authenticated by the webhook secret checked
             // in CommunicationsController, not by a staff JWT.
             'communications/sms-delivery-report',

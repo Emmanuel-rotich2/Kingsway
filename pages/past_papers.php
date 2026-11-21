@@ -23,20 +23,20 @@
       <div class="row g-2 align-items-center">
         <div class="col-12 col-md-3">
           <input type="text" id="ppSearch" class="form-control" placeholder="Search papers…"
-                 oninput="pastPapersController.filter()">
+                 data-kw-oninput="pastPapersController.filter()">
         </div>
         <div class="col-6 col-md-2">
-          <select id="ppSubject" class="form-select" onchange="pastPapersController.filter()">
+          <select id="ppSubject" class="form-select" data-kw-onchange="pastPapersController.filter()">
             <option value="">All Subjects</option>
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <select id="ppYear" class="form-select" onchange="pastPapersController.filter()">
+          <select id="ppYear" class="form-select" data-kw-onchange="pastPapersController.filter()">
             <option value="">All Years</option>
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <select id="ppClassLevel" class="form-select" onchange="pastPapersController.filter()">
+          <select id="ppClassLevel" class="form-select" data-kw-onchange="pastPapersController.filter()">
             <option value="">All Levels</option>
             <option value="PP1">PP1</option>
             <option value="PP2">PP2</option>
@@ -55,7 +55,7 @@
           </select>
         </div>
         <div class="col-6 col-md-2">
-          <select id="ppType" class="form-select" onchange="pastPapersController.filter()">
+          <select id="ppType" class="form-select" data-kw-onchange="pastPapersController.filter()">
             <option value="">All Types</option>
             <option value="Mid-Term">Mid-Term</option>
             <option value="End-Term">End-Term</option>
@@ -64,7 +64,7 @@
           </select>
         </div>
         <div class="col-6 col-md-1">
-          <button class="btn btn-outline-secondary w-100" onclick="pastPapersController.filter()">
+          <button class="btn btn-outline-secondary w-100" data-kw-onclick="pastPapersController.filter()">
             <i class="bi bi-search"></i>
           </button>
         </div>
@@ -87,4 +87,4 @@
 </div>
 
 <?php asset_script($appBase, 'js/pages/past_papers.js'); ?>
-<script>document.addEventListener('DOMContentLoaded', () => pastPapersController.init());</script>
+<script nonce="<?= csp_nonce() ?>">document.addEventListener('DOMContentLoaded', () => pastPapersController.init());</script>

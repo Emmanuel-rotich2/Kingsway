@@ -123,7 +123,7 @@
                     cursor: pointer;
                     font-size: 14px;
                     transition: transform 0.2s;
-                " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                " data-kw-onmouseover="this.style.transform='scale(1.05)'" data-kw-onmouseout="this.style.transform='scale(1)'">
                     Refresh Now
                 </button>
                 <button id="jwt-dismiss-btn" style="
@@ -134,7 +134,7 @@
                     border-radius: 6px;
                     cursor: pointer;
                     font-size: 14px;
-                " onmouseover="this.style.borderColor='white'" onmouseout="this.style.borderColor='rgba(255,255,255,0.3)'">
+                " data-kw-onmouseover="this.style.borderColor='white'" data-kw-onmouseout="this.style.borderColor='rgba(255,255,255,0.3)'">
                     Later
                 </button>
             </div>

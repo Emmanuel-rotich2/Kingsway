@@ -44,7 +44,7 @@
       <select id="monthFilter" class="form-select form-select-sm" style="width:120px"></select>
       <select id="yearFilter" class="form-select form-select-sm" style="width:100px"></select>
     </div>
-    <button class="btn btn-outline-success btn-sm" onclick="transportFeesController.loadData()">
+    <button class="btn btn-outline-success btn-sm" data-kw-onclick="transportFeesController.loadData()">
       <i class="bi bi-arrow-clockwise"></i>
     </button>
   </div>

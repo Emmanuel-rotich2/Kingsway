@@ -193,7 +193,7 @@
         <small>Class performance, subject analysis, CBC grade trends and student progress</small>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-light btn-sm" onclick="academicReportsCtrl.exportReport()">
+        <button class="btn btn-light btn-sm" data-kw-onclick="academicReportsCtrl.exportReport()">
             <i class="bi bi-download me-1"></i>Export
         </button>
     </div>

@@ -17,9 +17,9 @@
 
 <!-- Header Actions -->
 <div class="header-actions" style="margin-bottom: 1rem;">
-    <button class="btn btn-outline" onclick="exportFinance()">📥 Export Report</button>
-    <button class="btn btn-warning" onclick="showApprovals()">✅ Approve Pending</button>
-    <button class="btn btn-primary" onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
+    <button class="btn btn-outline" data-kw-onclick="exportFinance()">📥 Export Report</button>
+    <button class="btn btn-warning" data-kw-onclick="showApprovals()">✅ Approve Pending</button>
+    <button class="btn btn-primary" data-kw-onclick="showAddTransactionModal()" data-year-write>➕ Add Transaction</button>
 </div>
 
 <!-- Stats Row - 4 cards -->
@@ -62,7 +62,7 @@
 <div class="admin-budget-section">
     <div class="section-header">
         <h2>📊 Budget Overview</h2>
-        <button class="btn btn-outline-sm" onclick="showBudgetSettings()">⚙️ Settings</button>
+        <button class="btn btn-outline-sm" data-kw-onclick="showBudgetSettings()">⚙️ Settings</button>
     </div>
     <div class="budget-stats-grid">
         <div class="budget-card">
@@ -137,16 +137,16 @@
     <div class="filter-group">
         <input type="date" class="form-input" id="dateToFilter">
     </div>
-    <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="clearFilters()">Clear</button>
 </div>
 
 <!-- Bulk Actions -->
 <div class="admin-bulk-actions" id="bulkActions" style="display: none;">
     <span class="selected-count"><span id="selectedCount">0</span> selected</span>
-    <button class="btn btn-outline-sm" onclick="bulkApprove()" data-year-write>✅ Approve Selected</button>
-    <button class="btn btn-outline-sm" onclick="bulkReject()" data-year-write>❌ Reject Selected</button>
-    <button class="btn btn-outline-sm" onclick="bulkExport()">📥 Export Selected</button>
-    <button class="btn btn-danger-sm" onclick="bulkDelete()" data-year-write>🗑️ Delete Selected</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="bulkApprove()" data-year-write>✅ Approve Selected</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="bulkReject()" data-year-write>❌ Reject Selected</button>
+    <button class="btn btn-outline-sm" data-kw-onclick="bulkExport()">📥 Export Selected</button>
+    <button class="btn btn-danger-sm" data-kw-onclick="bulkDelete()" data-year-write>🗑️ Delete Selected</button>
 </div>
 
 <!-- Data Table -->
@@ -154,7 +154,7 @@
     <table class="admin-data-table" id="financeTable">
         <thead>
             <tr>
-                <th scope="col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th scope="col"><input type="checkbox" id="selectAll" data-kw-onchange="toggleSelectAll()"></th>
                 <th scope="col">Date</th>
                 <th scope="col">Type</th>
                 <th scope="col">Category</th>
@@ -183,7 +183,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Add Transaction</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('transactionModal')">×</button>
             </div>
             <div class="modal-body">
                 <form id="transactionForm">
@@ -236,8 +236,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('transactionModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTransaction()" data-year-write>Save Transaction</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('transactionModal')">Cancel</button>
+                <button class="btn btn-primary" data-kw-onclick="saveTransaction()" data-year-write>Save Transaction</button>
             </div>
         </div>
     </div>
@@ -249,7 +249,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Pending Approvals</h3>
-                <button class="btn-close" data-bs-dismiss="modal" onclick="closeModal('approvalModal')">×</button>
+                <button class="btn-close" data-bs-dismiss="modal" data-kw-onclick="closeModal('approvalModal')">×</button>
             </div>
             <div class="modal-body">
                 <div id="approvalList">
@@ -257,14 +257,14 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-outline" data-bs-dismiss="modal" onclick="closeModal('approvalModal')">Close</button>
+                <button class="btn btn-outline" data-bs-dismiss="modal" data-kw-onclick="closeModal('approvalModal')">Close</button>
             </div>
         </div>
     </div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/finance.js'); ?>
-<script>
+<script nonce="<?= csp_nonce() ?>">
     function initializeFinanceRole() {
         if (typeof FinanceController !== 'undefined') {
             FinanceController.init({ view: 'admin' });
