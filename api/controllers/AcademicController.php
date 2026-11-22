@@ -1151,6 +1151,82 @@ return $this->serverError('An internal error occurred.');
         }
     }
 
+    // ── Grading system administration (new Ministry scales, versions) ──────
+
+    private function canManageGradingSystems(): bool
+    {
+        return $this->userHasAny(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'], [1, 4, 5, 6], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic']);
+    }
+
+    private function gradingAdminCall(callable $operation, string $message, bool $created = false)
+    {
+        try {
+            $svc = new \App\API\Services\GradingSystemAdminService($this->db->getConnection(), (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0));
+            $out = $operation($svc);
+            return $created ? $this->created($out, $message) : $this->success($out, $message);
+        } catch (RuntimeException $e) {
+            $status = (int) $e->getCode();
+            if (!in_array($status, [400, 403, 404, 409, 422], true)) $status = 400;
+            return $this->respond(null, $e->getMessage(), $status, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] grading systems: ' . $e->getMessage());
+            return $this->serverError('The grading system could not be saved.');
+        }
+    }
+
+    /** GET /api/academic/grading-systems-admin — every system with lock and usage. */
+    public function getGradingSystemsAdmin($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can manage grading systems.');
+        return $this->gradingAdminCall(fn ($svc) => ['systems' => $svc->list()], 'Grading systems');
+    }
+
+    /** POST /api/academic/grading-systems-preview — multipart CSV/Excel grading table. */
+    public function postGradingSystemsPreview($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can add grading systems.');
+        $file = $_FILES['file'] ?? null;
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return $this->badRequest('Choose the grading table file (CSV or Excel).');
+        return $this->gradingAdminCall(fn ($svc) => $svc->preview($file), 'Preview ready');
+    }
+
+    /** POST /api/academic/grading-systems — create a draft from reviewed levels. */
+    public function postGradingSystems($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can add grading systems.');
+        return $this->gradingAdminCall(fn ($svc) => $svc->create((array) $data), 'Draft grading system saved', true);
+    }
+
+    /** PUT /api/academic/grading-systems/{id} — edit a draft. */
+    public function putGradingSystems($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can edit grading systems.');
+        if (!$id) return $this->badRequest('Grading system id is required');
+        return $this->gradingAdminCall(fn ($svc) => $svc->update((int) $id, (array) $data), 'Draft saved');
+    }
+
+    /** DELETE /api/academic/grading-systems/{id} — delete a draft. */
+    public function deleteGradingSystems($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can delete grading systems.');
+        if (!$id) return $this->badRequest('Grading system id is required');
+        return $this->gradingAdminCall(function ($svc) use ($id) { $svc->deleteDraft((int) $id); return ['id' => (int) $id]; }, 'Draft deleted');
+    }
+
+    /** POST /api/academic/grading-systems-copy/{id} — new draft version of a system. */
+    public function postGradingSystemsCopy($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can copy grading systems.');
+        return $this->gradingAdminCall(fn ($svc) => $svc->copy((int) $id), 'New version created as a draft', true);
+    }
+
+    /** POST /api/academic/grading-systems-publish/{id} */
+    public function postGradingSystemsPublish($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageGradingSystems()) return $this->forbidden('Only academic leadership can publish grading systems.');
+        return $this->gradingAdminCall(fn ($svc) => $svc->publish((int) $id), 'Grading system published');
+    }
+
     /**
      * POST /api/academic/grading-systems-binding — bind a grading system to an
      * academic-year term (whole school), a class, or one class learning area.

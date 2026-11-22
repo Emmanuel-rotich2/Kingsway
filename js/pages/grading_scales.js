@@ -41,7 +41,7 @@ window.GradingScalesCtrl = {
         this.state.termProfiles = d.term_profiles || [];
         this.state.compositeProfiles = d.composite_profiles || [];
         this.state.schoolDefault = d.school_default || null;
-        this.renderSystems();
+        await this.loadAdminSystems();
         this.renderProfiles();
         this.renderComposites();
         this.populatePickers();
@@ -49,60 +49,246 @@ window.GradingScalesCtrl = {
 
     // ---------------- Tab 1: grading systems ----------------
 
+    // Every system (drafts, superseded) with lock state and usage.
+    async loadAdminSystems() {
+        try {
+            const res = await window.callAPI("/academic/grading-systems-admin", "GET");
+            const d = res && res.systems !== undefined ? res : (res?.data ?? {});
+            this.state.adminSystems = d.systems || [];
+        } catch (err) {
+            this.state.adminSystems = null; // fall back to the overview list
+        }
+        this.renderSystems();
+    },
+
     renderSystems() {
         const root = document.getElementById("systemsContainer");
         if (!root) return;
-        root.innerHTML = this.state.systems.map(sys => {
+        const list = this.state.adminSystems || this.state.systems;
+        const statusBadge = (s) => ({
+            active: '<span class="badge text-bg-success ms-1">Published</span>',
+            draft: '<span class="badge text-bg-warning ms-1">Draft</span>',
+            superseded: '<span class="badge text-bg-secondary ms-1">Replaced</span>',
+            inactive: '<span class="badge text-bg-secondary ms-1">Inactive</span>',
+        })[s] || "";
+        root.innerHTML = list.map(sys => {
+            const editable = !sys.locked && sys.status !== "superseded";
+            const isDraft = sys.status === "draft";
+            const u = sys.usage || {};
             const bands = (sys.bands || []).map(b => `
                 <tr>
                     <td><span class="badge bg-primary-subtle text-primary border">${this.escapeHtml(b.band_code)}</span></td>
                     <td>${this.escapeHtml(b.band_name)}</td>
                     <td class="text-end">${Number(b.min_percentage).toFixed(2)}</td>
                     <td class="text-end">${Number(b.max_percentage).toFixed(2)}</td>
-                    <td class="text-end">${b.achievement_level ?? "—"}</td>
                     <td class="text-end">${Number(b.points).toFixed(1)}</td>
-                    <td>${this.escapeHtml(b.performance_level || "")}</td>
+                    <td>${this.escapeHtml(b.group_code || "")}</td>
                     <td class="small text-muted">${this.escapeHtml(b.description || "")}</td>
-                    <td class="no-print text-nowrap">
-                        <button class="btn btn-outline-primary btn-sm py-0 px-2" data-curriculum-manage
+                    ${editable && !isDraft ? `<td class="no-print text-nowrap">
+                        <button class="btn btn-outline-primary btn-sm py-0 px-2" data-curriculum-manage aria-label="Edit ${this.escapeHtml(b.band_code)}"
                             data-kw-onclick="GradingScalesCtrl.editBand(${sys.id}, ${b.id})"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-outline-danger btn-sm py-0 px-2" data-curriculum-manage
+                        <button class="btn btn-outline-danger btn-sm py-0 px-2" data-curriculum-manage aria-label="Remove ${this.escapeHtml(b.band_code)}"
                             data-kw-onclick="GradingScalesCtrl.removeBand(${b.id}, '${this.escapeHtml(b.band_code)}')"><i class="bi bi-trash"></i></button>
-                    </td>
+                    </td>` : (editable && !isDraft ? "" : '<td class="no-print"></td>')}
                 </tr>`).join("");
+            const facts = [
+                sys.authority ? `Issued by ${this.escapeHtml(sys.authority)}` : "",
+                sys.view_of_name ? `Grouped view of ${this.escapeHtml(sys.view_of_name)}: grades on that scale` : "",
+                sys.supersedes_name ? `Replaces ${this.escapeHtml(sys.supersedes_name)}` : "",
+                sys.usage ? `${Number(u.exams || 0)} exam${Number(u.exams) === 1 ? "" : "s"} · ${Number(u.term_settings || 0)} term setting${Number(u.term_settings) === 1 ? "" : "s"}` : "",
+            ].filter(Boolean).join(" · ");
+            const actions = [
+                `<button class="btn btn-outline-success btn-sm" data-kw-onclick="GradingScalesCtrl.exportBandsCsv(${sys.id})"><i class="bi bi-filetype-csv me-1"></i>CSV</button>`,
+                isDraft ? `<button class="btn btn-outline-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.openEditSystem(${sys.id})"><i class="bi bi-pencil me-1"></i>Edit</button>` : "",
+                isDraft ? `<button class="btn btn-success btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.publishSystem(${sys.id})"><i class="bi bi-check2-circle me-1"></i>Publish</button>` : "",
+                isDraft ? `<button class="btn btn-outline-danger btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.deleteSystem(${sys.id})"><i class="bi bi-trash"></i><span class="visually-hidden">Delete draft</span></button>` : "",
+                !isDraft ? `<button class="btn btn-outline-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.copySystem(${sys.id})"><i class="bi bi-files me-1"></i>New version</button>` : "",
+                editable && !isDraft ? `<button class="btn btn-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.addBand(${sys.id})"><i class="bi bi-plus-circle me-1"></i>Add level</button>` : "",
+            ].join("");
             return `
-            <div class="card mb-3">
+            <div class="card mb-3${isDraft ? " border-warning" : ""}">
                 <div class="card-body">
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+                    <div class="d-flex flex-wrap justify-content-between align-items-start mb-2 gap-2">
                         <div>
                             <h6 class="mb-0">${this.escapeHtml(sys.name)}
                                 <span class="badge bg-info text-dark ms-1">${sys.levels_count} levels</span>
-                                ${sys.status !== "active" ? '<span class="badge bg-warning text-dark ms-1">inactive</span>' : ""}
+                                ${statusBadge(sys.status)}
+                                ${sys.locked ? '<span class="badge text-bg-light border ms-1"><i class="bi bi-lock-fill me-1"></i>Locked: results graded</span>' : ""}
                             </h6>
-                            <small class="text-muted">${this.escapeHtml(sys.description || "")}</small>
+                            <small class="text-muted d-block">${this.escapeHtml(sys.code || "")}${facts ? " · " + facts : ""}</small>
+                            ${sys.description ? `<small class="text-muted d-block">${this.escapeHtml(sys.description)}</small>` : ""}
                         </div>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-outline-success btn-sm" data-kw-onclick="GradingScalesCtrl.exportBandsCsv(${sys.id})">
-                                <i class="bi bi-filetype-csv me-1"></i> CSV
-                            </button>
-                            <button class="btn btn-outline-secondary btn-sm" data-kw-onclick="window.PrintManager?.printPage({title:'Grading Scales',orientation:'landscape'}) ?? window.print()"><i class="bi bi-printer"></i></button>
-                            <button class="btn btn-primary btn-sm" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.addBand(${sys.id})">
-                                <i class="bi bi-plus-circle me-1"></i> Add Band
-                            </button>
-                        </div>
+                        <div class="d-flex gap-2 flex-wrap">${actions}</div>
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover table-bordered table-sm align-middle mb-0">
                             <thead class="table-light">
-                                <tr><th>Code</th><th>Name</th><th class="text-end">Min %</th><th class="text-end">Max %</th>
-                                <th class="text-end">Level</th><th class="text-end">Points</th><th>Performance</th><th>Description</th><th class="no-print">Actions</th></tr>
+                                <tr><th>Level</th><th>Name</th><th class="text-end">Min %</th><th class="text-end">Max %</th>
+                                <th class="text-end">Points</th><th>Group</th><th>Description</th><th class="no-print"></th></tr>
                             </thead>
-                            <tbody>${bands || '<tr><td colspan="9" class="text-center text-muted">No bands defined</td></tr>'}</tbody>
+                            <tbody>${bands || '<tr><td colspan="8" class="text-center text-muted">No levels defined</td></tr>'}</tbody>
                         </table>
                     </div>
                 </div>
             </div>`;
-        }).join("") || '<div class="alert alert-warning">No grading systems found.</div>';
+        }).join("") || '<div class="alert alert-warning">No grading systems yet. Add one with "New grading system".</div>';
+    },
+
+    // ---------------- New / edit grading system ----------------
+
+    gsBandRow(b = {}) {
+        const v = (x) => this.escapeHtml(x ?? "");
+        return `<tr>
+            <td><input class="form-control form-control-sm" data-f="band_code" value="${v(b.band_code)}" maxlength="8" aria-label="Level code"></td>
+            <td><input class="form-control form-control-sm" data-f="band_name" value="${v(b.band_name)}" maxlength="80" aria-label="Level name"></td>
+            <td><input class="form-control form-control-sm" data-f="min_percentage" type="number" step="0.01" min="0" max="100" value="${v(b.min_percentage)}" aria-label="Minimum percent"></td>
+            <td><input class="form-control form-control-sm" data-f="max_percentage" type="number" step="0.01" min="0" max="100" value="${v(b.max_percentage)}" aria-label="Maximum percent"></td>
+            <td><input class="form-control form-control-sm" data-f="points" type="number" step="0.1" value="${v(b.points)}" aria-label="Points"></td>
+            <td><input class="form-control form-control-sm" data-f="group_code" value="${v(b.group_code)}" maxlength="8" aria-label="Group level"></td>
+            <td><input class="form-control form-control-sm" data-f="description" value="${v(b.description)}" maxlength="255" aria-label="Description"></td>
+            <td><button type="button" class="btn btn-sm btn-link text-danger p-0" aria-label="Remove level" data-kw-onclick="GradingScalesCtrl.removeBandRow(this)"><i class="bi bi-x-lg"></i></button></td>
+        </tr>`;
+    },
+
+    removeBandRow(btn) {
+        btn?.closest?.("tr")?.remove();
+    },
+
+    addBandRow(b) {
+        document.querySelector("#gsBandsTable tbody")?.insertAdjacentHTML("beforeend", this.gsBandRow(b));
+    },
+
+    gsSetBands(bands) {
+        const body = document.querySelector("#gsBandsTable tbody");
+        if (!body) return;
+        body.innerHTML = "";
+        (bands && bands.length ? bands : [{}, {}, {}, {}]).forEach(b => this.addBandRow(b));
+    },
+
+    gsShowProblems(problems) {
+        const box = document.getElementById("gsProblems");
+        if (!box) return;
+        box.innerHTML = problems && problems.length
+            ? `<div class="alert alert-warning py-2 small mb-0"><strong>Fix before saving:</strong><ul class="mb-0">${problems.map(p => `<li>${this.escapeHtml(p)}</li>`).join("")}</ul></div>`
+            : "";
+    },
+
+    gsFillSelects(currentId) {
+        const list = (this.state.adminSystems || this.state.systems).filter(s => Number(s.id) !== Number(currentId) && s.status !== "draft");
+        const opts = list.map(s => `<option value="${s.id}">${this.escapeHtml(s.name)}</option>`).join("");
+        document.getElementById("gsSupersedes").innerHTML = '<option value="">Nothing (a new scale)</option>' + opts;
+        document.getElementById("gsViewOf").innerHTML = '<option value="">Not a view (grades on its own)</option>' + opts;
+    },
+
+    openNewSystem() {
+        document.getElementById("gsForm").reset();
+        document.getElementById("gsId").value = "";
+        document.getElementById("gsModalTitle").textContent = "New grading system";
+        this.gsFillSelects(null);
+        this.gsSetBands([]);
+        this.gsShowProblems([]);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("gsModal")).show();
+    },
+
+    openEditSystem(id) {
+        const sys = (this.state.adminSystems || []).find(s => Number(s.id) === Number(id));
+        if (!sys) return;
+        document.getElementById("gsForm").reset();
+        document.getElementById("gsId").value = sys.id;
+        document.getElementById("gsModalTitle").textContent = `Edit draft: ${sys.name}`;
+        this.gsFillSelects(sys.id);
+        document.getElementById("gsName").value = sys.name || "";
+        document.getElementById("gsCode").value = sys.code || "";
+        document.getElementById("gsAuthority").value = sys.authority || "";
+        document.getElementById("gsDescription").value = sys.description || "";
+        document.getElementById("gsSupersedes").value = sys.supersedes_id || "";
+        document.getElementById("gsViewOf").value = sys.view_of_system_id || "";
+        this.gsSetBands(sys.bands || []);
+        this.gsShowProblems([]);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById("gsModal")).show();
+    },
+
+    async previewFile() {
+        const input = document.getElementById("gsFile");
+        if (!input?.files?.length) { window.showNotification?.("Choose the grading table file first.", "warning"); return; }
+        const fd = new FormData();
+        fd.append("file", input.files[0]);
+        try {
+            const res = await window.callAPI("/academic/grading-systems-preview", "POST", fd, {}, { isFile: true });
+            const d = res && res.bands !== undefined ? res : (res?.data ?? {});
+            this.gsSetBands(d.bands || []);
+            this.gsShowProblems(d.problems || []);
+            window.showNotification?.(d.problems?.length ? "Preview loaded. Fix the highlighted problems before saving." : `Preview loaded: ${(d.bands || []).length} levels.`, d.problems?.length ? "warning" : "success");
+        } catch (err) {
+            window.showNotification?.(err.message || "The file could not be read.", "danger");
+        }
+    },
+
+    async saveSystem(ev) {
+        ev?.preventDefault?.();
+        const id = document.getElementById("gsId").value;
+        const bands = [...document.querySelectorAll("#gsBandsTable tbody tr")].map(tr => {
+            const row = {};
+            tr.querySelectorAll("[data-f]").forEach(inp => { row[inp.dataset.f] = inp.value.trim(); });
+            return row;
+        }).filter(r => Object.values(r).some(v => v !== ""));
+        const body = {
+            name: document.getElementById("gsName").value.trim(),
+            code: document.getElementById("gsCode").value.trim(),
+            authority: document.getElementById("gsAuthority").value.trim(),
+            description: document.getElementById("gsDescription").value.trim(),
+            supersedes_id: document.getElementById("gsSupersedes").value || null,
+            view_of_system_id: document.getElementById("gsViewOf").value || null,
+            bands,
+        };
+        const btn = document.getElementById("gsSaveBtn");
+        if (btn) btn.disabled = true;
+        try {
+            await window.callAPI(id ? `/academic/grading-systems/${id}` : "/academic/grading-systems", id ? "PUT" : "POST", body);
+            bootstrap.Modal.getInstance(document.getElementById("gsModal"))?.hide();
+            window.showNotification?.("Draft saved. Publish it when it is ready to use.", "success");
+            await this.loadAdminSystems();
+        } catch (err) {
+            this.gsShowProblems([err.message || "The grading system could not be saved."]);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+        return false;
+    },
+
+    async publishSystem(id) {
+        const sys = (this.state.adminSystems || []).find(s => Number(s.id) === Number(id));
+        const replaces = sys?.supersedes_name ? `\n\n${sys.supersedes_name} will no longer be offered for new terms and exams. Exams already graded on it keep it.` : "";
+        if (!confirm(`Publish ${sys?.name || "this grading system"}? It can then be chosen for terms and exams, and its levels lock once results are graded on it.${replaces}`)) return;
+        try {
+            await window.callAPI(`/academic/grading-systems-publish/${id}`, "POST", {});
+            window.showNotification?.("Grading system published.", "success");
+            await this.loadOverview();
+        } catch (err) { window.showNotification?.(err.message || "Could not publish.", "danger"); }
+    },
+
+    async copySystem(id) {
+        try {
+            const res = await window.callAPI(`/academic/grading-systems-copy/${id}`, "POST", {});
+            const d = res && res.id !== undefined ? res : (res?.data ?? {});
+            await this.loadAdminSystems();
+            window.showNotification?.("New version created as a draft. Edit its levels, then publish it.", "success");
+            if (d.id) this.openEditSystem(d.id);
+        } catch (err) { window.showNotification?.(err.message || "Could not copy.", "danger"); }
+    },
+
+    async deleteSystem(id) {
+        if (!confirm("Delete this draft grading system?")) return;
+        try {
+            await window.callAPI(`/academic/grading-systems/${id}`, "DELETE");
+            window.showNotification?.("Draft deleted.", "success");
+            await this.loadAdminSystems();
+        } catch (err) { window.showNotification?.(err.message || "Could not delete.", "danger"); }
+    },
+
+    downloadTemplate() {
+        const csv = "Level,Name,Min,Max,Points,Group,Description\r\nEE1,Exceeding Expectation 1,90,100,8,EE,\r\nEE2,Exceeding Expectation 2,75,89,7,EE,\r\nME1,Meeting Expectation 1,58,74,6,ME,\r\nME2,Meeting Expectation 2,41,57,5,ME,\r\nAE1,Approaching Expectation 1,31,40,4,AE,\r\nAE2,Approaching Expectation 2,21,30,3,AE,\r\nBE1,Below Expectation 1,11,20,2,BE,\r\nBE2,Below Expectation 2,0,10,1,BE,\r\n";
+        window.KingswayFileLifecycle?.exportText?.(csv, "grading-system-template.csv", "text/csv;charset=utf-8");
     },
 
     addBand(systemId) {

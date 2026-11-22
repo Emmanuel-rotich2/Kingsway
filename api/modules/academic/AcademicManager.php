@@ -5581,7 +5581,7 @@ if ($classId) {
         try {
             $svc = new AssessmentAggregationService($this->db);
             $r = $svc->upsertBand($data);
-            if (!$r['ok']) return $this->errorResponse($r['error'], 400);
+            if (!$r['ok']) return $this->errorResponse($r['error'], (int) ($r['status'] ?? 400));
             return $this->successResponse(['id' => $r['id']], 'Grading band saved');
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::postGradingBand');
@@ -5595,7 +5595,7 @@ if ($classId) {
         try {
             $svc = new AssessmentAggregationService($this->db);
             $r = $svc->deleteBand($id);
-            if (!$r['ok']) return $this->errorResponse('Band not found', 404);
+            if (!$r['ok']) return $this->errorResponse($r['error'] ?? 'Band not found', (int) ($r['status'] ?? 404));
             return $this->successResponse(null, 'Grading band deleted');
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::deleteGradingBand');
