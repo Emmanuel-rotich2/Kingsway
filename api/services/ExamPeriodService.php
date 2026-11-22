@@ -347,9 +347,8 @@ final class ExamPeriodService
         $authority=$this->sbaPolicy()->resolveAuthority($assessmentKind,$authority,(int)($term['term_id']??0));
         // Snapshot the grading system bound to this term so later binding or
         // scale changes never rewrite what this period's grades mean.
-        $gradingSystemId=null;
-        $gradingResolution=(new GradingScopeService($this->db))->resolve($termId,null,null);
-        if($gradingResolution)$gradingSystemId=(int)$gradingResolution['system']['id'];
+        // The exam's own choice wins; otherwise the term's grading system.
+        $gradingSystemId=$this->chosenGradingSystem($data,$termId);
         $this->db->beginTransaction();
         try {
             if($this->hasColumn('exam_periods','assessment_kind')){
@@ -512,6 +511,13 @@ final class ExamPeriodService
             } else {
                 $this->db->prepare('UPDATE exam_periods SET title=?,starts_on=?,ends_on=? WHERE id=?')->execute([$title,$starts,$ends,$periodId]);
             }
+            if(!empty($data['grading_system_id'])&&(int)$data['grading_system_id']!==(int)($period['grading_system_id']??0)){
+                // Fixed once results open: marks may exist from then on.
+                if(in_array((string)$period['status'],['results_open','moderation','completed'],true)||!empty($period['results_published_at'])){
+                    throw new RuntimeException('Results are open for this exam, so its grading system is fixed. Create a new exam period to grade on another system.',409);
+                }
+                $this->db->prepare('UPDATE exam_periods SET grading_system_id=? WHERE id=?')->execute([$this->chosenGradingSystem($data,(int)$period['academic_year_term_id']),$periodId]);
+            }
             if(array_key_exists('entry_mode',$data)&&$entryMode!==(string)($period['entry_mode']??'timetable')){
                 $this->db->prepare('UPDATE exam_periods SET entry_mode=? WHERE id=?')->execute([$entryMode,$periodId]);
             }
@@ -580,6 +586,21 @@ final class ExamPeriodService
      * scope already holds learner results, a submitted register, or published
      * marks. Adding a class that is empty is always safe.
      */
+    /** A published grading system chosen for the exam, else the term's. */
+    private function chosenGradingSystem(array $data, int $termId): ?int
+    {
+        $chosen=(int)($data['grading_system_id']??0);
+        if($chosen>0){
+            $st=$this->db->prepare("SELECT status FROM grading_systems WHERE id=?");
+            $st->execute([$chosen]);
+            if($st->fetchColumn()!=='active')throw new RuntimeException('Choose a published grading system for this exam.',422);
+            return $chosen;
+        }
+        $resolution=(new GradingScopeService($this->db))->resolve($termId,null,null);
+        if($resolution)return (int)$resolution['system']['id'];
+        return (new GradingScopeService($this->db))->canonicalSystemId(null);
+    }
+
     private function assertNoRecordedResults(int $periodId, array $targetIds, array $currentIds): void
     {
         $removed = array_values(array_diff($currentIds, $targetIds));

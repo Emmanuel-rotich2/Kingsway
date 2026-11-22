@@ -273,7 +273,13 @@ $fwPct = ($fw + $sw) > 0 ? round($fw * 100 / ($fw + $sw)) : 40; $swPct = 100 - $
   }
   $grouped = count($groups) < count($bands);
 ?>
-<table class="key avoid" style="margin-top:10px">
+<?php if (!empty($grading_system_name) || !empty($grading_note)): ?>
+<div class="muted" style="margin-top:10px;font-size:7.6pt">
+  <?php if (!empty($grading_system_name)): ?>Levels: <b><?= $e($grading_system_name) ?></b>.<?php endif; ?>
+  <?php if (!empty($grading_note)): ?> <?= $e($grading_note) ?><?php endif; ?>
+</div>
+<?php endif; ?>
+<table class="key avoid" style="margin-top:4px">
   <?php if ($grouped): ?>
   <tr>
     <td style="text-align:left;border:0;padding-left:0" class="muted">4 levels</td>

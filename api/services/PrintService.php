@@ -1336,6 +1336,32 @@ final class PrintService
         }
         $systemId = (int) (new GradingScopeService($db))->canonicalSystemId($systemId ?: null);
         $data['grading_bands'] = [];
+        // Name the scale the report's levels use, and say so when this term's
+        // exams were graded on other systems (each exam keeps its own).
+        $data['grading_system_name'] = null;
+        $data['grading_note'] = null;
+        if ($systemId) {
+            try {
+                $names = $db->query('SELECT id, name FROM grading_systems')->fetchAll(\PDO::FETCH_KEY_PAIR);
+                $data['grading_system_name'] = $names[$systemId] ?? null;
+                if ($termId) {
+                    $st = $db->prepare('SELECT DISTINCT grading_system_id FROM exam_periods WHERE academic_year_term_id = ? AND deleted_at IS NULL AND grading_system_id IS NOT NULL');
+                    $st->execute([$termId]);
+                    $scope = new GradingScopeService($db);
+                    $others = [];
+                    foreach ($st->fetchAll(\PDO::FETCH_COLUMN) as $sid) {
+                        $canon = (int) $scope->canonicalSystemId((int) $sid);
+                        if ($canon !== $systemId && isset($names[$canon])) $others[$canon] = $names[$canon];
+                    }
+                    if ($others) {
+                        $data['grading_note'] = 'Some exams this term were graded on ' . implode(', ', $others)
+                            . '. Levels on this report use ' . ($names[$systemId] ?? 'the term scale') . '.';
+                    }
+                }
+            } catch (\Throwable $e) {
+                // the report still prints without the note
+            }
+        }
         if ($systemId && empty($data['grading_bands'])) {
             try { $data['grading_bands'] = (new AssessmentAggregationService($db))->bands($systemId); } catch (\Throwable $e) { $data['grading_bands'] = []; }
         }

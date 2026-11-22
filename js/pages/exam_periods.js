@@ -54,6 +54,20 @@
   async function call(path, method = 'GET', body = null, query = null) {
     return payload(await window.API.apiCall(path, method, body, query));
   }
+  // Published grading systems for the exam forms (each exam keeps its own).
+  async function loadGradingSystems() {
+    if (!state.gradingSystems) {
+      try { state.gradingSystems = (payload(await call('/academic/grading-systems')) || {}).systems || []; }
+      catch (_) { state.gradingSystems = []; }
+    }
+    ['examPeriodGradingSystem', 'examPeriodEditGradingSystem'].forEach((id) => {
+      const sel = $(id); if (!sel) return;
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">The term\'s grading system</option>' + state.gradingSystems
+        .map((g) => `<option value="${Number(g.id)}">${esc(g.name)} (${Number(g.levels_count)} levels)</option>`).join('');
+      sel.value = keep;
+    });
+  }
   async function loadOptions(termId = '') {
     const data = await call('/academic/exam-periods-options', 'GET', null, termId ? { term_id: termId } : null) || {};
     state.terms = data.terms || [];
@@ -626,6 +640,16 @@
     const national = kindCode(editKindSel) === 'SA';
     $('examPeriodEditNationalWrap').classList.toggle('d-none', !national);
     $('examPeriodEditNationalCode').required = national;
+    await loadGradingSystems();
+    const gradeSel = $('examPeriodEditGradingSystem');
+    if (gradeSel) {
+      gradeSel.value = period.grading_system_id ? String(period.grading_system_id) : '';
+      const fixed = ['results_open', 'moderation', 'completed'].includes(String(period.status || '')) || !!period.results_published_at;
+      gradeSel.disabled = fixed;
+      gradeSel.dataset.original = gradeSel.value;
+      const note = $('examPeriodEditGradingSystemNote');
+      if (note) note.textContent = fixed ? 'Results are open for this exam, so its grading system is fixed.' : 'Can be changed until results open.';
+    }
     renderClasses('examPeriodEditClasses', detail?.class_ids || period.academic_year_class_ids || []);
     const lockedClasses = Number(detail?.entries?.length || 0) > 0;
     $('examPeriodEditClassesHint').textContent = lockedClasses
@@ -655,7 +679,7 @@
     if (!printAllowed) { $('examPeriodsPrint')?.classList.add('d-none'); }
     if (!canManage()) $('openExamPeriodCreate')?.classList.add('d-none');
     if (!canImportExamDocuments()) $('openExamDocumentImport')?.classList.add('d-none');
-    $('openExamPeriodCreate')?.addEventListener('click', async () => { await loadOptions($('examPeriodTerm')?.value || ''); bootstrap.Modal.getOrCreateInstance($('examPeriodModal')).show(); });
+    $('openExamPeriodCreate')?.addEventListener('click', async () => { await loadOptions($('examPeriodTerm')?.value || ''); await loadGradingSystems(); bootstrap.Modal.getOrCreateInstance($('examPeriodModal')).show(); });
     $('openExamDocumentImport')?.addEventListener('click', () => { $('examDocumentPreviewWrap')?.classList.add('d-none'); $('examDocumentPreviewActions')?.classList.add('d-none'); $('examDocumentSuggestedMapping')?.classList.add('d-none'); $('examDocumentImportStatus').textContent = ''; $('examDocumentImportForm')?.reset(); bootstrap.Modal.getOrCreateInstance($('examDocumentImportModal')).show(); });
     $('examDocumentImportForm')?.addEventListener('submit', queueDocumentPreview);
     $('examDocumentSaveTimetable')?.addEventListener('click', saveReviewedTimetable);
@@ -694,7 +718,7 @@
       const button = $('createExamPeriodBtn'); button.disabled = true;
       try {
         const kindPayload = assessmentPayloadFromKind($('examPeriodAssessmentKind'));
-        await call('/academic/exam-periods', 'POST', { academic_year_term_id: Number($('examPeriodTerm').value), title: $('examPeriodTitle').value.trim(), starts_on: startsOn, ends_on: endsOn, kind: $('examPeriodKind').value, entry_mode: $('examPeriodEntryMode').value, ...kindPayload, assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null, national_assessment_code: $('nationalAssessmentCode')?.value || null, academic_year_class_ids }); bootstrap.Modal.getInstance($('examPeriodModal'))?.hide(); event.currentTarget.reset(); $('nationalAssessmentWrap')?.classList.add('d-none'); await loadPeriods(); notify('Exam period created.', 'success');
+        await call('/academic/exam-periods', 'POST', { academic_year_term_id: Number($('examPeriodTerm').value), title: $('examPeriodTitle').value.trim(), starts_on: startsOn, ends_on: endsOn, kind: $('examPeriodKind').value, entry_mode: $('examPeriodEntryMode').value, ...kindPayload, assessment_authority: kindPayload.assessment_kind === 'national' ? 'KNEC' : null, national_assessment_code: $('nationalAssessmentCode')?.value || null, grading_system_id: $('examPeriodGradingSystem')?.value || null, academic_year_class_ids }); bootstrap.Modal.getInstance($('examPeriodModal'))?.hide(); event.currentTarget.reset(); $('nationalAssessmentWrap')?.classList.add('d-none'); await loadPeriods(); notify('Exam period created.', 'success');
       }
       catch (error) { notify(error.message || 'Unable to create exam period.', 'error'); }
       finally { button.disabled = false; }
@@ -719,7 +743,10 @@
       const button = $('saveExamPeriodEditBtn');
       if (button) button.disabled = true;
       try {
+        const gradeSel = $('examPeriodEditGradingSystem');
+        const gradingChange = gradeSel && !gradeSel.disabled && gradeSel.value && gradeSel.value !== gradeSel.dataset.original ? { grading_system_id: Number(gradeSel.value) } : {};
         await call(`/academic/exam-periods/${id}`, 'PUT', {
+          ...gradingChange,
           title,
           starts_on,
           ends_on,
