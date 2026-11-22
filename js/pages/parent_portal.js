@@ -747,7 +747,7 @@ const parentPortalController = {
                 var sum = parseFloat(sc.summative_percentage || sc.summative_score || 0);
                 var ovr = parseFloat(sc.overall_percentage || sc.total_score || sc.score || 0);
                 var grd = sc.overall_grade || sc.grade || sc.cbc_grade || GradingScale.grade(ovr);
-                html += '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + fmt + '</td><td>' + sum + '</td><td><strong>' + ovr + '</strong></td><td><span class="badge bg-primary">' + self.esc(grd) + '</span></td></tr>';
+                html += '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + fmt + '</td><td>' + sum + '</td><td><strong>' + ovr + '</strong></td><td><span class="badge bg-primary">' + self.esc(window.CbcLevels ? window.CbcLevels.format(grd) : grd) + '</span></td></tr>';
             });
             html += '</tbody></table></div>';
         }
@@ -814,7 +814,7 @@ const parentPortalController = {
         var scoreRows = scores.map(function (sc) {
             var ovr = parseFloat(sc.overall_percentage || sc.total_score || sc.score || 0);
             var grd = sc.overall_grade || sc.grade || sc.cbc_grade || GradingScale.grade(ovr);
-            return '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + (parseFloat(sc.formative_percentage || 0)) + '</td><td>' + (parseFloat(sc.summative_percentage || 0)) + '</td><td><strong>' + ovr + '</strong></td><td><strong>' + self.esc(grd) + '</strong></td></tr>';
+            return '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + (parseFloat(sc.formative_percentage || 0)) + '</td><td>' + (parseFloat(sc.summative_percentage || 0)) + '</td><td><strong>' + ovr + '</strong></td><td><strong>' + self.esc(window.CbcLevels ? window.CbcLevels.format(grd) : grd) + '</strong></td></tr>';
         }).join('');
         var compRows = comps.map(function (c) {
             return '<tr><td><strong>' + self.esc(c.code || '') + '</strong></td><td>' + self.esc(c.competency_name || '') + '</td><td>' + self.esc(c.level_name || c.level_code || '-') + '</td></tr>';

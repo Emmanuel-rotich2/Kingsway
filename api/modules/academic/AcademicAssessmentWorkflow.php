@@ -420,13 +420,14 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
                 $score = (float)$mark['score_obtained'];
                 $percentage = $totalMarks > 0 ? round(($score / $totalMarks) * 100, 2) : 0;
 
-                // Map to CBC grade
+                // Map to the school's CBC scale through the shared grader.
                 $gradeInfo = null;
-                foreach ($gradeRules as $rule) {
-                    if ($percentage >= (float)$rule['min_mark'] && $percentage <= (float)$rule['max_mark']) {
-                        $gradeInfo = $rule;
-                        break;
-                    }
+                try {
+                    $g = (new \App\API\Services\CbcGradingService($this->db))
+                        ->gradeForSystem(max(0.0, min(100.0, $percentage)), 100, null);
+                    $gradeInfo = ['grade_code' => $g['grade_code'], 'grade_points' => $g['points'], 'performance_level' => $g['performance_level']];
+                } catch (\Throwable $e) {
+                    $gradeInfo = null;
                 }
 
                 if (!$gradeInfo) {

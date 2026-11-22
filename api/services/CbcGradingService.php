@@ -38,9 +38,14 @@ final class CbcGradingService
 
         $percentage = round(($score / $maxMarks) * 100, 2);
 
+        // One CBC scale for the whole school: 8 levels, with the 4-level
+        // group derived from the same band (see GradingScopeService).
+        $scope = new GradingScopeService($this->db);
+        $gradingSystemId = $scope->canonicalSystemId($gradingSystemId);
+
         if ($gradingSystemId !== null) {
-            $band = (new GradingScopeService($this->db))->bandForPercentage($gradingSystemId, $percentage);
-            return [
+            $band = $scope->bandForPercentage($gradingSystemId, $percentage);
+            return self::withLevel4([
                 'percentage' => $percentage,
                 'grade_code' => (string) $band['band_code'],
                 'grade_name' => (string) $band['band_name'],
@@ -48,7 +53,7 @@ final class CbcGradingService
                 'points' => (float) $band['points'],
                 'description' => (string) ($band['description'] ?? ''),
                 'grading_system_id' => $gradingSystemId,
-            ];
+            ]);
         }
 
         $rule = self::matchRule($percentage, $this->rules());
@@ -56,14 +61,23 @@ final class CbcGradingService
             throw new RuntimeException('The active grading scale does not cover this score', 409);
         }
 
-        return [
+        return self::withLevel4([
             'percentage' => $percentage,
             'grade_code' => (string) $rule['grade_code'],
             'grade_name' => (string) $rule['grade_name'],
             'performance_level' => (string) $rule['performance_level'],
             'points' => (float) $rule['grade_points'],
             'description' => (string) ($rule['description'] ?? ''),
-        ];
+        ]);
+    }
+
+    /** Adds the 4-level group (EE/ME/AE/BE) of an 8-level grade. */
+    public static function withLevel4(array $grade): array
+    {
+        $group = GradingScopeService::level4($grade['grade_code'] ?? null);
+        $grade['level4_code'] = $group;
+        $grade['level4_name'] = $group ? GradingScopeService::LEVEL4_NAMES[$group] : null;
+        return $grade;
     }
 
     public static function matchRule(float $percentage, array $rules): ?array

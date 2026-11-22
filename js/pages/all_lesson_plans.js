@@ -150,4 +150,9 @@ const allLessonPlansController = {
   },
 };
 window.allLessonPlansController = allLessonPlansController;
-document.addEventListener('DOMContentLoaded', () => allLessonPlansController.init().catch((error) => console.error('All lesson plans failed to initialize:', error)));
+{
+  // The shell can insert this page after DOMContentLoaded has fired.
+  const start = () => allLessonPlansController.init().catch((error) => console.error('All lesson plans failed to initialize:', error));
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}

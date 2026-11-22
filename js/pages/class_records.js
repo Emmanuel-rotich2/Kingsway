@@ -129,7 +129,7 @@ const classRecordsController = {
     const body = learners.length ? learners.map((l, i) => {
       const cells = areas.map((a) => {
         const s = l.results?.[a.learning_area_id]?.[tid];
-        return `<td class="text-center cr-score">${s ? `${this.pct(s.overall_percentage)}${s.grade ? ` <small class="text-muted">${this.esc(s.grade)}</small>` : ''}` : '<span class="text-muted">—</span>'}</td>`;
+        return `<td class="text-center cr-score">${s ? `${this.pct(s.overall_percentage)}${s.grade ? ` <small class="text-muted">${this.esc(window.CbcLevels.format(s.grade, ''))}</small>` : ''}` : '<span class="text-muted">—</span>'}</td>`;
       }).join('');
       const status = l.enrollment_status === 'graduated' ? ' <span class="badge bg-info-subtle text-info-emphasis">graduated</span>' : '';
       return `<tr><td>${i + 1}</td><td>${this.esc(l.name)}${status}</td><td>${this.esc(l.admission_no || '—')}</td>${cells}<td class="text-center fw-semibold">${this.pct(l.term_averages?.[tid])}</td></tr>`;

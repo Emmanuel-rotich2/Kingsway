@@ -154,7 +154,7 @@ const ModerationController = {
                     <td>${this.esc(r.student_name)}</td>
                     <td>${this.esc(r.admission_no || '')}</td>
                     <td><strong>${r.entry_status === 'present' ? r.marks_obtained : this.esc(r.entry_status || '-')}</strong></td>
-                    <td><span class="badge ${GradingScale.band(r.grade) === 'EE' ? 'bg-primary' : GradingScale.band(r.grade) === 'ME' ? 'bg-success' : GradingScale.band(r.grade) === 'AE' ? 'bg-warning text-dark' : 'bg-danger'}">${r.grade || '-'}</span></td>
+                    <td><span class="badge ${GradingScale.band(r.grade) === 'EE' ? 'bg-primary' : GradingScale.band(r.grade) === 'ME' ? 'bg-success' : GradingScale.band(r.grade) === 'AE' ? 'bg-warning text-dark' : 'bg-danger'}">${window.CbcLevels.format(r.grade, '-')}</span></td>
                     <td>${r.points || '-'}</td>
                     <td>${approved ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
                     <td>

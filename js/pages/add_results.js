@@ -272,7 +272,7 @@ const addResultsController = (() => {
           (r) =>
             `<li class="list-group-item d-flex justify-content-between align-items-center py-2">
                 <div><strong>${escapeHtml(r.student)}</strong><br><small class="text-muted">${escapeHtml(r.subject)}</small></div>
-                <div class="text-end"><span class="badge bg-${gradeColors[r.grade] || "secondary"}">${Number(r.marks)} (${escapeHtml(r.grade)})</span><br><small class="text-muted">${escapeHtml(r.time)}</small></div>
+                <div class="text-end"><span class="badge bg-${gradeColors[r.grade] || "secondary"}">${Number(r.marks)} (${escapeHtml(window.CbcLevels.format(r.grade, ''))})</span><br><small class="text-muted">${escapeHtml(r.time)}</small></div>
             </li>`,
         )
         .join("") +

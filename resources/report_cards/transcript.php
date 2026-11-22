@@ -259,13 +259,33 @@ $fwPct = ($fw + $sw) > 0 ? round($fw * 100 / ($fw + $sw)) : 40; $swPct = 100 - $
 </table>
 </div>
 
-<!-- Grading key -->
-<?php if ($bands): ?>
+<!-- Grading key: the 8 levels, grouped into the 4 CBC levels they belong to -->
+<?php if ($bands):
+  // Whole-number ranges as published (75–89, not 75–89.99 shown as 75–90).
+  $lo = static fn ($v): string => (string) (int) ceil((float) $v);
+  $hi = static fn ($v): string => (string) (int) floor((float) $v);
+  $groups = [];
+  foreach ($bands as $b) {
+    $g = \App\API\Services\GradingScopeService::level4($b['band_code'] ?? '') ?? (string) ($b['band_code'] ?? '');
+    $last = array_key_last($groups);
+    if ($last !== null && $groups[$last]['code'] === $g) { $groups[$last]['span']++; }
+    else { $groups[] = ['code' => $g, 'span' => 1]; }
+  }
+  $grouped = count($groups) < count($bands);
+?>
 <table class="key avoid" style="margin-top:10px">
+  <?php if ($grouped): ?>
   <tr>
-    <td style="text-align:left;border:0;padding-left:0" class="muted">Levels</td>
+    <td style="text-align:left;border:0;padding-left:0" class="muted">4 levels</td>
+    <?php foreach ($groups as $g): ?>
+      <td colspan="<?= (int) $g['span'] ?>"><b><?= $e($g['code']) ?></b> <?= $e(\App\API\Services\GradingScopeService::LEVEL4_NAMES[$g['code']] ?? '') ?></td>
+    <?php endforeach; ?>
+  </tr>
+  <?php endif; ?>
+  <tr>
+    <td style="text-align:left;border:0;padding-left:0" class="muted"><?= $grouped ? '8 levels' : 'Levels' ?></td>
     <?php foreach ($bands as $b): ?>
-      <td><b><?= $e($b['band_code']) ?></b> <?= $e($b['band_name']) ?><br><span class="muted"><?= $e(rtrim(rtrim(number_format((float) $b['min_percentage'], 1), '0'), '.')) ?>–<?= $e(rtrim(rtrim(number_format((float) $b['max_percentage'], 1), '0'), '.')) ?>%</span></td>
+      <td><b><?= $e($b['band_code']) ?></b><?= $grouped ? '' : ' ' . $e($b['band_name']) ?><br><span class="muted"><?= $e($lo($b['min_percentage'])) ?>–<?= $e($hi($b['max_percentage'])) ?>%</span></td>
     <?php endforeach; ?>
   </tr>
 </table>

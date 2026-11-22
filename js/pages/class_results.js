@@ -40,7 +40,7 @@ const classResultsController = {
     if (body) body.innerHTML = rows.length ? rows.map((row) => `<tr>
       <td>${this.esc(row.full_name || row.student_name || '—')}</td><td>${this.esc(row.admission_no || '—')}</td><td>${this.esc(row.class_name || '—')}</td>
       <td>${this.esc(row.term_name || 'Selected term')}</td><td class="text-center">${row.average_score == null ? '—' : `${Number(row.average_score).toFixed(1)}%`}</td>
-      <td class="text-center">${this.esc(row.grade || '—')}</td><td>${this.esc(row.teacher_comment || row.remarks || '—')}</td>
+      <td class="text-center">${this.esc(window.CbcLevels.format(row.grade))}</td><td>${this.esc(row.teacher_comment || row.remarks || '—')}</td>
     </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No results are recorded for your assigned classes and selected period.</td></tr>';
     const scores = rows.map((x) => Number(x.average_score)).filter(Number.isFinite);
     const mean = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
