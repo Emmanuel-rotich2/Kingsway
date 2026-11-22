@@ -343,7 +343,8 @@ class TermTransitionService
         $registerStmt = $this->db->prepare(
             "SELECT COUNT(*) FROM assessments
              WHERE academic_year_term_id = ?
-               AND status IN ('pending_submission','submitted','pending_approval')"
+               AND status IN ('pending_submission','submitted','pending_approval')
+               AND results_opened_at IS NOT NULL"
         );
         $registerStmt->execute([$termId]);
         $pendingRegisters = (int) $registerStmt->fetchColumn();

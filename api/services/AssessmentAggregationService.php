@@ -106,37 +106,22 @@ final class AssessmentAggregationService
      */
     public function computeTermScore(int $studentId, int $learningAreaId, int $termId, ?int $examPeriodId = null, ?int $yearId = null): array
     {
+        // One engine: TermResultsService writes term_subject_scores (formative
+        // from sub-strands incl. rubric levels, summative from approved exam
+        // marks, weights from this profile). This reports that stored result
+        // so no screen can disagree with the report card.
         $profile = $this->resolveProfile($examPeriodId, $termId, $yearId);
-        $fWeight = ((float) $profile['formative_weight']) / 100.0;
-        $sWeight = ((float) $profile['summative_weight']) / 100.0;
-
         $stmt = $this->db->prepare(
-            "SELECT a.is_formative,
-                    COUNT(ar.id) AS n,
-                    AVG(100.0 * ar.marks_obtained / NULLIF(a.max_marks, 0)) AS avg_pct
-             FROM assessment_results ar
-             JOIN assessments a ON a.id = ar.assessment_id
-             JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
-             WHERE sae.student_id = :sid
-               AND ar.deleted_at IS NULL
-               AND ar.entry_status = 'present'
-               AND a.academic_year_term_id = :tid
-               AND a.learning_area_id = :laid
-             GROUP BY a.is_formative"
+            'SELECT formative_percentage, formative_count, summative_percentage, summative_count, overall_percentage
+             FROM ' . ReadReplicaService::qualifiedRef('term_subject_scores') . '
+             WHERE student_id = :sid AND subject_id = :laid AND academic_year_term_id = :tid
+             LIMIT 1'
         );
-        $stmt->execute([':sid' => $studentId, ':tid' => $termId, ':laid' => $learningAreaId]);
-        $formative = ['n' => 0, 'avg' => null];
-        $summative = ['n' => 0, 'avg' => null];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $bucket = ((int) $r['is_formative']) === 1 ? 'formative' : 'summative';
-            ${$bucket} = ['n' => (int) $r['n'], 'avg' => $r['avg_pct'] !== null ? round((float) $r['avg_pct'], 2) : null];
-        }
-
-        $parts = [];
-        if ($formative['avg'] !== null) $parts[] = $formative['avg'] * $fWeight;
-        if ($summative['avg'] !== null) $parts[] = $summative['avg'] * $sWeight;
-        $divisor = ($formative['avg'] !== null ? $fWeight : 0.0) + ($summative['avg'] !== null ? $sWeight : 0.0);
-        $termScore = $divisor > 0 ? round(array_sum($parts) / $divisor, 2) : null;
+        $stmt->execute([':sid' => $studentId, ':laid' => $learningAreaId, ':tid' => $termId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $formative = ['n' => (int) ($row['formative_count'] ?? 0), 'avg' => isset($row['formative_percentage']) ? (float) $row['formative_percentage'] : null];
+        $summative = ['n' => (int) ($row['summative_count'] ?? 0), 'avg' => isset($row['summative_percentage']) ? (float) $row['summative_percentage'] : null];
+        $termScore = isset($row['overall_percentage']) ? (float) $row['overall_percentage'] : null;
 
         $band = $termScore !== null ? $this->mapToBand((int) $profile['grading_system_id'], $termScore) : null;
 

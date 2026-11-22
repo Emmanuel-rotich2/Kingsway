@@ -149,6 +149,22 @@ class UsersController extends BaseController
         return $this->forbidden('System Administrator access required');
     }
 
+    /**
+     * Reading a user's roles or permissions: your own, or anyone's when you
+     * manage user accounts. These endpoints had no check at all.
+     */
+    private function ensureSelfOrUserManagement($id)
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $self = (int) ($this->getUserId() ?? 0);
+        if ($id !== null && $self > 0 && (int) $id === $self) {
+            return null;
+        }
+        return $this->ensureUserManagementAccess();
+    }
+
     // ========================================
     // SECTION 2: Profile & Authentication
     // ========================================
@@ -264,6 +280,7 @@ class UsersController extends BaseController
      */
     public function putPermissionsUpdate($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -374,6 +391,7 @@ class UsersController extends BaseController
      */
     public function postRoleAssign($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -387,6 +405,7 @@ class UsersController extends BaseController
      */
     public function postPermissionAssign($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -400,6 +419,7 @@ class UsersController extends BaseController
      */
     public function getRoleMain($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -413,6 +433,7 @@ class UsersController extends BaseController
      */
     public function getRoleExtra($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -430,6 +451,7 @@ class UsersController extends BaseController
      */
     public function getPermissionsEffective($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -443,6 +465,7 @@ class UsersController extends BaseController
      */
     public function getPermissionsDirect($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -456,6 +479,7 @@ class UsersController extends BaseController
      */
     public function getPermissionsDenied($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -469,6 +493,7 @@ class UsersController extends BaseController
      */
     public function getPermissionsByEntity($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -482,6 +507,7 @@ class UsersController extends BaseController
      */
     public function getPermissionsSummary($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -495,6 +521,7 @@ class UsersController extends BaseController
      */
     public function postPermissionsCheck($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -512,6 +539,7 @@ class UsersController extends BaseController
      */
     public function postPermissionsCheckMultiple($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSelfOrUserManagement($id)) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -529,6 +557,7 @@ class UsersController extends BaseController
      */
     public function getRolesDetailed($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if ($id === null) {
             return $this->badRequest('User ID is required');
         }
@@ -542,6 +571,7 @@ class UsersController extends BaseController
      */
     public function getUsersWithPermission($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($segments)) {
             return $this->badRequest('Permission code is required');
         }
@@ -556,6 +586,7 @@ class UsersController extends BaseController
      */
     public function getUsersWithRole($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($segments)) {
             return $this->badRequest('Role name is required');
         }
@@ -570,6 +601,7 @@ class UsersController extends BaseController
      */
     public function getUsersWithMultipleRoles($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $result = $this->api->getUsersWithMultipleRoles();
         return $this->handleResponse($result);
     }
@@ -579,6 +611,7 @@ class UsersController extends BaseController
      */
     public function getUsersWithTemporaryPermissions($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $result = $this->api->getUsersWithTemporaryPermissions();
         return $this->handleResponse($result);
     }
@@ -704,14 +737,17 @@ class UsersController extends BaseController
 
     // --- Bulk Role Operations ---
     public function postRolesBulkCreate($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $result = $this->api->bulkCreateRoles($data['roles'] ?? []);
         return $this->handleResponse($result);
     }
     public function putRolesBulkUpdate($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $result = $this->api->bulkUpdateRoles($data['roles'] ?? []);
         return $this->handleResponse($result);
     }
     public function deleteRolesBulkDelete($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $result = $this->api->bulkDeleteRoles($data['role_ids'] ?? []);
         return $this->handleResponse($result);
     }
@@ -734,11 +770,13 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
     public function postPermissionsBulkAssignToUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id'])) return $this->badRequest('user_id required');
         $result = $this->api->bulkAssignPermissionsToUser($data['user_id'], $data['permissions'] ?? []);
         return $this->handleResponse($result);
     }
     public function deletePermissionsBulkRevokeFromUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $userId = $data['user_id'] ?? null;
         if (!$userId) {
             return $this->badRequest('user_id required');
@@ -749,11 +787,13 @@ class UsersController extends BaseController
 
     // --- Bulk UserRole Operations ---
     public function postRolesBulkAssignToUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id'])) return $this->badRequest('user_id required');
         $result = $this->api->bulkAssignRolesToUser($data['user_id'], $data['role_ids'] ?? []);
         return $this->handleResponse($result);
     }
     public function deleteRolesBulkRevokeFromUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         $userId = $data['user_id'] ?? null;
         if (!$userId) {
             return $this->badRequest('user_id required');
@@ -796,21 +836,25 @@ class UsersController extends BaseController
 
     // --- Bulk UserPermission Operations ---
     public function postPermissionsBulkAssignToUserDirect($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id'])) return $this->badRequest('user_id required');
         $result = $this->api->bulkAssignPermissionsToUserDirect($data['user_id'], $data['permissions'] ?? []);
         return $this->handleResponse($result);
     }
     public function deletePermissionsBulkRevokeFromUserDirect($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id'])) return $this->badRequest('user_id required');
         $result = $this->api->bulkRevokePermissionsFromUserDirect($data['user_id'], $data['permissions'] ?? []);
         return $this->handleResponse($result);
     }
     public function postUsersBulkAssignToPermission($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['permission'])) return $this->badRequest('permission required');
         $result = $this->api->bulkAssignUsersToPermission($data['permission'], $data['user_ids'] ?? []);
         return $this->handleResponse($result);
     }
     public function deleteUsersBulkRevokeFromPermission($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['permission'])) return $this->badRequest('permission required');
         $result = $this->api->bulkRevokeUsersFromPermission($data['permission'], $data['user_ids'] ?? []);
         return $this->handleResponse($result);
@@ -834,21 +878,25 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
     public function postPermissionAssignToUserDirect($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id']) || empty($data['permission'])) return $this->badRequest('user_id and permission required');
         $result = $this->api->assignPermissionToUserDirect($data['user_id'], $data['permission']);
         return $this->handleResponse($result);
     }
     public function deletePermissionRevokeFromUserDirect($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['user_id']) || empty($data['permission'])) return $this->badRequest('user_id and permission required');
         $result = $this->api->revokePermissionFromUserDirect($data['user_id'], $data['permission']);
         return $this->handleResponse($result);
     }
     public function postPermissionAssignToRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['role_id']) || empty($data['permission'])) return $this->badRequest('role_id and permission required');
         $result = $this->api->assignPermissionToRole($data['role_id'], $data['permission']);
         return $this->handleResponse($result);
     }
     public function deletePermissionRevokeFromRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) return $auth;
         if (empty($data['role_id']) || empty($data['permission'])) return $this->badRequest('role_id and permission required');
         $result = $this->api->revokePermissionFromRole($data['role_id'], $data['permission']);
         return $this->handleResponse($result);

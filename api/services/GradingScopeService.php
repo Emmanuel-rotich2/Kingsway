@@ -107,6 +107,24 @@ final class GradingScopeService
      * snapshot first, so historical periods keep their original system even
      * after bindings change).
      */
+    /**
+     * Default system for a class when no binding names one: Junior School
+     * (Grades 7 to 9) is graded on the active 8-level scale (KJSEA); other
+     * classes keep the given fallback.
+     */
+    public function defaultSystemForClass(int $classId, ?int $fallback): ?int
+    {
+        if ($classId <= 0) return $fallback;
+        $stmt = $this->db->prepare('SELECT name FROM classes WHERE id = ? LIMIT 1');
+        $stmt->execute([$classId]);
+        $name = (string) $stmt->fetchColumn();
+        if (preg_match('/grade\s*([789])\b/i', $name) !== 1) return $fallback;
+        $eight = $this->db->query(
+            "SELECT id FROM grading_systems WHERE category = 'cbc_8level' AND status = 'active' ORDER BY id DESC LIMIT 1"
+        )->fetchColumn();
+        return $eight ? (int) $eight : $fallback;
+    }
+
     public function resolveForPeriod(int $examPeriodId): ?array
     {
         $stmt = $this->db->prepare('SELECT grading_system_id FROM exam_periods WHERE id = ?');

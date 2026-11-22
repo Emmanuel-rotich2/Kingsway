@@ -1331,6 +1331,10 @@ final class AssessmentResultsService
         if ($status !== null && !in_array($status, ['results_open', 'moderation'], true)) {
             throw new RuntimeException('The Headteacher or School Administrator has not opened result entry for this exam period', 409);
         }
+        // Assessments outside an exam period follow their own results window.
+        if ($status === null) {
+            (new ResultsWindowService($this->db))->assertOpen($assessmentId);
+        }
     }
 
     /** Mark a register submitted, via the injected guard when one was supplied. */
