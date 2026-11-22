@@ -228,7 +228,7 @@ const ExamResultsController = {
         <td><div class="input-group input-group-sm"><input type="number" class="form-control score-input" min="0" max="${Number(exam.max_marks)}" step="0.01"
           value="${student.marks_obtained === null ? "" : this.escape(student.marks_obtained)}" ${editable && !nonPresent ? "" : "disabled"} data-year-write>
           <span class="input-group-text">/${Number(exam.max_marks)}</span></div></td>
-        <td><span class="grade-display badge bg-secondary">${this.escape(student.grade || "—")}</span></td>
+        <td><span class="grade-display badge bg-secondary">${this.escape(window.CbcLevels.format(student.grade))}</span></td>
         <td><input class="form-control form-control-sm remarks-input" maxlength="255" value="${this.escape(student.remarks || "")}" ${editable ? "" : "disabled"} data-year-write></td>
         <td class="small ${student.moderation_note ? "text-danger" : "text-muted"}">${this.escape(student.moderation_note || (student.is_approved == 1 ? "Approved" : "—"))}</td>
       </tr>`;

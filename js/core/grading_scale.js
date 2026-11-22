@@ -25,7 +25,7 @@
  * refetch (also triggered by storage events across tabs).
  */
 (function () {
-  const STORAGE_KEY = "kingsway:grading-scale:v2";
+  const STORAGE_KEY = "kingsway:grading-scale:v3";
   const TTL = 60 * 60 * 1000;
   let memory = null;
 
@@ -73,9 +73,9 @@
     if (resolved && resolved.grading_system_id) {
       system = systems.find(s => Number(s.id) === Number(resolved.grading_system_id)) || null;
     }
-    if (!system) {
-      // Prefer the 8-level system for exam-style grading, else the first active.
-      system = systems.find(s => Number(s.levels_count) === 8) || systems[0] || null;
+    // One CBC scale: grade on 8 levels; the 4-level view is the grouped code.
+    if (!system || Number(system.levels_count) === 4) {
+      system = systems.find(s => Number(s.levels_count) === 8) || system || systems[0] || null;
     }
     const bands = system && Array.isArray(system.bands) ? system.bands : [];
     return {

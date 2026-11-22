@@ -540,6 +540,7 @@ return [
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
                 ['label' => 'Acad. Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'Academic Oversight', 'url' => 'academic_planning_oversight'],
+                ['label' => 'All Lesson Plans', 'url' => 'all_lesson_plans'],      // school-wide register, prints and course outlines
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
                 ['label' => 'National Assessments', 'url' => 'national_exams'],   // KPSEA / KJSEA results upload
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
@@ -729,6 +730,7 @@ return [
                 ['label' => 'Academic Planning', 'url' => 'academic_planning_oversight'], // schemes, lesson plans, coverage and approvals in one workspace
                 ['label' => 'My Schemes of Work', 'url' => 'my_schemes_of_work'],          // teacher scope, when the HT also teaches
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],             // teacher scope, when the HT also teaches
+                ['label' => 'All Lesson Plans', 'url' => 'all_lesson_plans'],               // school-wide register, prints and course outlines
                 ['label' => 'Content Reconciliation', 'url' => 'academic_content_reconciliation'],
                 ['label' => 'Academic Calendar', 'url' => 'academic_calendar'],
                 ['label' => 'Academic Years', 'url' => 'academic_years'],

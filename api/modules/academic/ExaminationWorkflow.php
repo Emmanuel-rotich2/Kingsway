@@ -542,7 +542,7 @@ class ExaminationWorkflow extends WorkflowHandler {
                 if (!$saeId) {
                     continue;
                 }
-                $gradeInfo = $this->mapMarkToGrade((float)$row['marks']);
+                $gradeInfo = $this->mapMarkToGrade($this->markPercentage((int)$assessment_id, (float)$row['marks']));
                 $ins->execute([
                     'assessment_id' => $assessment_id,
                     'sae_id' => $saeId,
@@ -610,7 +610,7 @@ class ExaminationWorkflow extends WorkflowHandler {
                         'sae_id' => $saeId
                     ]);
                     // Recompute grade after correction
-                    $gradeInfo = $this->mapMarkToGrade((float)$correction['marks']);
+                    $gradeInfo = $this->mapMarkToGrade($this->markPercentage((int)$assessment_id, (float)$correction['marks']));
                     $upd2 = $this->db->prepare("UPDATE assessment_results SET grade = :grade, points = :points WHERE assessment_id = :assessment_id AND student_academic_enrollment_id = :sae_id");
                     $upd2->execute([
                         'grade' => $gradeInfo['grade_code'] ?? null,
@@ -1088,24 +1088,34 @@ class ExaminationWorkflow extends WorkflowHandler {
     }
 
     // Map mark percentage to grade using active grading scale
-    private function mapMarkToGrade(float $mark): array {
-        static $cache = null;
-        if ($cache === null) {
-            $scaleStmt = $this->db->query("SELECT id FROM grading_scales WHERE status = 'active' ORDER BY id LIMIT 1");
-            $scale = $scaleStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$scale) {
-                return [];
-            }
-            $rulesStmt = $this->db->prepare("SELECT grade_code, grade_points, performance_level, min_mark, max_mark FROM grade_rules WHERE scale_id = :sid ORDER BY sort_order");
-            $rulesStmt->execute(['sid' => (int)$scale['id']]);
-            $cache = $rulesStmt->fetchAll(PDO::FETCH_ASSOC);
+    /**
+     * Grade a PERCENTAGE on the school's CBC scale (8 levels, 4-level group
+     * derived) through the one shared grader. Returns the legacy shape.
+     */
+    private function mapMarkToGrade(float $percentage): array {
+        try {
+            $g = (new \App\API\Services\CbcGradingService($this->db))
+                ->gradeForSystem(max(0.0, min(100.0, $percentage)), 100, null);
+        } catch (\Throwable $e) {
+            return [];
         }
-        foreach ($cache as $r) {
-            if ($mark >= (float)$r['min_mark'] && $mark <= (float)$r['max_mark']) {
-                return $r;
-            }
+        return [
+            'grade_code' => $g['grade_code'],
+            'grade_points' => $g['points'],
+            'performance_level' => $g['performance_level'],
+            'level4_code' => $g['level4_code'] ?? null,
+        ];
+    }
+
+    /** Marks as a percentage of the assessment's maximum. */
+    private function markPercentage(int $assessmentId, float $marks): float {
+        static $max = [];
+        if (!isset($max[$assessmentId])) {
+            $st = $this->db->prepare('SELECT max_marks FROM assessments WHERE id = ?');
+            $st->execute([$assessmentId]);
+            $max[$assessmentId] = (float) ($st->fetchColumn() ?: 100);
         }
-        return [];
+        return $max[$assessmentId] > 0 ? round($marks / $max[$assessmentId] * 100, 2) : 0.0;
     }
 
     // Record competency evidence for a set of students for one competency in this term

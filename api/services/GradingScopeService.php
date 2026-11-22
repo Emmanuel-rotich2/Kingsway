@@ -112,6 +112,47 @@ final class GradingScopeService
      * (Grades 7 to 9) is graded on the active 8-level scale (KJSEA); other
      * classes keep the given fallback.
      */
+    /** 4-level groups of the 8-level scale (EE1/EE2 -> EE, ...). */
+    public const LEVEL4_NAMES = [
+        'EE' => 'Exceeding Expectation',
+        'ME' => 'Meeting Expectation',
+        'AE' => 'Approaching Expectation',
+        'BE' => 'Below Expectation',
+    ];
+
+    private static array $eightLevelCache = [];
+
+    /**
+     * The school grades on ONE CBC scale: the 8-level scale. The 4-level
+     * view is the same result grouped (EE1/EE2 -> EE), never cut separately,
+     * so a learner can't be "AE" on one view and "ME2" on the other.
+     * A 4-level system id (or none) therefore resolves to the active
+     * 8-level system; any other system id is returned unchanged.
+     */
+    public function canonicalSystemId(?int $systemId): ?int
+    {
+        $key = spl_object_id($this->db);
+        if (!array_key_exists($key, self::$eightLevelCache)) {
+            $eight = $this->db->query(
+                "SELECT id FROM grading_systems WHERE category = 'cbc_8level' AND status = 'active' ORDER BY id DESC LIMIT 1"
+            )->fetchColumn();
+            self::$eightLevelCache[$key] = $eight ? (int) $eight : null;
+        }
+        $eight = self::$eightLevelCache[$key];
+        if ($eight === null) return $systemId;
+        if (!$systemId) return $eight;
+        $stmt = $this->db->prepare('SELECT category FROM grading_systems WHERE id = ? LIMIT 1');
+        $stmt->execute([$systemId]);
+        return (string) $stmt->fetchColumn() === 'cbc_4level' ? $eight : $systemId;
+    }
+
+    /** 4-level group of a CBC code: ME1 -> ME. Null when not a CBC code. */
+    public static function level4(?string $code): ?string
+    {
+        $group = strtoupper(substr(trim((string) $code), 0, 2));
+        return isset(self::LEVEL4_NAMES[$group]) ? $group : null;
+    }
+
     public function defaultSystemForClass(int $classId, ?int $fallback): ?int
     {
         if ($classId <= 0) return $fallback;
