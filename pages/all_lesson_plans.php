@@ -15,6 +15,7 @@
         </div>
         <div class="btn-group">
             <button class="btn btn-outline-secondary btn-sm" id="printLessonPlansBtn" type="button"><i class="bi bi-printer"></i> Print / PDF</button>
+            <button class="btn btn-outline-secondary btn-sm" id="printCourseOutlineBtn" type="button" title="Choose a class and learning area first"><i class="bi bi-journal-text"></i> Course outline</button>
             <button class="btn btn-outline-primary btn-sm" id="exportLessonPlansBtn">
                 <i class="bi bi-download"></i> Export
             </button>
@@ -109,6 +110,7 @@
                             <th scope="col">Class</th>
                             <th scope="col">Date</th>
                             <th scope="col">Status</th>
+                            <th scope="col">Assessment</th>
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
@@ -213,3 +215,16 @@
 </div>
 
 <script src="<?= $appBase ?>/js/pages/all_lesson_plans.js?v=<?php echo asset_version('js/pages/all_lesson_plans.js'); ?>"></script>
+
+<style>
+  .course-outline-print h2 { font-size: 15pt; margin: 0 0 2px; }
+  .course-outline-print .co-meta { color: #555; font-size: 9pt; margin-bottom: 10px; }
+  .course-outline-print h3 { font-size: 11pt; margin: 12px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+  .course-outline-print table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  .course-outline-print th, .course-outline-print td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+  @media print {
+    body.printing-course-outline > *:not(#courseOutlinePrintHost) { display: none !important; }
+    body.printing-course-outline #courseOutlinePrintHost { display: block !important; }
+  }
+</style>
+

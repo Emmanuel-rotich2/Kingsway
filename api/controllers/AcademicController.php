@@ -1618,6 +1618,110 @@ return $this->serverError('An internal error occurred.');
         return $this->serverError($userMessage);
     }
 
+    // ── Exam paper bank (set or bought papers, files, issuing) ─────────────
+
+    private function canManageExamPapers(): bool
+    {
+        return $this->userHasAny(['academic_manage', 'academic_edit', 'exams_manage'], [1, 4, 5, 6], ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic']);
+    }
+
+    private function canViewExamPapers(): bool
+    {
+        return $this->canManageExamPapers() || $this->userHasAny(['academic_view', 'exams_view'], [], []);
+    }
+
+    private function paperBankCall(callable $operation, string $message, bool $created = false)
+    {
+        try {
+            $userId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            $service = new \App\API\Services\ExamPaperBankService($this->db->getConnection(), $userId);
+            $data = $operation($service);
+            return $created ? $this->created($data, $message) : $this->success($data, $message);
+        } catch (RuntimeException $e) {
+            $status = (int) $e->getCode();
+            if (!in_array($status, [400, 403, 404, 409, 422], true)) $status = 400;
+            return $this->respond(null, $e->getMessage(), $status, false);
+        } catch (\Throwable $e) {
+            \App\API\Services\Logger::legacyError('[AcademicController] paper bank: ' . $e->getMessage());
+            return $this->serverError('The paper bank could not complete that request.');
+        }
+    }
+
+    /** GET /api/academic/exam-papers?exam_period_id= */
+    public function getExamPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canViewExamPapers()) return $this->forbidden('You do not have access to exam papers.');
+        $periodId = (int) ($data['exam_period_id'] ?? $_GET['exam_period_id'] ?? 0);
+        if (!$periodId) return $this->badRequest('exam_period_id is required');
+        return $this->paperBankCall(fn ($svc) => $svc->list($periodId), 'Exam papers');
+    }
+
+    /** POST /api/academic/exam-papers */
+    public function postExamPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can add exam papers.');
+        return $this->paperBankCall(fn ($svc) => $svc->save((array) $data), 'Paper added', true);
+    }
+
+    /** PUT /api/academic/exam-papers/{id} */
+    public function putExamPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can edit exam papers.');
+        if (!$id) return $this->badRequest('Paper id is required');
+        return $this->paperBankCall(fn ($svc) => $svc->save((array) $data, (int) $id), 'Paper saved');
+    }
+
+    /** DELETE /api/academic/exam-papers/{id} */
+    public function deleteExamPapers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can remove exam papers.');
+        if (!$id) return $this->badRequest('Paper id is required');
+        return $this->paperBankCall(function ($svc) use ($id) { $svc->delete((int) $id); return ['id' => (int) $id]; }, 'Paper removed');
+    }
+
+    /** POST /api/academic/exam-paper-status/{id}  {status} */
+    public function postExamPaperStatus($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can change paper status.');
+        return $this->paperBankCall(fn ($svc) => $svc->setStatus((int) $id, (string) ($data['status'] ?? '')), 'Status updated');
+    }
+
+    /** POST /api/academic/exam-paper-files/{paperId}  multipart: file, kind */
+    public function postExamPaperFiles($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can upload exam papers.');
+        $file = $_FILES['file'] ?? null;
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) return $this->badRequest('Choose the paper file to upload (PDF, Word or a scanned image).');
+        $kind = (string) ($_POST['kind'] ?? $data['kind'] ?? 'question_paper');
+        return $this->paperBankCall(fn ($svc) => $svc->addFile((int) $id, $kind, $file), 'File uploaded', true);
+    }
+
+    /** GET /api/academic/exam-paper-file/{fileId} — download */
+    public function getExamPaperFile($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canViewExamPapers()) return $this->forbidden('You do not have access to exam papers.');
+        try {
+            $file = (new \App\API\Services\ExamPaperBankService($this->db->getConnection()))->fileForDownload((int) $id);
+        } catch (RuntimeException $e) {
+            return $this->respond(null, $e->getMessage(), $e->getCode() === 404 ? 404 : 400, false);
+        }
+        $this->streamManagedFile($file['absolute_path'], $file['name'], $file['mime']);
+    }
+
+    /** DELETE /api/academic/exam-paper-files/{fileId} */
+    public function deleteExamPaperFiles($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can remove paper files.');
+        return $this->paperBankCall(function ($svc) use ($id) { $svc->deleteFile((int) $id); return ['id' => (int) $id]; }, 'File removed');
+    }
+
+    /** POST /api/academic/exam-paper-issues/{paperId} */
+    public function postExamPaperIssues($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canManageExamPapers()) return $this->forbidden('Only academic leadership can record paper issuing.');
+        return $this->paperBankCall(fn ($svc) => $svc->issue((int) $id, (array) $data), 'Issue recorded', true);
+    }
+
     private function examPeriodCall(callable $operation, string $message = 'Exam period data loaded.', bool $isCreated = false)
     {
         try {
@@ -4155,6 +4259,26 @@ return $this->serverError('An internal error occurred.');
      * POST /api/academic/formative-assessment-marks
      * Bulk upsert marks for an assessment. Payload: { assessment_id, marks: [{student_id, score, remarks}] }
      */
+    /**
+     * POST /api/academic/assessment-results-window/{id}  {open: true|false}
+     * Subject teacher (or academic leadership) opens marking for an
+     * assessment once it has taken place, or closes it again before marks.
+     */
+    public function postAssessmentResultsWindow($id = null, $data = [], $segments = [])
+    {
+        $assessmentId = (int) ($id ?? ($data['assessment_id'] ?? 0));
+        if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to manage assessment marking');
+        }
+        $staffId = (int) ($this->getCurrentStaffId() ?? 0);
+        $canManageAll = $this->canManageAllFormativeAssessments();
+        if (!$staffId && !$canManageAll) return $this->notFound('Staff account not found');
+        $open = !isset($data['open']) || filter_var($data['open'], FILTER_VALIDATE_BOOLEAN);
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $this->handleResponse($this->academicManager->setAssessmentResultsWindow($assessmentId, $open, $userId, $staffId, $canManageAll));
+    }
+
     public function postFormativeAssessmentMarks($id = null, $data = [], $segments = [])
     {
         $assessmentId = $id ?? (int) ($data['assessment_id'] ?? 0);

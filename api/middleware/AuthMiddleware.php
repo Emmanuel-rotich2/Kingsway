@@ -81,6 +81,8 @@ class AuthMiddleware
             // learner card verification applies its own public/staff view policy.
             'public/setup-invitation',
             'public/student-verification',
+            // Report book QR check: anonymous by design, code-gated summary.
+            'public/report-verification',
             'public/uniform-catalog',
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',

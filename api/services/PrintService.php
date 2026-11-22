@@ -1300,8 +1300,126 @@ final class PrintService
      * @param array<string, mixed> $config
      * @throws RuntimeException when template not found
      */
+    /** Tracked report book template (deploys with the code). */
+    private function transcriptTemplatePath(): string
+    {
+        return dirname(__DIR__, 2) . '/resources/report_cards/transcript.php';
+    }
+
+    /**
+     * Data the report book needs beyond the report data: grading key,
+     * learner photo, generated comments when none were written, and a
+     * verification code with its QR.
+     */
+    private function prepareTranscript(array $data, array $config): array
+    {
+        $db = $this->getDb();
+        $termId = (int) ($data['term']['id'] ?? 0);
+        $systemId = (int) ($data['result_policy']['grading_system_id'] ?? 0);
+        if (!$systemId && $termId) {
+            try { $systemId = (int) ((new TermResultsService($db))->policyForTerm($termId)['grading_system_id'] ?? 0); } catch (\Throwable $e) { $systemId = 0; }
+        }
+        // Junior School grades on its bound system when there is one.
+        $classId = 0;
+        if ($systemId && $termId && !empty($data['student']['class_stream_id'])) {
+            try {
+                $stmt = $db->prepare('SELECT academic_year_class_id FROM ' . ReadReplicaService::qualifiedRef('academic_year_class_streams') . ' WHERE id = ? LIMIT 1');
+                $stmt->execute([(int) $data['student']['class_stream_id']]);
+                $yearClassId = (int) $stmt->fetchColumn();
+                $stmt = $db->prepare('SELECT class_id FROM ' . ReadReplicaService::qualifiedRef('academic_year_classes') . ' WHERE id = ? LIMIT 1');
+                $stmt->execute([$yearClassId]);
+                $classId = (int) $stmt->fetchColumn();
+                $binding = (new GradingScopeService($db))->resolve($termId, $classId ?: null, null);
+                $systemId = isset($binding['system']['id'])
+                    ? (int) $binding['system']['id']
+                    : (int) (new GradingScopeService($db))->defaultSystemForClass($classId, $systemId);
+            } catch (\Throwable $e) {
+                // keep the profile system
+            }
+        }
+        if ($systemId && empty($data['grading_bands'])) {
+            try { $data['grading_bands'] = (new AssessmentAggregationService($db))->bands($systemId); } catch (\Throwable $e) { $data['grading_bands'] = []; }
+        }
+        if (!empty($data['student']['photo_url']) && empty($data['student']['photo_data_uri'])) {
+            $data['student']['photo_data_uri'] = $this->resolvePdfAsset(UploadService::toStoredPath((string) $data['student']['photo_url']));
+        }
+        $comments = is_array($data['comments'] ?? null) ? array_filter($data['comments']) : [];
+        if (!$comments) {
+            try { (new ReportCardRemarkService($db))->hydrate($data); } catch (\Throwable $e) { /* comments stay blank for handwriting */ }
+        }
+        if (empty($data['verification']['code']) && !empty($data['student']['id']) && $termId) {
+            $scores = is_array($data['scores'] ?? null) ? $data['scores'] : [];
+            $assessed = array_values(array_filter(array_map(static fn ($s) => $s['overall_percentage'] ?? null, $scores), static fn ($v) => $v !== null));
+            $average = $data['ranking']['overall_percentage'] ?? ($assessed ? round(array_sum($assessed) / count($assessed), 1) : null);
+            $grade = null;
+            foreach (($data['grading_bands'] ?? []) as $band) {
+                if ($average !== null && (float) $average >= (float) $band['min_percentage'] && (float) $average <= (float) $band['max_percentage']) { $grade = $band['band_code']; break; }
+            }
+            $student = $data['student'];
+            $issued = (new ReportCardVerificationService($db))->issue((int) $student['id'], $termId, [
+                'learner_name' => trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')),
+                'admission_no' => $student['admission_no'] ?? null,
+                'class' => trim(($student['class_name'] ?? '') . ' ' . ($student['stream_name'] ?? '')),
+                'term' => $data['term']['name'] ?? null,
+                'year' => $data['term']['year_code'] ?? null,
+                'overall_percentage' => $average !== null ? round((float) $average, 1) : null,
+                'overall_grade' => $grade,
+                'school' => $this->schoolConfig['name'] ?? null,
+            ], isset($_SERVER['auth_user']['user_id']) ? (int) $_SERVER['auth_user']['user_id'] : null);
+            $data['verification'] = $issued + ['qr' => $this->qrDataUri($issued['url'])];
+        }
+        return $data;
+    }
+
+    private function qrDataUri(string $text): string
+    {
+        // endroid/qr-code 5.1 declares implicitly-nullable parameters, which
+        // PHP 8.4+ reports as deprecations; the request error handler turns
+        // those into exceptions, so ignore only deprecations while building.
+        set_error_handler(static fn (int $no): bool => in_array($no, [E_DEPRECATED, E_USER_DEPRECATED], true), E_DEPRECATED | E_USER_DEPRECATED);
+        try {
+            return \Endroid\QrCode\Builder\Builder::create()
+                ->writer(new \Endroid\QrCode\Writer\PngWriter())
+                ->data($text)
+                ->size(220)
+                ->margin(6)
+                ->build()
+                ->getDataUri();
+        } catch (\Throwable $e) {
+            return '';
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /** Render the report book document (HTML) from the tracked template. */
+    private function renderTranscriptHtml(array $data, array $config): string
+    {
+        $data = $this->prepareTranscript($data, $config);
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        if (!defined('KINGSWAY_TRANSCRIPT_RENDER')) define('KINGSWAY_TRANSCRIPT_RENDER', true);
+        return $this->renderPhpTemplate($this->transcriptTemplatePath(), $variables);
+    }
+
     public function printReportCard(array $data, array $config = []): string
     {
+        if (is_file($this->transcriptTemplatePath())) {
+            $config = array_merge(
+                $this->defaultReportConfig(),
+                ['filename' => 'report_card_' . date('Ymd_His'), 'orientation' => 'portrait', 'paperSize' => 'A4'],
+                $config
+            );
+            $html = $this->renderTranscriptHtml($data, $config);
+            return $this->generatePDF($html, [
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+                'filename' => $config['filename'],
+                // The report book prints its own footer and verification code.
+                'showPageNumbers' => false,
+                'reportCode' => $config['reportCode'] ?? '',
+            ]);
+        }
+
         $config = array_merge(
             $this->defaultReportConfig(),
             [
@@ -1381,6 +1499,9 @@ final class PrintService
      */
     public function buildReportCardHtml(array $data, array $config = []): string
     {
+        if (is_file($this->transcriptTemplatePath())) {
+            return $this->renderTranscriptHtml($data, array_merge($this->defaultReportConfig(), $config));
+        }
         $config = array_merge(
             $this->defaultReportConfig(),
             [

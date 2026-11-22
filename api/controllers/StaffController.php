@@ -408,9 +408,11 @@ return $this->badRequest('An internal error occurred.');
         try {
             $staffId = (int)($data['staff_id'] ?? 0);
             $roleId = (int)($data['role_id'] ?? 0);
-            $result = $this->recordsService->assignRole($staffId, $roleId);
+            $result = $this->recordsService->assignRole($staffId, $roleId, $this->userHasRole('System Administrator'));
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result + ['assigned' => true], 'Role assigned successfully');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
@@ -426,9 +428,11 @@ return $this->badRequest('An internal error occurred.');
         try {
             $staffId = (int)$id;
             $roleId = (int)($segments[0] ?? 0);
-            $this->recordsService->revokeRole($staffId, $roleId);
+            $this->recordsService->revokeRole($staffId, $roleId, $this->userHasRole('System Administrator'));
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(['revoked' => true], 'Role revoked successfully');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
@@ -2185,9 +2189,11 @@ return $this->serverError('An internal error occurred.');
         try {
             $staffId = (int)($data['staff_id'] ?? 0);
             $roleId = (int)($data['role_id'] ?? 0);
-            $result = $this->recordsService->assignRole($staffId, $roleId);
+            $result = $this->recordsService->assignRole($staffId, $roleId, $this->userHasRole('System Administrator'));
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result, 'Role assigned');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
@@ -2201,9 +2207,11 @@ return $this->badRequest('An internal error occurred.');
         try {
             $roleId = (int)($id ?? $data['role_id'] ?? 0);
             $staffId = (int)($_GET['staff_id'] ?? $data['staff_id'] ?? 0);
-            $this->recordsService->revokeRole($staffId, $roleId);
+            $this->recordsService->revokeRole($staffId, $roleId, $this->userHasRole('System Administrator'));
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(null, 'Role removed');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
@@ -2642,7 +2650,7 @@ return $this->serverError('An internal error occurred.');
     public function getAvailableRoles($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
-        return $this->success($this->recordsService->availableRoles());
+        return $this->success($this->recordsService->availableRoles($this->userHasRole('System Administrator')));
     }
 
     /** GET /api/staff/classification-options */

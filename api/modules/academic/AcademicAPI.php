@@ -1920,6 +1920,7 @@ SELECT
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $plans = $this->attachLessonAssessments($plans);
 
             $this->logAction('read', null, 'Listed lesson plans');
 
@@ -2112,6 +2113,12 @@ SELECT
             $this->syncLessonPlanAtomicContent((int) $planId, $data, (int) ($data['sub_strand_id'] ?? 0));
 
             $this->db->commit();
+            // The lesson's formative assessment is part of the plan.
+            try {
+                (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor((int) $planId);
+            } catch (\Throwable $assessmentError) {
+                \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_created', 'lesson_plan_id' => (int) $planId, 'reason' => mb_substr($assessmentError->getMessage(), 0, 200)], 'warning');
+            }
             $this->logAction('create', $planId, "Created lesson plan: {$normalized['title']}");
 
             return successResponse([
@@ -5701,6 +5708,27 @@ return errorResponse($e->getMessage(), 400);
     // LESSON PLANS CRUD (Additional Methods)
     // ========================================================================
 
+    /**
+     * Each lesson plan carries its formative assessment (created with the
+     * plan), so lists and printed weekly/termly plans show how the lesson
+     * is assessed and whether marking is open.
+     */
+    private function attachLessonAssessments(array $plans): array
+    {
+        $ids = array_values(array_filter(array_map(static fn ($p) => (int) ($p['id'] ?? 0), $plans)));
+        if (!$ids) return $plans;
+        try {
+            $map = (new \App\API\Services\LessonPlanAssessmentService($this->db))->forLessonPlans($ids);
+        } catch (\Throwable $e) {
+            return $plans;
+        }
+        foreach ($plans as &$plan) {
+            $plan['formative_assessment'] = $map[(int) ($plan['id'] ?? 0)] ?? null;
+        }
+        unset($plan);
+        return $plans;
+    }
+
     public function getLessonPlan($id)
     {
         try {
@@ -5748,6 +5776,7 @@ return errorResponse($e->getMessage(), 400);
             }
 
             $plan['atomic_content'] = $this->getLessonPlanAtomicContent((int) $id);
+            $plan = $this->attachLessonAssessments([$plan])[0];
 
             return successResponse($plan);
         } catch (Exception $e) {
@@ -5960,6 +5989,7 @@ return errorResponse($e->getMessage(), 400);
             }
 
             $this->db->commit();
+            try { (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor((int) $id); } catch (\Throwable $assessmentError) { \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_synced', 'lesson_plan_id' => (int) $id, 'reason' => mb_substr($assessmentError->getMessage(), 0, 200)], 'warning'); }
             $this->logAction('update', $id, "Updated lesson plan");
 
             return successResponse([
@@ -6043,6 +6073,7 @@ return errorResponse($e->getMessage(), 400);
             $stmt->execute([$approverId, $id]);
 
             $this->db->commit();
+            try { (new \App\API\Services\LessonPlanAssessmentService($this->db))->ensureFor((int) $id); } catch (\Throwable $assessmentError) { \App\API\Includes\FileLogger::write('academic', ['type' => 'lesson_assessment_not_synced', 'lesson_plan_id' => (int) $id, 'reason' => mb_substr($assessmentError->getMessage(), 0, 200)], 'warning'); }
             $this->logAction('update', $id, "Approved lesson plan");
 
             return successResponse([

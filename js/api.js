@@ -2312,6 +2312,7 @@ const ENDPOINT_PERMISSIONS = {
   "/reports/ai-research": "ai_research",
   "/public/ai-faq": null,
   "/public/ai-feedback": null,
+  "/public/report-verification": null,
   "/system/security-signals": "system_view",
   "/system/ai-readiness": "system_view",
   "/system/ai-provider-health": "system_view",
@@ -2502,7 +2503,9 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/onboarding-templates": null,
   "/staff/onboarding-pending": null,
   "/staff/lifecycle": "staff_lifecycle_view",
-  "/staff/appointments": "staff_appointments_view",
+  // Role-checked on the server (StaffController::guardStaffDomain); the
+  // "staff_appointments_view" code never existed, so this gate blocked everyone.
+  "/staff/appointments": null,
   "/staff/id-card/generate": null,
   "/staff/id-card/generate-bulk-pdf": null,
   "/staff/id-card/print-single": null,
@@ -2510,7 +2513,9 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/id-cards-generate": null,
   "/staff/id-cards-bulk-generate": null,
   "/staff/id-cards-issue": null,
-  "/staff/import-existing": "staff_import_manage",
+  // Role-checked on the server (StaffController::guardStaffDomain); the
+  // "staff_import_manage" code never existed, so this gate blocked everyone.
+  "/staff/import-existing": null,
   "/staff-migration/reference-data": ["staff_view", "staff_import"],
   "/staff-migration/batches": "staff_import",
   "/staff-migration/batch": "staff_import",
@@ -3750,7 +3755,7 @@ async function apiCallDirect(
       "/public/ai-feedback",
     ]);
     const publicApiPatterns = [
-      /^\/public\/(?:setup-invitation|student-verification|uniform-catalog)(?:\/|$)/,
+      /^\/public\/(?:setup-invitation|student-verification|report-verification|uniform-catalog)(?:\/|$)/,
     ];
     const parentCatalogPattern = /^\/parent-portal\/(?:dashboard|uniform-cart|uniform-wishlist|uniform-orders|uniform-checkout-payment|uniform-order-payment-retry|uniform-payment-options|uniform-reviews)(?:\/|$)/;
     const isPublicApi = publicApiPatterns.some((pattern) => pattern.test(normalizedEndpoint));

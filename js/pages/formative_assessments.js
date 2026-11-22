@@ -328,11 +328,13 @@ const fAssCtrl = {
           <td class="text-center">${a.max_marks ?? '—'}</td>
           <td class="text-center">${a.submitted_count ?? 0} / ${a.total_students ?? '—'}</td>
           <td class="text-center">${a.class_average_pct != null ? `<span class="badge bg-${gc}">${a.class_average_pct}%</span>` : '—'}</td>
-          <td>${a.assessment_date || '—'}</td>
-          <td>
-            <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="fAssCtrl._openMarksTab(${a.id})" title="Enter Marks">
-              <i class="bi bi-pencil-square"></i>
-            </button>
+          <td>${a.assessment_date || '—'}${a.lesson_plan_id ? '<div class="small text-muted"><i class="bi bi-journal-text me-1"></i>From lesson plan</div>' : ''}</td>
+          <td class="text-nowrap">
+            ${a.results_opened_at
+              ? `<span class="badge bg-success-subtle text-success-emphasis me-1">Marking open</span>
+                 <button class="btn btn-sm btn-outline-primary me-1" data-kw-onclick="fAssCtrl._openMarksTab(${a.id})" title="Enter marks or rubric levels"><i class="bi bi-pencil-square"></i></button>`
+              : `<span class="badge bg-secondary-subtle text-secondary-emphasis me-1">Scheduled</span>
+                 <button class="btn btn-sm btn-outline-success" data-kw-onclick="fAssCtrl.openMarking(${a.id})" title="Open marking once the lesson or task has happened" data-year-write><i class="bi bi-unlock me-1"></i>Open marking</button>`}
           </td>
         </tr>`;
       }).join('');
@@ -423,6 +425,7 @@ const fAssCtrl = {
   // ── MARKS ENTRY ───────────────────────────────────────────────────────
 
   _openMarksTab: function (assessmentId) {
+    this._rubricMode = null;
     // Switch to Enter Marks tab and pre-select the assessment
     const tabBtn = document.querySelector('[data-bs-target="#faTabMarks"]');
     if (tabBtn) bootstrap.Tab.getOrCreateInstance(tabBtn).show();
@@ -455,6 +458,25 @@ const fAssCtrl = {
       });
     } catch (e) { console.warn('Marks dropdown failed:', e); }
   },
+
+  /** Open marking for a scheduled assessment (after the lesson/task). */
+  openMarking: async function (assessmentId) {
+    try {
+      await callAPI('/academic/assessment-results-window/' + assessmentId, 'POST', { open: true });
+      showNotification('Marking is open. You can now record marks or rubric levels.', 'success');
+      await this.loadAll();
+      this._openMarksTab(assessmentId);
+    } catch (e) {
+      showNotification(e.message || 'Marking could not be opened', 'danger');
+    }
+  },
+
+  RUBRIC_LEVELS: [
+    { level: 4, label: '4 Exceeding expectations' },
+    { level: 3, label: '3 Meeting expectations' },
+    { level: 2, label: '2 Approaching expectations' },
+    { level: 1, label: '1 Below expectations' },
+  ],
 
   loadMarksEntry: async function () {
     const container = document.getElementById('faMarksContainer');
@@ -489,6 +511,17 @@ const fAssCtrl = {
       }
 
       const maxMarks = assessment.max_marks ?? 100;
+      if (assessment && assessment.results_opened_at === null) {
+        container.innerHTML = `<div class="alert alert-secondary d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <span><i class="bi bi-calendar-event me-1"></i>This assessment is scheduled${assessment.assessment_date ? ' for ' + this._esc(assessment.assessment_date) : ''}. Open marking once the lesson or task has happened.</span>
+          <button class="btn btn-sm btn-success" data-kw-onclick="fAssCtrl.openMarking(${assessmentId})" data-year-write><i class="bi bi-unlock me-1"></i>Open marking</button></div>`;
+        return;
+      }
+      // Rubric mode: record a CBC level (1 to 4) per learner instead of marks.
+      const rubricMode = this._rubricMode ?? marks.some(m => m.rubric_level != null);
+      this._rubricMode = rubricMode;
+      const levelOptions = (current) => '<option value="">Not assessed</option>' + this.RUBRIC_LEVELS
+        .map(l => `<option value="${l.level}" ${Number(current) === l.level ? 'selected' : ''}>${l.label}</option>`).join('');
 
       const rows = marks.map(m => {
         const pct    = m.percentage ?? '';
@@ -497,12 +530,14 @@ const fAssCtrl = {
         return `<tr data-student="${m.student_id}">
           <td class="fw-semibold">${this._esc(m.first_name + ' ' + m.last_name)}</td>
           <td>${this._esc(m.admission_no || '—')}</td>
-          <td class="text-center" style="width:120px;">
-            <input type="number" class="form-control form-control-sm text-center marks-input"
-              data-student="${m.student_id}" value="${m.score ?? ''}"
+          <td class="text-center" style="width:${rubricMode ? 230 : 120}px;">
+            ${rubricMode
+              ? `<select class="form-select form-select-sm rubric-input" data-student="${m.student_id}" aria-label="Rubric level" data-year-write>${levelOptions(m.rubric_level)}</select>`
+              : `<input type="number" class="form-control form-control-sm text-center marks-input"
+              data-student="${m.student_id}" value="${m.rubric_level != null ? '' : (m.score ?? '')}"
               min="0" max="${maxMarks}" step="0.5"
               data-kw-onchange="fAssCtrl._onMarkChange(this, ${maxMarks})"
-              placeholder="/${maxMarks}" data-year-write>
+              placeholder="/${maxMarks}" aria-label="Score" data-year-write>`}
           </td>
           <td class="text-center pct-cell">${pct ? pct + '%' : '—'}</td>
           <td class="text-center grade-cell">${grade ? `<span class="${badgeCls}">${grade}</span>` : '—'}</td>
@@ -513,9 +548,12 @@ const fAssCtrl = {
 
       container.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <div>
-            <strong>${marks.length} students</strong>
-            <span class="text-muted ms-2">Max marks: ${maxMarks}</span>
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <strong>${marks.length} learners</strong>
+            <div class="btn-group btn-group-sm" role="group" aria-label="How to record">
+              <button type="button" class="btn ${rubricMode ? 'btn-outline-secondary' : 'btn-secondary'}" data-kw-onclick="fAssCtrl.setRubricMode(false)">Marks out of ${maxMarks}</button>
+              <button type="button" class="btn ${rubricMode ? 'btn-secondary' : 'btn-outline-secondary'}" data-kw-onclick="fAssCtrl.setRubricMode(true)">Rubric level</button>
+            </div>
           </div>
           <button class="btn btn-success" data-kw-onclick="fAssCtrl.saveAllMarks(${assessmentId}, ${maxMarks})" data-year-write>
             <i class="bi bi-floppy me-1"></i> Save All Marks
@@ -525,7 +563,7 @@ const fAssCtrl = {
           <table class="table table-sm table-hover align-middle" id="marksTable">
             <thead class="table-light"><tr>
               <th>Student</th><th>Adm No</th>
-              <th class="text-center">Score (/${maxMarks})</th>
+              <th class="text-center">${rubricMode ? 'Rubric level' : 'Score (/' + maxMarks + ')'}</th>
               <th class="text-center">%</th>
               <th class="text-center">Grade</th>
               <th>Remarks</th>
@@ -561,9 +599,20 @@ const fAssCtrl = {
     if (gradeCell) gradeCell.innerHTML   = `<span class="grade-${gc}">${grade}</span>`;
   },
 
+  setRubricMode: function (on) {
+    this._rubricMode = !!on;
+    this.loadMarksEntry();
+  },
+
   saveAllMarks: async function (assessmentId, maxMarks) {
     const marks = [];
     let hasError = false;
+    document.querySelectorAll('#marksTable .rubric-input').forEach(select => {
+      if (!select.value) return;
+      const studentId = parseInt(select.dataset.student);
+      const remarksInput = document.querySelector(`.remarks-input[data-student="${studentId}"]`);
+      marks.push({ student_id: studentId, rubric_level: parseInt(select.value), remarks: remarksInput?.value.trim() || null });
+    });
 
     document.querySelectorAll('#marksTable .marks-input').forEach(input => {
       const studentId = parseInt(input.dataset.student);

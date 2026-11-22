@@ -174,6 +174,7 @@
       // Deleted periods are filtered out entirely — no restore action needed.
       items.push('<li><h6 class="dropdown-header">Timetable</h6></li>');
       items.push(item('schedule', 'bi-calendar-week', p.status === 'draft' ? 'Set timetable' : 'View timetable'));
+      if (canManage()) items.push(item('papers', 'bi-folder2-open', 'Exam papers'));
       if (canManage()) {
         items.push(item('edit', 'bi-pencil-square', 'Edit details'));
         items.push(item('delete', 'bi-trash', 'Delete', 'text-danger'));
@@ -761,6 +762,172 @@
     await loadPeriods();
   }
 
+  // ── Exam paper bank ─────────────────────────────────────────────────
+  // Papers can be prepared any time before the exam: set by staff or bought
+  // from a supplier, filed per class and learning area, approved, printed
+  // and issued to streams. Nothing here needs results to be open.
+  const PAPER_STATUS = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', printed: 'Printed', issued: 'Issued', archived: 'Archived' };
+  const PAPER_KIND = { question_paper: 'Question paper', marking_scheme: 'Marking scheme', answer_sheet: 'Answer sheet', other: 'Other' };
+  const fmtBytes = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`);
+
+  async function showPapers(periodId, focusPaperId = null) {
+    const root = $('examPeriodWorkspace');
+    let data;
+    try { data = await call('/academic/exam-papers', 'GET', null, { exam_period_id: periodId }); }
+    catch (e) { notify(e.message || 'Unable to load exam papers.', 'error'); return; }
+    const period = data.period || {};
+    const classes = data.options?.classes || [];
+    const papers = data.papers || [];
+    const byClass = {};
+    papers.forEach((pp) => { (byClass[pp.academic_year_class_id] ||= []).push(pp); });
+    const classOptions = classes.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    const statusChip = (st) => `<span class="badge ${({ draft: 'text-bg-light border', submitted: 'text-bg-warning', approved: 'text-bg-success', printed: 'text-bg-info', issued: 'text-bg-primary', archived: 'text-bg-secondary' })[st] || 'text-bg-light'}">${esc(PAPER_STATUS[st] || st)}</span>`;
+
+    const paperRow = (pp) => {
+      const files = (pp.files || []).map((f) => `<li class="d-flex align-items-center gap-2 small"><i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+        <button type="button" class="btn btn-link btn-sm p-0" data-paper-download="${Number(f.id)}" data-name="${esc(f.original_name)}">${esc(f.original_name)}</button>
+        <span class="text-muted">${esc(PAPER_KIND[f.kind] || f.kind)} · ${fmtBytes(Number(f.file_size_bytes))}</span>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-auto" data-paper-file-delete="${Number(f.id)}" aria-label="Remove ${esc(f.original_name)}"><i class="bi bi-x-lg"></i></button></li>`).join('');
+      const issues = (pp.issues || []).map((i) => `<li class="small text-muted">${esc(i.stream_name || 'Stream')}: ${Number(i.copies_issued)} copies${i.candidates_present !== null ? `, ${Number(i.candidates_present)} sat` : ''} · ${esc(String(i.issued_at || '').slice(0, 10))}</li>`).join('');
+      const cls = classes.find((c) => Number(c.id) === Number(pp.academic_year_class_id));
+      const streamOpts = (cls?.streams || []).map((st) => `<option value="${st.id}">${esc(st.name)}</option>`).join('');
+      const source = pp.source === 'purchased'
+        ? `Purchased${pp.supplier_name ? ` from ${esc(pp.supplier_name)}` : ''}${pp.purchase_cost ? ` · KES ${Number(pp.purchase_cost).toLocaleString('en-KE')}` : ''}${pp.purchase_reference ? ` · receipt ${esc(pp.purchase_reference)}` : ''}`
+        : 'Set by school staff';
+      return `<div class="border rounded-3 p-3 mb-2 ${Number(pp.id) === Number(focusPaperId) ? 'border-success' : ''}" data-paper="${Number(pp.id)}">
+        <div class="d-flex flex-wrap justify-content-between gap-2">
+          <div><div class="fw-semibold">${esc(pp.title)} ${statusChip(pp.status)}</div>
+            <div class="small text-muted">${esc(pp.learning_area_name)} · Paper ${Number(pp.paper_number)}${pp.max_marks ? ` · out of ${Number(pp.max_marks)}` : ''}${pp.duration_minutes ? ` · ${Number(pp.duration_minutes)} min` : ''} · ${source}</div></div>
+          <div class="d-flex gap-2 align-items-start">
+            <select class="form-select form-select-sm" style="width:auto" data-paper-status="${Number(pp.id)}" aria-label="Paper status">
+              ${Object.entries(PAPER_STATUS).map(([k, v]) => `<option value="${k}" ${pp.status === k ? 'selected' : ''}>${v}</option>`).join('')}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-paper-edit="${Number(pp.id)}" aria-label="Edit ${esc(pp.title)}"><i class="bi bi-pencil"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" data-paper-delete="${Number(pp.id)}" aria-label="Remove ${esc(pp.title)}"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+        <div class="row g-3 mt-1">
+          <div class="col-lg-6">
+            <div class="small fw-semibold mb-1">Files</div>
+            <ul class="list-unstyled mb-2">${files || '<li class="small text-muted">No files yet.</li>'}</ul>
+            <form class="d-flex gap-2 flex-wrap" data-paper-upload="${Number(pp.id)}">
+              <select class="form-select form-select-sm" style="width:auto" name="kind" aria-label="File type">${Object.entries(PAPER_KIND).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+              <input class="form-control form-control-sm" style="max-width:240px" type="file" name="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" aria-label="Paper file" required>
+              <button class="btn btn-sm btn-outline-success" type="submit"><i class="bi bi-upload me-1"></i>Upload</button>
+            </form>
+          </div>
+          <div class="col-lg-6">
+            <div class="small fw-semibold mb-1">Issued${pp.copies_required ? ` · ${Number(pp.copies_issued_total || 0)} of ${Number(pp.copies_required)} copies` : ''}</div>
+            <ul class="list-unstyled mb-2">${issues || '<li class="small text-muted">Not issued yet.</li>'}</ul>
+            <form class="d-flex gap-2 flex-wrap" data-paper-issue="${Number(pp.id)}">
+              <select class="form-select form-select-sm" style="width:auto" name="academic_year_class_stream_id" aria-label="Stream" required>${streamOpts}</select>
+              <input class="form-control form-control-sm" style="width:90px" type="number" min="1" name="copies_issued" placeholder="Copies" aria-label="Copies issued" required>
+              <input class="form-control form-control-sm" style="width:90px" type="number" min="0" name="candidates_present" placeholder="Sat" aria-label="Candidates who sat">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Record issue</button>
+            </form>
+          </div>
+        </div>
+      </div>`;
+    };
+
+    const folders = classes.map((c) => {
+      const list = byClass[c.id] || [];
+      return `<details class="mb-2" ${list.length || classes.length === 1 ? 'open' : ''}><summary class="fw-semibold py-1"><i class="bi bi-folder2 me-1 text-success" aria-hidden="true"></i>${esc(c.name)} <span class="text-muted small fw-normal">${list.length} ${list.length === 1 ? 'paper' : 'papers'}</span></summary>
+        <div class="ps-3 pt-2">${list.map(paperRow).join('') || '<p class="small text-muted">No papers for this class yet.</p>'}</div></details>`;
+    }).join('');
+
+    root.querySelector('.modal-dialog').innerHTML = `<div class="modal-content"><div class="modal-header"><div>
+        <h4 class="modal-title fs-5"><i class="bi bi-folder2-open me-1 text-success" aria-hidden="true"></i>${esc(period.title || 'Exam')} papers</h4>
+        <small class="text-muted">${esc([period.year_code, period.term_name, period.title].filter(Boolean).join(' / '))}. Prepare papers any time before the exam.</small></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body">
+        <details class="border rounded-3 p-3 mb-3" id="paperFormWrap"><summary class="fw-semibold"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i><span id="paperFormTitle">Add a paper</span></summary>
+          <form id="paperForm" class="row g-2 mt-1" novalidate>
+            <input type="hidden" name="id">
+            <div class="col-md-4"><label class="form-label small" for="ppClass">Class</label><select class="form-select form-select-sm" id="ppClass" name="academic_year_class_id" required>${classOptions}</select></div>
+            <div class="col-md-5"><label class="form-label small" for="ppArea">Learning area</label><select class="form-select form-select-sm" id="ppArea" name="learning_area_id" required></select></div>
+            <div class="col-md-3"><label class="form-label small" for="ppNumber">Paper number</label><input class="form-control form-control-sm" id="ppNumber" name="paper_number" type="number" min="1" max="9" value="1"></div>
+            <div class="col-md-6"><label class="form-label small" for="ppTitle">Title</label><input class="form-control form-control-sm" id="ppTitle" name="title" maxlength="200" placeholder="Mathematics Paper 1" required></div>
+            <div class="col-md-3"><label class="form-label small" for="ppMax">Out of</label><input class="form-control form-control-sm" id="ppMax" name="max_marks" type="number" min="1" step="0.5"></div>
+            <div class="col-md-3"><label class="form-label small" for="ppDuration">Duration (minutes)</label><input class="form-control form-control-sm" id="ppDuration" name="duration_minutes" type="number" min="0"></div>
+            <div class="col-md-4"><label class="form-label small" for="ppSource">Source</label><select class="form-select form-select-sm" id="ppSource" name="source"><option value="set_internally">Set by school staff</option><option value="purchased">Bought from a supplier</option></select></div>
+            <div class="col-md-4"><label class="form-label small" for="ppCopies">Copies needed</label><input class="form-control form-control-sm" id="ppCopies" name="copies_required" type="number" min="0"></div>
+            <div class="col-12 row g-2 m-0 p-0" id="ppPurchase" hidden>
+              <div class="col-md-4"><label class="form-label small" for="ppSupplier">Supplier</label><input class="form-control form-control-sm" id="ppSupplier" name="supplier_name" maxlength="150"></div>
+              <div class="col-md-3"><label class="form-label small" for="ppCost">Cost (KES)</label><input class="form-control form-control-sm" id="ppCost" name="purchase_cost" type="number" min="0" step="0.01"></div>
+              <div class="col-md-2"><label class="form-label small" for="ppDate">Bought on</label><input class="form-control form-control-sm" id="ppDate" name="purchase_date" type="date"></div>
+              <div class="col-md-3"><label class="form-label small" for="ppRef">Receipt number</label><input class="form-control form-control-sm" id="ppRef" name="purchase_reference" maxlength="80"></div>
+            </div>
+            <div class="col-12"><label class="form-label small" for="ppNotes">Notes</label><textarea class="form-control form-control-sm" id="ppNotes" name="notes" rows="2"></textarea></div>
+            <div class="col-12 d-flex gap-2"><button class="btn btn-sm btn-success" type="submit" id="paperSaveBtn">Save paper</button><button class="btn btn-sm btn-outline-secondary" type="button" id="paperResetBtn">Clear</button></div>
+          </form>
+        </details>
+        ${classes.length ? folders : '<p class="text-muted">Add classes and learning areas to this exam period first.</p>'}
+      </div></div>`;
+    bootstrap.Modal.getOrCreateInstance(root).show();
+
+    const form = $('paperForm');
+    const fillAreas = (selected = null) => {
+      const cls = classes.find((c) => Number(c.id) === Number(form.academic_year_class_id.value));
+      form.learning_area_id.innerHTML = (cls?.learning_areas || []).map((a) => `<option value="${a.id}" ${Number(selected) === Number(a.id) ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+    };
+    const togglePurchase = () => { $('ppPurchase').hidden = form.source.value !== 'purchased'; };
+    form.academic_year_class_id.addEventListener('change', () => fillAreas());
+    form.source.addEventListener('change', togglePurchase);
+    fillAreas();
+    $('paperResetBtn').addEventListener('click', () => { form.reset(); form.id.value = ''; $('paperFormTitle').textContent = 'Add a paper'; fillAreas(); togglePurchase(); });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(form).entries());
+      body.exam_period_id = periodId;
+      const id = body.id; delete body.id;
+      try {
+        const saved = await call(id ? `/academic/exam-papers/${id}` : '/academic/exam-papers', id ? 'PUT' : 'POST', body);
+        notify(id ? 'Paper saved.' : 'Paper added. Upload the question paper next.', 'success');
+        await showPapers(periodId, saved?.id || id);
+      } catch (e) { notify(e.message || 'Unable to save the paper.', 'error'); }
+    });
+
+    root.querySelectorAll('[data-paper-edit]').forEach((btn) => btn.addEventListener('click', () => {
+      const pp = papers.find((x) => Number(x.id) === Number(btn.dataset.paperEdit)); if (!pp) return;
+      $('paperFormWrap').open = true; $('paperFormTitle').textContent = `Edit ${pp.title}`;
+      form.id.value = pp.id; form.academic_year_class_id.value = pp.academic_year_class_id; fillAreas(pp.learning_area_id);
+      ['paper_number', 'title', 'max_marks', 'duration_minutes', 'source', 'copies_required', 'supplier_name', 'purchase_cost', 'purchase_date', 'purchase_reference', 'notes']
+        .forEach((k) => { if (form[k]) form[k].value = pp[k] ?? ''; });
+      togglePurchase(); form.title.focus();
+    }));
+    root.querySelectorAll('[data-paper-status]').forEach((sel) => sel.addEventListener('change', async () => {
+      try { await call(`/academic/exam-paper-status/${sel.dataset.paperStatus}`, 'POST', { status: sel.value }); notify(`Marked ${PAPER_STATUS[sel.value].toLowerCase()}.`, 'success'); await showPapers(periodId, sel.dataset.paperStatus); }
+      catch (e) { notify(e.message || 'Unable to change the status.', 'error'); await showPapers(periodId, sel.dataset.paperStatus); }
+    }));
+    root.querySelectorAll('[data-paper-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Remove this paper and its record?')) return;
+      try { await call(`/academic/exam-papers/${btn.dataset.paperDelete}`, 'DELETE'); notify('Paper removed.', 'success'); await showPapers(periodId); }
+      catch (e) { notify(e.message || 'Unable to remove the paper.', 'error'); }
+    }));
+    root.querySelectorAll('[data-paper-upload]').forEach((f) => f.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const fd = new FormData(f);
+      if (!fd.get('file')?.name) { notify('Choose a file first.', 'warning'); return; }
+      try { await window.callAPI(`/academic/exam-paper-files/${f.dataset.paperUpload}`, 'POST', fd, {}, { isFile: true }); notify('File uploaded.', 'success'); await showPapers(periodId, f.dataset.paperUpload); }
+      catch (e) { notify(e.message || 'Unable to upload the file.', 'error'); }
+    }));
+    root.querySelectorAll('[data-paper-download]').forEach((btn) => btn.addEventListener('click', async () => {
+      try { await window.callAPI(`/academic/exam-paper-file/${btn.dataset.paperDownload}`, 'GET', null, {}, { isDownload: true, filename: btn.dataset.name }); }
+      catch (e) { notify(e.message || 'Unable to download the file.', 'error'); }
+    }));
+    root.querySelectorAll('[data-paper-file-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+      if (!confirm('Remove this file?')) return;
+      try { await call(`/academic/exam-paper-files/${btn.dataset.paperFileDelete}`, 'DELETE'); notify('File removed.', 'success'); await showPapers(periodId); }
+      catch (e) { notify(e.message || 'Unable to remove the file.', 'error'); }
+    }));
+    root.querySelectorAll('[data-paper-issue]').forEach((f) => f.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try { await call(`/academic/exam-paper-issues/${f.dataset.paperIssue}`, 'POST', Object.fromEntries(new FormData(f).entries())); notify('Issue recorded.', 'success'); await showPapers(periodId, f.dataset.paperIssue); }
+      catch (e) { notify(e.message || 'Unable to record the issue.', 'error'); }
+    }));
+  }
+
   async function onPeriodAction(event) {
     const button = event.target.closest('[data-period-action]');
     if (!button || button.disabled) return;
@@ -781,6 +948,7 @@
       case 'my-results': await showResults(periodId, true); break;
       case 'publish-results': await publishPeriodResults(periodId, label); break;
       case 'national-timetable': await showNationalTimetable(periodId); break;
+      case 'papers': await showPapers(periodId); break;
       default: break;
     }
   }

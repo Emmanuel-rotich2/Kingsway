@@ -41,6 +41,7 @@ return [
         'catalog-account'     => 'catalog_account.php',
         'calendar-download'   => 'calendar_download.php',
         'student-id-check'    => 'student_portal.php',
+        'verify-report'       => 'verify_report.php',
         'login'               => 'login.php',
         'forgot-password'     => 'forgot_password.php',
         'reset-password'      => 'reset_password.php',
