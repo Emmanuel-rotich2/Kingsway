@@ -235,7 +235,8 @@ final class TermResultsService
                 $resolved = null;
             }
             $profileSystem = $policy['grading_system_id'] !== null ? (int) $policy['grading_system_id'] : null;
-            $cache[$key] = $resolved ?? (new GradingScopeService($this->db))->defaultSystemForClass($classId, $profileSystem);
+            // 4-level settings resolve to the 8-level scale (one CBC scale).
+            $cache[$key] = (new GradingScopeService($this->db))->canonicalSystemId($resolved ?? $profileSystem);
         }
         return $cache[$key];
     }

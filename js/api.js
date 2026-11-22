@@ -9647,6 +9647,22 @@ window.API = {
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
 
+// CBC levels: the school grades on 8 levels (EE1..BE2); the 4-level view is
+// the same result grouped (EE1/EE2 -> EE). Screens show both: "ME1 · ME".
+window.CbcLevels = Object.freeze({
+  names: { EE: "Exceeding Expectation", ME: "Meeting Expectation", AE: "Approaching Expectation", BE: "Below Expectation" },
+  group(code) {
+    const g = String(code || "").trim().toUpperCase().slice(0, 2);
+    return Object.prototype.hasOwnProperty.call(this.names, g) ? g : null;
+  },
+  format(code, empty = "—") {
+    const c = String(code ?? "").trim();
+    if (!c) return empty;
+    const g = this.group(c);
+    return g && g !== c.toUpperCase() ? `${c} · ${g}` : c;
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Modal lifecycle helpers — shared, page-agnostic, safe for injected templates.
 //

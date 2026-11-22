@@ -1319,24 +1319,23 @@ final class PrintService
         if (!$systemId && $termId) {
             try { $systemId = (int) ((new TermResultsService($db))->policyForTerm($termId)['grading_system_id'] ?? 0); } catch (\Throwable $e) { $systemId = 0; }
         }
-        // Junior School grades on its bound system when there is one.
-        $classId = 0;
-        if ($systemId && $termId && !empty($data['student']['class_stream_id'])) {
+        // Report books print the 8-level scale for the whole school; each
+        // level's 4-level group is shown beside it in the key.
+        if ($termId && !empty($data['student']['class_stream_id'])) {
             try {
                 $stmt = $db->prepare('SELECT academic_year_class_id FROM ' . ReadReplicaService::qualifiedRef('academic_year_class_streams') . ' WHERE id = ? LIMIT 1');
                 $stmt->execute([(int) $data['student']['class_stream_id']]);
                 $yearClassId = (int) $stmt->fetchColumn();
                 $stmt = $db->prepare('SELECT class_id FROM ' . ReadReplicaService::qualifiedRef('academic_year_classes') . ' WHERE id = ? LIMIT 1');
                 $stmt->execute([$yearClassId]);
-                $classId = (int) $stmt->fetchColumn();
-                $binding = (new GradingScopeService($db))->resolve($termId, $classId ?: null, null);
-                $systemId = isset($binding['system']['id'])
-                    ? (int) $binding['system']['id']
-                    : (int) (new GradingScopeService($db))->defaultSystemForClass($classId, $systemId);
+                $binding = (new GradingScopeService($db))->resolve($termId, ((int) $stmt->fetchColumn()) ?: null, null);
+                if (isset($binding['system']['id'])) $systemId = (int) $binding['system']['id'];
             } catch (\Throwable $e) {
                 // keep the profile system
             }
         }
+        $systemId = (int) (new GradingScopeService($db))->canonicalSystemId($systemId ?: null);
+        $data['grading_bands'] = [];
         if ($systemId && empty($data['grading_bands'])) {
             try { $data['grading_bands'] = (new AssessmentAggregationService($db))->bands($systemId); } catch (\Throwable $e) { $data['grading_bands'] = []; }
         }

@@ -5493,6 +5493,12 @@ if ($classId) {
                     isset($query['term_id']) ? (int) $query['term_id'] : null,
                     isset($query['year_id']) ? (int) $query['year_id'] : null
                 );
+                // Grading runs on the 8-level scale; a 4-level setting is its grouped view.
+                if (is_array($payload['resolved_profile']) && !empty($payload['resolved_profile']['grading_system_id'])) {
+                    $payload['resolved_profile']['configured_grading_system_id'] = (int) $payload['resolved_profile']['grading_system_id'];
+                    $payload['resolved_profile']['grading_system_id'] = (new \App\API\Services\GradingScopeService($this->db))
+                        ->canonicalSystemId((int) $payload['resolved_profile']['grading_system_id']);
+                }
             }
             return $this->successResponse($payload);
         } catch (Exception $e) {

@@ -744,7 +744,7 @@ const fAssCtrl = {
         const gc = entry.cbc_grade || '';
         return `<td class="text-center">
           <div>${entry.avg_pct != null ? entry.avg_pct + '%' : '—'}</div>
-          ${gc ? `<span class="grade-${gc}">${gc}</span>` : ''}
+          ${gc ? `<span class="grade-${gc}">${window.CbcLevels.format(gc)}</span>` : ''}
           ${entry.count ? `<small class="text-muted d-block">${entry.count} task${entry.count === 1 ? '' : 's'}</small>` : ''}
         </td>`;
       }).join('');

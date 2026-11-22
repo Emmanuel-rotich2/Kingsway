@@ -696,7 +696,10 @@ class DataImporter
                 $assessmentId = $this->resolveAssessmentId($aycsId, $aytId, $laId, $title, $maxScore, $date);
 
                 $pct   = $maxScore > 0 ? round($score / $maxScore * 100, 1) : 0;
-                $grade = $row['grade'] ?? $this->computeCBCGrade($pct);
+                // The grade always comes from the marks (a grade column in the
+                // file is ignored so it can never disagree with the score).
+                $graded = $this->computeCBCGrade($pct);
+                $grade = $graded['grade_code'];
 
                 $stmt = $this->db->prepare(
                     'INSERT INTO assessment_results
@@ -714,7 +717,7 @@ class DataImporter
                     ':eid'   => $enrollmentId,
                     ':sc'    => $score,
                     ':grade' => $grade,
-                    ':pts'   => $row['points'] ?? null,
+                    ':pts'   => $graded['points'],
                     ':rem'   => $row['remarks'] ?? null,
                 ]);
                 $inserted++;
@@ -1232,12 +1235,15 @@ class DataImporter
         $stmt->execute([':sid' => $studentId, ':pid' => $parentId, ':rel' => $rel, ':ip' => $primary, ':ie' => $primary]);
     }
 
-    private function computeCBCGrade(float $pct): string
+    /** Grade a percentage on the school's CBC scale (shared grader). */
+    private function computeCBCGrade(float $pct): array
     {
-        if ($pct >= 75) return 'EE';
-        if ($pct >= 60) return 'ME';
-        if ($pct >= 40) return 'AE';
-        return 'BE';
+        try {
+            $g = (new \App\API\Services\CbcGradingService($this->db))->gradeForSystem(max(0.0, min(100.0, $pct)), 100, null);
+            return ['grade_code' => $g['grade_code'], 'points' => $g['points']];
+        } catch (\Throwable $e) {
+            return ['grade_code' => null, 'points' => null];
+        }
     }
 
     private function isValidDate(string $date): bool
