@@ -479,7 +479,8 @@ class DashboardController extends BaseController
                 'event' => 'agent_suggest_failed',
                 'user_id' => $userId,
                 'error_class' => get_class($e),
-            ], 'error');
+                'reason' => mb_substr($e->getMessage(), 0, 200),
+            ], 'warning');
             return $this->success(['suggestions' => [], 'signature' => ''], 'No suggestions available');
         }
 
@@ -517,17 +518,29 @@ class DashboardController extends BaseController
         if (!$bridge->available()) {
             return $this->serverError('Session service unavailable');
         }
-        $result = $bridge->call('/api/agents/sessions', [
-            'context' => [
+        try {
+            // A short list read: when the AI engine is busy, waiting the full
+            // 45 s bridge timeout only ran into the web server's own timeout
+            // (an HTML error page). Show an empty history instead.
+            $result = $bridge->call('/api/agents/sessions', [
+                'context' => [
+                    'user_id' => $userId,
+                    'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
+                    'audience' => 'staff',
+                    'assistant_domain' => $this->assistantDomainForCurrentUser(),
+                    'route' => '',
+                    'module' => 'dashboard',
+                    'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
+                ],
+            ], 'GET', ['limit' => $limit], 10);
+        } catch (\RuntimeException $e) {
+            FileLogger::write('ai_generation', [
+                'event' => 'assistant_sessions_unavailable',
                 'user_id' => $userId,
-                'permissions' => array_values(array_map('strval', (array) ($this->user['effective_permissions'] ?? []))),
-                'audience' => 'staff',
-                'assistant_domain' => $this->assistantDomainForCurrentUser(),
-                'route' => '',
-                'module' => 'dashboard',
-                'request_id' => (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId),
-            ],
-        ], 'GET', ['limit' => $limit]);
+                'reason' => mb_substr($e->getMessage(), 0, 200),
+            ], 'warning');
+            return $this->success([], 'Session history is temporarily unavailable');
+        }
         return $this->success($result, 'Sessions retrieved');
     }
 
@@ -1188,11 +1201,17 @@ class DashboardController extends BaseController
             foreach ($userIds as $targetUserId) {
                 $permissions = $permissionsByUser[$targetUserId] ?? [];
                 try {
+                    // One digest per person per day. The key used to be fixed,
+                    // so the digest reran for everyone together whenever the
+                    // finished jobs were purged (24 h), and ~56 digests of
+                    // ~24 s each hit the AI engine at once, starving the
+                    // assistant. A per-person offset spreads them over an hour.
                     $agent->enqueue($targetUserId, $permissions, [
                         'mode' => 'digest',
                         'cadence' => 'daily',
-                        'request_id' => 'ai-agent-digest-cron',
+                        'request_id' => 'ai-agent-digest-cron:' . date('Y-m-d'),
                         'broadcast' => true,
+                        'delay_seconds' => crc32('digest:' . $targetUserId) % 3600,
                     ]);
                     $queued++;
                 } catch (Exception $e) {

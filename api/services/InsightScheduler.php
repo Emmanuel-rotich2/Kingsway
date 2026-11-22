@@ -136,23 +136,38 @@ final class InsightScheduler
             throw new DomainException('An unsupported briefing audience was supplied.', 422);
         }
 
+        $callerRequestId = substr((string) ($context['request_id'] ?? 'ai-insight-brief'), 0, 100);
+        $broadcast = array_key_exists('broadcast', $options) ? (bool) $options['broadcast'] : true;
+        // One job per cache window: the brief is cached for BRIEF_TTL, so a
+        // day-long key matched the finished job and an expired brief could not
+        // be regenerated until midnight.
+        $windowStart = intdiv(time(), self::BRIEF_TTL) * self::BRIEF_TTL;
+        $window = date('Y-m-d\TH:i', $windowStart);
+        // JobQueue reuses a key only for an identical payload, so the key must
+        // cover every field that can vary and the payload must carry nothing
+        // per-call (the caller's request id differs on every page load).
+        $idempotencyKey = 'ai-brief:' . hash('sha256', implode('|', [
+            $cadence,
+            (string) $userId,
+            $cacheKey,
+            implode(',', $domains ?? []),
+            implode(',', $permissions),
+            $audience,
+            $broadcast ? '1' : '0',
+            $window,
+        ]));
         $payload = [
             'cadence' => $cadence,
             'domains' => $domains,
             'user_id' => $userId,
             'permissions' => $permissions,
-            'request_id' => substr((string) ($context['request_id'] ?? 'ai-insight-brief'), 0, 100),
+            'request_id' => 'ai-brief-' . substr($idempotencyKey, 9, 24),
             'cache_key' => $cacheKey,
             'audience' => $audience,
-            'broadcast' => array_key_exists('broadcast', $options) ? (bool) $options['broadcast'] : true,
+            'broadcast' => $broadcast,
+            'window' => $window,
+            'idempotency_key' => $idempotencyKey,
         ];
-        $payload['idempotency_key'] = 'ai-brief:' . hash('sha256', implode('|', [
-            $cadence,
-            (string) $userId,
-            $cacheKey,
-            implode(',', $domains ?? []),
-            date('Y-m-d'),
-        ]));
         $jobId = call_user_func($this->queuer, self::JOB_TYPE, $payload);
 
         FileLogger::write('ai_generation', [
@@ -163,6 +178,7 @@ final class InsightScheduler
             'operator_id' => $userId,
             'cache_key' => $cacheKey,
             'request_id' => $payload['request_id'],
+            'caller_request_id' => $callerRequestId,
         ]);
 
         return [

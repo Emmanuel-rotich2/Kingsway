@@ -131,33 +131,44 @@ const SyncQueue = (function() {
         }
       }
 
-      // Execute operation via API client
+      // Execute operation via API client. window.API.apiCall() resolves with
+      // the unwrapped data on success (often null for writes) and throws on
+      // any failure, so a resolved call IS the success signal. Reading
+      // response.success crashed on null and re-ran writes the server had
+      // already applied.
       const response = await executeOperation(operation);
-
-      if (response.success) {
-        // Operation succeeded
-        await markOperationSuccess(operation.id);
-        console.log('[SyncQueue] Operation succeeded:', operation.operation_id);
-        emit('OPERATION_SUCCESS', { operation, response });
-      } else {
-        // Operation failed
-        await markOperationFailed(operation.id, response.message);
-        console.error('[SyncQueue] Operation failed:', operation.operation_id, response.message);
-        emit('OPERATION_FAILED', { operation, error: response.message });
-      }
+      await markOperationSuccess(operation.id);
+      console.log('[SyncQueue] Operation succeeded:', operation.operation_id);
+      emit('OPERATION_SUCCESS', { operation, response });
     } catch (error) {
-      // Operation errored
-      await markOperationFailed(operation.id, error.message);
-      console.error('[SyncQueue] Operation errored:', operation.operation_id, error);
-      emit('OPERATION_ERROR', { operation, error });
+      if (isNetworkFailure(error)) {
+        // Still offline: wait for the next online event without spending a
+        // retry; the server never saw the request.
+        await updateOperationStatus(operation.id, 'pending');
+        console.warn('[SyncQueue] Still offline, will retry:', operation.operation_id);
+        return;
+      }
+      // The server answered and refused the operation.
+      await markOperationFailed(operation.id, error?.message || 'Operation failed');
+      console.warn('[SyncQueue] Operation failed:', operation.operation_id, error?.message);
+      emit('OPERATION_FAILED', { operation, error: error?.message });
     }
+  }
+
+  function isNetworkFailure(error) {
+    if (navigator.onLine === false) return true;
+    if (error?.response) return false; // the server replied
+    return /Failed to fetch|NetworkError|network|Load failed/i.test(error?.message || '');
   }
 
   /**
    * Execute operation via centralized API
    */
   async function executeOperation(operation) {
-    const { endpoint, method, payload } = operation;
+    const { method, payload } = operation;
+    const base = window.APP_BASE || '';
+    let endpoint = String(operation.endpoint || '');
+    if (base && endpoint.startsWith(base + '/')) endpoint = endpoint.slice(base.length);
 
     // Use centralized API from /js/api.js
     if (typeof window.API !== 'undefined' && typeof window.API.apiCall === 'function') {
@@ -166,7 +177,12 @@ const SyncQueue = (function() {
         method,
         payload,
         {},
-        { headers: { "Idempotency-Key": operation.idempotency_key } },
+        {
+          headers: { "Idempotency-Key": operation.idempotency_key },
+          // A replay that fails offline stays this same outbox row; it must
+          // not be queued again as a new operation.
+          skipOfflineQueue: true,
+        },
       );
     }
 

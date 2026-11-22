@@ -7789,7 +7789,7 @@ return errorResponse($e->getMessage(), 400);
                 $fallbackBindings = [];
 
                 if (!empty($params['class_id'])) {
-                    $fallbackWhere[] = "(lp.class_id = ? OR lp.aycs_id = ?)";
+                    $fallbackWhere[] = "(ec.class_id = ? OR ec.aycs_id = ?)";
                     $cid = (int) $params['class_id'];
                     array_push($fallbackBindings, $cid, $cid);
                 }
@@ -7809,9 +7809,9 @@ return errorResponse($e->getMessage(), 400);
                     SELECT
                         ec.student_id AS student_id,
                         ec.admission_no,
-                        ec.learner_first_name AS first_name,
-                        ec.learner_middle_name AS middle_name,
-                        ec.learner_last_name AS last_name,
+                        ec.first_name AS first_name,
+                        ec.middle_name AS middle_name,
+                        ec.last_name AS last_name,
                         ec.class_id,
                         ec.class_name,
                         ec.stream_name,
@@ -7823,8 +7823,8 @@ return errorResponse($e->getMessage(), 400);
                         UPPER(LEFT(COALESCE(ec.grade, ''), 2)) AS cbc_grade
                     FROM {$ec} ec
                     WHERE {$fallbackWhereClause}
-                    GROUP BY ec.student_id, ec.class_id, ec.class_name, ec.stream_name, ec.learning_area_id, ec.learning_area_name, ec.admission_no, ec.learner_first_name, ec.learner_middle_name, ec.learner_last_name
-                    ORDER BY ec.class_name, ec.learner_first_name, ec.learner_last_name, subject_name
+                    GROUP BY ec.student_id, ec.class_id, ec.class_name, ec.stream_name, ec.learning_area_id, ec.learning_area_name, ec.admission_no, ec.first_name, ec.middle_name, ec.last_name
+                    ORDER BY ec.class_name, ec.first_name, ec.last_name, subject_name
                     LIMIT ? OFFSET ?
                 ";
                 $stmt = $this->db->prepare($fallbackSql);

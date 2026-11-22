@@ -46,9 +46,18 @@ if ($normalizedUploadPath === '') {
 |
 */
 
+// UPLOAD_URL may be set in config/.env when the uploads folder is served from
+// somewhere else (another path, subdomain or CDN). Stored references to
+// uploaded files are relative to this root, so changing UPLOAD_PATH and
+// UPLOAD_URL together is all a move needs.
 define(
     'UPLOAD_URL',
-    rtrim((string) BASE_URL, '/') . '/uploads'
+    rtrim(
+        trim((string) ($_ENV['UPLOAD_URL'] ?? '')) !== ''
+            ? (string) $_ENV['UPLOAD_URL']
+            : rtrim((string) BASE_URL, '/') . '/uploads',
+        '/'
+    )
 );
 
 /*

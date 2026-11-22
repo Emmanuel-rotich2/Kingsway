@@ -300,7 +300,15 @@ function handleApiError(error, endpoint) {
   // into AppLogger -> flush -> client-log, re-creating the 429 burst that the
   // delivery backoff in js/core/frontend_logger.js exists to stop.
   if (!isTelemetryEndpoint(endpoint)) {
-    console.error("API Error:", error);
+    // Connectivity and gateway failures are environmental: the request never
+    // reached the application, so they are warnings, not application errors.
+    const environmental = Boolean(error?.environmental)
+      || /Failed to fetch|NetworkError|network|Load failed/i.test(error?.message || "");
+    if (environmental) {
+      console.warn("API unavailable:", error?.message || error);
+    } else {
+      console.error("API Error:", error);
+    }
   }
   // Don't show notification here - let caller decide if they want to notify user
   throw error;
@@ -321,9 +329,29 @@ async function downloadFile(blob, filename) {
 // Safely read and parse JSON responses with clearer errors
 async function readJsonSafely(response, context = "API") {
   const contentType = response.headers.get("content-type") || "";
-  const text = await response.text();
+  let text;
+  try {
+    text = await response.text();
+  } catch (readError) {
+    // The connection dropped mid-body ("Content-Length header of network
+    // response exceeds response Body"): a network interruption, not a
+    // server answer. The wording keeps it on the network-failure path.
+    const interrupted = new Error("The network connection was interrupted. Please try again.");
+    interrupted.code = "NETWORK_INTERRUPTED";
+    interrupted.cause = readError;
+    throw interrupted;
+  }
 
   if (!contentType.includes("application/json")) {
+    if (response.status >= 500 || response.status === 0) {
+      // A proxy or web-server error page (timeout, overload, maintenance)
+      // answered instead of the application. Never show its HTML to users.
+      const unavailable = new Error("The server is temporarily unavailable. Please try again shortly.");
+      unavailable.code = "SERVER_UNAVAILABLE";
+      unavailable.status = response.status;
+      unavailable.environmental = true;
+      throw unavailable;
+    }
     throw new Error(
       `${context} did not return JSON (${response.status}). Content-Type: ${contentType || "unknown"}. ` +
         `Response: ${text.substring(0, 200)}`,
@@ -3204,6 +3232,13 @@ function handleSessionExpired(reason = "refresh_rejected") {
 
   const parentSource = isParentSourceSession();
 
+  // A public website tab has no staff session of its own. Clearing here
+  // would wipe the login state shared with the staff member's other tabs.
+  if (window.KINGSWAY_PUBLIC_PAGE && !parentSource) {
+    _sessionExpiredEmitted = false;
+    return;
+  }
+
   if (typeof AuthContext !== "undefined" && AuthContext.clearUser) {
     AuthContext.clearUser();
   }
@@ -4062,7 +4097,7 @@ async function apiCallDirect(
       // Same rule as handleApiError: a telemetry endpoint's own failure must
       // not be re-routed into the telemetry logger.
       if (!isTelemetryEndpoint(endpoint)) {
-        console.error("[api.js] Network fetch failed", {
+        console.warn("[api.js] Network fetch failed", {
           endpoint,
           method,
           apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
@@ -4092,14 +4127,16 @@ async function apiCallDirect(
       (typeof error === "object" &&
         error !== null &&
         /Failed to fetch|NetworkError|network/i.test(error.message || ""));
-    if (isMutation && isOffline && typeof SyncQueue !== "undefined") {
+    if (isMutation && isOffline && !options.skipOfflineQueue && typeof SyncQueue !== "undefined") {
       try {
         const module = (endpoint.split("/").filter(Boolean)[0] || "api")
           .replace(/^api\//, "")
           .split("/")[0];
         await SyncQueue.addOperation({
           module,
-          endpoint: (window.APP_BASE || "") + endpoint,
+          // Stored as the API path; replay goes through apiCall(), which
+          // adds the API base itself.
+          endpoint,
           method: String(method).toUpperCase(),
           payload: data,
           entity_type: module,

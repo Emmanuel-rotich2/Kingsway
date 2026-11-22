@@ -49,7 +49,9 @@ class RealtimeController extends BaseAPI
             return $this->errorResponse('Authentication required.', 401);
         }
         if ($url === '') {
-            return $this->errorResponse('Realtime stream is not configured.', 503);
+            // A deployment without the Node gateway is a supported state, not a
+            // failure: the browser falls back to polling and stops asking.
+            return $this->success(['enabled' => false], 'Realtime stream is not configured.');
         }
 
         $channels = array_values(array_unique(array_filter(

@@ -176,7 +176,8 @@ final class AgentAssistant
     public function enqueue(int $userId, array $permissions = [], array $options = []): array
     {
         $payload = $this->buildRunPayload($userId, $permissions, $options);
-        $jobId = JobQueue::push(self::JOB_TYPE, $payload, 0, 3, 60);
+        $delay = max(0, min(86400, (int) ($options['delay_seconds'] ?? 0)));
+        $jobId = JobQueue::push(self::JOB_TYPE, $payload, $delay, 3, 60);
 
         FileLogger::write('ai_generation', [
             'type' => 'agent_run_queued',

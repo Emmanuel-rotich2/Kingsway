@@ -30,6 +30,23 @@ final class UploadService
     public function __construct()
     {
         $this->categories = [
+            // Public website media (gallery, news and announcement covers).
+            // Raster images and browser-playable video only: no SVG or
+            // documents, which could carry script into a public page.
+            'website_image' => [
+                'root' => (string) SCHOOL_ASSETS . '/website',
+                'public_segment' => 'school_assets/website',
+                'extensions' => ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+                'mime_types' => ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+                'max_bytes' => 10485760,
+            ],
+            'website_video' => [
+                'root' => (string) SCHOOL_ASSETS . '/website',
+                'public_segment' => 'school_assets/website',
+                'extensions' => ['mp4', 'webm', 'mov'],
+                'mime_types' => ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'],
+                'max_bytes' => 104857600,
+            ],
             'school_document' => [
                 'root' => (string) SCHOOL_ASSETS_DOCUMENTS,
                 'public_segment' => null,
@@ -280,7 +297,59 @@ final class UploadService
                 $ownerId,
                 $storageName
             ),
+            // The portable reference to store: relative to UPLOAD_URL, so a
+            // moved uploads folder only needs UPLOAD_PATH/UPLOAD_URL changed.
+            'path' => $policy['public_segment'] === null ? null : implode('/', array_filter([
+                trim((string) $policy['public_segment'], '/'),
+                $ownerId,
+                $storageName,
+            ], static fn ($part) => $part !== '')),
         ];
+    }
+
+    /**
+     * Full browser URL for a stored upload reference.
+     *
+     * Stored values are relative to the uploads root ("school_assets/x.png").
+     * Older rows hold "/uploads/...", "<base>/uploads/..." or a full URL under
+     * UPLOAD_URL; those resolve through the same root. External URLs (another
+     * site, a CDN link the user pasted) are returned unchanged.
+     */
+    public static function resolvePublicUrl(?string $stored): string
+    {
+        $stored = trim((string) $stored);
+        if ($stored === '') return '';
+        $relative = self::toStoredPath($stored);
+        if ($relative === $stored && preg_match('#^(?:[a-z][a-z0-9+.-]*:|//|/)#i', $stored)) {
+            return $stored; // external URL or an app path outside uploads
+        }
+        $segments = array_map('rawurlencode', array_map('rawurldecode', explode('/', $relative)));
+        return rtrim((string) UPLOAD_URL, '/') . '/' . implode('/', $segments);
+    }
+
+    /**
+     * The portable form of an upload reference: strips UPLOAD_URL and any
+     * "/uploads/" prefix so only the path inside the uploads root is stored.
+     * Values that do not point into the uploads root are returned unchanged.
+     */
+    public static function toStoredPath(?string $value): string
+    {
+        $value = trim((string) $value);
+        if ($value === '') return '';
+        $root = rtrim((string) UPLOAD_URL, '/') . '/';
+        if (stripos($value, $root) === 0) {
+            return ltrim(rawurldecode(substr($value, strlen($root))), '/');
+        }
+        $path = (string) (parse_url($value, PHP_URL_PATH) ?? '');
+        $isLocal = !preg_match('#^(?:[a-z][a-z0-9+.-]*:)?//#i', $value)
+            || strcasecmp((string) parse_url($value, PHP_URL_HOST), (string) parse_url((string) BASE_URL, PHP_URL_HOST)) === 0;
+        if ($isLocal && preg_match('#(?:^|/)uploads/(.+)$#', $path, $m)) {
+            return ltrim(rawurldecode($m[1]), '/');
+        }
+        if (!preg_match('#^(?:[a-z][a-z0-9+.-]*:|//|/)#i', $value)) {
+            return ltrim($value, '/'); // already relative
+        }
+        return $value;
     }
 
     public function ensureCategoryDirectory(
@@ -454,6 +523,12 @@ final class UploadService
     }
 
     /** @return array<string,mixed> */
+    /** Largest accepted upload for a category, in bytes. */
+    public function maxBytes(string $category): int
+    {
+        return (int) $this->policy($category)['max_bytes'];
+    }
+
     private function policy(string $category): array
     {
         if (!isset($this->categories[$category])) {
@@ -596,6 +671,7 @@ final class UploadService
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
         'webp' => 'image/webp',
+        'gif' => 'image/gif',
         'zip' => 'application/zip',
     ];
 

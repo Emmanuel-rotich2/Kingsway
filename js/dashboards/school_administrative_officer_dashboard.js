@@ -144,7 +144,18 @@ window.schoolAdminDashboardController = {
   },
 
   setupAutoRefresh: function () {
-    setInterval(() => {
+    // Soft navigation re-runs this script and builds a new controller; the
+    // previous controller's timer kept redrawing onto the new page's canvas
+    // ("Canvas is already in use"). Keep exactly one refresh timer.
+    if (window.__schoolAdminDashboardRefreshTimer) {
+      clearInterval(window.__schoolAdminDashboardRefreshTimer);
+    }
+    window.__schoolAdminDashboardRefreshTimer = setInterval(() => {
+      if (!document.getElementById("attendanceTrendChart")) {
+        clearInterval(window.__schoolAdminDashboardRefreshTimer);
+        window.__schoolAdminDashboardRefreshTimer = null;
+        return;
+      }
       if (!this.state.isLoading) {
         this.log("🔄 Auto-refreshing dashboard...");
         this.loadDashboardData();
@@ -806,10 +817,16 @@ window.schoolAdminDashboardController = {
     const ctx = document.getElementById("attendanceTrendChart");
     if (!ctx) return;
 
-    // Destroy existing chart
-    if (this.chartInstances.attendanceTrend) {
+    // Destroy whatever chart owns this canvas, including one created by an
+    // earlier controller instance this one does not know about.
+    const existing = (window.Chart && typeof window.Chart.getChart === "function")
+      ? window.Chart.getChart(ctx)
+      : null;
+    if (existing) existing.destroy();
+    if (this.chartInstances.attendanceTrend && this.chartInstances.attendanceTrend !== existing) {
       this.chartInstances.attendanceTrend.destroy();
     }
+    this.chartInstances.attendanceTrend = null;
 
     const data = this.state.charts.attendanceTrend;
     const details = Array.isArray(data.details) ? data.details : [];
@@ -891,10 +908,16 @@ window.schoolAdminDashboardController = {
     const ctx = document.getElementById("classDistributionChart");
     if (!ctx) return;
 
-    // Destroy existing chart
-    if (this.chartInstances.classDistribution) {
+    // Destroy whatever chart owns this canvas, including one created by an
+    // earlier controller instance this one does not know about.
+    const existing = (window.Chart && typeof window.Chart.getChart === "function")
+      ? window.Chart.getChart(ctx)
+      : null;
+    if (existing) existing.destroy();
+    if (this.chartInstances.classDistribution && this.chartInstances.classDistribution !== existing) {
       this.chartInstances.classDistribution.destroy();
     }
+    this.chartInstances.classDistribution = null;
 
     const data = this.state.charts.classDistribution;
 
