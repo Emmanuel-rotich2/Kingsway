@@ -1755,7 +1755,7 @@ class InventoryController extends BaseController
      */
     private function getCurrentUserId()
     {
-        return $this->user['id'] ?? null;
+        return $this->getUserId();
     }
 
     // ========================================

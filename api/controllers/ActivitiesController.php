@@ -1136,11 +1136,8 @@ class ActivitiesController extends BaseController
      */
     private function getCurrentUserId()
     {
-        if (isset($this->user['id']) && $this->user['id']) {
-            return $this->user['id'];
-        }
-        // Fallback for tests or missing user context
-        \App\API\Services\Logger::legacyError('[ActivitiesController] No user context found, using default user ID 1');
-        return 1;
+        // The auth payload carries user_id; reading only 'id' attributed every
+        // change to user 1.
+        return $this->getUserId();
     }
 }

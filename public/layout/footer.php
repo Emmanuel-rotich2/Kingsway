@@ -104,6 +104,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 <script nonce="<?= csp_nonce() ?>">
   window.APP_BASE = <?= json_encode($appBase) ?>;
+  // The public website must never boot, refresh or clear the staff session.
+  // Without this, "View Public Site" opened in a new tab refreshed the shared
+  // refresh cookie and cleared the shared login state, signing the staff
+  // member out of the workspace they were previewing from.
+  window.KINGSWAY_PUBLIC_PAGE = true;
 </script>
 <?php asset_script($appBase, 'js/api.js'); ?>
 <!-- Public-facing cache layer: reuses the SAME js/core storage stack the admin

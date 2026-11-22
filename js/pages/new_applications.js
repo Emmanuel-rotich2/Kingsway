@@ -133,7 +133,10 @@ const newApplicationsController = {
   },
 
   validateRequiredDom: function () {
-    if (!this.dom.applicationsTableBody) {
+    // Pages that only embed the new-application modal (the admissions
+    // workspace) have no applications table: that is modal-only mode, not a
+    // broken page, so it must not be reported as an error.
+    if (!this.dom.applicationsTableBody && !this.modalOnly) {
       console.error("Missing required element: #applicationsTableBody");
     }
 

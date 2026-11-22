@@ -97,9 +97,9 @@ class StaffAssignmentManager extends BaseAPI
             // the class_stream_id filter still applies to the per-stream rows.
             $sql = "SELECT DISTINCT id, assignment_scope, staff_id, staff_no, staff_name,
                            class_id, class_name, academic_year_class_id,
-                           CASE WHEN assignment_scope = 'stream' THEN stream_id END AS stream_id,
-                           CASE WHEN assignment_scope = 'stream' THEN class_stream_id END AS class_stream_id,
-                           CASE WHEN assignment_scope = 'stream' THEN stream_name ELSE 'All streams' END AS stream_name,
+                           CASE WHEN assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN stream_id END AS stream_id,
+                           CASE WHEN assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN class_stream_id END AS class_stream_id,
+                           CASE WHEN assignment_scope = 'stream' COLLATE utf8mb4_unicode_ci THEN stream_name ELSE 'All streams' END AS stream_name,
                            subject_id, subject_name, role, status, academic_year_id, academic_year, academic_year_term_id
                       FROM vw_staff_assignments_detailed WHERE 1=1";
             $params = [];

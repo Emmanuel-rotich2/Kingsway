@@ -16,6 +16,44 @@
   let isNavigating = false;
   const pageScriptRoutes = new Map();
 
+  // Every external script this document has executed, by path. The DOM is
+  // not a reliable record: a server-rendered page's <script src> tags live
+  // inside #main-content-segment, so the first fragment swap deletes them and
+  // a later route that shares the script (staff_access.js, payroll_manager.js,
+  // analytics_catalogue.js) ran it again - "redeclaration of const ...".
+  const executedScripts = new Set();
+  function scriptPath(src) {
+    try {
+      return new URL(src, window.location.href).pathname;
+    } catch (_) {
+      return String(src || '').split('?')[0];
+    }
+  }
+  function rememberDocumentScripts() {
+    document.querySelectorAll('script[src]').forEach((s) => {
+      if (s.dataset.kingswayScriptState === 'error' || s.dataset.kingswayScriptState === 'loading') return;
+      executedScripts.add(scriptPath(s.src));
+    });
+  }
+  function scriptAlreadyLoaded(src) {
+    const path = scriptPath(src);
+    if (executedScripts.has(path)) return true;
+    return Array.from(document.querySelectorAll('script[src]')).some(
+      (s) => s.dataset.kingswayScriptState !== 'error' && scriptPath(s.src) === path
+    );
+  }
+  window.KingswayScriptRegistry = {
+    has: scriptAlreadyLoaded,
+    add: (src) => executedScripts.add(scriptPath(src)),
+  };
+  if (document.readyState === 'loading') {
+    // Registered before the route-scoping wrapper below replaces
+    // document.addEventListener, so this runs once for the real page load.
+    document.addEventListener('DOMContentLoaded', rememberDocumentScripts, { once: true });
+  } else {
+    rememberDocumentScripts();
+  }
+
   // Page scripts use DOMContentLoaded to initialize their controllers. Soft
   // navigation emits a synthetic DOMContentLoaded after every route change;
   // without route scoping, listeners from every previously visited page run
@@ -66,18 +104,17 @@
    */
   function loadScript(src) {
     return new Promise((resolve, reject) => {
-      const srcPath = src.split('?')[0];
-      const alreadyLoaded = Array.from(document.querySelectorAll('script[src]')).some(
-        (s) => s.src.split('?')[0] === srcPath
-      );
-      if (alreadyLoaded) {
+      if (scriptAlreadyLoaded(src)) {
         resolve();
         return;
       }
       const s = document.createElement('script');
       s.src = src;
       s.async = false;
-      s.onload = () => resolve();
+      s.onload = () => {
+        executedScripts.add(scriptPath(src));
+        resolve();
+      };
       s.onerror = () => reject(new Error('Failed to load script: ' + src));
       document.head.appendChild(s);
     });
@@ -219,11 +256,10 @@
       // against the replacement DOM causes null tbody/innerHTML failures.
       // Start a clean document whenever the route's controller was loaded
       // before; first visits remain soft navigations.
+      rememberDocumentScripts();
       const previouslyLoadedPageController = scriptSrcs.some((src) => {
-        const path = src.split('?')[0];
-        if (!/\/js\/pages\//.test(path)) return false;
-        return Array.from(document.querySelectorAll('script[src]'))
-          .some((script) => script.src.split('?')[0] === path);
+        if (!/\/js\/pages\//.test(scriptPath(src))) return false;
+        return scriptAlreadyLoaded(src);
       });
       if (previouslyLoadedPageController) {
         const params = extraParams ? `&${extraParams}` : '';

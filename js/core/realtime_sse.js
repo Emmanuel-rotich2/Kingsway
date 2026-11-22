@@ -70,6 +70,8 @@
       return code === 401 || code === 403 ? null : false;
     }
     const data = result?.data || result || {};
+    // No realtime gateway on this deployment: stop for good, quietly.
+    if (data.enabled === false) return null;
     const token = data.token;
     const url = data.url;
     if (typeof token !== 'string' || !token || typeof url !== 'string' || !url) return false;

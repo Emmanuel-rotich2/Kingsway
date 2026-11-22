@@ -166,6 +166,12 @@ const PageShell = (() => {
 
         function ensureExternalScript(src) {
             const requested = new URL(src, window.location.href);
+            // The tag of a script the first page rendered can be gone after a
+            // content swap; the registry still knows it ran.
+            const hasTag = Array.from(document.scripts).some((script) => script.src && script.src.split('?')[0] === requested.origin + requested.pathname);
+            if (!hasTag && window.KingswayScriptRegistry?.has(requested.href)) {
+                return Promise.resolve(null);
+            }
             const existing = Array.from(document.scripts).find((script) => {
                 if (!script.src) return false;
                 try {

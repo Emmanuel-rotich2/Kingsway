@@ -74,6 +74,15 @@ if (!function_exists('csp_nonce')) {
             ? "script-src 'self' 'nonce-" . csp_nonce() . "' {$scriptHosts}; script-src-attr 'none'"
             : "script-src 'self' 'unsafe-inline' 'unsafe-eval' {$scriptHosts}";
         $base = function_exists('app_base_path') ? rtrim((string) app_base_path(), '/') : '';
+        // Uploaded media may be served from another origin when UPLOAD_URL is
+        // moved (subdomain or CDN); allow exactly that origin for media.
+        $uploadOrigin = '';
+        if (defined('UPLOAD_URL')) {
+            $parts = parse_url((string) UPLOAD_URL);
+            if (!empty($parts['scheme']) && !empty($parts['host'])) {
+                $uploadOrigin = ' ' . $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+            }
+        }
         $directives = [
             "default-src 'self'",
             $surface === 'staff' ? "object-src 'self' blob:" : "object-src 'none'",
@@ -81,9 +90,12 @@ if (!function_exists('csp_nonce')) {
             $script,
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com",
             "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
-            "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke",
+            "img-src 'self' data: blob: https://placehold.co https://images.unsplash.com https://www.kingswaypreparatoryschool.sc.ke{$uploadOrigin}",
+            "media-src 'self' blob:{$uploadOrigin}",
             "connect-src {$connect}",
-            "frame-ancestors " . ($surface === 'api' ? "'self'" : "'none'"),
+            // The website workspace previews public pages in a same-origin
+            // frame; staff pages are never framed.
+            "frame-ancestors " . ($surface === 'staff' ? "'none'" : "'self'"),
             "form-action 'self'",
             "base-uri 'self'",
         ];

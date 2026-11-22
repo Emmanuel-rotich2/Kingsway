@@ -69,6 +69,11 @@ class CalendarSyncService
      */
     public function syncDay(int $dayId, bool $createExamScheduleRows = false): array
     {
+        return $this->retryOnLockFailure(fn () => $this->syncDayOnce($dayId, $createExamScheduleRows));
+    }
+
+    private function syncDayOnce(int $dayId, bool $createExamScheduleRows): array
+    {
         $day = $this->fetchDay($dayId);
         if (!$day) {
             return ['day' => $dayId, 'event' => null, 'exams' => 0];
@@ -138,6 +143,35 @@ class CalendarSyncService
      * Auto-complete events and exam rows whose dates have passed.
      */
     public function normalizeStatuses(): array
+    {
+        return $this->retryOnLockFailure(fn () => $this->normalizeStatusesOnce());
+    }
+
+    /**
+     * The reconciliation writes are idempotent and run from page loads, the
+     * events-sync action and term setup, so two can overlap and InnoDB picks
+     * one as a deadlock victim. Retry that victim, but only outside a caller's
+     * transaction: a deadlock rolls the whole transaction back, so retrying
+     * one statement there would commit half of the caller's work.
+     */
+    private function retryOnLockFailure(callable $work): array
+    {
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $work();
+            } catch (\PDOException $e) {
+                $driverCode = (int) ($e->errorInfo[1] ?? 0);
+                $sqlState = (string) ($e->errorInfo[0] ?? $e->getCode());
+                $retryable = $driverCode === 1213 || $driverCode === 1205 || $sqlState === '40001';
+                if (!$retryable || $attempt >= 2 || $this->db->inTransaction()) {
+                    throw $e;
+                }
+                usleep(100000 * ($attempt + 1));
+            }
+        }
+    }
+
+    private function normalizeStatusesOnce(): array
     {
         $events = 0;
         $exams = 0;

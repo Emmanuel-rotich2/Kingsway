@@ -198,6 +198,13 @@ const transportAdminController = {
     });
 
     // Add buttons
+    // Every Add action posts with transport_create. A role that opens this
+    // workspace without it (school administrators) only got "Access Denied"
+    // after filling the form, so the buttons are hidden instead.
+    if (window.AuthContext?.hasPermission?.('transport_create') === false) {
+      ['transportAddRoute', 'transportAddVehicle', 'transportAddDriver', 'transportAddStop']
+        .forEach((buttonId) => { const button = document.getElementById(buttonId); if (button) button.hidden = true; });
+    }
     document.getElementById('transportAddRoute')?.addEventListener('click', () => this.openEditor('route'));
     document.getElementById('transportAddVehicle')?.addEventListener('click', () => this.openEditor('vehicle'));
     document.getElementById('transportAddDriver')?.addEventListener('click', () => this.openEditor('driver'));

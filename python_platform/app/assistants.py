@@ -223,6 +223,25 @@ class PublicAssistantSkill:
         self.journal = journal
 
     def ask(self, question: str, corpus: Any, conversation: Any = None) -> dict:
+        try:
+            return self._answer(question, corpus, conversation)
+        except providers.ProviderError as error:
+            # A visitor question must not fail with a server error when the
+            # model is rate-limited or down: refer them to the school instead.
+            self.journal.write(
+                "ai_generation",
+                {
+                    "type": "public_assistant_provider_failed",
+                    "reason": str(error)[:200],
+                },
+            )
+            return {
+                "status": "escalate",
+                "reason": "assistant_unavailable",
+                "message": "Please contact the school assistant for help.",
+            }
+
+    def _answer(self, question: str, corpus: Any, conversation: Any) -> dict:
         question = str(question or "").strip()
         if not question or len(question) > MAX_QUESTION_CHARS:
             raise ValueError("A valid question of up to 500 characters is required.")
