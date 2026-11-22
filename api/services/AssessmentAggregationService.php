@@ -251,6 +251,11 @@ final class AssessmentAggregationService
             if (!isset($data[$k]) || $data[$k] === '') return ['ok' => false, 'error' => "$k is required"];
         }
         $gsId = (int) $data['grading_system_id'];
+        try {
+            (new GradingSystemAdminService($this->db))->assertEditable($gsId);
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => $e->getMessage(), 'status' => 409];
+        }
         $min = (float) $data['min_percentage'];
         $max = (float) $data['max_percentage'];
         if ($min < 0 || $max > 100 || $min > $max) return ['ok' => false, 'error' => 'Invalid percentage range'];
@@ -299,6 +304,15 @@ final class AssessmentAggregationService
 
     public function deleteBand(int $bandId): array
     {
+        $sys = $this->db->prepare('SELECT grading_system_id FROM grading_system_bands WHERE id = ?');
+        $sys->execute([$bandId]);
+        $gsId = (int) $sys->fetchColumn();
+        if (!$gsId) return ['ok' => false];
+        try {
+            (new GradingSystemAdminService($this->db))->assertEditable($gsId);
+        } catch (\RuntimeException $e) {
+            return ['ok' => false, 'error' => $e->getMessage(), 'status' => 409];
+        }
         $stmt = $this->db->prepare("DELETE FROM grading_system_bands WHERE id = :id");
         $stmt->execute([':id' => $bandId]);
         return ['ok' => $stmt->rowCount() > 0];

@@ -45,7 +45,7 @@ final class CbcGradingService
 
         if ($gradingSystemId !== null) {
             $band = $scope->bandForPercentage($gradingSystemId, $percentage);
-            return self::withLevel4([
+            $grade = [
                 'percentage' => $percentage,
                 'grade_code' => (string) $band['band_code'],
                 'grade_name' => (string) $band['band_name'],
@@ -53,7 +53,17 @@ final class CbcGradingService
                 'points' => (float) $band['points'],
                 'description' => (string) ($band['description'] ?? ''),
                 'grading_system_id' => $gradingSystemId,
-            ]);
+            ];
+            // Grouped view from the band's declared group (any system), else
+            // the CBC convention (ME1 -> ME).
+            $group = !empty($band['group_code']) ? (string) $band['group_code'] : GradingScopeService::level4($grade['grade_code']);
+            if ($group !== null) {
+                $names = $scope->groupNames($gradingSystemId);
+                $grade['level4_code'] = $group;
+                $grade['level4_name'] = $names[$group] ?? (GradingScopeService::LEVEL4_NAMES[$group] ?? null);
+                return $grade;
+            }
+            return self::withLevel4($grade);
         }
 
         $rule = self::matchRule($percentage, $this->rules());

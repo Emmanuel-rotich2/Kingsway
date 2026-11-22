@@ -55,6 +55,13 @@
     <div class="tab-content">
         <!-- ======================= TAB 1: GRADING SYSTEMS ======================= -->
         <div class="tab-pane fade show active" id="tabSystems" role="tabpanel">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <p class="text-muted small mb-0" style="max-width:62ch">When the Ministry introduces a new scale, upload its table here, check the preview and publish it. Each exam keeps the system it is graded on; a system with graded results is locked, so changes go into a new version.</p>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-kw-onclick="GradingScalesCtrl.downloadTemplate()"><i class="bi bi-download me-1"></i>Table template</button>
+                    <button class="btn btn-primary btn-sm" type="button" data-curriculum-manage data-kw-onclick="GradingScalesCtrl.openNewSystem()"><i class="bi bi-plus-circle me-1"></i>New grading system</button>
+                </div>
+            </div>
             <div id="systemsContainer"></div>
         </div>
 
@@ -269,6 +276,49 @@
                 </div>
             </form>
         </div>
+    </div>
+</div>
+<!-- New / edit grading system -->
+<div class="modal fade" id="gsModal" tabindex="-1" aria-labelledby="gsModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <form class="modal-content" id="gsForm" data-kw-onsubmit="return GradingScalesCtrl.saveSystem(event)">
+            <div class="modal-header">
+                <h2 class="modal-title fs-6" id="gsModalTitle">New grading system</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="gsId">
+                <div class="row g-2">
+                    <div class="col-md-5"><label class="form-label small" for="gsName">Name *</label><input class="form-control form-control-sm" id="gsName" maxlength="150" required placeholder="e.g. MoE CBE 8-Level 2027"></div>
+                    <div class="col-md-3"><label class="form-label small" for="gsCode">Code</label><input class="form-control form-control-sm" id="gsCode" maxlength="40" placeholder="Made from the name"></div>
+                    <div class="col-md-4"><label class="form-label small" for="gsAuthority">Issued by</label><input class="form-control form-control-sm" id="gsAuthority" maxlength="120" placeholder="e.g. Ministry of Education circular, Jan 2027"></div>
+                    <div class="col-md-4"><label class="form-label small" for="gsSupersedes">Replaces</label><select class="form-select form-select-sm" id="gsSupersedes"><option value="">Nothing (a new scale)</option></select></div>
+                    <div class="col-md-4"><label class="form-label small" for="gsViewOf">Grouped view of</label><select class="form-select form-select-sm" id="gsViewOf"><option value="">Not a view (grades on its own)</option></select></div>
+                    <div class="col-md-4"><label class="form-label small" for="gsDescription">Notes</label><input class="form-control form-control-sm" id="gsDescription" maxlength="500"></div>
+                </div>
+                <div class="border rounded-3 p-2 mt-3 bg-body-tertiary">
+                    <label class="form-label small mb-1" for="gsFile">Fill the levels from a file (CSV or Excel)</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <input class="form-control form-control-sm" style="max-width:320px" type="file" id="gsFile" accept=".csv,.xlsx,.xls">
+                        <button class="btn btn-outline-primary btn-sm" type="button" data-kw-onclick="GradingScalesCtrl.previewFile()"><i class="bi bi-eye me-1"></i>Preview file</button>
+                    </div>
+                    <div class="form-text">Columns: Level, Name, Min, Max, Points, and optionally Group (the 4-level group, e.g. EE for EE1) and Description. Whole-number ranges like 75–89 are fine.</div>
+                </div>
+                <div id="gsProblems" class="mt-2"></div>
+                <div class="table-responsive mt-2">
+                    <table class="table table-sm table-bordered align-middle mb-1" id="gsBandsTable">
+                        <thead class="table-light"><tr><th style="width:9%">Level *</th><th>Name</th><th style="width:10%">Min % *</th><th style="width:10%">Max % *</th><th style="width:9%">Points</th><th style="width:9%">Group</th><th>Description</th><th style="width:4%"></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <button class="btn btn-link btn-sm px-0" type="button" data-kw-onclick="GradingScalesCtrl.addBandRow()"><i class="bi bi-plus"></i> Add level</button>
+            </div>
+            <div class="modal-footer">
+                <span class="small text-muted me-auto">Saved as a draft. Publish it to use it for terms and exams.</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary btn-sm" id="gsSaveBtn">Save draft</button>
+            </div>
+        </form>
     </div>
 </div>
 <?php asset_script($appBase, 'js/pages/grading_scales.js'); ?>

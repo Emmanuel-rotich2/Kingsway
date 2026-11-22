@@ -60,7 +60,7 @@ final class GradingScopeService
             return [];
         }
         $bandStmt = $this->db->prepare(
-            'SELECT band_code, band_name, min_percentage, max_percentage, points, performance_level, description
+            'SELECT band_code, group_code, band_name, min_percentage, max_percentage, points, performance_level, description
              FROM grading_system_bands WHERE grading_system_id = ? ORDER BY min_percentage DESC'
         );
         foreach ($systems as &$system) {
@@ -120,30 +120,87 @@ final class GradingScopeService
         'BE' => 'Below Expectation',
     ];
 
-    private static array $eightLevelCache = [];
+    private static array $systemCache = [];
 
     /**
-     * The school grades on ONE CBC scale: the 8-level scale. The 4-level
-     * view is the same result grouped (EE1/EE2 -> EE), never cut separately,
-     * so a learner can't be "AE" on one view and "ME2" on the other.
-     * A 4-level system id (or none) therefore resolves to the active
-     * 8-level system; any other system id is returned unchanged.
+     * The system grades are actually computed on. A system declared as the
+     * grouped view of another (view_of_system_id; the CBC 4-level is the
+     * 8-level grouped) resolves to that system, so both views always agree.
+     * Unlinked systems (e.g. a new Ministry scale) grade exactly as defined.
+     * With no system, the school default profile's system is used.
      */
     public function canonicalSystemId(?int $systemId): ?int
     {
-        $key = spl_object_id($this->db);
-        if (!array_key_exists($key, self::$eightLevelCache)) {
-            $eight = $this->db->query(
-                "SELECT id FROM grading_systems WHERE category = 'cbc_8level' AND status = 'active' ORDER BY id DESC LIMIT 1"
-            )->fetchColumn();
-            self::$eightLevelCache[$key] = $eight ? (int) $eight : null;
+        if (!$systemId) {
+            $systemId = $this->schoolDefaultSystemId();
+            if (!$systemId) return null;
         }
-        $eight = self::$eightLevelCache[$key];
-        if ($eight === null) return $systemId;
-        if (!$systemId) return $eight;
-        $stmt = $this->db->prepare('SELECT category FROM grading_systems WHERE id = ? LIMIT 1');
-        $stmt->execute([$systemId]);
-        return (string) $stmt->fetchColumn() === 'cbc_4level' ? $eight : $systemId;
+        $row = $this->systemRow($systemId);
+        if ($row && !empty($row['view_of_system_id'])) {
+            return (int) $row['view_of_system_id'];
+        }
+        return $systemId;
+    }
+
+    /**
+     * Grouped-view level names for a system: band_code => band_name of the
+     * system declared as its view (e.g. EE => Exceeding Expectation).
+     * @return array<string,string>
+     */
+    public function groupNames(int $systemId): array
+    {
+        $key = spl_object_id($this->db) . ':g' . $systemId;
+        if (!array_key_exists($key, self::$systemCache)) {
+            $names = [];
+            $views = $this->db->prepare('SELECT id FROM grading_systems WHERE view_of_system_id = ?');
+            $views->execute([$systemId]);
+            $viewIds = array_map('intval', $views->fetchAll(PDO::FETCH_COLUMN));
+            if ($viewIds) {
+                $stmt = $this->db->prepare('SELECT band_code, band_name FROM grading_system_bands WHERE grading_system_id IN (' . implode(',', array_fill(0, count($viewIds), '?')) . ') ORDER BY sort_order');
+                $stmt->execute($viewIds);
+                $names = $stmt->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+            }
+            self::$systemCache[$key] = $names;
+        }
+        return self::$systemCache[$key];
+    }
+
+    private function systemRow(int $systemId): ?array
+    {
+        $key = spl_object_id($this->db) . ':s' . $systemId;
+        if (!array_key_exists($key, self::$systemCache)) {
+            $stmt = $this->db->prepare('SELECT id, category, status, view_of_system_id FROM grading_systems WHERE id = ? LIMIT 1');
+            $stmt->execute([$systemId]);
+            self::$systemCache[$key] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+        return self::$systemCache[$key];
+    }
+
+    private function schoolDefaultSystemId(): ?int
+    {
+        $key = spl_object_id($this->db) . ':default';
+        if (!array_key_exists($key, self::$systemCache)) {
+            $id = null;
+            $candidates = $this->db->query(
+                "SELECT grading_system_id FROM assessment_term_profiles
+                 WHERE scope = 'school_default' AND grading_system_id IS NOT NULL ORDER BY id DESC"
+            )->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($candidates as $candidate) {
+                $row = $this->systemRow((int) $candidate);
+                if ($row && ($row['status'] ?? '') === 'active') { $id = (int) $candidate; break; }
+            }
+            if (!$id) {
+                $id = $this->db->query("SELECT id FROM grading_systems WHERE status = 'active' AND view_of_system_id IS NULL ORDER BY levels_count DESC, id DESC LIMIT 1")->fetchColumn();
+            }
+            self::$systemCache[$key] = $id ? (int) $id : null;
+        }
+        return self::$systemCache[$key];
+    }
+
+    /** Forget cached system rows (after creating or publishing a system). */
+    public static function forgetCache(): void
+    {
+        self::$systemCache = [];
     }
 
     /** 4-level group of a CBC code: ME1 -> ME. Null when not a CBC code. */
@@ -211,7 +268,7 @@ final class GradingScopeService
     public function bandForPercentage(int $systemId, float $percentage): array
     {
         $stmt = $this->db->prepare(
-            'SELECT band_code, band_name, min_percentage, max_percentage, points, performance_level, description
+            'SELECT band_code, group_code, band_name, min_percentage, max_percentage, points, performance_level, description
              FROM grading_system_bands
              WHERE grading_system_id = ?
                AND ? >= min_percentage AND ? <= max_percentage
@@ -253,6 +310,12 @@ final class GradingScopeService
             }
         }
 
+        // NULL class / learning area never collide in the unique key, so a
+        // new whole-school setting must retire the previous one explicitly.
+        $this->db->prepare(
+            "UPDATE academic_year_term_grading_bindings SET status = 'inactive'
+             WHERE academic_year_term_id = ? AND class_id <=> ? AND learning_area_id <=> ? AND status = 'active'"
+        )->execute([$termId, $classId, $learningAreaId]);
         $upsert = $this->db->prepare(
             'INSERT INTO academic_year_term_grading_bindings
                 (academic_year_term_id, class_id, learning_area_id, grading_system_id, status, created_by)
